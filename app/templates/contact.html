@@ -1,0 +1,978 @@
+
+{% extends "base.html" %}
+
+{% block title %}Contact BEI FITS | Collection & Delivery{% endblock %}
+
+{% block content %}
+
+<style>
+/* =================================
+   BEI FITS CONTACT PAGE
+   White 60% | Black 30% | Red 10%
+   Green for positive/action states
+================================= */
+
+.contact-page {
+    --contact-white: #ffffff;
+    --contact-black: #111111;
+    --contact-red: #e32636;
+    --contact-green: #218838;
+    --contact-green-light: #eaf6ed;
+    --contact-bg: #f6f6f6;
+    --contact-muted: #666666;
+    --contact-border: #e8e8e8;
+
+    background: var(--contact-bg);
+    color: var(--contact-black);
+    padding-bottom: 70px;
+}
+
+.contact-page * {
+    box-sizing: border-box;
+}
+
+.contact-container {
+    width: min(1160px, 92%);
+    margin: 0 auto;
+}
+
+.contact-page a {
+    text-decoration: none;
+}
+
+.contact-page a:focus-visible,
+.contact-page button:focus-visible {
+    outline: 3px solid var(--contact-red);
+    outline-offset: 4px;
+}
+
+.contact-page p {
+    line-height: 1.75;
+}
+
+.contact-eyebrow {
+    display: inline-block;
+    color: var(--contact-red);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+    margin-bottom: 13px;
+}
+
+.contact-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    min-height: 48px;
+    padding: 13px 20px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    font-size: 14px;
+    font-weight: 750;
+    cursor: pointer;
+    transition: transform .2s, background .2s, box-shadow .2s;
+    text-align: center;
+}
+
+.contact-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(0,0,0,.10);
+}
+
+.contact-btn-red {
+    color: #fff !important;
+    background: var(--contact-red);
+}
+
+.contact-btn-red:hover {
+    background: #c91d2c;
+}
+
+.contact-btn-green {
+    color: #fff !important;
+    background: var(--contact-green);
+}
+
+.contact-btn-green:hover {
+    background: #176b2a;
+}
+
+.contact-btn-black {
+    background: var(--contact-black);
+    color: #fff !important;
+}
+
+.contact-btn-outline {
+    color: var(--contact-black) !important;
+    background: #fff;
+    border-color: #dedede;
+}
+
+.contact-btn-outline:hover {
+    border-color: var(--contact-red);
+}
+
+/* HERO */
+.contact-hero {
+    position: relative;
+    overflow: hidden;
+    background: var(--contact-black);
+    color: #fff;
+    padding: 65px 0;
+}
+
+.contact-hero::after {
+    content: "";
+    position: absolute;
+    width: 310px;
+    height: 310px;
+    right: -100px;
+    top: -130px;
+    border: 55px solid rgba(227,38,54,.18);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.contact-hero-content {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1.5fr .8fr;
+    gap: 50px;
+    align-items: center;
+}
+
+.contact-hero .contact-eyebrow {
+    color: #ff6976;
+}
+
+.contact-hero h1 {
+    font-size: clamp(34px, 5vw, 56px);
+    line-height: 1.1;
+    letter-spacing: -1.8px;
+    margin: 0 0 18px;
+}
+
+.contact-hero h1 span {
+    color: #ff5363;
+}
+
+.contact-hero-copy {
+    max-width: 650px;
+}
+
+.contact-hero-copy > p {
+    color: #dedede;
+    max-width: 560px;
+    margin: 0 0 25px;
+}
+
+.contact-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.contact-hero-card {
+    padding: 27px;
+    border: 1px solid #373737;
+    border-radius: 14px;
+    background: #1b1b1b;
+}
+
+.contact-hero-card-label {
+    color: #c6c6c6;
+    font-size: 13px;
+    margin-bottom: 9px;
+}
+
+.contact-hero-card h2 {
+    font-size: 21px;
+    margin: 0 0 12px;
+}
+
+.contact-hero-card p {
+    color: #d2d2d2;
+    font-size: 14px;
+    margin: 0 0 19px;
+}
+
+/* QUICK CONTACT STRIP */
+.contact-quick-strip {
+    position: relative;
+    z-index: 2;
+    margin-top: -1px;
+    background: #fff;
+    border-bottom: 1px solid var(--contact-border);
+}
+
+.contact-quick-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.contact-quick-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 24px 20px;
+    color: var(--contact-black) !important;
+    border-right: 1px solid var(--contact-border);
+}
+
+.contact-quick-item:last-child {
+    border-right: 0;
+}
+
+.contact-quick-icon {
+    width: 46px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    background: #fff0f1;
+    color: var(--contact-red);
+    border-radius: 10px;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.contact-quick-item strong {
+    display: block;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.contact-quick-item small {
+    display: block;
+    color: var(--contact-muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+/* SECTION HEADINGS */
+.contact-section {
+    padding: 65px 0;
+}
+
+.contact-section-heading {
+    margin-bottom: 30px;
+}
+
+.contact-section-heading h2 {
+    font-size: clamp(27px, 4vw, 37px);
+    letter-spacing: -1px;
+    margin: 0 0 12px;
+}
+
+.contact-section-heading p {
+    color: var(--contact-muted);
+    max-width: 660px;
+    margin: 0;
+}
+
+/* INFO CARDS */
+.contact-info-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+}
+
+.contact-info-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 26px;
+    background: #fff;
+    border: 1px solid var(--contact-border);
+    border-radius: 13px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.025);
+    transition: transform .2s, box-shadow .2s;
+}
+
+.contact-info-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 25px rgba(0,0,0,.07);
+}
+
+.contact-info-card h3 {
+    font-size: 19px;
+    margin: 0 0 13px;
+}
+
+.contact-card-top {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    margin-bottom: 13px;
+}
+
+.contact-card-top .contact-quick-icon {
+    width: 43px;
+    height: 43px;
+}
+
+.contact-card-top h3 {
+    margin: 0;
+}
+
+.contact-info-card p {
+    color: var(--contact-muted);
+    font-size: 14px;
+    margin: 0 0 13px;
+}
+
+.contact-info-card .contact-strong {
+    color: var(--contact-black);
+    font-weight: 750;
+}
+
+.contact-info-card .contact-small {
+    font-size: 12px;
+    line-height: 1.7;
+    margin-top: 13px;
+}
+
+.contact-info-card .contact-btn {
+    width: 100%;
+    margin-top: auto;
+}
+
+.contact-number {
+    display: block;
+    padding: 15px;
+    border-radius: 9px;
+    background: var(--contact-green-light);
+    color: var(--contact-green);
+    border: 1px solid #d6eadb;
+    font-size: 20px;
+    font-weight: 850;
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+
+.contact-note {
+    padding: 13px 15px;
+    border-radius: 8px;
+    background: #f6f6f6;
+    border-left: 3px solid var(--contact-red);
+    color: #555;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+/* PAYMENT */
+.contact-payment-section {
+    background: #fff;
+    border-top: 1px solid var(--contact-border);
+    border-bottom: 1px solid var(--contact-border);
+}
+
+.contact-payment-panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 35px;
+    align-items: center;
+    padding: 34px;
+    border: 1px solid #dcebdd;
+    border-radius: 15px;
+    background: #f9fcf9;
+}
+
+.contact-payment-panel h3 {
+    font-size: 24px;
+    margin: 0 0 12px;
+}
+
+.contact-payment-panel p {
+    color: #555;
+    font-size: 14px;
+}
+
+.contact-payment-label {
+    color: var(--contact-green);
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.contact-payment-warning {
+    background: #fff;
+    border: 1px solid #e4e4e4;
+    padding: 20px;
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.8;
+}
+
+/* FAQ / HELP */
+.contact-help-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+}
+
+.contact-help-item {
+    background: #fff;
+    border: 1px solid var(--contact-border);
+    border-radius: 10px;
+    padding: 22px;
+}
+
+.contact-help-item h3 {
+    font-size: 16px;
+    margin: 0 0 9px;
+}
+
+.contact-help-item p {
+    color: var(--contact-muted);
+    font-size: 14px;
+    margin: 0;
+}
+
+/* BOTTOM CTA */
+.contact-bottom-cta {
+    padding: 45px 35px;
+    border-radius: 15px;
+    background: var(--contact-black);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 25px;
+}
+
+.contact-bottom-cta h2 {
+    font-size: clamp(24px, 3vw, 34px);
+    margin: 0 0 10px;
+}
+
+.contact-bottom-cta p {
+    color: #d0d0d0;
+    font-size: 14px;
+    margin: 0;
+}
+
+.contact-bottom-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+/* RESPONSIVE */
+@media (max-width: 900px) {
+    .contact-hero-content {
+        grid-template-columns: 1fr;
+        gap: 28px;
+    }
+
+    .contact-hero-card {
+        max-width: 520px;
+    }
+
+    .contact-info-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .contact-quick-item {
+        padding: 20px 12px;
+    }
+
+    .contact-payment-panel {
+        gap: 20px;
+    }
+}
+
+@media (max-width: 600px) {
+    .contact-hero {
+        padding: 48px 0;
+    }
+
+    .contact-hero h1 {
+        font-size: 39px;
+        letter-spacing: -1.2px;
+    }
+
+    .contact-hero-actions {
+        flex-direction: column;
+    }
+
+    .contact-hero-actions .contact-btn {
+        width: 100%;
+    }
+
+    .contact-quick-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .contact-quick-item {
+        padding: 16px 4%;
+        border-right: 0;
+        border-bottom: 1px solid var(--contact-border);
+    }
+
+    .contact-quick-item:last-child {
+        border-bottom: 0;
+    }
+
+    .contact-section {
+        padding: 48px 0;
+    }
+
+    .contact-info-grid,
+    .contact-help-grid,
+    .contact-payment-panel {
+        grid-template-columns: 1fr;
+    }
+
+    .contact-info-card {
+        padding: 23px;
+    }
+
+    .contact-payment-panel {
+        padding: 22px;
+    }
+
+    .contact-bottom-cta {
+        align-items: stretch;
+        flex-direction: column;
+        padding: 28px 22px;
+    }
+
+    .contact-bottom-actions {
+        flex-direction: column;
+    }
+
+    .contact-bottom-actions .contact-btn {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .contact-page *,
+    .contact-page *::before,
+    .contact-page *::after {
+        transition: none !important;
+        scroll-behavior: auto !important;
+    }
+}
+</style>
+
+<div class="contact-page">
+
+    <!-- HERO -->
+    <section class="contact-hero">
+        <div class="contact-container contact-hero-content">
+
+            <div class="contact-hero-copy">
+                <span class="contact-eyebrow">
+                    We're here to help
+                </span>
+
+                <h1>
+                    Let's Get Your<br>
+                    <span>Order Sorted.</span>
+                </h1>
+
+                <p>
+                    Questions about products, prices, payment,
+                    collection, or delivery? Get in touch with
+                    BEI FITS before paying or travelling so
+                    your order details are clear.
+                </p>
+
+                <div class="contact-hero-actions">
+                    {% if settings.whatsapp_number %}
+                    <a
+                        class="contact-btn contact-btn-green"
+                        href="{{ whatsapp_text_link(settings, build_general_message(settings)) }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        Message Us on WhatsApp
+                    </a>
+                    {% endif %}
+
+                    <a href="#contact-options"
+                       class="contact-btn contact-btn-red">
+                        Explore Contact Options
+                    </a>
+                </div>
+            </div>
+
+            <aside class="contact-hero-card">
+                <div class="contact-hero-card-label">
+                    Collection reference point
+                </div>
+
+                <h2>Othaya, Mathenge</h2>
+
+                <p>
+                    Othaya Mathenge Technical Training Institute
+                    is the main collection or meeting reference
+                    point unless the seller confirms another spot.
+                </p>
+
+                <a href="#collection-details"
+                   class="contact-btn contact-btn-white">
+                    View Collection Details
+                </a>
+            </aside>
+
+        </div>
+    </section>
+
+    <!-- QUICK CONTACT OPTIONS -->
+    <section class="contact-quick-strip" id="contact-options">
+        <div class="contact-container contact-quick-grid">
+
+            <a href="#whatsapp-details" class="contact-quick-item">
+                <div class="contact-quick-icon">W</div>
+                <div>
+                    <strong>WhatsApp</strong>
+                    <small>Ask about products and orders</small>
+                </div>
+            </a>
+
+            <a href="#call-details" class="contact-quick-item">
+                <div class="contact-quick-icon">C</div>
+                <div>
+                    <strong>Call the Seller</strong>
+                    <small>Confirm details before travelling</small>
+                </div>
+            </a>
+
+            <a href="#payment-details" class="contact-quick-item">
+                <div class="contact-quick-icon">M</div>
+                <div>
+                    <strong>M-Pesa Information</strong>
+                    <small>Check payment instructions</small>
+                </div>
+            </a>
+
+        </div>
+    </section>
+
+    <!-- CONTACT AND LOGISTICS CARDS -->
+    <section class="contact-section">
+        <div class="contact-container">
+
+            <div class="contact-section-heading">
+                <span class="contact-eyebrow">Contact and logistics</span>
+                <h2>Everything You Need to Know</h2>
+                <p>
+                    Confirm availability, payment instructions,
+                    and collection or delivery arrangements with
+                    the seller before completing your purchase.
+                </p>
+            </div>
+
+            <div class="contact-info-grid">
+
+                <!-- LOCATION -->
+                <article class="contact-info-card"
+                         id="collection-details">
+
+                    <div class="contact-card-top">
+                        <div class="contact-quick-icon">L</div>
+                        <h3>Collection Location</h3>
+                    </div>
+
+                    <p class="contact-strong">
+                        Othaya Mathenge Technical Training Institute
+                    </p>
+
+                    <p>
+                        Use this as the main collection or meeting
+                        reference point unless the seller confirms
+                        another spot.
+                    </p>
+
+                    <div class="contact-note">
+                        Confirm the exact meeting spot and collection
+                        arrangements before travelling.
+                    </div>
+
+                </article>
+
+                <!-- WHATSAPP -->
+                <article class="contact-info-card"
+                         id="whatsapp-details">
+
+                    <div class="contact-card-top">
+                        <div class="contact-quick-icon">W</div>
+                        <h3>WhatsApp</h3>
+                    </div>
+
+                    {% if settings.whatsapp_number %}
+
+                    <p>
+                        Message the seller to ask about products,
+                        prices, stock, payment, collection, or delivery.
+                    </p>
+
+                    <a
+                        class="contact-btn contact-btn-green"
+                        href="{{ whatsapp_text_link(settings, build_general_message(settings)) }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        Message on WhatsApp
+                    </a>
+
+                    <p class="contact-small">
+                        WhatsApp contact:
+                        {{ local_contact_number }}
+                    </p>
+
+                    {% else %}
+
+                    <p>
+                        The owner has not configured a public
+                        WhatsApp number yet.
+                    </p>
+
+                    {% endif %}
+
+                </article>
+
+                <!-- CALL -->
+                <article class="contact-info-card"
+                         id="call-details">
+
+                    <div class="contact-card-top">
+                        <div class="contact-quick-icon">C</div>
+                        <h3>Call the Seller</h3>
+                    </div>
+
+                    <p>
+                        Prefer a direct conversation? Call to confirm
+                        product availability, prices, or arrangements.
+                    </p>
+
+                    <a class="contact-btn contact-btn-black"
+                       href="tel:{{ local_contact_number }}">
+                        Call {{ local_contact_number }}
+                    </a>
+
+                    <p class="contact-small">
+                        Confirm your order details before paying
+                        or travelling.
+                    </p>
+
+                </article>
+
+                <!-- PAYMENT -->
+                <article class="contact-info-card"
+                         id="payment-details">
+
+                    <div class="contact-card-top">
+                        <div class="contact-quick-icon">M</div>
+                        <h3>M-Pesa Payment</h3>
+                    </div>
+
+                    <p>
+                        Payment details for a confirmed item:
+                    </p>
+
+                    <div class="contact-number">
+                        {{ settings.payment_number or "0141809661" }}
+                    </div>
+
+                    <p class="contact-small">
+                        After sending money, enter the M-Pesa
+                        reference code at checkout so it appears
+                        in the WhatsApp message.
+                    </p>
+
+                </article>
+
+                <!-- COLLECTION INSTRUCTIONS -->
+                <article class="contact-info-card">
+
+                    <div class="contact-card-top">
+                        <div class="contact-quick-icon">P</div>
+                        <h3>Collection Instructions</h3>
+                    </div>
+
+                    <p>
+                        {{ settings.collection_instructions or
+                        "Confirm the collection point, meeting time, and order details with the seller before travelling." }}
+                    </p>
+
+                    <div class="contact-note">
+                        Wait for the seller to confirm your
+                        collection arrangements.
+                    </div>
+
+                </article>
+
+                <!-- DELIVERY -->
+                <article class="contact-info-card">
+
+                    <div class="contact-card-top">
+                        <div class="contact-quick-icon">D</div>
+                        <h3>Nearby Delivery</h3>
+                    </div>
+
+                    <p>
+                        {{ settings.delivery_area or
+                        "Contact the seller to confirm whether delivery is available for your location." }}
+                    </p>
+
+                    {% if settings.delivery_fee_cents is not none %}
+                    <div class="contact-number">
+                        {{ money(settings.delivery_fee_cents, settings.currency) }}
+                    </div>
+                    <p class="contact-small">
+                        Displayed delivery fee. Confirm that the
+                        delivery arrangement applies to your order.
+                    </p>
+                    {% else %}
+                    <p class="contact-small">
+                        Any delivery fee will be confirmed by the seller.
+                    </p>
+                    {% endif %}
+
+                </article>
+
+            </div>
+        </div>
+    </section>
+
+    <!-- PAYMENT GUIDANCE -->
+    <section class="contact-section contact-payment-section">
+        <div class="contact-container contact-payment-panel">
+
+            <div>
+                <span class="contact-payment-label">
+                    Payment guidance
+                </span>
+
+                <h3>Confirm First. Pay With Confidence.</h3>
+
+                <p>
+                    Check the item's availability, price, and
+                    collection or delivery arrangements with the
+                    seller before making payment.
+                </p>
+
+                <p>
+                    Keep your M-Pesa transaction reference and
+                    enter it at checkout as requested by the site.
+                </p>
+            </div>
+
+            <div class="contact-payment-warning">
+                <strong>Before you pay</strong>
+                <p>
+                    Confirm the correct item, total amount, and
+                    payment instructions with the seller. Keep
+                    your transaction message for reference.
+                </p>
+                <p style="margin-bottom:0;">
+                    Sending a payment reference alone does not
+                    mean an order has been verified or confirmed.
+                    Follow the website's order-status instructions.
+                </p>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- COMMON QUESTIONS -->
+    <section class="contact-section">
+        <div class="contact-container">
+
+            <div class="contact-section-heading">
+                <span class="contact-eyebrow">Quick help</span>
+                <h2>Before You Place Your Order</h2>
+                <p>
+                    A few helpful reminders for a smoother
+                    shopping experience.
+                </p>
+            </div>
+
+            <div class="contact-help-grid">
+
+                <article class="contact-help-item">
+                    <h3>Is the product available?</h3>
+                    <p>
+                        Check the current stock status or contact
+                        the seller to confirm the product, size,
+                        colour, and price.
+                    </p>
+                </article>
+
+                <article class="contact-help-item">
+                    <h3>Where do I collect my order?</h3>
+                    <p>
+                        The stated reference point is Othaya Mathenge
+                        Technical Training Institute. Confirm the
+                        exact meeting spot before travelling.
+                    </p>
+                </article>
+
+                <article class="contact-help-item">
+                    <h3>Can my order be delivered?</h3>
+                    <p>
+                        Check the configured delivery area and
+                        confirm availability and any applicable fee
+                        with the seller.
+                    </p>
+                </article>
+
+                <article class="contact-help-item">
+                    <h3>What if I have already paid?</h3>
+                    <p>
+                        Keep your M-Pesa reference and follow the
+                        checkout instructions. Contact the seller
+                        if you need help with your order status.
+                    </p>
+                </article>
+
+            </div>
+
+        </div>
+    </section>
+
+    <!-- FINAL CALL TO ACTION -->
+    <section class="contact-section" style="padding-top:0;">
+        <div class="contact-container">
+            <div class="contact-bottom-cta">
+
+                <div>
+                    <span class="contact-eyebrow">
+                        Bei Fity, Fits Poa.
+                    </span>
+
+                    <h2>Ready to Find Your Fit?</h2>
+
+                    <p>
+                        Explore the collection or contact the seller
+                        for help with your next order.
+                    </p>
+                </div>
+
+                <div class="contact-bottom-actions">
+                    <a href="/shop"
+                       class="contact-btn contact-btn-red">
+                        Shop BEI FITS
+                    </a>
+
+                    <a href="#contact-options"
+                       class="contact-btn contact-btn-outline">
+                        Contact Options
+                    </a>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+</div>
+
+{% endblock %}

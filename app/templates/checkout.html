@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block content %}
+<section class="page-head"><h1>Checkout</h1><p>Review your selected items, add your M-Pesa reference code if you have paid, then open WhatsApp so the seller can confirm everything.</p></section>
+{% if not whatsapp_ready %}<div class="empty">WhatsApp checkout is disabled until the owner adds a business WhatsApp number in admin settings.</div>{% endif %}
+<section class="checkout-layout">
+  <div class="cart-panel checkout-summary"><h2>Selected items</h2><div id="checkout-summary"><div class="empty">Loading selected items...</div></div></div>
+  <form class="form-card" method="post" id="checkout-form" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="cart_json" id="cart-json">
+    <label>Preferred name<input name="customer_name" maxlength="120" placeholder="Your name"></label>
+    <label>Contact number, optional<input name="customer_phone" maxlength="40" placeholder="Your phone number"></label>
+    <label>Fulfilment preference<select name="fulfilment_method"><option>Collection</option><option>Nearby delivery</option></select></label>
+    <label>Instructions<textarea name="instructions" placeholder="Collection point, delivery area, timing notes, colour, size, or anything the seller should know"></textarea></label>
+    <div class="payment-box"><strong>M-Pesa payment number: {{ settings.payment_number or "0141809661" }}</strong><p>You can pay for any confirmed item using this number. After paying, enter the M-Pesa reference code below so it appears in the WhatsApp message with your selected items.</p></div>
+    <label>M-Pesa reference code, if paid<input name="payment_reference" maxlength="120" placeholder="e.g. QAB12C3D4E"></label>
+    <label>Payment screenshot, optional<input name="payment_proof" type="file" accept="image/*"></label>
+    <button class="btn primary" {% if not whatsapp_ready %}disabled{% endif %}>Prepare WhatsApp message</button>
+  </form>
+</section>
+{% endblock %}

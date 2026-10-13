@@ -1,0 +1,1040 @@
+﻿
+{% extends "base.html" %}
+
+{% block title %}Customer Reviews | BEI FITS{% endblock %}
+
+{% block content %}
+
+<style>
+/* =====================================
+   BEI FITS CUSTOMER REVIEWS
+   White 60% | Black 30% | Red 10%
+   Green for positive accents
+===================================== */
+
+.reviews-page {
+    --rv-white: #ffffff;
+    --rv-black: #111111;
+    --rv-red: #e32636;
+    --rv-green: #218838;
+    --rv-green-light: #eaf6ed;
+    --rv-bg: #f6f6f6;
+    --rv-muted: #686868;
+    --rv-border: #e8e8e8;
+
+    background: var(--rv-bg);
+    color: var(--rv-black);
+    padding-bottom: 65px;
+}
+
+.reviews-page * {
+    box-sizing: border-box;
+}
+
+.reviews-container {
+    width: min(1120px, 92%);
+    margin: 0 auto;
+}
+
+.reviews-page a {
+    text-decoration: none;
+}
+
+.reviews-page a:focus-visible,
+.reviews-page button:focus-visible,
+.reviews-page input:focus-visible,
+.reviews-page select:focus-visible,
+.reviews-page textarea:focus-visible {
+    outline: 3px solid var(--rv-red);
+    outline-offset: 3px;
+}
+
+.rv-eyebrow {
+    color: var(--rv-red);
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.8px;
+    display: inline-block;
+    margin-bottom: 13px;
+}
+
+.rv-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    padding: 13px 21px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 750;
+    text-align: center;
+    transition: background .2s, transform .2s, box-shadow .2s;
+}
+
+.rv-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 7px 17px rgba(0,0,0,.1);
+}
+
+.rv-btn-red {
+    background: var(--rv-red);
+    color: #fff !important;
+}
+
+.rv-btn-red:hover {
+    background: #c91d2c;
+}
+
+.rv-btn-black {
+    background: var(--rv-black);
+    color: #fff !important;
+}
+
+.rv-btn-outline {
+    background: #fff;
+    border-color: #dedede;
+    color: var(--rv-black) !important;
+}
+
+/* HERO */
+
+.rv-hero {
+    position: relative;
+    overflow: hidden;
+    background: var(--rv-black);
+    color: #fff;
+    padding: 65px 0;
+}
+
+.rv-hero::after {
+    content: "★";
+    position: absolute;
+    right: 5%;
+    top: 0;
+    font-size: 250px;
+    line-height: 1;
+    color: rgba(227,38,54,.10);
+    transform: rotate(-12deg);
+    pointer-events: none;
+}
+
+.rv-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1.4fr .7fr;
+    align-items: center;
+    gap: 45px;
+}
+
+.rv-hero .rv-eyebrow {
+    color: #ff6976;
+}
+
+.rv-hero h1 {
+    font-size: clamp(37px, 5vw, 59px);
+    line-height: 1.08;
+    letter-spacing: -1.8px;
+    margin: 0 0 19px;
+}
+
+.rv-hero h1 span {
+    color: #ff5363;
+}
+
+.rv-hero-copy {
+    max-width: 640px;
+}
+
+.rv-hero-copy > p {
+    max-width: 550px;
+    color: #dedede;
+    line-height: 1.85;
+    margin: 0 0 26px;
+}
+
+.rv-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.rv-hero-card {
+    padding: 27px;
+    background: #1d1d1d;
+    border: 1px solid #383838;
+    border-radius: 14px;
+}
+
+.rv-hero-card .rv-star-display {
+    font-size: 28px;
+    letter-spacing: 3px;
+    color: #f2b544;
+    margin-bottom: 12px;
+}
+
+.rv-hero-card h2 {
+    font-size: 22px;
+    margin: 0 0 12px;
+}
+
+.rv-hero-card p {
+    font-size: 14px;
+    color: #d0d0d0;
+    line-height: 1.8;
+    margin: 0;
+}
+
+/* TRUST STRIP */
+
+.rv-trust-strip {
+    background: #fff;
+    border-bottom: 1px solid var(--rv-border);
+}
+
+.rv-trust-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.rv-trust-item {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    padding: 22px 17px;
+    border-right: 1px solid var(--rv-border);
+}
+
+.rv-trust-item:last-child {
+    border-right: 0;
+}
+
+.rv-trust-icon {
+    width: 43px;
+    height: 43px;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    background: #fff0f1;
+    color: var(--rv-red);
+    border-radius: 10px;
+    font-weight: 850;
+    font-size: 18px;
+}
+
+.rv-trust-item strong {
+    display: block;
+    font-size: 13px;
+    margin-bottom: 5px;
+}
+
+.rv-trust-item small {
+    color: var(--rv-muted);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* MAIN CONTENT */
+
+.rv-section {
+    padding: 62px 0;
+}
+
+.rv-section-heading {
+    margin-bottom: 28px;
+}
+
+.rv-section-heading h2 {
+    font-size: clamp(27px, 4vw, 37px);
+    letter-spacing: -1px;
+    margin: 0 0 12px;
+}
+
+.rv-section-heading p {
+    max-width: 660px;
+    color: var(--rv-muted);
+    line-height: 1.8;
+    margin: 0;
+}
+
+/* FORM */
+
+.rv-form-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(260px, .7fr);
+    align-items: start;
+    gap: 25px;
+}
+
+.rv-form-card {
+    background: #fff;
+    border: 1px solid var(--rv-border);
+    border-radius: 14px;
+    padding: 30px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.035);
+}
+
+.rv-form-card h3 {
+    font-size: 22px;
+    margin: 0 0 9px;
+}
+
+.rv-form-intro {
+    color: var(--rv-muted);
+    font-size: 14px;
+    line-height: 1.8;
+    margin: 0 0 25px;
+}
+
+.rv-form-card label {
+    display: block;
+    font-weight: 750;
+    font-size: 13px;
+    margin-bottom: 19px;
+}
+
+.rv-form-card input,
+.rv-form-card select,
+.rv-form-card textarea {
+    display: block;
+    width: 100%;
+    margin-top: 9px;
+    padding: 13px 14px;
+    border: 1px solid #dedede;
+    border-radius: 8px;
+    background: #fff;
+    color: var(--rv-black);
+    font: inherit;
+    font-size: 14px;
+    transition: border-color .2s, box-shadow .2s;
+}
+
+.rv-form-card input:focus,
+.rv-form-card select:focus,
+.rv-form-card textarea:focus {
+    border-color: var(--rv-red);
+    box-shadow: 0 0 0 3px rgba(227,38,54,.08);
+    outline: none;
+}
+
+.rv-form-card textarea {
+    resize: vertical;
+    min-height: 145px;
+    line-height: 1.7;
+}
+
+.rv-form-card .rv-btn {
+    width: 100%;
+    font: inherit;
+    font-size: 14px;
+}
+
+.rv-field-hint {
+    display: block;
+    margin-top: 7px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--rv-muted);
+}
+
+.rv-char-count {
+    display: block;
+    margin-top: 7px;
+    text-align: right;
+    font-size: 12px;
+    color: var(--rv-muted);
+    font-weight: 400;
+}
+
+.rv-form-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 14px;
+    border-radius: 9px;
+    background: var(--rv-green-light);
+    color: #226333;
+    font-size: 12px;
+    line-height: 1.7;
+    margin: 20px 0;
+}
+
+/* SIDE PANEL */
+
+.rv-guidelines {
+    display: grid;
+    gap: 17px;
+}
+
+.rv-guide-card {
+    padding: 24px;
+    background: #fff;
+    border: 1px solid var(--rv-border);
+    border-radius: 12px;
+}
+
+.rv-guide-card h3 {
+    font-size: 17px;
+    margin: 0 0 11px;
+}
+
+.rv-guide-card p,
+.rv-guide-card li {
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--rv-muted);
+}
+
+.rv-guide-card p {
+    margin: 0;
+}
+
+.rv-guide-card ul {
+    padding-left: 18px;
+    margin: 10px 0 0;
+}
+
+.rv-guide-icon {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    background: #fff0f1;
+    color: var(--rv-red);
+    font-size: 18px;
+    font-weight: 850;
+    border-radius: 10px;
+    margin-bottom: 15px;
+}
+
+/* APPROVED REVIEWS */
+
+.rv-reviews-section {
+    background: #fff;
+    border-top: 1px solid var(--rv-border);
+}
+
+.rv-review-heading-row {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 28px;
+}
+
+.rv-review-heading-row .rv-section-heading {
+    margin: 0;
+}
+
+.rv-approved-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 12px;
+    border-radius: 7px;
+    background: var(--rv-green-light);
+    color: var(--rv-green);
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.rv-review-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+}
+
+.rv-review-card {
+    min-width: 0;
+    padding: 25px;
+    background: #fff;
+    border: 1px solid var(--rv-border);
+    border-radius: 12px;
+    transition: transform .2s, box-shadow .2s;
+}
+
+.rv-review-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 25px rgba(0,0,0,.06);
+}
+
+.rv-review-top {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    margin-bottom: 16px;
+}
+
+.rv-avatar {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--rv-black);
+    color: #fff;
+    font-size: 17px;
+    font-weight: 850;
+}
+
+.rv-review-name {
+    min-width: 0;
+}
+
+.rv-review-name strong {
+    display: block;
+    font-size: 14px;
+    overflow-wrap: anywhere;
+}
+
+.rv-review-name small {
+    display: block;
+    font-size: 11px;
+    color: var(--rv-muted);
+    margin-top: 4px;
+}
+
+.rv-review-stars {
+    color: #d99a16;
+    font-size: 17px;
+    letter-spacing: 2px;
+    margin-bottom: 13px;
+}
+
+.rv-review-text {
+    color: #555;
+    font-size: 14px;
+    line-height: 1.85;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    margin: 0;
+}
+
+.rv-product-tag {
+    display: inline-block;
+    padding: 7px 10px;
+    margin-top: 17px;
+    border-radius: 6px;
+    background: #f3f3f3;
+    color: #444;
+    font-size: 11px;
+    font-weight: 750;
+}
+
+/* EMPTY STATE */
+
+.rv-empty {
+    text-align: center;
+    padding: 45px 25px;
+    border: 1px dashed #d8d8d8;
+    border-radius: 13px;
+    background: #fafafa;
+}
+
+.rv-empty-icon {
+    width: 62px;
+    height: 62px;
+    margin: 0 auto 18px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: #fff0f1;
+    color: var(--rv-red);
+    font-size: 26px;
+}
+
+.rv-empty h3 {
+    font-size: 21px;
+    margin: 0 0 10px;
+}
+
+.rv-empty p {
+    color: var(--rv-muted);
+    line-height: 1.8;
+    font-size: 14px;
+    max-width: 480px;
+    margin: 0 auto;
+}
+
+/* FINAL CTA */
+
+.rv-final-cta {
+    padding: 42px;
+    border-radius: 14px;
+    background: var(--rv-black);
+    color: #fff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 25px;
+}
+
+.rv-final-cta h2 {
+    font-size: clamp(24px, 3vw, 33px);
+    margin: 0 0 10px;
+}
+
+.rv-final-cta p {
+    color: #d0d0d0;
+    font-size: 14px;
+    line-height: 1.8;
+    margin: 0;
+}
+
+/* RESPONSIVE */
+
+@media (max-width: 900px) {
+    .rv-hero-inner {
+        grid-template-columns: 1fr;
+    }
+
+    .rv-hero-card {
+        max-width: 500px;
+    }
+
+    .rv-form-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .rv-review-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    .rv-hero {
+        padding: 48px 0;
+    }
+
+    .rv-hero h1 {
+        font-size: 39px;
+        letter-spacing: -1px;
+    }
+
+    .rv-hero-actions {
+        flex-direction: column;
+    }
+
+    .rv-hero-actions .rv-btn {
+        width: 100%;
+    }
+
+    .rv-trust-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .rv-trust-item {
+        border-right: 0;
+        border-bottom: 1px solid var(--rv-border);
+        padding: 16px 4%;
+    }
+
+    .rv-trust-item:last-child {
+        border-bottom: 0;
+    }
+
+    .rv-section {
+        padding: 46px 0;
+    }
+
+    .rv-form-card {
+        padding: 22px;
+    }
+
+    .rv-review-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .rv-review-heading-row {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .rv-final-cta {
+        align-items: stretch;
+        flex-direction: column;
+        padding: 27px 22px;
+    }
+
+    .rv-final-cta .rv-btn {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .reviews-page *,
+    .reviews-page *::before,
+    .reviews-page *::after {
+        transition: none !important;
+        scroll-behavior: auto !important;
+    }
+}
+</style>
+
+<div class="reviews-page">
+
+    <!-- HERO -->
+    <section class="rv-hero">
+        <div class="reviews-container rv-hero-inner">
+
+            <div class="rv-hero-copy">
+                <span class="rv-eyebrow">The customer voice</span>
+
+                <h1>
+                    Your Experience.<br>
+                    <span>Your Review.</span>
+                </h1>
+
+                <p>
+                    Shopping at BEI FITS? Share your experience
+                    and help other customers make informed choices.
+                    Honest feedback helps us understand what we're
+                    doing well and where we can improve.
+                </p>
+
+                <div class="rv-hero-actions">
+                    <a href="#write-review" class="rv-btn rv-btn-red">
+                        Write a Review
+                    </a>
+
+                    <a href="#approved-reviews"
+                       class="rv-btn rv-btn-outline">
+                        Read Customer Reviews
+                    </a>
+                </div>
+            </div>
+
+            <aside class="rv-hero-card">
+                <div class="rv-star-display"
+                     aria-label="Star rating illustration">
+                    ★★★★★
+                </div>
+
+                <h2>Every Experience Matters</h2>
+
+                <p>
+                    Your feedback gives the shop useful insights
+                    and helps future customers understand real
+                    shopping experiences.
+                </p>
+            </aside>
+
+        </div>
+    </section>
+
+    <!-- TRUST STRIP -->
+    <section class="rv-trust-strip">
+        <div class="reviews-container rv-trust-grid">
+
+            <div class="rv-trust-item">
+                <div class="rv-trust-icon">01</div>
+                <div>
+                    <strong>Share Honest Feedback</strong>
+                    <small>Tell us about your experience.</small>
+                </div>
+            </div>
+
+            <div class="rv-trust-item">
+                <div class="rv-trust-icon">02</div>
+                <div>
+                    <strong>Moderated Reviews</strong>
+                    <small>Submissions are reviewed before publication.</small>
+                </div>
+            </div>
+
+            <div class="rv-trust-item">
+                <div class="rv-trust-icon">03</div>
+                <div>
+                    <strong>Help Other Shoppers</strong>
+                    <small>Useful feedback supports better decisions.</small>
+                </div>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- REVIEW FORM -->
+    <section class="rv-section" id="write-review">
+        <div class="reviews-container">
+
+            <div class="rv-section-heading">
+                <span class="rv-eyebrow">Your voice counts</span>
+                <h2>Share Your Experience</h2>
+                <p>
+                    Tell us what you think. Complete the form below
+                    and submit your review for moderation.
+                </p>
+            </div>
+
+            <div class="rv-form-layout">
+
+                <form class="rv-form-card" method="post">
+                    <input type="hidden"
+                           name="csrf_token"
+                           value="{{ csrf_token() }}">
+
+                    <h3>Write a Customer Review</h3>
+
+                    <p class="rv-form-intro">
+                        Please keep your feedback respectful,
+                        relevant, and based on your experience.
+                    </p>
+
+                    <label for="rv-display-name">
+                        Your Display Name
+                        <input
+                            id="rv-display-name"
+                            type="text"
+                            name="display_name"
+                            maxlength="80"
+                            autocomplete="nickname"
+                            placeholder="Enter the name to display"
+                            required
+                        >
+                    </label>
+
+                    <label for="rv-rating">
+                        Your Rating
+                        <select id="rv-rating" name="rating" required>
+                            <option value="5">★★★★★ — Excellent (5/5)</option>
+                            <option value="4">★★★★☆ — Very good (4/5)</option>
+                            <option value="3">★★★☆☆ — Good (3/5)</option>
+                            <option value="2">★★☆☆☆ — Fair (2/5)</option>
+                            <option value="1">★☆☆☆☆ — Poor (1/5)</option>
+                        </select>
+                        <span class="rv-field-hint">
+                            Select the rating that best reflects your experience.
+                        </span>
+                    </label>
+
+                    <label for="rv-product">
+                        Product (Optional)
+                        <select id="rv-product" name="product_id">
+                            <option value="">General review</option>
+
+                            {% for product in products %}
+                            <option value="{{ product.id }}">
+                                {{ product.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+
+                        <span class="rv-field-hint">
+                            Select a product if your review relates
+                            to a specific item.
+                        </span>
+                    </label>
+
+                    <label for="rv-text">
+                        Your Review
+                        <textarea
+                            id="rv-text"
+                            name="text"
+                            maxlength="1000"
+                            placeholder="Share your experience with BEI FITS..."
+                            aria-describedby="rv-char-count"
+                        ></textarea>
+
+                        <span class="rv-char-count"
+                              id="rv-char-count"
+                              aria-live="polite">
+                            0 / 1000 characters
+                        </span>
+                    </label>
+
+                    <div class="rv-form-note">
+                        <span aria-hidden="true">✓</span>
+                        <span>
+                            Your review will not appear publicly
+                            until it has been approved. Please do
+                            not include passwords, payment PINs,
+                            or other private information.
+                        </span>
+                    </div>
+
+                    <button type="submit"
+                            class="rv-btn rv-btn-red">
+                        Submit Review for Approval
+                    </button>
+
+                </form>
+
+                <!-- GUIDANCE -->
+                <aside class="rv-guidelines">
+
+                    <article class="rv-guide-card">
+                        <div class="rv-guide-icon">★</div>
+                        <h3>What Makes a Helpful Review?</h3>
+                        <ul>
+                            <li>Describe your actual experience.</li>
+                            <li>Mention relevant product details.</li>
+                            <li>Keep your feedback clear and respectful.</li>
+                            <li>Share constructive suggestions where useful.</li>
+                        </ul>
+                    </article>
+
+                    <article class="rv-guide-card">
+                        <div class="rv-guide-icon">✓</div>
+                        <h3>How Moderation Works</h3>
+                        <p>
+                            Every submission is subject to moderation.
+                            Only approved reviews are displayed publicly.
+                            Submitting a review does not guarantee
+                            publication.
+                        </p>
+                    </article>
+
+                    <article class="rv-guide-card">
+                        <div class="rv-guide-icon">♥</div>
+                        <h3>Help Us Improve</h3>
+                        <p>
+                            Feedback can help the shop understand
+                            customer expectations, product questions,
+                            and opportunities to improve its service.
+                        </p>
+                    </article>
+
+                </aside>
+
+            </div>
+        </div>
+    </section>
+
+    <!-- APPROVED REVIEWS -->
+    <section class="rv-section rv-reviews-section"
+             id="approved-reviews">
+
+        <div class="reviews-container">
+
+            <div class="rv-review-heading-row">
+                <div class="rv-section-heading">
+                    <span class="rv-eyebrow">Community feedback</span>
+                    <h2>Customer Reviews</h2>
+                    <p>
+                        Read reviews that have been approved
+                        for public display.
+                    </p>
+                </div>
+
+                <span class="rv-approved-label">
+                    ✓ Moderated Reviews
+                </span>
+            </div>
+
+            {% if reviews %}
+
+            <div class="rv-review-grid">
+
+                {% for review in reviews %}
+
+                <article class="rv-review-card">
+
+                    <div class="rv-review-top">
+                        <div class="rv-avatar" aria-hidden="true">
+                            {{ (review.display_name or "C")[0]|upper }}
+                        </div>
+
+                        <div class="rv-review-name">
+                            <strong>{{ review.display_name }}</strong>
+                            <small>Customer review</small>
+                        </div>
+                    </div>
+
+                    <div class="rv-review-stars"
+                         aria-label="{{ review.rating }} out of 5 stars">
+                        {% for star in range(1, 6) %}
+                            {% if star <= review.rating %}
+                                <span>★</span>
+                            {% else %}
+                                <span style="color:#d8d8d8;">★</span>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+
+                    <p class="rv-review-text">
+                        {{ review.text or "A customer rating." }}
+                    </p>
+
+                    <div class="rv-product-tag">
+                        Rating: {{ review.rating }}/5
+                    </div>
+
+                </article>
+
+                {% endfor %}
+
+            </div>
+
+            {% else %}
+
+            <div class="rv-empty">
+                <div class="rv-empty-icon" aria-hidden="true">★</div>
+
+                <h3>Be the First to Share Your Experience</h3>
+
+                <p>
+                    There are no approved reviews to display yet.
+                    If you've shopped with BEI FITS, you can share
+                    your feedback using the form above.
+                </p>
+
+                <div style="margin-top:22px;">
+                    <a href="#write-review" class="rv-btn rv-btn-red">
+                        Write the First Review
+                    </a>
+                </div>
+            </div>
+
+            {% endif %}
+
+        </div>
+    </section>
+
+    <!-- FINAL CTA -->
+    <section class="rv-section">
+        <div class="reviews-container">
+            <div class="rv-final-cta">
+
+                <div>
+                    <span class="rv-eyebrow">Bei Fity, Fits Poa.</span>
+
+                    <h2>Ready to Find Your Fit?</h2>
+
+                    <p>
+                        Explore the collection and discover
+                        everyday essentials for your needs.
+                    </p>
+                </div>
+
+                <a href="/shop" class="rv-btn rv-btn-red">
+                    Explore the Shop
+                </a>
+
+            </div>
+        </div>
+    </section>
+
+</div>
+
+<script>
+(function () {
+    const textarea = document.getElementById("rv-text");
+    const counter = document.getElementById("rv-char-count");
+
+    if (!textarea || !counter) return;
+
+    function updateCharacterCount() {
+        counter.textContent =
+            textarea.value.length + " / 1000 characters";
+    }
+
+    textarea.addEventListener("input", updateCharacterCount);
+    updateCharacterCount();
+})();
+</script>
+
+{% endblock %}

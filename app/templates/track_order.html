@@ -1,0 +1,1252 @@
+
+{% extends "base.html" %}
+
+{% block title %}Track Your Order | FITY{% endblock %}
+
+{% block content %}
+
+<style>
+/* =====================================
+   FITY ORDER TRACKING
+   White 60% | Black 30% | Red 10%
+   Green for positive progress
+===================================== */
+
+.track-page {
+    --tr-white: #ffffff;
+    --tr-black: #111111;
+    --tr-red: #e32636;
+    --tr-green: #218838;
+    --tr-green-bg: #eaf6ed;
+    --tr-bg: #f6f6f6;
+    --tr-muted: #696969;
+    --tr-border: #e7e7e7;
+
+    background: var(--tr-bg);
+    color: var(--tr-black);
+    padding-bottom: 65px;
+}
+
+.track-page * {
+    box-sizing: border-box;
+}
+
+.track-container {
+    width: min(1120px, 92%);
+    margin: 0 auto;
+}
+
+.track-page a {
+    text-decoration: none;
+}
+
+.track-page button:focus-visible,
+.track-page input:focus-visible,
+.track-page a:focus-visible {
+    outline: 3px solid var(--tr-red);
+    outline-offset: 3px;
+}
+
+.tr-eyebrow {
+    display: inline-block;
+    margin-bottom: 13px;
+    color: var(--tr-red);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+}
+
+.tr-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    min-height: 48px;
+    padding: 13px 20px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 750;
+    text-align: center;
+    transition: transform .2s, background .2s, box-shadow .2s;
+}
+
+.tr-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(0,0,0,.1);
+}
+
+.tr-btn-red {
+    background: var(--tr-red);
+    color: #fff;
+}
+
+.tr-btn-red:hover {
+    background: #c91d2c;
+}
+
+.tr-btn-black {
+    background: var(--tr-black);
+    color: #fff;
+}
+
+/* HERO */
+
+.tr-hero {
+    position: relative;
+    overflow: hidden;
+    padding: 60px 0;
+    background: var(--tr-black);
+    color: #fff;
+}
+
+.tr-hero::after {
+    content: "";
+    position: absolute;
+    top: -115px;
+    right: -65px;
+    width: 290px;
+    height: 290px;
+    border: 48px solid rgba(227,38,54,.17);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+.tr-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1.3fr .7fr;
+    align-items: center;
+    gap: 45px;
+}
+
+.tr-hero .tr-eyebrow {
+    color: #ff6976;
+}
+
+.tr-hero h1 {
+    margin: 0 0 18px;
+    font-size: clamp(36px, 5vw, 56px);
+    line-height: 1.1;
+    letter-spacing: -1.5px;
+}
+
+.tr-hero h1 span {
+    color: #ff5363;
+}
+
+.tr-hero-copy > p {
+    max-width: 590px;
+    margin: 0 0 24px;
+    color: #dedede;
+    font-size: 15px;
+    line-height: 1.85;
+}
+
+.tr-hero-card {
+    padding: 27px;
+    border: 1px solid #383838;
+    border-radius: 14px;
+    background: #1d1d1d;
+}
+
+.tr-hero-icon {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    margin-bottom: 17px;
+    border-radius: 12px;
+    background: rgba(227,38,54,.17);
+    color: #ff6976;
+    font-size: 25px;
+}
+
+.tr-hero-card h2 {
+    margin: 0 0 12px;
+    font-size: 21px;
+}
+
+.tr-hero-card p {
+    margin: 0;
+    color: #d0d0d0;
+    font-size: 13px;
+    line-height: 1.85;
+}
+
+/* TRUST STRIP */
+
+.tr-trust-strip {
+    background: #fff;
+    border-bottom: 1px solid var(--tr-border);
+}
+
+.tr-trust-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tr-trust-item {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    padding: 22px 17px;
+    border-right: 1px solid var(--tr-border);
+}
+
+.tr-trust-item:last-child {
+    border-right: 0;
+}
+
+.tr-trust-icon {
+    display: grid;
+    place-items: center;
+    width: 43px;
+    height: 43px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    background: #fff0f1;
+    color: var(--tr-red);
+    font-size: 18px;
+    font-weight: 850;
+}
+
+.tr-trust-item strong {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 13px;
+}
+
+.tr-trust-item small {
+    color: var(--tr-muted);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+/* SECTION */
+
+.tr-section {
+    padding: 55px 0;
+}
+
+.tr-section-heading {
+    margin-bottom: 25px;
+}
+
+.tr-section-heading h2 {
+    margin: 0 0 12px;
+    font-size: clamp(26px, 4vw, 35px);
+    letter-spacing: -1px;
+}
+
+.tr-section-heading p {
+    max-width: 680px;
+    margin: 0;
+    color: var(--tr-muted);
+    font-size: 14px;
+    line-height: 1.8;
+}
+
+/* TRACKING FORM */
+
+.tr-search-card {
+    padding: 30px;
+    background: #fff;
+    border: 1px solid var(--tr-border);
+    border-radius: 14px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.035);
+}
+
+.tr-search-heading {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 24px;
+}
+
+.tr-search-heading .tr-trust-icon {
+    width: 50px;
+    height: 50px;
+}
+
+.tr-search-heading h2 {
+    margin: 0 0 6px;
+    font-size: 21px;
+}
+
+.tr-search-heading p {
+    margin: 0;
+    color: var(--tr-muted);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.tr-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.tr-search-card label {
+    display: block;
+    margin-bottom: 20px;
+    font-size: 13px;
+    font-weight: 750;
+}
+
+.tr-search-card input {
+    display: block;
+    width: 100%;
+    min-height: 49px;
+    margin-top: 9px;
+    padding: 13px 14px;
+    border: 1px solid #dedede;
+    border-radius: 8px;
+    background: #fff;
+    color: var(--tr-black);
+    font: inherit;
+    font-size: 14px;
+    transition: border-color .2s, box-shadow .2s;
+}
+
+.tr-search-card input:focus {
+    outline: none;
+    border-color: var(--tr-red);
+    box-shadow: 0 0 0 3px rgba(227,38,54,.08);
+}
+
+.tr-search-card input::placeholder {
+    color: #999;
+}
+
+.tr-field-hint {
+    display: block;
+    margin-top: 7px;
+    color: var(--tr-muted);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.6;
+}
+
+.tr-search-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+}
+
+.tr-privacy-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 20px;
+    padding: 14px;
+    border-radius: 9px;
+    background: #f5f5f5;
+    color: #555;
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+.tr-privacy-note strong {
+    color: var(--tr-black);
+}
+
+/* ORDER SUMMARY */
+
+.tr-order-card {
+    overflow: hidden;
+    margin-top: 36px;
+    border: 1px solid var(--tr-border);
+    border-radius: 15px;
+    background: #fff;
+    box-shadow: 0 8px 30px rgba(0,0,0,.04);
+}
+
+.tr-order-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 28px;
+    background: #fff;
+    border-bottom: 1px solid var(--tr-border);
+}
+
+.tr-order-header h2 {
+    margin: 0 0 9px;
+    font-size: clamp(22px, 3vw, 29px);
+    overflow-wrap: anywhere;
+}
+
+.tr-order-header p {
+    margin: 0;
+    color: var(--tr-muted);
+    font-size: 13px;
+    line-height: 1.8;
+}
+
+.tr-order-reference-label {
+    display: block;
+    margin-bottom: 7px;
+    color: var(--tr-muted);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.tr-status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    flex-shrink: 0;
+    max-width: 230px;
+    padding: 10px 13px;
+    border-radius: 8px;
+    background: #f0f0f0;
+    color: #333;
+    font-size: 12px;
+    font-weight: 800;
+    text-align: center;
+}
+
+.tr-status-pill.good {
+    background: var(--tr-green-bg);
+    color: var(--tr-green);
+}
+
+.tr-status-pill.bad {
+    background: #fff0f1;
+    color: #c91d2c;
+}
+
+/* METRICS */
+
+.tr-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-bottom: 1px solid var(--tr-border);
+}
+
+.tr-metric {
+    padding: 23px;
+    border-right: 1px solid var(--tr-border);
+}
+
+.tr-metric:last-child {
+    border-right: 0;
+}
+
+.tr-metric span {
+    display: block;
+    margin-bottom: 9px;
+    color: var(--tr-muted);
+    font-size: 12px;
+}
+
+.tr-metric strong {
+    display: block;
+    font-size: 16px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+/* TIMELINE AND DETAILS */
+
+.tracking-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, .9fr);
+    gap: 28px;
+    padding: 28px;
+}
+
+.tr-tracking-heading {
+    margin: 0 0 25px;
+    font-size: 19px;
+}
+
+.tracking-steps {
+    position: relative;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.tracking-steps li {
+    position: relative;
+    display: flex;
+    gap: 16px;
+    padding-bottom: 28px;
+}
+
+.tracking-steps li:last-child {
+    padding-bottom: 0;
+}
+
+.tracking-steps li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 26px;
+    bottom: 0;
+    left: 11px;
+    width: 2px;
+    background: #e5e5e5;
+}
+
+.tracking-steps li.completed:not(:last-child)::after,
+.tracking-steps li.current:not(:last-child)::after {
+    background: var(--tr-green);
+}
+
+.tracking-dot {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    border: 2px solid #d8d8d8;
+    border-radius: 50%;
+    background: #fff;
+}
+
+.tracking-steps li.completed .tracking-dot,
+.tracking-steps li.current .tracking-dot {
+    border-color: var(--tr-green);
+    background: var(--tr-green);
+    box-shadow: 0 0 0 4px var(--tr-green-bg);
+}
+
+.tracking-steps li.completed .tracking-dot::after,
+.tracking-steps li.current .tracking-dot::after {
+    content: "✓";
+    color: #fff;
+    font-size: 12px;
+    font-weight: 850;
+}
+
+.tracking-steps li.cancelled .tracking-dot {
+    border-color: var(--tr-red);
+    background: var(--tr-red);
+}
+
+.tracking-step-copy {
+    min-width: 0;
+    padding-top: 2px;
+}
+
+.tracking-step-copy > span {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--tr-muted);
+    font-size: 11px;
+}
+
+.tracking-step-copy strong {
+    display: block;
+    margin-bottom: 7px;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.tracking-step-copy p {
+    margin: 0;
+    color: var(--tr-muted);
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+.tracking-steps li.completed .tracking-step-copy strong,
+.tracking-steps li.current .tracking-step-copy strong {
+    color: var(--tr-green);
+}
+
+.tracking-steps li.cancelled .tracking-step-copy strong {
+    color: var(--tr-red);
+}
+
+/* DETAILS PANEL */
+
+.tracking-details {
+    align-self: start;
+    padding: 24px;
+    border: 1px solid var(--tr-border);
+    border-radius: 12px;
+    background: #fafafa;
+}
+
+.tracking-details h3 {
+    margin: 0 0 15px;
+    font-size: 17px;
+}
+
+.tracking-details h3:not(:first-child) {
+    margin-top: 27px;
+}
+
+.tracking-details ul {
+    display: grid;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.tracking-details li {
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e8e8e8;
+    color: #444;
+    font-size: 12px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
+}
+
+.tracking-details li:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.tracking-details > p {
+    margin: 0;
+    color: var(--tr-muted);
+    font-size: 13px;
+    line-height: 1.85;
+    overflow-wrap: anywhere;
+}
+
+.tracking-details .notice {
+    margin-top: 15px;
+    padding: 14px;
+    border-left: 3px solid var(--tr-green);
+    border-radius: 5px;
+    background: var(--tr-green-bg);
+    color: #245d31;
+    font-size: 12px;
+}
+
+/* EMPTY / GUIDANCE */
+
+.tr-help-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.tr-help-card {
+    padding: 23px;
+    background: #fff;
+    border: 1px solid var(--tr-border);
+    border-radius: 11px;
+}
+
+.tr-help-card h3 {
+    margin: 0 0 10px;
+    font-size: 16px;
+}
+
+.tr-help-card p {
+    margin: 0;
+    color: var(--tr-muted);
+    font-size: 13px;
+    line-height: 1.8;
+}
+
+/* FOOTER CTA */
+
+.tr-bottom-cta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 25px;
+    padding: 35px;
+    border-radius: 14px;
+    background: var(--tr-black);
+    color: #fff;
+}
+
+.tr-bottom-cta h2 {
+    margin: 0 0 10px;
+    font-size: clamp(24px, 3vw, 32px);
+}
+
+.tr-bottom-cta p {
+    margin: 0;
+    color: #d0d0d0;
+    font-size: 13px;
+    line-height: 1.8;
+}
+
+/* RESPONSIVE */
+
+@media (max-width: 900px) {
+    .tr-hero-inner {
+        grid-template-columns: 1fr;
+    }
+
+    .tr-hero-card {
+        max-width: 520px;
+    }
+
+    .tracking-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .tr-help-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    .tr-hero {
+        padding: 45px 0;
+    }
+
+    .tr-hero h1 {
+        font-size: 39px;
+    }
+
+    .tr-trust-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tr-trust-item {
+        border-right: 0;
+        border-bottom: 1px solid var(--tr-border);
+        padding: 16px 4%;
+    }
+
+    .tr-trust-item:last-child {
+        border-bottom: 0;
+    }
+
+    .tr-section {
+        padding: 42px 0;
+    }
+
+    .tr-search-card {
+        padding: 22px;
+    }
+
+    .tr-form-grid {
+        grid-template-columns: 1fr;
+        gap: 0;
+    }
+
+    .tr-search-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .tr-search-actions .tr-btn {
+        width: 100%;
+    }
+
+    .tr-order-header {
+        flex-direction: column;
+        padding: 22px;
+    }
+
+    .tr-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .tr-metric {
+        padding: 17px 22px;
+        border-right: 0;
+        border-bottom: 1px solid var(--tr-border);
+    }
+
+    .tr-metric:last-child {
+        border-bottom: 0;
+    }
+
+    .tracking-layout {
+        padding: 20px;
+    }
+
+    .tracking-details {
+        padding: 20px;
+    }
+
+    .tr-help-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tr-bottom-cta {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 25px 22px;
+    }
+
+    .tr-bottom-cta .tr-btn {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .track-page *,
+    .track-page *::before,
+    .track-page *::after {
+        transition: none !important;
+        scroll-behavior: auto !important;
+    }
+}
+</style>
+
+<div class="track-page">
+
+    <!-- HERO -->
+    <section class="tr-hero">
+        <div class="track-container tr-hero-inner">
+
+            <div class="tr-hero-copy">
+                <span class="tr-eyebrow">Your order, your updates</span>
+
+                <h1>
+                    Track Your<br>
+                    <span>FITY Order.</span>
+                </h1>
+
+                <p>
+                    Stay informed about your purchase, from order
+                    processing to collection or delivery. Enter your
+                    order reference and private tracking code to view
+                    the latest available information.
+                </p>
+
+                <a href="#track-search" class="tr-btn tr-btn-red">
+                    Track My Order
+                </a>
+            </div>
+
+            <aside class="tr-hero-card">
+                <div class="tr-hero-icon" aria-hidden="true">✓</div>
+
+                <h2>Your Order at a Glance</h2>
+
+                <p>
+                    Check your order status, payment status, items,
+                    total, and collection or delivery instructions
+                    in one place.
+                </p>
+            </aside>
+
+        </div>
+    </section>
+
+    <!-- TRUST STRIP -->
+    <section class="tr-trust-strip">
+        <div class="track-container tr-trust-grid">
+
+            <div class="tr-trust-item">
+                <div class="tr-trust-icon">01</div>
+                <div>
+                    <strong>Private Tracking</strong>
+                    <small>Two details help retrieve your order.</small>
+                </div>
+            </div>
+
+            <div class="tr-trust-item">
+                <div class="tr-trust-icon">02</div>
+                <div>
+                    <strong>Order Progress</strong>
+                    <small>View available tracking milestones.</small>
+                </div>
+            </div>
+
+            <div class="tr-trust-item">
+                <div class="tr-trust-icon">03</div>
+                <div>
+                    <strong>Collection & Delivery</strong>
+                    <small>Review the instructions for your order.</small>
+                </div>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- TRACKING SEARCH -->
+    <section class="tr-section" id="track-search">
+        <div class="track-container">
+
+            <div class="tr-section-heading">
+                <span class="tr-eyebrow">Order lookup</span>
+                <h2>Where Is Your Order?</h2>
+                <p>
+                    Enter both details exactly as provided during
+                    checkout. Your private tracking code is required
+                    to access the order information.
+                </p>
+            </div>
+
+            <form class="tr-search-card"
+                  method="post"
+                  action="{{ url_for('public.track_order') }}">
+
+                <input type="hidden"
+                       name="csrf_token"
+                       value="{{ csrf_token() }}">
+
+                <div class="tr-search-heading">
+                    <div class="tr-trust-icon" aria-hidden="true">⌕</div>
+                    <div>
+                        <h2>Find Your Order</h2>
+                        <p>Both fields are required.</p>
+                    </div>
+                </div>
+
+                <div class="tr-form-grid">
+
+                    <label for="tr-reference">
+                        Order Reference
+
+                        <input
+                            id="tr-reference"
+                            type="text"
+                            name="reference"
+                            required
+                            maxlength="120"
+                            autocomplete="off"
+                            autocapitalize="characters"
+                            spellcheck="false"
+                            value="{{ order.reference if order else '' }}"
+                            placeholder="FITY-..."
+                        >
+
+                        <span class="tr-field-hint">
+                            Your order reference from checkout.
+                        </span>
+                    </label>
+
+                    <label for="tr-token">
+                        Private Tracking Code
+
+                        <input
+                            id="tr-token"
+                            type="password"
+                            name="tracking_token"
+                            required
+                            maxlength="256"
+                            autocomplete="off"
+                            spellcheck="false"
+                            value="{{ order.tracking_token if order else '' }}"
+                            placeholder="Enter your tracking code"
+                        >
+
+                        <span class="tr-field-hint">
+                            Keep this code private. It helps protect
+                            your order details.
+                        </span>
+                    </label>
+
+                </div>
+
+                <div class="tr-search-actions">
+                    <button type="submit" class="tr-btn tr-btn-red">
+                        Track Order →
+                    </button>
+
+                    <button type="reset"
+                            class="tr-btn tr-btn-black">
+                        Clear Fields
+                    </button>
+                </div>
+
+                <div class="tr-privacy-note">
+                    <span aria-hidden="true"></span>
+                    <div>
+                        <strong>Keep your tracking code private.</strong>
+                        Enter both your reference and tracking code.
+                        Do not share the code publicly or with anyone
+                        you do not trust.
+                    </div>
+                </div>
+
+            </form>
+
+            <!-- ORDER RESULT -->
+            {% if order %}
+
+            <section class="tr-order-card"
+                     id="tracking-result"
+                     aria-label="Order tracking result">
+
+                <header class="tr-order-header">
+
+                    <div>
+                        <span class="tr-order-reference-label">
+                            Order reference
+                        </span>
+
+                        <h2>{{ order.reference }}</h2>
+
+                        <p>
+                            Placed
+                            {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}
+                            <br>
+                            Fulfilment: {{ order.fulfilment_method }}
+                        </p>
+                    </div>
+
+                    <span class="tr-status-pill {{ 'bad' if order.status == 'Cancelled' else 'good' if order.status in ['Ready for collection', 'Out for delivery', 'Completed'] else '' }}">
+                        {{ order.status }}
+                    </span>
+
+                </header>
+
+                <!-- SUMMARY -->
+                <div class="tr-metrics">
+
+                    <article class="tr-metric">
+                        <span>Payment Status</span>
+                        <strong>{{ order.payment_status }}</strong>
+                    </article>
+
+                    <article class="tr-metric">
+                        <span>Order Status</span>
+                        <strong>{{ order.status }}</strong>
+                    </article>
+
+                    <article class="tr-metric">
+                        <span>Order Total</span>
+                        <strong>
+                            {{ money(order.total_cents, settings.currency) if order.total_cents is not none else 'Some prices to confirm' }}
+                        </strong>
+                    </article>
+
+                </div>
+
+                <!-- PROGRESS AND ORDER DETAILS -->
+                <div class="tracking-layout">
+
+                    <section>
+                        <h3 class="tr-tracking-heading">
+                            Order Progress
+                        </h3>
+
+                        <ol class="tracking-steps"
+                            aria-label="Order progress">
+
+                            {% for step in tracking_steps %}
+
+                            <li class="{{ step.state }}">
+
+                                <div class="tracking-dot"
+                                     aria-hidden="true"></div>
+
+                                <div class="tracking-step-copy">
+
+                                    <span>
+                                        {{ step.time.strftime('%H:%M') if step.time else 'Pending' }}
+                                    </span>
+
+                                    <strong>{{ step.label }}</strong>
+
+                                    <p>{{ step.description }}</p>
+
+                                </div>
+
+                            </li>
+
+                            {% endfor %}
+
+                        </ol>
+                    </section>
+
+                    <aside class="tracking-details">
+
+                        <h3>Order Details</h3>
+
+                        <ul>
+                            {% for item in order.items %}
+                            <li>
+                                <strong>{{ item.product_name }}</strong>
+
+                                {% if item.variant_label %}
+                                    , {{ item.variant_label }}
+                                {% elif item.size %}
+                                    , size {{ item.size }}
+                                {% endif %}
+
+                                {% if item.color and not item.variant_label %}
+                                    , {{ item.color }}
+                                {% endif %}
+
+                                <br>
+
+                                Quantity: {{ item.quantity }}
+
+                                <br>
+
+                                Subtotal:
+                                {{ money(item.subtotal_cents, settings.currency) if item.subtotal_cents is not none else 'Price to confirm' }}
+                            </li>
+                            {% endfor %}
+                        </ul>
+
+                        <h3>
+                            {{ 'Collection Point' if order.fulfilment_method == 'Collection' else 'Delivery Information' }}
+                        </h3>
+
+                        <p>
+                            {{ settings.collection_instructions if order.fulfilment_method == 'Collection' else settings.delivery_area }}
+                        </p>
+
+                        {% if order.status == 'Ready for collection' %}
+
+                        <p class="notice">
+                            <strong>Your order is ready for collection.</strong>
+                            Contact the seller before travelling to
+                            agree on the exact meeting spot.
+                        </p>
+
+                        {% elif order.status == 'Out for delivery' %}
+
+                        <p class="notice">
+                            <strong>Your order is out for delivery.</strong>
+                            Keep your phone available for the seller
+                            or rider.
+                        </p>
+
+                        {% elif order.status == 'Completed' %}
+
+                        <p class="notice">
+                            <strong>This order is marked completed.</strong>
+                            Contact the seller if you need help
+                            with any remaining questions.
+                        </p>
+
+                        {% elif order.status == 'Cancelled' %}
+
+                        <p class="notice"
+                           style="border-left-color:var(--tr-red);background:#fff0f1;color:#a51d29;">
+                            <strong>This order is cancelled.</strong>
+                            Contact the seller if you need clarification
+                            about its status or payment.
+                        </p>
+
+                        {% endif %}
+
+                    </aside>
+
+                </div>
+
+            </section>
+
+            {% endif %}
+
+        </div>
+    </section>
+
+    <!-- TRACKING HELP -->
+    <section class="tr-section" style="padding-top:0;">
+        <div class="track-container">
+
+            <div class="tr-section-heading">
+                <span class="tr-eyebrow">Need a hand?</span>
+                <h2>Tracking Help</h2>
+                <p>
+                    Here are a few things to check if you need
+                    help accessing your order information.
+                </p>
+            </div>
+
+            <div class="tr-help-grid">
+
+                <article class="tr-help-card">
+                    <h3>Can't Find Your Reference?</h3>
+                    <p>
+                        Check the order confirmation you received
+                        at checkout and copy the reference exactly.
+                    </p>
+                </article>
+
+                <article class="tr-help-card">
+                    <h3>Tracking Code Not Working?</h3>
+                    <p>
+                        Make sure you use the private tracking code
+                        provided with your order, not your product
+                        name or payment reference.
+                    </p>
+                </article>
+
+                <article class="tr-help-card">
+                    <h3>Status Hasn't Changed?</h3>
+                    <p>
+                        Some order stages require confirmation by
+                        the seller. Check the displayed status and
+                        contact the seller if you need clarification.
+                    </p>
+                </article>
+
+            </div>
+
+        </div>
+    </section>
+
+    <!-- BOTTOM CTA -->
+    <section class="tr-section" style="padding-top:0;">
+        <div class="track-container">
+
+            <div class="tr-bottom-cta">
+                <div>
+                    <span class="tr-eyebrow">Bei Fity, Fits Poa.</span>
+
+                    <h2>Need Something Else?</h2>
+
+                    <p>
+                        Explore everyday essentials or get in touch
+                        with the seller for assistance.
+                    </p>
+                </div>
+
+                <a href="/shop" class="tr-btn tr-btn-red">
+                    Continue Shopping
+                </a>
+            </div>
+
+        </div>
+    </section>
+
+</div>
+
+<script>
+(function () {
+    const form = document.querySelector(
+        '.tr-search-card'
+    );
+
+    const reference = document.getElementById(
+        'tr-reference'
+    );
+
+    const token = document.getElementById(
+        'tr-token'
+    );
+
+    if (form && reference && token) {
+        form.addEventListener('reset', function () {
+            window.setTimeout(function () {
+                reference.value = '';
+                token.value = '';
+            }, 0);
+        });
+    }
+
+    const result = document.getElementById(
+        'tracking-result'
+    );
+
+    if (result) {
+        result.setAttribute('tabindex', '-1');
+    }
+})();
+</script>
+
+{% endblock %}

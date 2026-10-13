@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block content %}
+<section class="page-head"><h1>Order enquiry saved</h1><p>Reference {{ order.reference }} is awaiting seller confirmation.</p></section>
+<div class="cart-panel">{% for item in order.items %}<p>{{ item.product_name }}{% if item.variant_label %} - {{ item.variant_label }}{% endif %} x {{ item.quantity }} - {{ money(item.subtotal_cents, settings.currency) if item.subtotal_cents is not none else 'Price to be confirmed' }}</p>{% endfor %}<strong>Total: {{ money(order.total_cents, settings.currency) if order.total_cents is not none else 'Some prices to be confirmed' }}</strong></div>
+{% if whatsapp_url %}<a class="btn primary wide" href="{{ whatsapp_url }}" target="_blank" rel="noopener">Open WhatsApp</a>{% else %}<div class="empty">The owner has not configured a WhatsApp number. Share the reference with the seller another way.</div>{% endif %}
+<p class="note">Track this order later with reference <strong>{{ order.reference }}</strong> and private code <strong>{{ order.tracking_token }}</strong>.</p><p><a class="btn" href="{{ url_for('public.track_order', reference=order.reference, tracking_token=order.tracking_token) }}">Open tracking page</a></p><p class="note">This website cannot know whether you sent the WhatsApp message. The order is not confirmed until the seller replies.</p>
+<script>localStorage.removeItem('fityCart');</script>
+{% endblock %}
+

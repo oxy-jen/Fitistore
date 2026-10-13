@@ -1,0 +1,41 @@
+﻿
+# Python virtual environments
+venv/
+.venv/
+env/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local database files
+instance/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Uploaded files
+app/static/uploads/*
+!app/static/uploads/.gitkeep
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# Editors and operating system
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local project backup
+FITY-flask-shop.zip

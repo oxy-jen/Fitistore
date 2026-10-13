@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block content %}
+<section class="page-head"><h1>Inventory</h1><p>Available stock equals stock on hand minus reserved order quantities. Stock changes are recorded as movements, not silent overwrites.</p></section>
+<div class="product-grid small">
+  {% for product in products %}
+    <article class="product-card product-body">
+      <h3>{{ product.name }}</h3>
+      {% if product.active_variants %}
+        <p class="stock {{ 'bad' if product.display_stock_quantity == 0 else 'warn' if product.display_stock_quantity <= product.low_stock_threshold else '' }}">{{ product.display_stock_quantity }} available across variants</p>
+        <ul>{% for variant in product.active_variants %}<li>{{ variant.label }}: {{ variant.available_quantity }} available, {{ variant.reserved_quantity }} reserved{% if variant.sku %} | {{ variant.sku }}{% endif %}</li>{% endfor %}</ul>
+      {% else %}
+        <p class="stock {{ 'bad' if product.available_quantity == 0 else 'warn' if product.available_quantity <= product.low_stock_threshold else '' }}">{{ product.available_quantity }} available</p>
+        <p>{{ product.stock_quantity }} on hand | {{ product.reserved_quantity }} reserved</p>
+      {% endif %}
+      <p>Low-stock threshold: {{ product.low_stock_threshold }}</p>
+      <p>Unit cost: {{ money(product.unit_cost_cents, settings.currency) if product.unit_cost_cents is not none else 'Missing' }}</p>
+    </article>
+  {% endfor %}
+</div>
+<section class="table-wrap"><h2>Recent movements</h2><table><tr><th>Date</th><th>Product</th><th>Variant</th><th>Change</th><th>After</th><th>Reason</th><th>Admin</th></tr>{% for m in movements %}<tr><td>{{ m.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ m.product.name }}</td><td>{{ m.variant.label if m.variant else 'Parent stock' }}</td><td>{{ m.change }}</td><td>{{ m.quantity_after }}</td><td>{{ m.reason }}</td><td>{{ m.admin.username if m.admin else 'System' }}</td></tr>{% else %}<tr><td colspan="7">No stock movements yet.</td></tr>{% endfor %}</table></section>
+{% endblock %}

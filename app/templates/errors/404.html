@@ -1,0 +1,211 @@
+﻿```html
+{% extends "base.html" %}
+
+{% block content %}
+<section class="error-page">
+    <div class="error-card">
+
+        <div class="error-code">404</div>
+
+        <div class="error-divider"></div>
+
+        <span class="error-label">PAGE NOT FOUND</span>
+
+        <h1>Oops! Wrong Turn.</h1>
+
+        <p class="error-description">
+            Looks like this page has gone missing.
+            Don't worry — your next favourite fit is
+            just a click away.
+        </p>
+
+        <div class="error-actions">
+            <a class="btn primary error-home"
+               href="{{ url_for('public.home') }}">
+                <span aria-hidden="true">&larr;</span>
+                Back to Home
+            </a>
+
+            <button class="btn error-back"
+                    type="button"
+                    onclick="history.back()">
+                Go Back
+            </button>
+        </div>
+
+        <div class="error-footer">
+            <span class="error-dot"></span>
+            <span>FITY — Bei Fity, Fits Poa.</span>
+        </div>
+
+    </div>
+</section>
+
+<style>
+.error-page {
+    min-height: 75vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 18px;
+    background: #ffffff;
+    color: #111111;
+}
+
+.error-card {
+    width: 100%;
+    max-width: 600px;
+    padding: 48px 30px;
+    text-align: center;
+    background: #ffffff;
+    border: 1px solid #eeeeee;
+    border-radius: 20px;
+    box-shadow: 0 15px 45px rgba(0, 0, 0, 0.07);
+}
+
+.error-code {
+    color: #e50914;
+    font-size: clamp(5rem, 20vw, 9rem);
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -6px;
+}
+
+.error-divider {
+    width: 65px;
+    height: 5px;
+    margin: 22px auto;
+    background: #e50914;
+    border-radius: 10px;
+}
+
+.error-label {
+    display: inline-block;
+    color: #e50914;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 3px;
+}
+
+.error-card h1 {
+    margin: 14px 0 12px;
+    color: #111111;
+    font-size: clamp(1.7rem, 5vw, 2.5rem);
+    font-weight: 800;
+}
+
+.error-description {
+    max-width: 420px;
+    margin: 0 auto;
+    color: #666666;
+    font-size: 1rem;
+    line-height: 1.8;
+}
+
+.error-actions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 28px;
+}
+
+.error-actions .btn {
+    min-height: 46px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding: 12px 22px;
+    border-radius: 9px;
+    font: inherit;
+    font-size: 0.95rem;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.2s ease,
+                color 0.2s ease,
+                transform 0.2s ease;
+}
+
+.error-actions .error-home {
+    background: #e50914;
+    color: #ffffff;
+    border: 1px solid #e50914;
+}
+
+.error-actions .error-home:hover {
+    background: #b80710;
+    border-color: #b80710;
+    transform: translateY(-2px);
+}
+
+.error-actions .error-back {
+    background: #111111;
+    color: #ffffff;
+    border: 1px solid #111111;
+}
+
+.error-actions .error-back:hover {
+    background: #333333;
+    transform: translateY(-2px);
+}
+
+.error-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    margin-top: 38px;
+    padding-top: 20px;
+    border-top: 1px solid #eeeeee;
+    color: #777777;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.error-dot {
+    width: 8px;
+    height: 8px;
+    background: #e50914;
+    border-radius: 50%;
+}
+
+.error-actions .btn:focus-visible {
+    outline: 3px solid #e50914;
+    outline-offset: 4px;
+}
+
+@media (max-width: 480px) {
+    .error-page {
+        min-height: 65vh;
+        padding: 24px 14px;
+    }
+
+    .error-card {
+        padding: 38px 18px;
+        border-radius: 14px;
+    }
+
+    .error-code {
+        letter-spacing: -3px;
+    }
+
+    .error-actions {
+        flex-direction: column;
+    }
+
+    .error-actions .btn {
+        width: 100%;
+        box-sizing: border-box;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .error-actions .btn {
+        transition: none;
+    }
+}
+</style>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends "base.html" %}{% block content %}
+<section class="product-detail">
+  {% set main_image = product_display_image(product) %}
+  {% set active_variants = product.variants|selectattr('active')|list %}
+  <div>
+    <div class="detail-image"><img id="detail-product-image" src="{{ product_image_url(main_image) }}" alt="{{ product_image_alt(main_image) }}"></div>
+    {% if product.images|length > 1 %}<div class="thumbs">{% for image in product.images %}{% if valid_product_image(image) %}<img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}">{% endif %}{% endfor %}</div>{% endif %}
+  </div>
+  <div class="detail-copy">
+    <p class="category">{{ product.category.name }}</p><h1>{{ product.name }}</h1>
+    {% if active_variants and product.min_variant_price_cents is not none %}
+      <p class="price big" id="detail-price">{% if product.min_variant_price_cents == product.max_variant_price_cents %}{{ money(product.min_variant_price_cents, settings.currency) }}{% else %}{{ money(product.min_variant_price_cents, settings.currency) }} - {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}</p>
+    {% else %}
+      <p class="price big" id="detail-price">{{ money(product.price_cents, settings.currency) }}{% if product.has_discount %}<s>{{ money(product.previous_price_cents, settings.currency) }}</s>{% endif %}</p>
+    {% endif %}
+    <p>{{ product.description }}</p>
+    {% if active_variants %}
+      <label class="variant-select-label">Choose option<select id="variant-choice" required>
+        <option value="">Select an available option</option>
+        {% for variant in active_variants %}<option value="{{ variant.id }}" data-price="{{ money(variant.effective_price_cents, settings.currency) }}" data-stock="{{ variant.available_quantity }}" data-size="{{ variant.size or '' }}" data-color="{{ variant.color or '' }}" data-image="{{ product_image_url(variant.image) if variant.image else '' }}" {% if variant.available_quantity < 1 %}disabled{% endif %}>{{ variant.label }}{% if variant.sku %} - {{ variant.sku }}{% endif %} - {{ variant.available_quantity }} available</option>{% endfor %}
+      </select></label>
+      <div class="variant-options" aria-label="Product options">
+        {% for variant in active_variants %}<button type="button" class="variant-option" data-variant-card="{{ variant.id }}" {% if variant.available_quantity < 1 %}disabled{% endif %}><strong>{{ variant.label }}</strong><span>{{ money(variant.effective_price_cents, settings.currency) }}</span><small>{% if variant.available_quantity > 0 %}{{ variant.available_quantity }} available{% else %}Out of stock{% endif %}{% if variant.sku %} | {{ variant.sku }}{% endif %}</small></button>{% endfor %}
+      </div>
+      <p class="stock" id="variant-stock">Select a variant to see current stock.</p>
+    {% else %}
+      {% if product.price_cents is none %}<p class="notice">This price is not confirmed yet. Message FITY on WhatsApp or call {{ local_contact_number }} before paying.</p>{% endif %}
+      <p class="stock {{ 'bad' if product.available_quantity == 0 else 'warn' if product.available_quantity <= product.low_stock_threshold else '' }}">{% if product.available_quantity > 0 %}{{ product.available_quantity }} currently available{% else %}Out of stock{% endif %}</p>
+      {% if split_options(product.size_options) %}<label>Size<select id="size-choice">{% for option in split_options(product.size_options) %}<option>{{ option }}</option>{% endfor %}</select></label>{% endif %}
+      {% if split_options(product.color_options) %}<label>Colour<select id="color-choice">{% for option in split_options(product.color_options) %}<option>{{ option }}</option>{% endfor %}</select></label>{% endif %}
+    {% endif %}
+    {% if product.price_cents is not none or active_variants %}<label>Quantity<input id="qty-choice" type="number" min="1" max="{{ product.available_quantity if not active_variants else 1 }}" value="1"></label>{% endif %}
+    <div class="actions">
+      {% if product.price_cents is none and not active_variants %}
+        <a class="btn primary" href="{{ product_whatsapp_link(product, settings, request.url, 'confirm_price') }}" target="_blank" rel="noopener">Confirm on WhatsApp</a><a class="btn" href="tel:{{ local_contact_number }}">Call {{ local_contact_number }}</a>
+      {% else %}
+        <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" data-detail="true" {% if (active_variants and not active_variants|selectattr('available_quantity')|list) or (not active_variants and product.available_quantity < 1) %}disabled{% endif %}>Add to cart</button><a class="btn" href="{{ product_whatsapp_link(product, settings, request.url, 'buy') }}" target="_blank" rel="noopener">Ask on WhatsApp</a>
+      {% endif %}
+    </div>
+  </div>
+  <div class="request-grid">
+    <form class="mini-form" method="post" action="{{ url_for('public.product_enquiry', slug=product.slug) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="hp-field">Leave this field empty<input name="website_url" tabindex="-1" autocomplete="off"></label>
+      <h2>Ask about this product</h2>
+      <div class="form-grid"><label>Size<input name="size" maxlength="50" placeholder="Optional"></label><label>Colour<input name="color" maxlength="50" placeholder="Optional"></label></div>
+      <label>Question<textarea name="message" maxlength="1000" required placeholder="Ask about price, size, colour, or availability"></textarea></label>
+      <div class="form-grid"><label>Contact<input name="contact" maxlength="120" placeholder="Phone or email"></label><label>Preferred contact<select name="preferred_contact"><option>WhatsApp</option><option>Call</option><option>SMS</option><option>Email</option></select></label></div>
+      <label class="check"><input type="checkbox" name="consent_to_contact"> FITY may contact me about this enquiry</label>
+      <button class="btn primary">Send enquiry</button>
+    </form>
+    {% if product.available_quantity < 1 and not active_variants %}<form class="mini-form" method="post" action="{{ url_for('public.restock_alert', slug=product.slug) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h2>Back-in-stock alert</h2>
+      <div class="form-grid"><label>Size<input name="size" maxlength="50" placeholder="Optional"></label><label>Colour<input name="color" maxlength="50" placeholder="Optional"></label></div>
+      <div class="form-grid"><label>Contact<input name="contact" maxlength="120" required></label><label>Preferred contact<select name="preferred_contact"><option>WhatsApp</option><option>Call</option><option>SMS</option><option>Email</option></select></label></div>
+      <label class="check"><input type="checkbox" name="consent_to_contact" required> Notify me when this item is available</label>
+      <button class="btn">Save alert</button>
+    </form>{% endif %}
+  </div></section>
+{% if related %}<section><div class="section-title"><h2>Related products</h2></div><div class="product-grid">{% for product in related %}{% include "partials/product_card.html" %}{% endfor %}</div></section>{% endif %}
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}{% block content %}
+<div class="home-market">
+  <section class="market-hero" aria-label="FITY home shopping shortcuts">
+    <aside class="market-categories" aria-label="Shop by category">
+      <h2>Shop by category</h2>
+      {% for category in categories %}<a href="{{ url_for('public.shop', category=category.slug) }}"><span>{{ category.name }}</span><small>Shop now</small></a>{% endfor %}
+    </aside>
+    <div class="market-main">
+      <form class="market-search" action="{{ url_for('public.shop') }}"><input name="q" placeholder="Search products, brands, categories..." aria-label="Search products"><button class="btn primary">Search</button></form>
+      <div class="market-banner">
+        <p class="eyebrow">{{ settings.tagline }}</p>
+        <h1>Fresh essentials, ready when you are</h1>
+        <p>Fast local shopping for everyday fashion, student-friendly fits, Mamba picks, and direct seller support.</p>
+        <div class="actions"><a class="btn primary" href="{{ url_for('public.shop') }}">Shop now</a><a class="btn" href="{{ url_for('public.upcoming') }}">Upcoming goods</a></div>
+      </div>
+    </div>
+    <aside class="market-assurance" aria-label="Shopping support">
+      <article><strong>Confirm first</strong><span>Check size, colour, stock, and delivery before payment.</span></article>
+      <article><strong>M-Pesa ready</strong><span>{{ settings.payment_number or '0141809661' }}</span></article>
+      <article><strong>Track orders</strong><span>See seller updates from order received to delivery.</span></article>
+    </aside>
+  </section>
+
+  {% if featured %}<section class="deal-strip featured-showcase"><div class="section-title"><div><p class="eyebrow">Featured picks</p><h2>Top deals and fresh arrivals</h2></div><a href="{{ url_for('public.shop') }}">See all</a></div><div class="product-marquee" aria-label="Featured products"><div class="marquee-track">{% for product in featured %}<div class="marquee-item">{% include "partials/product_card.html" %}</div>{% endfor %}{% for product in featured %}<div class="marquee-item" aria-hidden="true">{% include "partials/product_card.html" %}</div>{% endfor %}</div></div></section>{% endif %}
+
+  <section class="category-showcase">
+    <div class="section-title"><div><p class="eyebrow">Departments</p><h2>Shop by category</h2></div><a href="{{ url_for('public.shop') }}">View all products</a></div>
+    {% if category_sections %}<div class="department-grid">{% for section in category_sections %}<article class="department-card"><div class="department-head"><div><h3>{{ section.category.name }}</h3><p>{{ section.products|length }} active picks</p></div><a href="{{ url_for('public.shop', category=section.category.slug) }}">Open</a></div><div class="mini-product-row">{% for product in section.products[:4] %}<a href="{{ url_for('public.product_detail', slug=product.slug) }}"><img src="{{ product_image_url(product_display_image(product)) }}" alt="{{ product_image_alt(product_display_image(product)) }}" loading="lazy"><span>{{ product.name }}</span></a>{% endfor %}</div></article>{% endfor %}</div>{% else %}<div class="empty">Active product categories will appear here after products are added.</div>{% endif %}
+  </section>
+
+  {% if discounted %}<section class="product-section"><div class="section-title"><div><p class="eyebrow">Offers</p><h2>Discounted goods</h2></div><a href="{{ url_for('public.shop', sort='price-low') }}">Browse offers</a></div><div class="product-row">{% for product in discounted %}<div class="product-tile">{% include "partials/product_card.html" %}</div>{% endfor %}</div></section>{% endif %}
+
+  <section class="mamba-browser" id="mamba-collection">
+    <div class="section-title"><div><p class="eyebrow">For men</p><h2>Mamba collection</h2><p>Your Style. Your Choice. Your Collection.</p></div><a href="{{ url_for('public.shop') }}">Explore all</a></div>
+    <div class="mamba-filter-row" aria-label="Mamba product filters"><button class="chip active" type="button" data-mamba-filter="all">All Mamba</button>{% for category in mamba_categories %}<button class="chip" type="button" data-mamba-filter="{{ category.slug }}">{{ category.name }}</button>{% endfor %}</div>
+    {% if mamba_products %}<div class="product-grid mamba-product-grid" id="mamba-products">{% for product in mamba_products %}<div class="mamba-product" data-mamba-category="{{ product.category.slug }}">{% include "partials/product_card.html" %}</div>{% endfor %}</div><div class="empty" id="mamba-empty" hidden>No products are available in this Mamba category yet. Check the full shop for more items.</div>{% else %}<div class="empty">Mamba products will appear here when active boxers, shoes, vests, or socks are added.</div>{% endif %}
+  </section>
+
+  <section class="upcoming-strip">
+    <div class="section-title"><div><p class="eyebrow">Coming next</p><h2>Upcoming merchandise, goods, and fits</h2></div><a href="{{ url_for('public.upcoming') }}">View upcoming</a></div>
+    <div class="upcoming-grid">{% for item in upcoming_merchandise %}<article><span>{{ item.category }}</span><h3>{{ item.name }}</h3><p>{{ item.detail }}</p></article>{% endfor %}</div>
+  </section>
+
+  <section class="mamba-collection" id="mamba-suggestions">
+    <div class="mamba-copy">
+      <p class="eyebrow">Customer requests</p>
+      <h2>What should we stock next?</h2>
+      <p>Tell us the men's items you want to see next. Popular requests help guide future Mamba Collection stock.</p>
+    </div>
+    <form class="mamba-form" method="post" action="{{ url_for('public.mamba_suggestion') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="hp-field">Leave this field empty<input name="website_url" tabindex="-1" autocomplete="off"></label>
+      <label>Product or item name<input name="product_name" maxlength="140" placeholder="Example: black leather shoes" required></label>
+      <label>Category<select name="category" required><option value="">Choose category</option>{% for category in suggestion_categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</select></label>
+      <label>Preferred colour, size, or style<input name="preferences" maxlength="255" placeholder="Optional"></label>
+      <label>Suggested price range<input name="price_range" maxlength="80" placeholder="Optional, e.g. KSh 300-500"></label>
+      <label>Additional details<textarea name="details" rows="4" maxlength="1000" placeholder="Optional"></textarea></label>
+      <div class="mamba-actions"><button class="btn primary" type="submit">Submit suggestion</button><button class="btn" type="submit" formaction="{{ url_for('public.mamba_suggestion_whatsapp') }}" formtarget="_blank">Suggest via WhatsApp</button></div>
+    </form>
+  </section>
+
+  <section class="info-grid home-info">
+    <article><h3>Collection</h3><p>{{ settings.collection_instructions }}</p></article>
+    <article><h3>Nearby delivery</h3><p>{{ settings.delivery_area }}</p></article>
+    <article><h3>Payment</h3><p>{{ settings.payment_instructions }}</p></article>
+  </section>
+</div>
+{% endblock %}

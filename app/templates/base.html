@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or settings.shop_name }} | {{ settings.shop_name }}</title>
+  <meta name="description" content="{{ settings.tagline }} Affordable everyday essentials from FITY.">
+  <meta property="og:title" content="{{ title or settings.shop_name }}">
+  <meta property="og:description" content="{{ settings.tagline }}">
+  <link rel="canonical" href="{{ request.url }}">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mainLogo.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/mainLogo.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script defer src="{{ url_for('static', filename='js/cart.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="{{ url_for('public.home') }}"><img src="{{ url_for('static', filename='images/mainLogo.png') }}" alt="FITY logo"><span>{{ settings.shop_name }}</span></a>
+  <button class="menu-toggle" type="button" aria-controls="nav" aria-expanded="false">Menu</button>
+  <nav id="nav" class="nav">
+    <a href="{{ url_for('public.shop') }}">Shop</a>
+    <a href="{{ url_for('public.upcoming') }}">Upcoming</a>
+    <a href="{{ url_for('public.about') }}">About</a>
+    <a href="{{ url_for('public.contact') }}">Contact</a>
+    <a href="{{ url_for('public.reviews') }}">Reviews</a>
+    <a href="{{ url_for('public.track_order') }}">Track order</a>
+    <a class="cart-link" href="{{ url_for('public.cart') }}">Cart <span data-cart-count>0</span></a>
+  </nav>
+</header>
+<main>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}<div class="flash-wrap">{% for category, message in messages %}<p class="flash {{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="footer enhanced-footer">
+  <div class="footer-brand"><strong>{{ settings.shop_name }}</strong><p>{{ settings.tagline }}</p><div class="footer-actions"><a class="btn primary" href="{{ whatsapp_text_link(settings, build_general_message(settings)) }}" target="_blank" rel="noopener">WhatsApp FITY</a><a class="btn" href="tel:{{ local_contact_number }}">Call {{ local_contact_number }}</a></div></div>
+  <div><h3>Quick links</h3><a href="{{ url_for('public.shop') }}">Shop products</a><a href="{{ url_for('public.cart') }}">View cart</a><a href="{{ url_for('public.contact') }}">Contact and delivery</a><a href="{{ url_for('public.upcoming') }}">Upcoming goods</a><a href="{{ url_for('public.reviews') }}">Reviews</a>
+    <a href="{{ url_for('public.track_order') }}">Track order</a></div>
+  <div><h3>Before payment</h3><p>Use WhatsApp or call to confirm price, stock, colour or size, delivery, and collection details.</p><p>{{ settings.payment_instructions }}</p></div>
+  <div><h3>Collection and delivery</h3><p>{{ settings.collection_instructions }}</p><p>{{ settings.delivery_area }}</p></div>
+</footer>
+</body>
+</html>
+
+
