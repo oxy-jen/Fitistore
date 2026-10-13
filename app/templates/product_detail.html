@@ -4,7 +4,7 @@
   {% set active_variants = product.variants|selectattr('active')|list %}
   <div>
     <div class="detail-image"><img id="detail-product-image" src="{{ product_image_url(main_image) }}" alt="{{ product_image_alt(main_image) }}"></div>
-    {% if product.images|length > 1 %}<div class="thumbs">{% for image in product.images %}{% if valid_product_image(image) %}<img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}">{% endif %}{% endfor %}</div>{% endif %}
+    {% if product.images|length > 1 %}<div class="thumbs" aria-label="Product images">{% for image in product.images %}{% if valid_product_image(image) %}<button type="button" class="product-thumb{% if image.id == main_image.id %} active{% endif %}" data-product-thumb="{{ product_image_url(image) }}" data-product-thumb-alt="{{ product_image_alt(image) }}" aria-label="View {{ product_image_alt(image) }}" {% if image.id == main_image.id %}aria-current="true"{% endif %}><img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}"></button>{% endif %}{% endfor %}</div>{% endif %}
   </div>
   <div class="detail-copy">
     <p class="category">{{ product.category.name }}</p><h1>{{ product.name }}</h1>
