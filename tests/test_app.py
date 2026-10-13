@@ -590,3 +590,47 @@ def test_cloudinary_id_backfill_requires_unambiguous_match(app, tmp_path):
     with app.app_context():
         product = Product.query.filter_by(slug="ambiguous").first()
         assert [image.cloudinary_public_id for image in product.images] == [None, None]
+
+
+def test_admin_cloudinary_mapping_page_dry_run_and_apply(client, app):
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        product.sku = "SOCK-PLAIN"
+        product.stock_quantity = 4
+        product.price_cents = 15000
+        product.images.append(ProductImage(filename="missing-local.jpg", alt_text="Missing local", is_primary=True))
+        db.session.commit()
+        image_id = product.images[-1].id
+        product_id = product.id
+
+    mapping = b"product_slug,product_sku,filename,cloudinary_public_id\nplain-socks,SOCK-PLAIN,real-cloud.jpg,fity/products/plain-socks\n"
+    dry = client.post(
+        "/admin/cloudinary-images",
+        data={"action": "mapping", "ignore_filename": "1", "mapping": (io.BytesIO(mapping), "map.csv")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+
+    assert dry.status_code == 200
+    assert b"Cloudinary mapping dry run: migrated=1 skipped=0 missing=0 failed=0" in dry.data
+    with app.app_context():
+        image = ProductImage.query.get(image_id)
+        assert image.cloudinary_public_id is None
+
+    applied = client.post(
+        "/admin/cloudinary-images",
+        data={"action": "mapping", "ignore_filename": "1", "apply": "1", "mapping": (io.BytesIO(mapping), "map.csv")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+
+    assert applied.status_code == 200
+    assert b"Cloudinary mapping applied: migrated=1 skipped=0 missing=0 failed=0" in applied.data
+    with app.app_context():
+        image = ProductImage.query.get(image_id)
+        product = Product.query.get(product_id)
+        assert image.cloudinary_public_id == "fity/products/plain-socks"
+        assert image.storage_backend == "cloudinary"
+        assert product.price_cents == 15000
+        assert product.stock_quantity == 4

@@ -128,6 +128,14 @@ CLOUDINARY_API_SECRET
 
 Keep these values private. Do not commit them to GitHub or paste them into issue threads.
 
+Set the Render Start Command to:
+
+```bash
+gunicorn wsgi:app
+```
+
+Do not use `flask --app wsgi init-db && gunicorn wsgi:app` in production. `init-db` is only for local SQLite setup, and production migrations should be run as explicit one-off commands so startup never seeds or resets production data.
+
 The app needs two compatible columns on `product_image`: `storage_backend` and `cloudinary_public_id`. Existing filename records remain readable. New admin uploads and online image imports require Cloudinary to be configured; otherwise the admin receives a clear error and the product is not falsely saved with a missing image.
 
 Production PostgreSQL schema changes are not run automatically during Gunicorn startup. After backing up the Render database and deploying the code, apply the focused Cloudinary schema migration once. The migration is idempotent and safe to rerun:

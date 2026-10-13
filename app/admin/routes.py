@@ -525,6 +525,73 @@ def settings():
         return redirect(url_for("admin.settings"))
     return render_template("admin/settings.html", title="Settings", settings=settings)
 
+
+@admin_bp.route("/cloudinary-images", methods=["GET", "POST"])
+@login_required
+def cloudinary_images():
+    from app import backfill_cloudinary_image_ids, ensure_cloudinary_image_columns, product_image_inventory_rows
+
+    rows = []
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "schema":
+            try:
+                ensure_cloudinary_image_columns()
+                flash("Cloudinary image columns are ready.", "success")
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.exception("Cloudinary schema setup failed")
+                flash(f"Cloudinary schema setup failed: {exc}", "error")
+            return redirect(url_for("admin.cloudinary_images"))
+
+        if action == "mapping":
+            file = request.files.get("mapping")
+            if not file or not file.filename:
+                flash("Choose a CSV mapping file first.", "error")
+                return redirect(url_for("admin.cloudinary_images"))
+            data = file.read(current_app.config["MAX_CONTENT_LENGTH"] + 1)
+            if len(data) > current_app.config["MAX_CONTENT_LENGTH"]:
+                flash("Mapping file is too large.", "error")
+                return redirect(url_for("admin.cloudinary_images"))
+            try:
+                ensure_cloudinary_image_columns()
+                text = data.decode("utf-8-sig")
+                mapping_rows = list(csv.DictReader(io.StringIO(text)))
+                apply_changes = request.form.get("apply") == "1"
+                ignore_filename = request.form.get("ignore_filename") == "1"
+                migrated, skipped, missing, failed = backfill_cloudinary_image_ids(mapping_rows, apply=apply_changes, ignore_filename=ignore_filename)
+                mode = "applied" if apply_changes else "dry run"
+                category = "success" if failed == 0 else "warning"
+                flash(f"Cloudinary mapping {mode}: migrated={migrated} skipped={skipped} missing={missing} failed={failed}.", category)
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.exception("Cloudinary image mapping failed")
+                flash(f"Cloudinary image mapping failed: {exc}", "error")
+            return redirect(url_for("admin.cloudinary_images"))
+
+    try:
+        rows = product_image_inventory_rows()
+    except Exception:
+        rows = []
+    missing_cloudinary = sum(1 for row in rows if not row["cloudinary_public_id"])
+    cloudinary_ready = sum(1 for row in rows if row["cloudinary_public_id"])
+    return render_template("admin/cloudinary_images.html", title="Cloudinary images", rows=rows, missing_cloudinary=missing_cloudinary, cloudinary_ready=cloudinary_ready)
+
+
+@admin_bp.route("/cloudinary-images/export.csv")
+@login_required
+def cloudinary_images_export():
+    from app import ensure_cloudinary_image_columns, product_image_inventory_rows
+
+    ensure_cloudinary_image_columns()
+    rows = product_image_inventory_rows()
+    fieldnames = ["product_id", "product_slug", "product_sku", "product_name", "image_id", "filename", "sort_order", "is_primary", "storage_backend", "cloudinary_public_id"]
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+    return Response(output.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=fity-product-image-map.csv"})
+
 @admin_bp.route("/payment-proof/<path:filename>")
 @login_required
 def payment_proof(filename):
