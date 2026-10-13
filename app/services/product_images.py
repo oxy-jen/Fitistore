@@ -119,8 +119,12 @@ def product_image_alt(image, fallback="Temporary product placeholder") -> str:
 
 
 def product_display_image(product):
-    primary = [image for image in product.images if image.is_primary]
-    for image in primary + list(product.images):
+    images = list(product.images)
+    primary_cloudinary = [image for image in images if image.is_primary and getattr(image, "cloudinary_public_id", "")]
+    cloudinary = [image for image in images if getattr(image, "cloudinary_public_id", "")]
+    primary_legacy = [image for image in images if image.is_primary and not getattr(image, "cloudinary_public_id", "")]
+    legacy = [image for image in images if not getattr(image, "cloudinary_public_id", "")]
+    for image in primary_cloudinary + cloudinary + primary_legacy + legacy:
         if valid_product_image(image):
             return image
     return None

@@ -1,6 +1,7 @@
 import io
 
 import pytest
+import app as app_module
 from werkzeug.security import generate_password_hash
 from app import create_app
 from app.extensions import db
@@ -449,3 +450,143 @@ def test_legacy_image_migration_cli(client, app, monkeypatch):
         image = ProductImage.query.get(image_id)
         assert image.cloudinary_public_id == f"fity/legacy/product-image-{image_id}"
         assert image.storage_backend == "cloudinary"
+
+
+def test_postgresql_startup_does_not_run_sqlite_schema_mutations(monkeypatch):
+    def fail_create_all(*args, **kwargs):
+        raise AssertionError("db.create_all must not run during PostgreSQL startup")
+    def fail_ensure_columns(*args, **kwargs):
+        raise AssertionError("ensure_columns must not run during PostgreSQL startup")
+    monkeypatch.setattr(app_module.db, "create_all", fail_create_all)
+    monkeypatch.setattr(app_module, "ensure_columns", fail_ensure_columns)
+    monkeypatch.setattr(app_module, "is_sqlite_database", lambda: False)
+    monkeypatch.setattr(app_module, "database_dialect_name", lambda: "postgresql")
+
+    created = create_app(TestConfig)
+
+    assert created.testing is True
+
+
+def test_cloudinary_schema_migration_postgresql_is_idempotent(monkeypatch):
+    statements = []
+    commits = []
+    monkeypatch.setattr(app_module, "is_postgresql_database", lambda: True)
+    monkeypatch.setattr(app_module, "is_sqlite_database", lambda: False)
+    monkeypatch.setattr(app_module.db.session, "execute", lambda statement: statements.append(str(statement)))
+    monkeypatch.setattr(app_module.db.session, "commit", lambda: commits.append(True))
+
+    app_module.ensure_cloudinary_image_columns()
+    app_module.ensure_cloudinary_image_columns()
+
+    assert statements == [
+        "ALTER TABLE product_image ADD COLUMN IF NOT EXISTS storage_backend VARCHAR(20) NOT NULL DEFAULT 'local'",
+        "ALTER TABLE product_image ADD COLUMN IF NOT EXISTS cloudinary_public_id VARCHAR(255)",
+        "ALTER TABLE product_image ADD COLUMN IF NOT EXISTS storage_backend VARCHAR(20) NOT NULL DEFAULT 'local'",
+        "ALTER TABLE product_image ADD COLUMN IF NOT EXISTS cloudinary_public_id VARCHAR(255)",
+    ]
+    assert len(commits) == 2
+
+
+def test_cloudinary_schema_migration_sqlite_preserves_existing_images(app):
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        image = ProductImage(filename="legacy.jpg", alt_text="Legacy", is_primary=True)
+        product.images.append(image)
+        db.session.commit()
+        image_id = image.id
+
+        app_module.ensure_cloudinary_image_columns()
+
+        preserved = ProductImage.query.get(image_id)
+        assert preserved is not None
+        assert preserved.filename == "legacy.jpg"
+        assert preserved.storage_backend == "local"
+        assert preserved.cloudinary_public_id is None
+
+def test_product_display_prefers_cloudinary_over_primary_sample(app):
+    from app.services.product_images import product_display_image, product_image_url
+    app.config.update(CLOUDINARY_CLOUD_NAME="demo")
+    with app.test_request_context():
+        product = Product(name="Display Socks", slug="display-socks", description="Display", price_cents=1000, stock_quantity=1)
+        sample = ProductImage(filename="sample-ankle-socks.svg", alt_text="Sample", is_primary=True, sort_order=0)
+        cloud = ProductImage(filename="real-socks.jpg", cloudinary_public_id="fity/products/real-socks", storage_backend="cloudinary", alt_text="Real", is_primary=False, sort_order=1)
+        product.images = [sample, cloud]
+
+        image = product_display_image(product)
+
+        assert image is cloud
+        assert product_image_url(image) == "https://res.cloudinary.com/demo/image/upload/fity/products/real-socks"
+
+
+def test_cloudinary_id_backfill_dry_run_and_apply_preserves_product_data(app, tmp_path):
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        product.sku = "SOCK-PLAIN"
+        product.stock_quantity = 4
+        product.price_cents = 15000
+        product.images.append(ProductImage(filename="sample-ankle-socks.svg", alt_text="Sample", is_primary=True))
+        db.session.commit()
+        product_id = product.id
+        image_id = product.images[-1].id
+    mapping = tmp_path / "cloudinary-map.csv"
+    mapping.write_text(
+        "product_slug,product_sku,filename,cloudinary_public_id\n"
+        "plain-socks,SOCK-PLAIN,real-socks.jpg,fity/legacy/product-image-local-1\n",
+        encoding="utf-8",
+    )
+    runner = app.test_cli_runner()
+
+    dry = runner.invoke(args=["backfill-cloudinary-image-ids", "--mapping", str(mapping), "--ignore-filename"])
+
+    assert dry.exit_code == 0
+    assert "Done (dry-run). migrated=1 skipped=0 missing=0 failed=0" in dry.output
+    with app.app_context():
+        image = ProductImage.query.get(image_id)
+        product = Product.query.get(product_id)
+        assert image.cloudinary_public_id is None
+        assert image.storage_backend == "local"
+        assert product.stock_quantity == 4
+        assert product.price_cents == 15000
+
+    applied = runner.invoke(args=["backfill-cloudinary-image-ids", "--mapping", str(mapping), "--ignore-filename", "--apply"])
+
+    assert applied.exit_code == 0
+    assert "Done (applied). migrated=1 skipped=0 missing=0 failed=0" in applied.output
+    with app.app_context():
+        image = ProductImage.query.get(image_id)
+        product = Product.query.get(product_id)
+        assert image.cloudinary_public_id == "fity/legacy/product-image-local-1"
+        assert image.storage_backend == "cloudinary"
+        assert image.filename == "sample-ankle-socks.svg"
+        assert product.stock_quantity == 4
+        assert product.price_cents == 15000
+
+    rerun = runner.invoke(args=["backfill-cloudinary-image-ids", "--mapping", str(mapping), "--ignore-filename", "--apply"])
+
+    assert rerun.exit_code == 0
+    assert "Done (applied). migrated=0 skipped=1 missing=0 failed=0" in rerun.output
+
+
+def test_cloudinary_id_backfill_requires_unambiguous_match(app, tmp_path):
+    with app.app_context():
+        category = Category.query.first()
+        product = Product(name="Ambiguous", slug="ambiguous", sku="AMB", category=category, description="Ambiguous", price_cents=1000, stock_quantity=1)
+        product.images.append(ProductImage(filename="sample-one.svg", alt_text="One", is_primary=True))
+        product.images.append(ProductImage(filename="sample-two.svg", alt_text="Two", is_primary=False))
+        db.session.add(product)
+        db.session.commit()
+    mapping = tmp_path / "ambiguous-map.csv"
+    mapping.write_text(
+        "product_slug,cloudinary_public_id\n"
+        "ambiguous,fity/legacy/ambiguous\n",
+        encoding="utf-8",
+    )
+
+    result = app.test_cli_runner().invoke(args=["backfill-cloudinary-image-ids", "--mapping", str(mapping), "--ignore-filename", "--apply"])
+
+    assert result.exit_code == 0
+    assert "matched multiple image records" in result.output
+    assert "Done (applied). migrated=0 skipped=0 missing=0 failed=1" in result.output
+    with app.app_context():
+        product = Product.query.filter_by(slug="ambiguous").first()
+        assert [image.cloudinary_public_id for image in product.images] == [None, None]

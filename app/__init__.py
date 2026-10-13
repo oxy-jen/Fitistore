@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import click
+import csv
+import json
 from pathlib import Path
 from flask import Flask
 from werkzeug.security import generate_password_hash
@@ -157,15 +159,44 @@ def create_app(config_object=Config):
     ensure_database_schema(app)
     return app
 
+def database_dialect_name() -> str:
+    return db.engine.dialect.name
+
+
+def is_sqlite_database() -> bool:
+    return database_dialect_name() == "sqlite"
+
+
+def is_postgresql_database() -> bool:
+    return database_dialect_name() in {"postgresql", "postgres"}
+
+
 def ensure_database_schema(app: Flask):
-    """Keep local SQLite installs aligned before the first request queries models."""
+    """Keep local SQLite installs aligned without running SQLite-oriented DDL on production databases."""
     with app.app_context():
+        if is_sqlite_database():
+            db.create_all()
+            ensure_columns()
+
+
+def ensure_cloudinary_image_columns():
+    """Apply the focused, idempotent product image schema change for Cloudinary storage."""
+    from sqlalchemy import text
+    if is_postgresql_database():
+        db.session.execute(text("ALTER TABLE product_image ADD COLUMN IF NOT EXISTS storage_backend VARCHAR(20) NOT NULL DEFAULT 'local'"))
+        db.session.execute(text("ALTER TABLE product_image ADD COLUMN IF NOT EXISTS cloudinary_public_id VARCHAR(255)"))
+        db.session.commit()
+    elif is_sqlite_database():
         db.create_all()
         ensure_columns()
+    else:
+        raise click.ClickException(f"Unsupported database dialect for Cloudinary schema migration: {database_dialect_name()}")
 def register_cli(app: Flask):
     @app.cli.command("init-db")
     def init_db():
         """Create tables, default categories, settings, starter catalogue, and optional first admin from env."""
+        if not is_sqlite_database():
+            raise click.ClickException("init-db is reserved for local SQLite setup. Use migrate-cloudinary-schema for the production Cloudinary columns.")
         db.create_all()
         ensure_columns()
         ensure_sample_images(app)
@@ -191,11 +222,45 @@ def register_cli(app: Flask):
         click.echo("FITY database is ready.")
 
 
+    @app.cli.command("migrate-cloudinary-schema")
+    def migrate_cloudinary_schema():
+        """Add the Cloudinary product image columns with safe, idempotent database-specific DDL."""
+        ensure_cloudinary_image_columns()
+        click.echo("Cloudinary product image schema is ready.")
+
+    @app.cli.command("export-product-image-map")
+    @click.option("--output", "output_path", type=click.Path(dir_okay=False, path_type=Path), help="Write CSV mapping to this file instead of stdout.")
+    def export_product_image_map(output_path=None):
+        """Export product image rows, including Cloudinary IDs, for inspection or production backfill."""
+        rows = product_image_inventory_rows()
+        fieldnames = ["product_id", "product_slug", "product_sku", "product_name", "image_id", "filename", "sort_order", "is_primary", "storage_backend", "cloudinary_public_id"]
+        if output_path:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with output_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+            click.echo(f"Exported {len(rows)} product image rows to {output_path}")
+            return
+        writer = csv.DictWriter(click.get_text_stream("stdout"), fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    @app.cli.command("backfill-cloudinary-image-ids")
+    @click.option("--mapping", "mapping_path", required=True, type=click.Path(exists=True, dir_okay=False), help="CSV or JSON mapping exported from the migrated database.")
+    @click.option("--apply", is_flag=True, help="Persist changes. Without this flag the command is a dry run.")
+    @click.option("--ignore-filename", is_flag=True, help="Match by product identifier even when production still has sample filenames.")
+    def backfill_cloudinary_image_ids_command(mapping_path, apply, ignore_filename):
+        """Update existing product image rows with known Cloudinary public IDs without uploading assets."""
+        ensure_cloudinary_image_columns()
+        rows = load_cloudinary_image_mapping(mapping_path)
+        migrated, skipped, missing, failed = backfill_cloudinary_image_ids(rows, apply=apply, ignore_filename=ignore_filename)
+        mode = "applied" if apply else "dry-run"
+        click.echo(f"Done ({mode}). migrated={migrated} skipped={skipped} missing={missing} failed={failed}")
     @app.cli.command("migrate-product-images")
     def migrate_product_images():
         """Upload accessible legacy local product images to Cloudinary."""
-        db.create_all()
-        ensure_columns()
+        ensure_cloudinary_image_columns()
         migrated = skipped = failed = missing = 0
         for image in ProductImage.query.order_by(ProductImage.id).all():
             if image.cloudinary_public_id:
@@ -230,8 +295,9 @@ def register_cli(app: Flask):
     @click.argument("username")
     @click.password_option()
     def create_admin(username, password):
-        db.create_all()
-        ensure_columns()
+        if is_sqlite_database():
+            db.create_all()
+            ensure_columns()
         if AdminUser.query.filter_by(username=username).first():
             raise click.ClickException("That username already exists.")
         db.session.add(AdminUser(username=username, password_hash=generate_password_hash(password)))
@@ -251,6 +317,112 @@ def slugify(value: str) -> str:
     import re
     value = re.sub(r"[^a-zA-Z0-9]+", "-", value.lower()).strip("-")
     return value or "item"
+
+
+def product_image_inventory_rows():
+    rows = []
+    images = ProductImage.query.join(Product).order_by(Product.id, ProductImage.sort_order, ProductImage.id).all()
+    for image in images:
+        rows.append({
+            "product_id": image.product_id,
+            "product_slug": image.product.slug if image.product else "",
+            "product_sku": image.product.sku if image.product else "",
+            "product_name": image.product.name if image.product else "",
+            "image_id": image.id,
+            "filename": image.filename,
+            "sort_order": image.sort_order,
+            "is_primary": image.is_primary,
+            "storage_backend": image.storage_backend,
+            "cloudinary_public_id": image.cloudinary_public_id or "",
+        })
+    return rows
+
+
+def load_cloudinary_image_mapping(path):
+    mapping_path = Path(path)
+    if not mapping_path.is_file():
+        raise click.ClickException(f"Mapping file not found: {mapping_path}")
+    if mapping_path.suffix.lower() == ".json":
+        rows = json.loads(mapping_path.read_text(encoding="utf-8"))
+        if isinstance(rows, dict):
+            rows = rows.get("images", [])
+    else:
+        with mapping_path.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+    if not isinstance(rows, list):
+        raise click.ClickException("Mapping file must contain a list of image rows.")
+    return rows
+
+
+def mapping_value(row, *names):
+    for name in names:
+        value = row.get(name)
+        if value not in (None, ""):
+            return str(value).strip()
+    return ""
+
+
+def image_matches_mapping(image, row, ignore_filename=False):
+    product = image.product
+    product_slug = mapping_value(row, "product_slug", "slug")
+    product_sku = mapping_value(row, "product_sku", "sku")
+    product_id = mapping_value(row, "product_id")
+    filename = mapping_value(row, "filename")
+    image_id = mapping_value(row, "image_id", "id", "product_image_id")
+    product_matches = False
+    if product_slug and product and product.slug == product_slug:
+        product_matches = True
+    if product_sku and product and product.sku == product_sku:
+        product_matches = True
+    if product_id and str(image.product_id) == product_id:
+        product_matches = True
+    if product_matches:
+        return ignore_filename or not filename or image.filename == filename
+    if image_id and not any([product_slug, product_sku, product_id, filename]):
+        return str(image.id) == image_id
+    return False
+
+
+def backfill_cloudinary_image_ids(mapping_rows, apply=False, ignore_filename=False):
+    migrated = skipped = missing = failed = 0
+    for row in mapping_rows:
+        public_id = mapping_value(row, "cloudinary_public_id", "public_id")
+        if not public_id:
+            failed += 1
+            click.echo("fail mapping row: missing cloudinary_public_id")
+            continue
+        matches = [image for image in ProductImage.query.join(Product).all() if image_matches_mapping(image, row, ignore_filename=ignore_filename)]
+        if not matches:
+            missing += 1
+            label = mapping_value(row, "product_slug", "product_sku", "product_id", "image_id", "filename") or "unmatched row"
+            click.echo(f"missing image record for mapping: {label}")
+            continue
+        if len(matches) > 1:
+            failed += 1
+            label = mapping_value(row, "product_slug", "product_sku", "product_id", "image_id", "filename") or public_id
+            click.echo(f"fail mapping row: matched multiple image records for {label}")
+            continue
+        image = matches[0]
+        if image.cloudinary_public_id == public_id and image.storage_backend == "cloudinary":
+            skipped += 1
+            click.echo(f"skip image {image.id}: already mapped to {public_id}")
+            continue
+        if image.cloudinary_public_id and image.cloudinary_public_id != public_id:
+            skipped += 1
+            click.echo(f"skip image {image.id}: already has a different Cloudinary public id")
+            continue
+        migrated += 1
+        action = "map" if apply else "would map"
+        click.echo(f"{action} image {image.id} ({image.product.slug if image.product else image.product_id}, {image.filename}) -> {public_id}")
+        if apply:
+            image.cloudinary_public_id = public_id
+            image.storage_backend = "cloudinary"
+            db.session.add(image)
+    if apply:
+        db.session.commit()
+    else:
+        db.session.rollback()
+    return migrated, skipped, missing, failed
 
 def ensure_categories():
     categories = {}
