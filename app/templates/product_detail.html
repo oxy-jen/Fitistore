@@ -32,9 +32,9 @@
     {% if product.price_cents is not none or active_variants %}<label>Quantity<input id="qty-choice" type="number" min="1" max="{{ product.available_quantity if not active_variants else 1 }}" value="1"></label>{% endif %}
     <div class="actions">
       {% if product.price_cents is none and not active_variants %}
-        <a class="btn primary" href="{{ product_whatsapp_link(product, settings, request.url, 'confirm_price') }}" target="_blank" rel="noopener">Confirm on WhatsApp</a><a class="btn" href="tel:{{ local_contact_number }}">Call {{ local_contact_number }}</a>
+        <a class="btn primary" href="{{ product_whatsapp_link(product, settings, request.url, 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Confirm on WhatsApp</span></a><a class="btn" href="tel:{{ local_contact_number }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Call {{ local_contact_number }}</span></a>
       {% else %}
-        <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" data-detail="true" {% if (active_variants and not active_variants|selectattr('available_quantity')|list) or (not active_variants and product.available_quantity < 1) %}disabled{% endif %}>Add to cart</button><a class="btn" href="{{ product_whatsapp_link(product, settings, request.url, 'buy') }}" target="_blank" rel="noopener">Ask on WhatsApp</a>
+        <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" data-detail="true" {% if (active_variants and not active_variants|selectattr('available_quantity')|list) or (not active_variants and product.available_quantity < 1) %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to cart</span></button><a class="btn" href="{{ product_whatsapp_link(product, settings, request.url, 'buy') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask on WhatsApp</span></a>
       {% endif %}
     </div>
   </div>
@@ -47,7 +47,7 @@
       <label>Question<textarea name="message" maxlength="1000" required placeholder="Ask about price, size, colour, or availability"></textarea></label>
       <div class="form-grid"><label>Contact<input name="contact" maxlength="120" placeholder="Phone or email"></label><label>Preferred contact<select name="preferred_contact"><option>WhatsApp</option><option>Call</option><option>SMS</option><option>Email</option></select></label></div>
       <label class="check"><input type="checkbox" name="consent_to_contact"> FITY may contact me about this enquiry</label>
-      <button class="btn primary">Send enquiry</button>
+      <button class="btn primary"><svg class="icon"><use href="#icon-message"></use></svg><span>Send enquiry</span></button>
     </form>
     {% if product.available_quantity < 1 and not active_variants %}<form class="mini-form" method="post" action="{{ url_for('public.restock_alert', slug=product.slug) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -55,7 +55,7 @@
       <div class="form-grid"><label>Size<input name="size" maxlength="50" placeholder="Optional"></label><label>Colour<input name="color" maxlength="50" placeholder="Optional"></label></div>
       <div class="form-grid"><label>Contact<input name="contact" maxlength="120" required></label><label>Preferred contact<select name="preferred_contact"><option>WhatsApp</option><option>Call</option><option>SMS</option><option>Email</option></select></label></div>
       <label class="check"><input type="checkbox" name="consent_to_contact" required> Notify me when this item is available</label>
-      <button class="btn">Save alert</button>
+      <button class="btn"><svg class="icon"><use href="#icon-calendar"></use></svg><span>Save alert</span></button>
     </form>{% endif %}
   </div></section>
 {% if related %}<section><div class="section-title"><h2>Related products</h2></div><div class="product-grid">{% for product in related %}{% include "partials/product_card.html" %}{% endfor %}</div></section>{% endif %}

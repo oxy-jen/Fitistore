@@ -19,13 +19,13 @@
     {% if product.sku %}<p class="sku">{{ product.sku }}</p>{% endif %}
     {% if product.price_cents is none and not variant_count %}
       <div class="card-actions">
-        <a class="btn primary" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'confirm_price') }}" target="_blank" rel="noopener">Confirm price</a>
-        <a class="btn" href="tel:{{ local_contact_number }}">Call</a>
+        <a class="btn primary" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Confirm price</span></a>
+        <a class="btn" href="tel:{{ local_contact_number }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Call</span></a>
       </div>
     {% elif variant_count %}
-      <a class="btn primary" href="{{ url_for('public.product_detail', slug=product.slug) }}">Choose option</a>
+      <a class="btn primary" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>Choose option</span></a>
     {% else %}
-      <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" {% if display_stock < 1 %}disabled{% endif %}>Add to cart</button>
+      <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" {% if display_stock < 1 %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to cart</span></button>
     {% endif %}
   </div>
 </article>

@@ -33,7 +33,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       if(status)status.textContent=data.has_next?'More products will load as you scroll.':'All matching products are loaded.';
     }catch(error){
       if(status)status.textContent='Could not load more products. Try again.';
-      if(loadMore){loadMore.hidden=false;loadMore.textContent='Retry';}
+      if(loadMore){loadMore.hidden=false;loadMore.innerHTML='<svg class="icon"><use href="#icon-refresh"></use></svg><span>Retry</span>';}
     }finally{loading=false;}
   }
   if(loadMore){loadMore.addEventListener('click',loadProducts)}

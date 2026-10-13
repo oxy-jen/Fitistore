@@ -4,9 +4,9 @@
   <input name="q" value="{{ q }}" placeholder="Search products..." aria-label="Search products">
   <select name="category" aria-label="Category"><option value="">All categories</option>{% for c in categories %}<option value="{{ c.slug }}" {% if active_category and active_category.id == c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
   <select name="sort" aria-label="Sort"><option value="newest" {% if sort=='newest' %}selected{% endif %}>Newest</option><option value="name" {% if sort=='name' %}selected{% endif %}>Product name</option><option value="price-low" {% if sort=='price-low' %}selected{% endif %}>Price low</option><option value="price-high" {% if sort=='price-high' %}selected{% endif %}>Price high</option></select>
-  <button class="btn primary">Apply</button><a class="btn" href="{{ url_for('public.shop') }}">Reset</a>
+  <button class="btn primary"><svg class="icon"><use href="#icon-filter"></use></svg><span>Apply</span></button><a class="btn" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-refresh"></use></svg><span>Reset</span></a>
 </form>
 <div id="product-grid" class="product-grid" data-next-page="{{ page + 1 if has_next else '' }}" data-has-next="{{ 'true' if has_next else 'false' }}" data-api-url="{{ url_for('public.api_products') }}">{% for product in products %}{% include "partials/product_card.html" %}{% endfor %}</div>
 <div id="shop-empty" class="empty" {% if products %}hidden{% endif %}>No active products match this search.</div>
-<div class="load-panel"><p id="load-status" class="note small">{% if has_next %}More products will load as you scroll.{% else %}All matching products are loaded.{% endif %}</p><button id="load-more" class="btn" type="button" {% if not has_next %}hidden{% endif %}>Load more</button></div>
+<div class="load-panel"><p id="load-status" class="note small">{% if has_next %}More products will load as you scroll.{% else %}All matching products are loaded.{% endif %}</p><button id="load-more" class="btn" type="button" {% if not has_next %}hidden{% endif %}><svg class="icon"><use href="#icon-arrow"></use></svg><span>Load more</span></button></div>
 {% endblock %}

@@ -15,17 +15,38 @@
   <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
 </head>
 <body>
+<svg class="icon-sprite" aria-hidden="true" focusable="false">
+  <symbol id="icon-shop" viewBox="0 0 24 24"><path d="M4 10h16l-1 10H5L4 10Z"/><path d="M7 10V8a5 5 0 0 1 10 0v2"/></symbol>
+  <symbol id="icon-calendar" viewBox="0 0 24 24"><path d="M7 3v4M17 3v4M4 9h16"/><rect x="4" y="5" width="16" height="16" rx="2"/></symbol>
+  <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="icon-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.4 2.1L8 9.7a16 16 0 0 0 6.3 6.3l1.3-1.3a2 2 0 0 1 2.1-.4c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2Z"/></symbol>
+  <symbol id="icon-star" viewBox="0 0 24 24"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.8 1-6.1-4.4-4.3 6.1-.9L12 3Z"/></symbol>
+  <symbol id="icon-truck" viewBox="0 0 24 24"><path d="M3 6h11v10H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+  <symbol id="icon-cart" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h8.7a2 2 0 0 0 2-1.6L22 6H6"/></symbol>
+  <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="icon-filter" viewBox="0 0 24 24"><path d="M4 5h16M7 12h10M10 19h4"/></symbol>
+  <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.4 6.4L3 16M3 12a9 9 0 0 1 15.4-6.4L21 8M3 21v-5h5M21 3v5h-5"/></symbol>
+  <symbol id="icon-message" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-4-.9L3 21l1.6-4.5A8.5 8.5 0 1 1 21 11.5Z"/></symbol>
+  <symbol id="icon-checkout" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></symbol>
+  <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v6M14 11v6"/></symbol>
+</svg>
 <header class="site-header">
   <a class="brand" href="{{ url_for('public.home') }}"><img src="{{ url_for('static', filename='images/mainLogo.png') }}" alt="FITY logo"><span>{{ settings.shop_name }}</span></a>
-  <button class="menu-toggle" type="button" aria-controls="nav" aria-expanded="false">Menu</button>
-  <nav id="nav" class="nav">
-    <a href="{{ url_for('public.shop') }}">Shop</a>
-    <a href="{{ url_for('public.upcoming') }}">Upcoming</a>
-    <a href="{{ url_for('public.about') }}">About</a>
-    <a href="{{ url_for('public.contact') }}">Contact</a>
-    <a href="{{ url_for('public.reviews') }}">Reviews</a>
-    <a href="{{ url_for('public.track_order') }}">Track order</a>
-    <a class="cart-link" href="{{ url_for('public.cart') }}">Cart <span data-cart-count>0</span></a>
+  <nav id="nav" class="nav" aria-label="Primary navigation">
+    <a href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Shop</span></a>
+    <a href="{{ url_for('public.upcoming') }}"><svg class="icon"><use href="#icon-calendar"></use></svg><span>Upcoming</span></a>
+    <a class="cart-link" href="{{ url_for('public.cart') }}"><svg class="icon"><use href="#icon-cart"></use></svg><span>Cart</span><span data-cart-count>0</span></a>
+    <details class="nav-more">
+      <summary><svg class="icon"><use href="#icon-menu"></use></svg><span>More</span></summary>
+      <div class="nav-more-menu">
+        <a href="{{ url_for('public.about') }}"><svg class="icon"><use href="#icon-info"></use></svg><span>About</span></a>
+        <a href="{{ url_for('public.contact') }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Contact</span></a>
+        <a href="{{ url_for('public.reviews') }}"><svg class="icon"><use href="#icon-star"></use></svg><span>Reviews</span></a>
+        <a href="{{ url_for('public.track_order') }}"><svg class="icon"><use href="#icon-truck"></use></svg><span>Track order</span></a>
+      </div>
+    </details>
   </nav>
 </header>
 <main>
@@ -35,7 +56,7 @@
   {% block content %}{% endblock %}
 </main>
 <footer class="footer enhanced-footer">
-  <div class="footer-brand"><strong>{{ settings.shop_name }}</strong><p>{{ settings.tagline }}</p><div class="footer-actions"><a class="btn primary" href="{{ whatsapp_text_link(settings, build_general_message(settings)) }}" target="_blank" rel="noopener">WhatsApp FITY</a><a class="btn" href="tel:{{ local_contact_number }}">Call {{ local_contact_number }}</a></div></div>
+  <div class="footer-brand"><strong>{{ settings.shop_name }}</strong><p>{{ settings.tagline }}</p><div class="footer-actions"><a class="btn primary" href="{{ whatsapp_text_link(settings, build_general_message(settings)) }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>WhatsApp FITY</span></a><a class="btn" href="tel:{{ local_contact_number }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Call {{ local_contact_number }}</span></a></div></div>
   <div><h3>Quick links</h3><a href="{{ url_for('public.shop') }}">Shop products</a><a href="{{ url_for('public.cart') }}">View cart</a><a href="{{ url_for('public.contact') }}">Contact and delivery</a><a href="{{ url_for('public.upcoming') }}">Upcoming goods</a><a href="{{ url_for('public.reviews') }}">Reviews</a>
     <a href="{{ url_for('public.track_order') }}">Track order</a></div>
   <div><h3>Before payment</h3><p>Use WhatsApp or call to confirm price, stock, colour or size, delivery, and collection details.</p><p>{{ settings.payment_instructions }}</p></div>

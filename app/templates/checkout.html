@@ -12,7 +12,7 @@
     <div class="payment-box"><strong>M-Pesa payment number: {{ settings.payment_number or "0141809661" }}</strong><p>You can pay for any confirmed item using this number. After paying, enter the M-Pesa reference code below so it appears in the WhatsApp message with your selected items.</p></div>
     <label>M-Pesa reference code, if paid<input name="payment_reference" maxlength="120" placeholder="e.g. QAB12C3D4E"></label>
     <label>Payment screenshot, optional<input name="payment_proof" type="file" accept="image/*"></label>
-    <button class="btn primary" {% if not whatsapp_ready %}disabled{% endif %}>Prepare WhatsApp message</button>
+    <button class="btn primary" {% if not whatsapp_ready %}disabled{% endif %}><svg class="icon"><use href="#icon-message"></use></svg><span>Prepare WhatsApp message</span></button>
   </form>
 </section>
 {% endblock %}

@@ -1,5 +1,5 @@
-﻿{% extends "base.html" %}{% block content %}
+{% extends "base.html" %}{% block content %}
 <section class="page-head"><h1>Your cart</h1><p>Totals are checked again by the server before WhatsApp checkout.</p></section>
 <div id="cart-app" class="cart-panel"><div class="empty">Loading cart...</div></div>
-<div class="actions"><a class="btn" href="{{ url_for('public.shop') }}">Continue shopping</a><a class="btn primary" href="{{ url_for('public.checkout') }}">Proceed to checkout</a></div>
+<div class="actions"><a class="btn" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Continue shopping</span></a><a class="btn primary" href="{{ url_for('public.checkout') }}"><svg class="icon"><use href="#icon-checkout"></use></svg><span>Proceed to checkout</span></a></div>
 {% endblock %}
