@@ -1,4 +1,4 @@
-﻿# FITY Flask Shop
+# FITY Flask Shop
 
 FITY is a mobile-first Flask e-commerce starter for a small Kenyan merchandise shop. It uses server-rendered pages, SQLite, local image uploads, owner-managed prices and stock, and WhatsApp as the customer enquiry channel.
 
@@ -83,7 +83,7 @@ The tests use an in-memory SQLite database and separate sample data. They are no
 
 ## Product Images
 
-Uploaded images are stored in `app/static/uploads` for local development. This is free and simple, but many free hosting services erase local files on redeploy or restart. For production, use a host with persistent disk storage or move uploads to an object storage service. Do not upload private address information or payment screenshots.
+Product image uploads use Cloudinary in production. Legacy sample images and local development files may still live in `app/static/uploads`, but ordinary Render files are not durable across deploys or restarts. Do not upload private address information or payment screenshots.
 
 ## Deployment Notes
 
@@ -116,3 +116,32 @@ The starter catalogue uses confirmed prices only: bonnet KSh 120, ankle socks KS
 Admin product management is available at `/admin/products`. Administrators can search/filter inventory, add products, upload one or more product images, preview selected images, choose a primary image, remove images, update stock, mark products sold out, hide products, or delete products with confirmation.
 
 The shop page uses `/api/products` for paginated infinite scrolling. Search, category filters, and sorting are preserved while more products load.
+## Cloudinary Product Images
+
+Production product photos are stored in Cloudinary so they survive Render deploys and restarts. Create a Cloudinary account, open the dashboard, and copy the cloud name, API key, and API secret into Render environment variables:
+
+```text
+CLOUDINARY_CLOUD_NAME
+CLOUDINARY_API_KEY
+CLOUDINARY_API_SECRET
+```
+
+Keep these values private. Do not commit them to GitHub or paste them into issue threads.
+
+The app adds two compatible columns to `product_image` on startup: `storage_backend` and `cloudinary_public_id`. Existing filename records remain readable. New admin uploads and online image imports require Cloudinary to be configured; otherwise the admin receives a clear error and the product is not falsely saved with a missing image.
+
+After deploying with the environment variables set, run the normal database initializer once if needed:
+
+```powershell
+flask --app wsgi.py init-db
+```
+
+To migrate legacy local image files that are still present on the machine running the command, run this explicit one-off command:
+
+```powershell
+flask --app wsgi.py migrate-product-images
+```
+
+The migration skips sample images and records already migrated, uploads only files it can actually read from `UPLOAD_FOLDER`, and updates each database record only after Cloudinary upload succeeds. It does not delete local originals. If Render no longer has the old uploaded files, the original image bytes cannot be recovered from the saved filename alone; those products remain identifiable in the command output and should be re-uploaded manually from the admin product form.
+
+To verify deployment, open `/admin/products`, edit a product, upload a small jpg/png/webp/gif, save, and confirm the thumbnail appears in the admin list, home/shop cards, and product detail page. If migration or upload fails, keep the database as-is, check the Render environment variables, rerun `migrate-product-images` for legacy files, or re-upload the affected product photos manually.

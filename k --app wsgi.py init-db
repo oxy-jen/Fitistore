@@ -1,0 +1,9 @@
+warning: in the working copy of '.env.example', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/__init__.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/admin/routes.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/models.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/public/routes.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'config.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'requirements.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/test_app.py', LF will be replaced by CRLF the next time Git touches it

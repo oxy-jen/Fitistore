@@ -7,7 +7,6 @@ import socket
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
-from uuid import uuid4
 from flask import Blueprint, Response, current_app, flash, redirect, render_template, request, send_from_directory, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func, or_
@@ -18,6 +17,7 @@ from app.models import AdminUser, Category, Expense, FinancialAuditEvent, Invent
 from app.services.formatting import parse_money
 from app.services.inventory import InventoryError, adjust_stock, adjust_variant_stock, low_stock_products
 from app.services.orders import FULFILMENT_STATUSES, PAYMENT_STATUSES, award_loyalty_for_order, refundable_cents, sales_summary, update_order_status
+from app.services.product_images import ImageStorageError, cloudinary_configured, cloudinary_public_id, delete_cloudinary_asset, upload_image_bytes
 
 admin_bp = Blueprint("admin", __name__, template_folder="../templates/admin")
 
@@ -29,7 +29,6 @@ IMAGE_SIGNATURES = {
     "gif": (b"GIF87a", b"GIF89a"),
     "svg": (b"<svg", b"<?xml"),
 }
-SAMPLE_IMAGE_PREFIX = "sample-"
 
 def parse_variant_rows(raw_text, product):
     rows = []
@@ -148,16 +147,31 @@ def is_public_image_url(url):
         return False
     return True
 
-def append_product_image(product, filename, alt_text):
-    if not product.images:
-        is_primary = True
-    else:
-        is_primary = False
-    product.images.append(ProductImage(filename=filename, alt_text=alt_text[:255] or f"{product.name} image", sort_order=len(product.images), is_primary=is_primary))
+def append_product_image(product, filename, alt_text, cloudinary_id=None):
+    is_primary = not bool(product.images)
+    product.images.append(ProductImage(
+        filename=filename,
+        storage_backend="cloudinary" if cloudinary_id else "local",
+        cloudinary_public_id=cloudinary_id,
+        alt_text=alt_text[:255] or f"{product.name} image",
+        sort_order=len(product.images),
+        is_primary=is_primary,
+    ))
+
+
+def append_cloudinary_image(product, original_filename, data, alt_text, prefix="products"):
+    public_id = cloudinary_public_id(product, original_filename, prefix=prefix)
+    upload_image_bytes(data, public_id)
+    safe = secure_filename(original_filename) or "product-image"
+    append_product_image(product, safe[:255], alt_text, cloudinary_id=public_id)
+
 
 def save_image_from_url(url, product):
     url = (url or "").strip()
     if not url:
+        return
+    if not cloudinary_configured():
+        flash("Cloudinary is not configured. Set the Cloudinary environment variables before importing product images.", "error")
         return
     if not is_public_image_url(url):
         flash("Online image URL must be a public http(s) image address.", "error")
@@ -183,31 +197,34 @@ def save_image_from_url(url, product):
     if error:
         flash(error, "error")
         return
-    upload_dir = Path(current_app.config["UPLOAD_FOLDER"])
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{uuid4().hex}_online.{ext}"
-    (upload_dir / filename).write_bytes(data)
-    append_product_image(product, filename, f"{product.name} product image")
+    try:
+        append_cloudinary_image(product, original_name, data, f"{product.name} product image", prefix="imports")
+    except ImageStorageError as exc:
+        current_app.logger.warning("Could not import product image to Cloudinary: %s", exc)
+        flash(str(exc), "error")
+
 
 def save_images(files, product):
-    upload_dir = Path(current_app.config["UPLOAD_FOLDER"])
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    files = [file for file in files if file and file.filename]
+    if files and not cloudinary_configured():
+        flash("Cloudinary is not configured. Set the Cloudinary environment variables before uploading product images.", "error")
+        return
     for file in files:
-        if not file or not file.filename:
-            continue
         data = file.read(current_app.config["MAX_CONTENT_LENGTH"] + 1)
         file.stream.seek(0)
         ext, error = validate_image_bytes(file.filename, data)
         if error:
             flash(f"Skipped {file.filename}: {error}", "warning")
             continue
-        safe = secure_filename(file.filename) or f"product.{ext}"
-        filename = f"{uuid4().hex}_{safe}"
-        (upload_dir / filename).write_bytes(data)
-        append_product_image(product, filename, f"{product.name} image")
+        try:
+            append_cloudinary_image(product, file.filename, data, f"{product.name} image")
+        except ImageStorageError as exc:
+            current_app.logger.warning("Could not upload product image to Cloudinary: %s", exc)
+            flash(f"Skipped {file.filename}: {exc}", "error")
+
 
 def remove_image_file(filename):
-    if not filename or filename.startswith(SAMPLE_IMAGE_PREFIX):
+    if not filename or filename.startswith("sample-"):
         return
     path = Path(current_app.config["UPLOAD_FOLDER"]) / filename
     try:
@@ -216,6 +233,12 @@ def remove_image_file(filename):
     except OSError:
         current_app.logger.warning("Could not delete uploaded image %s", filename)
 
+
+def remove_product_image_asset(image):
+    if image.cloudinary_public_id:
+        delete_cloudinary_asset(image.cloudinary_public_id)
+    else:
+        remove_image_file(image.filename)
 @admin_bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -317,6 +340,8 @@ def product_form(product_id=None):
         except ValueError as exc:
             flash(str(exc), "error")
             return render_template("admin/product_form.html", title="Product", product=product if product.id else None, categories=categories)
+        db.session.add(product)
+        db.session.flush()
         save_images(request.files.getlist("images"), product)
         save_image_from_url(request.form.get("online_image_url"), product)
         if not product.images:
@@ -325,7 +350,6 @@ def product_form(product_id=None):
             return render_template("admin/product_form.html", title="Product", product=product if product.id else None, categories=categories)
         if product.images and not any(image.is_primary for image in product.images):
             product.images[0].is_primary = True
-        db.session.add(product)
         db.session.commit()
         flash("Product saved.", "success")
         return redirect(url_for("admin.products"))
@@ -370,8 +394,13 @@ def delete_product(product_id):
     if request.form.get("confirm") != "DELETE":
         flash("Type DELETE to confirm product deletion.", "error")
         return redirect(url_for("admin.product_form", product_id=product.id))
-    for image in product.images:
-        remove_image_file(image.filename)
+    try:
+        for image in product.images:
+            remove_product_image_asset(image)
+    except ImageStorageError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+        return redirect(url_for("admin.product_form", product_id=product.id))
     db.session.delete(product)
     db.session.commit()
     flash("Product deleted.", "success")
@@ -394,7 +423,12 @@ def delete_product_image(product_id, image_id):
     product = Product.query.get_or_404(product_id)
     image = ProductImage.query.filter_by(id=image_id, product_id=product.id).first_or_404()
     was_primary = image.is_primary
-    remove_image_file(image.filename)
+    try:
+        remove_product_image_asset(image)
+    except ImageStorageError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+        return redirect(url_for("admin.product_form", product_id=product.id))
     db.session.delete(image)
     db.session.flush()
     if was_primary and product.images:

@@ -1,8 +1,10 @@
+import io
+
 import pytest
 from werkzeug.security import generate_password_hash
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, Category, Product, ProductSuggestion, Review, ShopSettings
+from app.models import AdminUser, Category, Product, ProductImage, ProductSuggestion, Review, ShopSettings
 from config import TestConfig
 
 @pytest.fixture()
@@ -291,3 +293,159 @@ def test_variant_product_shows_price_range_and_options(client, app):
     assert b"Small / Black / Basic" in detail.data
     assert b"Large / Black / Premium" in detail.data
     assert b"SOCK-S" in detail.data
+
+def test_cloudinary_missing_credentials_blocks_admin_upload(client, app):
+    client.post("/admin/login", data={"username":"owner","password":"secret123"})
+    with app.app_context():
+        category_id = Category.query.first().id
+    rv = client.post("/admin/products/new", data={
+        "name": "Photo Socks",
+        "category_id": str(category_id),
+        "description": "Needs cloud upload",
+        "price": "100",
+        "stock_quantity": "1",
+        "low_stock_threshold": "1",
+        "variants_text": "",
+        "images": (io.BytesIO(b"\xff\xd8\xffimage"), "sock.jpg"),
+    }, content_type="multipart/form-data", follow_redirects=True)
+    assert b"Cloudinary is not configured" in rv.data
+    with app.app_context():
+        assert Product.query.filter_by(slug="photo-socks").first() is None
+
+
+def test_admin_image_upload_to_cloudinary_success(client, app, monkeypatch):
+    app.config.update(CLOUDINARY_CLOUD_NAME="demo", CLOUDINARY_API_KEY="key", CLOUDINARY_API_SECRET="secret")
+    uploaded = []
+    def fake_upload(data, public_id, resource_type="image"):
+        uploaded.append(public_id)
+        return {"public_id": public_id}
+    monkeypatch.setattr("app.admin.routes.upload_image_bytes", fake_upload)
+    client.post("/admin/login", data={"username":"owner","password":"secret123"})
+    with app.app_context():
+        category_id = Category.query.first().id
+    rv = client.post("/admin/products/new", data={
+        "name": "Cloud Socks",
+        "category_id": str(category_id),
+        "description": "Cloud image",
+        "price": "100",
+        "stock_quantity": "3",
+        "low_stock_threshold": "1",
+        "variants_text": "",
+        "active": "on",
+        "images": (io.BytesIO(b"\xff\xd8\xffimage"), "sock.jpg"),
+    }, content_type="multipart/form-data", follow_redirects=True)
+    assert b"Product saved" in rv.data
+    assert uploaded
+    with app.app_context():
+        product = Product.query.filter_by(slug="cloud-socks").first()
+        assert product.images[0].cloudinary_public_id.startswith("fity/products/product-")
+        assert product.images[0].storage_backend == "cloudinary"
+        assert product.images[0].is_primary is True
+
+
+def test_admin_image_upload_cloudinary_failure_does_not_save(client, app, monkeypatch):
+    from app.services.product_images import ImageStorageError
+    app.config.update(CLOUDINARY_CLOUD_NAME="demo", CLOUDINARY_API_KEY="key", CLOUDINARY_API_SECRET="secret")
+    def fake_upload(data, public_id, resource_type="image"):
+        raise ImageStorageError("Cloudinary upload failed. Please try again.")
+    monkeypatch.setattr("app.admin.routes.upload_image_bytes", fake_upload)
+    client.post("/admin/login", data={"username":"owner","password":"secret123"})
+    with app.app_context():
+        category_id = Category.query.first().id
+    rv = client.post("/admin/products/new", data={
+        "name": "Broken Cloud Socks",
+        "category_id": str(category_id),
+        "description": "Cloud failure",
+        "price": "100",
+        "stock_quantity": "3",
+        "low_stock_threshold": "1",
+        "variants_text": "",
+        "images": (io.BytesIO(b"\xff\xd8\xffimage"), "sock.jpg"),
+    }, content_type="multipart/form-data", follow_redirects=True)
+    assert b"Cloudinary upload failed" in rv.data
+    with app.app_context():
+        assert Product.query.filter_by(slug="broken-cloud-socks").first() is None
+
+
+def test_image_validation_rejects_extension_bytes_and_size(app):
+    from app.admin.routes import validate_image_bytes
+    with app.app_context():
+        assert validate_image_bytes("bad.txt", b"abc")[1]
+        assert validate_image_bytes("bad.jpg", b"not-an-image")[1]
+        too_large = b"\xff\xd8\xff" + (b"0" * app.config["MAX_CONTENT_LENGTH"])
+        assert validate_image_bytes("big.jpg", too_large)[1] == "Image is too large."
+
+
+def test_multiple_cloudinary_images_primary_selection(client, app, monkeypatch):
+    app.config.update(CLOUDINARY_CLOUD_NAME="demo", CLOUDINARY_API_KEY="key", CLOUDINARY_API_SECRET="secret")
+    monkeypatch.setattr("app.admin.routes.upload_image_bytes", lambda data, public_id, resource_type="image": {"public_id": public_id})
+    client.post("/admin/login", data={"username":"owner","password":"secret123"})
+    with app.app_context():
+        category_id = Category.query.first().id
+    rv = client.post("/admin/products/new", data={
+        "name": "Gallery Socks",
+        "category_id": str(category_id),
+        "description": "Two images",
+        "price": "100",
+        "stock_quantity": "3",
+        "low_stock_threshold": "1",
+        "variants_text": "",
+        "images": [(io.BytesIO(b"\xff\xd8\xffone"), "one.jpg"), (io.BytesIO(b"\xff\xd8\xfftwo"), "two.jpg")],
+    }, content_type="multipart/form-data", follow_redirects=True)
+    assert b"Product saved" in rv.data
+    with app.app_context():
+        product = Product.query.filter_by(slug="gallery-socks").first()
+        assert len(product.images) == 2
+        assert [image.is_primary for image in product.images] == [True, False]
+
+
+def test_cloudinary_url_and_legacy_fallback_helpers(app):
+    from app.services.product_images import product_image_url, valid_product_image
+    app.config.update(CLOUDINARY_CLOUD_NAME="demo")
+    with app.test_request_context():
+        cloud = ProductImage(filename="sock.jpg", cloudinary_public_id="fity/products/sock", alt_text="Sock")
+        assert product_image_url(cloud) == "https://res.cloudinary.com/demo/image/upload/fity/products/sock"
+        missing = ProductImage(filename="missing.jpg", alt_text="Missing")
+        assert valid_product_image(missing) is False
+        assert product_image_url(missing).endswith("/static/images/mainLogo.png")
+
+
+def test_cloudinary_image_delete_failure_keeps_record(client, app, monkeypatch):
+    from app.services.product_images import ImageStorageError
+    app.config.update(CLOUDINARY_CLOUD_NAME="demo", CLOUDINARY_API_KEY="key", CLOUDINARY_API_SECRET="secret")
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        image = ProductImage(filename="sock.jpg", cloudinary_public_id="fity/products/sock", storage_backend="cloudinary", alt_text="Sock", is_primary=True)
+        product.images.append(image)
+        db.session.commit()
+        product_id = product.id
+        image_id = image.id
+    monkeypatch.setattr("app.admin.routes.delete_cloudinary_asset", lambda public_id: (_ for _ in ()).throw(ImageStorageError("Cloudinary deletion was not confirmed.")))
+    client.post("/admin/login", data={"username":"owner","password":"secret123"})
+    rv = client.post(f"/admin/products/{product_id}/images/{image_id}/delete", follow_redirects=True)
+    assert b"Cloudinary deletion was not confirmed" in rv.data
+    with app.app_context():
+        assert ProductImage.query.get(image_id) is not None
+
+
+def test_legacy_image_migration_cli(client, app, monkeypatch):
+    app.config.update(CLOUDINARY_CLOUD_NAME="demo", CLOUDINARY_API_KEY="key", CLOUDINARY_API_SECRET="secret")
+    upload_dir = app.config["UPLOAD_FOLDER"]
+    from pathlib import Path
+    Path(upload_dir).mkdir(parents=True, exist_ok=True)
+    Path(upload_dir, "legacy.jpg").write_bytes(b"\xff\xd8\xfflegacy")
+    uploaded = []
+    monkeypatch.setattr("app.upload_image_bytes", lambda data, public_id, resource_type="image": uploaded.append(public_id) or {"public_id": public_id})
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        image = ProductImage(filename="legacy.jpg", alt_text="Legacy", is_primary=True)
+        product.images.append(image)
+        db.session.commit()
+        image_id = image.id
+    result = app.test_cli_runner().invoke(args=["migrate-product-images"])
+    assert result.exit_code == 0
+    assert "migrated=1" in result.output
+    with app.app_context():
+        image = ProductImage.query.get(image_id)
+        assert image.cloudinary_public_id == f"fity/legacy/product-image-{image_id}"
+        assert image.storage_backend == "cloudinary"

@@ -1,4 +1,4 @@
-﻿Flask==3.0.3
+Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
 Flask-Login==0.6.3
 Flask-WTF==1.2.1
@@ -7,3 +7,4 @@ python-dotenv==1.0.1
 pytest==8.3.2
 gunicorn
 psycopg[binary]
+cloudinary==1.41.0

@@ -99,6 +99,8 @@ class ProductImage(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     product_id = db.Column(db.Integer, db.ForeignKey("product.id"), nullable=False)
     filename = db.Column(db.String(255), nullable=False)
+    storage_backend = db.Column(db.String(20), default="local", nullable=False)
+    cloudinary_public_id = db.Column(db.String(255))
     alt_text = db.Column(db.String(255), nullable=False, default="Product image")
     sort_order = db.Column(db.Integer, default=0, nullable=False)
     is_primary = db.Column(db.Boolean, default=False, nullable=False)

@@ -11,6 +11,7 @@ from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
+from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
 from werkzeug.utils import secure_filename
 
 public_bp = Blueprint("public", __name__)
@@ -54,34 +55,6 @@ def tracking_steps_for(order):
             "state": "current" if status == order.status else "done" if reached else "upcoming",
         })
     return steps
-
-def valid_product_image(image):
-    if not image or not image.filename:
-        return False
-    upload_dir = Path(current_app.config["UPLOAD_FOLDER"]).resolve()
-    image_path = (upload_dir / image.filename).resolve()
-    if image_path.parent != upload_dir:
-        return False
-    if image_path.suffix.lower().lstrip(".") not in current_app.config["ALLOWED_IMAGE_EXTENSIONS"]:
-        return False
-    return image_path.is_file()
-
-def product_display_image(product):
-    primary = [image for image in product.images if image.is_primary]
-    for image in primary + list(product.images):
-        if valid_product_image(image):
-            return image
-    return None
-
-def product_image_url(image):
-    if valid_product_image(image):
-        return url_for("static", filename="uploads/" + image.filename)
-    return url_for("static", filename="images/mainLogo.png")
-
-def product_image_alt(image, fallback="Temporary product placeholder"):
-    if valid_product_image(image):
-        return image.alt_text
-    return fallback
 
 def allowed_upload(filename):
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""

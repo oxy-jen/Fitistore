@@ -8,6 +8,7 @@ from werkzeug.security import generate_password_hash
 from config import Config
 from .extensions import db, login_manager, csrf
 from .models import AdminUser, Category, Order, OrderItem, Product, ProductImage, ShopSettings
+from .services.product_images import ImageStorageError, legacy_local_image_path, upload_image_bytes
 
 DEFAULT_CATEGORIES = [
     "Ankle socks", "Hair bonnets", "Shower caps", "Panties", "Vests", "Boxers", "Hair bands", "Shoes"
@@ -189,6 +190,42 @@ def register_cli(app: Flask):
         db.session.commit()
         click.echo("FITY database is ready.")
 
+
+    @app.cli.command("migrate-product-images")
+    def migrate_product_images():
+        """Upload accessible legacy local product images to Cloudinary."""
+        db.create_all()
+        ensure_columns()
+        migrated = skipped = failed = missing = 0
+        for image in ProductImage.query.order_by(ProductImage.id).all():
+            if image.cloudinary_public_id:
+                skipped += 1
+                click.echo(f"skip image {image.id}: already has Cloudinary public id")
+                continue
+            if image.filename.startswith("sample-"):
+                skipped += 1
+                click.echo(f"skip image {image.id}: sample image")
+                continue
+            image_path = legacy_local_image_path(image)
+            if not image_path or not image_path.is_file():
+                missing += 1
+                click.echo(f"missing image {image.id}: {image.filename}")
+                continue
+            public_id = f"fity/legacy/product-image-{image.id}"
+            try:
+                upload_image_bytes(image_path.read_bytes(), public_id)
+            except ImageStorageError as exc:
+                failed += 1
+                db.session.rollback()
+                click.echo(f"fail image {image.id}: {exc}")
+                continue
+            image.cloudinary_public_id = public_id
+            image.storage_backend = "cloudinary"
+            db.session.commit()
+            migrated += 1
+            click.echo(f"migrated image {image.id}: {image.filename}")
+        click.echo(f"Done. migrated={migrated} skipped={skipped} missing={missing} failed={failed}")
+
     @app.cli.command("create-admin")
     @click.argument("username")
     @click.password_option()
@@ -304,6 +341,10 @@ def ensure_columns():
             db.session.execute(text('ALTER TABLE product_image ADD COLUMN sort_order INTEGER DEFAULT 0 NOT NULL'))
         if "is_primary" not in image_columns:
             db.session.execute(text('ALTER TABLE product_image ADD COLUMN is_primary BOOLEAN DEFAULT 0 NOT NULL'))
+        if "storage_backend" not in image_columns:
+            db.session.execute(text("ALTER TABLE product_image ADD COLUMN storage_backend VARCHAR(20) DEFAULT 'local' NOT NULL"))
+        if "cloudinary_public_id" not in image_columns:
+            db.session.execute(text('ALTER TABLE product_image ADD COLUMN cloudinary_public_id VARCHAR(255)'))
 
     if "product_variant" in table_names:
         variant_columns = {column["name"] for column in inspector.get_columns("product_variant")}
