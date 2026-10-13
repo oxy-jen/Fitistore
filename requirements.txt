@@ -6,3 +6,4 @@ email-validator==2.2.0
 python-dotenv==1.0.1
 pytest==8.3.2
 gunicorn
+psycopg2-binary
