@@ -634,3 +634,28 @@ def test_admin_cloudinary_mapping_page_dry_run_and_apply(client, app):
         assert image.storage_backend == "cloudinary"
         assert product.price_cents == 15000
         assert product.stock_quantity == 4
+
+def test_admin_cloudinary_page_accepts_pasted_cloudinary_url(client, app):
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        product.images.append(ProductImage(filename="missing-local.jpg", alt_text="Missing local", is_primary=True))
+        db.session.commit()
+        image_id = product.images[-1].id
+
+    response = client.post(
+        "/admin/cloudinary-images",
+        data={
+            "action": "single",
+            "image_id": str(image_id),
+            "cloudinary_value": "https://res.cloudinary.com/demo/image/upload/v1720000000/fity/products/product-1/abc123-socks.jpg",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Cloudinary image saved" in response.data
+    with app.app_context():
+        image = ProductImage.query.get(image_id)
+        assert image.cloudinary_public_id == "fity/products/product-1/abc123-socks"
+        assert image.storage_backend == "cloudinary"

@@ -6,7 +6,7 @@ import re
 import socket
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from flask import Blueprint, Response, current_app, flash, redirect, render_template, request, send_from_directory, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func, or_
@@ -239,6 +239,34 @@ def remove_product_image_asset(image):
         delete_cloudinary_asset(image.cloudinary_public_id)
     else:
         remove_image_file(image.filename)
+
+
+def cloudinary_public_id_from_input(value):
+    value = (value or "").strip()
+    if not value:
+        return ""
+    parsed = urlparse(value)
+    if parsed.scheme and parsed.netloc:
+        marker = "/image/upload/"
+        if marker not in parsed.path:
+            raise ValueError("Paste a Cloudinary image URL or public ID.")
+        value = unquote(parsed.path.split(marker, 1)[1]).lstrip("/")
+    value = value.split("?", 1)[0].strip().strip("/")
+    parts = [part for part in value.split("/") if part]
+    while parts and (parts[0].startswith("c_") or parts[0].startswith("w_") or parts[0].startswith("q_") or parts[0].startswith("f_")):
+        parts.pop(0)
+    if parts and re.fullmatch(r"v\d+", parts[0]):
+        parts.pop(0)
+    value = "/".join(parts)
+    if not value:
+        raise ValueError("Paste a Cloudinary image URL or public ID.")
+    if "." in value.rsplit("/", 1)[-1]:
+        stem, ext = value.rsplit(".", 1)
+        if ext.lower() in current_app.config["ALLOWED_IMAGE_EXTENSIONS"]:
+            value = stem
+    if "/" not in value and len(value) < 3:
+        raise ValueError("Cloudinary public ID looks too short.")
+    return value
 @admin_bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -542,6 +570,23 @@ def cloudinary_images():
                 db.session.rollback()
                 current_app.logger.exception("Cloudinary schema setup failed")
                 flash(f"Cloudinary schema setup failed: {exc}", "error")
+            return redirect(url_for("admin.cloudinary_images"))
+
+        if action == "single":
+            try:
+                ensure_cloudinary_image_columns()
+                image = ProductImage.query.get_or_404(int(request.form.get("image_id") or 0))
+                image.cloudinary_public_id = cloudinary_public_id_from_input(request.form.get("cloudinary_value"))
+                image.storage_backend = "cloudinary"
+                db.session.commit()
+                flash(f"Cloudinary image saved for {image.product.name}.", "success")
+            except ValueError as exc:
+                db.session.rollback()
+                flash(str(exc), "error")
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.exception("Cloudinary image save failed")
+                flash(f"Cloudinary image save failed: {exc}", "error")
             return redirect(url_for("admin.cloudinary_images"))
 
         if action == "mapping":
