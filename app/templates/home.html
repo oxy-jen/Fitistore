@@ -1,24 +1,14 @@
 {% extends "base.html" %}{% block content %}
 <div class="home-market">
-  <section class="market-hero" aria-label="FITY home shopping shortcuts">
-    <aside class="market-categories" aria-label="Shop by category">
-      <h2>Shop by category</h2>
-      {% for category in categories %}<a href="{{ url_for('public.shop', category=category.slug) }}"><span>{{ category.name }}</span><small>Shop now</small></a>{% endfor %}
-    </aside>
+  <section class="market-hero home-shop-start" aria-label="Start shopping">
     <div class="market-main">
       <form class="market-search" action="{{ url_for('public.shop') }}"><input name="q" placeholder="Search products, brands, categories..." aria-label="Search products"><button class="btn primary">Search</button></form>
-      <div class="market-banner">
+      <div class="market-banner compact-banner">
         <p class="eyebrow">{{ settings.tagline }}</p>
-        <h1>Fresh essentials, ready when you are</h1>
-        <p>Fast local shopping for everyday fashion, student-friendly fits, Mamba picks, and direct seller support.</p>
-        <div class="actions"><a class="btn primary" href="{{ url_for('public.shop') }}">Shop now</a><a class="btn" href="{{ url_for('public.upcoming') }}">Upcoming goods</a></div>
+        <h1>Shop fresh essentials</h1>
+        <div class="actions"><a class="btn primary" href="{{ url_for('public.shop') }}">Shop now</a><a class="btn" href="{{ url_for('public.track_order') }}">Track order</a></div>
       </div>
     </div>
-    <aside class="market-assurance" aria-label="Shopping support">
-      <article><strong>Confirm first</strong><span>Check size, colour, stock, and delivery before payment.</span></article>
-      <article><strong>M-Pesa ready</strong><span>{{ settings.payment_number or '0141809661' }}</span></article>
-      <article><strong>Track orders</strong><span>See seller updates from order received to delivery.</span></article>
-    </aside>
   </section>
 
   {% if featured %}<section class="deal-strip featured-showcase"><div class="section-title"><div><p class="eyebrow">Featured picks</p><h2>Top deals and fresh arrivals</h2></div><a href="{{ url_for('public.shop') }}">See all</a></div><div class="product-marquee" aria-label="Featured products"><div class="marquee-track">{% for product in featured %}<div class="marquee-item">{% include "partials/product_card.html" %}</div>{% endfor %}{% for product in featured %}<div class="marquee-item" aria-hidden="true">{% include "partials/product_card.html" %}</div>{% endfor %}</div></div></section>{% endif %}
