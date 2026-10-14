@@ -691,7 +691,7 @@ def ensure_columns():
         if "default_low_stock_threshold" not in settings_columns:
             db.session.execute(text('ALTER TABLE shop_settings ADD COLUMN default_low_stock_threshold INTEGER DEFAULT 3 NOT NULL'))
         if "loyalty_enabled" not in settings_columns:
-            db.session.execute(text('ALTER TABLE shop_settings ADD COLUMN loyalty_enabled BOOLEAN DEFAULT 0 NOT NULL'))
+            db.session.execute(text('ALTER TABLE shop_settings ADD COLUMN loyalty_enabled BOOLEAN DEFAULT false NOT NULL'))
         if "loyalty_points_per_100" not in settings_columns:
             db.session.execute(text('ALTER TABLE shop_settings ADD COLUMN loyalty_points_per_100 INTEGER DEFAULT 1 NOT NULL'))
         if "loyalty_min_redeem_points" not in settings_columns:
@@ -699,12 +699,13 @@ def ensure_columns():
         if "loyalty_point_value_cents" not in settings_columns:
             db.session.execute(text('ALTER TABLE shop_settings ADD COLUMN loyalty_point_value_cents INTEGER DEFAULT 100 NOT NULL'))
         if "referral_enabled" not in settings_columns:
-            db.session.execute(text('ALTER TABLE shop_settings ADD COLUMN referral_enabled BOOLEAN DEFAULT 0 NOT NULL'))
+            db.session.execute(text('ALTER TABLE shop_settings ADD COLUMN referral_enabled BOOLEAN DEFAULT false NOT NULL'))
         if "referral_reward_points" not in settings_columns:
             db.session.execute(text('ALTER TABLE shop_settings ADD COLUMN referral_reward_points INTEGER DEFAULT 50 NOT NULL'))
         if "referral_min_order_cents" not in settings_columns:
             db.session.execute(text('ALTER TABLE shop_settings ADD COLUMN referral_min_order_cents INTEGER DEFAULT 0 NOT NULL'))
 
     db.session.commit()
+
 
 

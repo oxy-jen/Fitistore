@@ -530,6 +530,27 @@ def update_review(review_id):
     flash("Review updated.", "success")
     return redirect(url_for("admin.review_admin"))
 
+def parse_nonnegative_int_field(name, default=0):
+    value = (request.form.get(name) or "").strip()
+    if not value:
+        return default
+    try:
+        return max(0, int(value))
+    except ValueError as exc:
+        raise ValueError(f"Enter a whole number for {name.replace('_', ' ')}.") from exc
+
+
+def parse_nonnegative_money_field(name, default=0):
+    value = (request.form.get(name) or "").strip()
+    if not value:
+        return default
+    try:
+        parsed = parse_money(value)
+    except ValueError as exc:
+        raise ValueError(f"Enter a valid amount for {name.replace('_', ' ')}.") from exc
+    return max(0, parsed or default)
+
+
 @admin_bp.route("/settings", methods=["GET", "POST"])
 @login_required
 def settings():
@@ -537,17 +558,22 @@ def settings():
     if not settings.id:
         db.session.add(settings)
     if request.method == "POST":
-        for field in ["shop_name", "tagline", "whatsapp_number", "payment_number", "contact_email", "public_location", "collection_instructions", "delivery_area", "payment_instructions", "currency"]:
-            setattr(settings, field, request.form.get(field, "").strip())
-        settings.delivery_fee_cents = parse_money(request.form.get("delivery_fee"))
-        settings.default_low_stock_threshold = max(0, int(request.form.get("default_low_stock_threshold") or 3))
-        settings.loyalty_enabled = bool(request.form.get("loyalty_enabled"))
-        settings.loyalty_points_per_100 = max(0, int(request.form.get("loyalty_points_per_100") or 0))
-        settings.loyalty_min_redeem_points = max(0, int(request.form.get("loyalty_min_redeem_points") or 0))
-        settings.loyalty_point_value_cents = max(0, parse_money(request.form.get("loyalty_point_value")) or 0)
-        settings.referral_enabled = bool(request.form.get("referral_enabled"))
-        settings.referral_reward_points = max(0, int(request.form.get("referral_reward_points") or 0))
-        settings.referral_min_order_cents = max(0, parse_money(request.form.get("referral_min_order")) or 0)
+        try:
+            for field in ["shop_name", "tagline", "whatsapp_number", "payment_number", "contact_email", "public_location", "collection_instructions", "delivery_area", "payment_instructions", "currency"]:
+                setattr(settings, field, request.form.get(field, "").strip())
+            settings.delivery_fee_cents = parse_nonnegative_money_field("delivery_fee", None)
+            settings.default_low_stock_threshold = parse_nonnegative_int_field("default_low_stock_threshold", 3)
+            settings.loyalty_enabled = bool(request.form.get("loyalty_enabled"))
+            settings.loyalty_points_per_100 = parse_nonnegative_int_field("loyalty_points_per_100", 0)
+            settings.loyalty_min_redeem_points = parse_nonnegative_int_field("loyalty_min_redeem_points", 0)
+            settings.loyalty_point_value_cents = parse_nonnegative_money_field("loyalty_point_value", 0)
+            settings.referral_enabled = bool(request.form.get("referral_enabled"))
+            settings.referral_reward_points = parse_nonnegative_int_field("referral_reward_points", 0)
+            settings.referral_min_order_cents = parse_nonnegative_money_field("referral_min_order", 0)
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), "error")
+            return render_template("admin/settings.html", title="Settings", settings=settings), 400
         db.session.commit()
         flash("Settings saved.", "success")
         return redirect(url_for("admin.settings"))
@@ -871,5 +897,6 @@ def sales_csv():
     for order in Order.query.order_by(Order.created_at.desc()).all():
         writer.writerow([order.reference, order.created_at.isoformat(), order.customer_name, order.payment_status, order.status, order.total_cents])
     return Response(output.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=fity-sales.csv"})
+
 
 

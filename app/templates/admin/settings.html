@@ -10,19 +10,19 @@
   <label>Public location or service area<input name="public_location" value="{{ settings.public_location }}"></label>
   <label>Collection instructions<textarea name="collection_instructions">{{ settings.collection_instructions }}</textarea></label>
   <label>Delivery area<textarea name="delivery_area">{{ settings.delivery_area }}</textarea></label>
-  <label>Delivery fee in KSh<input name="delivery_fee" value="{{ (settings.delivery_fee_cents / 100) if settings.delivery_fee_cents is not none else '' }}"></label>
+  <label>Delivery fee in KSh<input name="delivery_fee" inputmode="decimal" step="0.01" value="{{ (settings.delivery_fee_cents / 100) if settings.delivery_fee_cents is not none else '' }}"></label>
   <label>Payment instructions<textarea name="payment_instructions">{{ settings.payment_instructions }}</textarea></label>
   <label>Currency<input name="currency" value="{{ settings.currency }}"></label>
-  <label>Default low-stock threshold<input name="default_low_stock_threshold" type="number" value="{{ settings.default_low_stock_threshold }}"></label>
-  <h2>Loyalty</h2>
+  <label>Default low-stock threshold<input name="default_low_stock_threshold" type="number" min="0" step="1" value="{{ settings.default_low_stock_threshold }}"></label>
+  <h2>Loyalty</h2><p class="note small settings-note">Points are awarded when an admin verifies an order as paid.</p>
   <label class="check"><input type="checkbox" name="loyalty_enabled" {% if settings.loyalty_enabled %}checked{% endif %}> Enable loyalty points</label>
-  <label>Points earned per KSh 100<input name="loyalty_points_per_100" type="number" min="0" value="{{ settings.loyalty_points_per_100 }}"></label>
-  <label>Minimum points to redeem<input name="loyalty_min_redeem_points" type="number" min="0" value="{{ settings.loyalty_min_redeem_points }}"></label>
-  <label>Value of one point in KSh<input name="loyalty_point_value" value="{{ (settings.loyalty_point_value_cents / 100) if settings.loyalty_point_value_cents is not none else '' }}"></label>
-  <h2>Referrals</h2>
+  <label>Points earned per KSh 100<input name="loyalty_points_per_100" type="number" min="0" step="1" value="{{ settings.loyalty_points_per_100 }}"></label>
+  <label>Minimum points to redeem<input name="loyalty_min_redeem_points" type="number" min="0" step="1" value="{{ settings.loyalty_min_redeem_points }}"></label>
+  <label>Value of one point in KSh<input name="loyalty_point_value" inputmode="decimal" step="0.01" value="{{ (settings.loyalty_point_value_cents / 100) if settings.loyalty_point_value_cents is not none else '' }}"></label>
+  <h2>Referrals</h2><p class="note small settings-note">Referral rewards are stored as points after a qualifying paid order is confirmed.</p>
   <label class="check"><input type="checkbox" name="referral_enabled" {% if settings.referral_enabled %}checked{% endif %}> Enable referral rewards</label>
-  <label>Referral reward points<input name="referral_reward_points" type="number" min="0" value="{{ settings.referral_reward_points }}"></label>
-  <label>Minimum qualifying order in KSh<input name="referral_min_order" value="{{ (settings.referral_min_order_cents / 100) if settings.referral_min_order_cents is not none else '' }}"></label>
+  <label>Referral reward points<input name="referral_reward_points" type="number" min="0" step="1" value="{{ settings.referral_reward_points }}"></label>
+  <label>Minimum qualifying order in KSh<input name="referral_min_order" inputmode="decimal" step="0.01" value="{{ (settings.referral_min_order_cents / 100) if settings.referral_min_order_cents is not none else '' }}"></label>
   <button class="btn primary">Save settings</button>
 </form>
 {% endblock %}
