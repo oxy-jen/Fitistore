@@ -2,7 +2,7 @@ from datetime import datetime
 from secrets import token_hex
 from sqlalchemy import func
 from app.extensions import db
-from app.models import Expense, FinancialAuditEvent, LoyaltyTransaction, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, RefundRequest
+from app.models import CustomerProfile, Expense, FinancialAuditEvent, LoyaltyTransaction, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, RefundRequest
 from .cart import validate_cart
 
 FULFILMENT_STATUSES = ["Order received", "Awaiting payment", "Payment confirmed", "Preparing order", "Ready for collection", "Out for delivery", "Completed", "Cancelled"]
@@ -13,10 +13,12 @@ ACTIVE_SALE_STATUSES = ["Payment confirmed", "Preparing order", "Ready for colle
 def make_reference():
     return "FITY-" + datetime.utcnow().strftime("%y%m%d") + "-" + token_hex(3).upper()
 
-def create_checkout_order(raw_items, customer_name, customer_phone, fulfilment_method, instructions, payment_reference="", payment_proof_filename=""):
+def create_checkout_order(raw_items, customer_name, customer_phone, fulfilment_method, instructions, payment_reference="", payment_proof_filename="", referral_code=""):
     validation = validate_cart(raw_items)
     if not validation.lines:
         return None, validation
+    referral_code = (referral_code or "").strip().upper()
+    referrer = CustomerProfile.query.filter_by(referral_code=referral_code).first() if referral_code else None
     order = Order(
         reference=make_reference(),
         customer_name=(customer_name or "").strip(),
@@ -25,6 +27,8 @@ def create_checkout_order(raw_items, customer_name, customer_phone, fulfilment_m
         instructions=(instructions or "").strip(),
         total_cents=validation.total_cents,
         has_unconfirmed_prices=validation.has_unconfirmed_prices,
+        referral_code=referral_code if referrer else "",
+        referrer_key=referrer.phone if referrer else "",
         payment_reference=(payment_reference or "").strip(),
         payment_proof_filename=(payment_proof_filename or "").strip(),
         payment_status="Payment reported" if ((payment_reference or "").strip() or (payment_proof_filename or "").strip()) else "Awaiting payment",
@@ -170,17 +174,35 @@ def loyalty_customer_key(order):
     return (order.customer_phone or order.customer_name or "").strip().lower()
 
 def award_loyalty_for_order(order, settings, admin=None):
-    if not settings.loyalty_enabled or not order.total_cents or order.payment_status != "Paid":
+    total_awarded = 0
+    if order.total_cents and order.payment_status == "Paid":
+        key = loyalty_customer_key(order)
+        if settings.loyalty_enabled and key:
+            existing = LoyaltyTransaction.query.filter_by(order_id=order.id, transaction_type="earn", status="posted").first()
+            points = ((order.total_cents or 0) // 10000) * max(0, settings.loyalty_points_per_100 or 0)
+            if not existing and points > 0:
+                db.session.add(LoyaltyTransaction(customer_key=key, order=order, transaction_type="earn", points=points, reason="Verified paid order", admin=admin if getattr(admin, "is_authenticated", False) else None))
+                db.session.add(FinancialAuditEvent(admin=admin if getattr(admin, "is_authenticated", False) else None, event_type="loyalty_awarded", entity_type="Order", entity_id=order.id, note=f"Awarded {points} point(s)"))
+                total_awarded += points
+        total_awarded += award_referral_for_order(order, settings, admin)
+    return total_awarded
+
+
+def award_referral_for_order(order, settings, admin=None):
+    if not settings.referral_enabled or not order.total_cents or order.payment_status != "Paid" or not order.referrer_key:
         return 0
-    key = loyalty_customer_key(order)
-    if not key:
+    customer_key = loyalty_customer_key(order)
+    if customer_key and customer_key == order.referrer_key:
         return 0
-    existing = LoyaltyTransaction.query.filter_by(order_id=order.id, transaction_type="earn", status="posted").first()
+    if settings.referral_min_order_cents and order.total_cents < settings.referral_min_order_cents:
+        return 0
+    existing = LoyaltyTransaction.query.filter_by(order_id=order.id, transaction_type="referral_order", status="posted").first()
     if existing:
         return 0
-    points = ((order.total_cents or 0) // 10000) * max(0, settings.loyalty_points_per_100 or 0)
+    points = max(0, settings.referral_reward_points or 0)
     if points <= 0:
         return 0
-    db.session.add(LoyaltyTransaction(customer_key=key, order=order, transaction_type="earn", points=points, reason="Verified paid order", admin=admin if getattr(admin, "is_authenticated", False) else None))
-    db.session.add(FinancialAuditEvent(admin=admin if getattr(admin, "is_authenticated", False) else None, event_type="loyalty_awarded", entity_type="Order", entity_id=order.id, note=f"Awarded {points} point(s)"))
+    db.session.add(LoyaltyTransaction(customer_key=order.referrer_key, order=order, transaction_type="referral_order", points=points, reason=f"Referral order {order.reference}", admin=admin if getattr(admin, "is_authenticated", False) else None))
+    db.session.add(FinancialAuditEvent(admin=admin if getattr(admin, "is_authenticated", False) else None, event_type="referral_awarded", entity_type="Order", entity_id=order.id, note=f"Awarded {points} referral point(s) to {order.referrer_key}"))
     return points
+

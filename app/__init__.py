@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash
 
 from config import Config
 from .extensions import db, login_manager, csrf
-from .models import AdminUser, Category, Order, OrderItem, Product, ProductImage, ShopSettings
+from .models import AdminUser, Category, CustomerProfile, Order, OrderItem, Product, ProductImage, ReferralClick, ShopSettings
 from .services.product_images import ImageStorageError, legacy_local_image_path, upload_image_bytes
 
 DEFAULT_CATEGORIES = [
@@ -556,6 +556,11 @@ def ensure_columns():
         if "variant_id" not in movement_columns:
             db.session.execute(text('ALTER TABLE inventory_movement ADD COLUMN variant_id INTEGER'))
 
+    if "customer_profile" not in table_names or "referral_click" not in table_names:
+        db.create_all()
+        inspector = inspect(db.engine)
+        table_names = inspector.get_table_names()
+
     if "order" in table_names:
         order_columns = {column["name"] for column in inspector.get_columns("order")}
         if "tracking_token" not in order_columns:
@@ -570,6 +575,10 @@ def ensure_columns():
             db.session.execute(text('ALTER TABLE "order" ADD COLUMN discount_cents INTEGER DEFAULT 0 NOT NULL'))
         if "has_unconfirmed_prices" not in order_columns:
             db.session.execute(text('ALTER TABLE "order" ADD COLUMN has_unconfirmed_prices BOOLEAN DEFAULT 0 NOT NULL'))
+        if "referral_code" not in order_columns:
+            db.session.execute(text('ALTER TABLE "order" ADD COLUMN referral_code VARCHAR(40) DEFAULT ""'))
+        if "referrer_key" not in order_columns:
+            db.session.execute(text('ALTER TABLE "order" ADD COLUMN referrer_key VARCHAR(120) DEFAULT ""'))
         if "notes" not in order_columns:
             db.session.execute(text('ALTER TABLE "order" ADD COLUMN notes TEXT DEFAULT ""'))
         for order in Order.query.filter((Order.tracking_token == None) | (Order.tracking_token == "")).all():
@@ -706,6 +715,7 @@ def ensure_columns():
             db.session.execute(text('ALTER TABLE shop_settings ADD COLUMN referral_min_order_cents INTEGER DEFAULT 0 NOT NULL'))
 
     db.session.commit()
+
 
 
 

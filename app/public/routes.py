@@ -3,16 +3,17 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
-from flask import Blueprint, Response, current_app, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 from sqlalchemy import or_
 from sqlalchemy.orm import joinedload, selectinload
 from app.extensions import db, csrf
-from app.models import Category, Order, Product, ProductEnquiry, ProductSuggestion, ProductVariant, RestockAlert, Review
+from app.models import Category, CustomerProfile, Order, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
 from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
+from app.services.referrals import get_or_create_profile, normalize_phone, record_referral_click, referral_points_balance
 from werkzeug.utils import secure_filename
 
 public_bp = Blueprint("public", __name__)
@@ -150,6 +151,46 @@ def home():
     mamba_category_ids = {product.category_id for product in mamba_products}
     mamba_categories = [category for category in categories if category.id in mamba_category_ids]
     return render_template("home.html", title="FITY essentials", featured=featured, discounted=discounted, latest_products=latest_products, categories=categories, category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories, suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE)
+
+
+@public_bp.route("/referrals", methods=["GET", "POST"])
+def referrals():
+    settings = current_settings()
+    profile = None
+    phone = session.get("referral_phone", "")
+    if request.method == "POST":
+        phone = request.form.get("phone", "").strip()
+        name = request.form.get("display_name", "").strip()
+        try:
+            profile = get_or_create_profile(phone, name, session.get("referral_code", ""))
+            db.session.commit()
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), "error")
+            return redirect(url_for("public.referrals"))
+        session["referral_phone"] = profile.phone
+        flash("Referral profile ready. Share your link to earn points.", "success")
+        return redirect(url_for("public.referrals"))
+    normalized = normalize_phone(phone)
+    if normalized:
+        profile = CustomerProfile.query.filter_by(phone=normalized).first()
+    share_url = url_for("public.referral_visit", code=profile.referral_code, _external=True) if profile else ""
+    click_count = ReferralClick.query.filter_by(referral_code=profile.referral_code).count() if profile else 0
+    rewarded_clicks = ReferralClick.query.filter_by(referral_code=profile.referral_code, rewarded=True).count() if profile else 0
+    points = referral_points_balance(profile.phone) if profile else 0
+    return render_template("referrals.html", title="Referrals", profile=profile, share_url=share_url, click_count=click_count, rewarded_clicks=rewarded_clicks, points=points, referral_settings=settings)
+
+
+@public_bp.route("/r/<code>")
+def referral_visit(code):
+    settings = current_settings()
+    profile, rewarded, message = record_referral_click(code, request, settings, session.get("referral_phone", ""))
+    session["referral_code"] = (code or "").strip().upper()
+    if profile:
+        flash("Referral link applied. Thanks for supporting FITY.", "success" if rewarded else "info")
+    else:
+        flash(message, "error")
+    return redirect(url_for("public.shop", ref=(code or "").strip().upper()))
 
 @public_bp.route("/upcoming")
 def upcoming():
@@ -413,10 +454,13 @@ def checkout():
             request.form.get("instructions", ""),
             request.form.get("payment_reference", ""),
             proof_filename,
+            session.get("referral_code", ""),
         )
         if not order:
             flash("Your cart could not be checked out. Please review the items and stock levels.", "error")
             return redirect(url_for("public.cart"))
+        if order.referral_code:
+            session["referral_code"] = order.referral_code
         link = whatsapp_link(order, settings)
         return render_template("checkout_ready.html", title="Open WhatsApp", order=order, validation=validation, whatsapp_url=link)
     return render_template("checkout.html", title="Checkout", whatsapp_ready=bool(settings.whatsapp_number))
@@ -462,6 +506,11 @@ def sitemap():
     urls += [url_for("public.product_detail", slug=p.slug, _external=True) for p in Product.query.filter_by(active=True).all()]
     body = "<?xml version='1.0' encoding='UTF-8'?><urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>" + "".join(f"<url><loc>{u}</loc></url>" for u in urls) + "</urlset>"
     return Response(body, mimetype="application/xml")
+
+
+
+
+
 
 
 

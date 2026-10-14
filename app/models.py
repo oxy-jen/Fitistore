@@ -175,6 +175,8 @@ class Order(TimestampMixin, db.Model):
     delivery_fee_cents = db.Column(db.Integer, default=0, nullable=False)
     discount_cents = db.Column(db.Integer, default=0, nullable=False)
     has_unconfirmed_prices = db.Column(db.Boolean, default=False, nullable=False)
+    referral_code = db.Column(db.String(40), default="", index=True)
+    referrer_key = db.Column(db.String(120), default="", index=True)
     notes = db.Column(db.Text, default="")
     items = db.relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     history = db.relationship("OrderStatusHistory", back_populates="order", cascade="all, delete-orphan", order_by="OrderStatusHistory.created_at.desc()")
@@ -326,6 +328,24 @@ class RefundRequest(TimestampMixin, db.Model):
     admin = db.relationship("AdminUser")
     __table_args__ = (CheckConstraint("amount_cents > 0", name="ck_refund_amount_positive"),)
 
+class CustomerProfile(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    phone = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    display_name = db.Column(db.String(120), default="")
+    referral_code = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    referred_by_code = db.Column(db.String(40), default="", index=True)
+
+class ReferralClick(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    referrer_id = db.Column(db.Integer, db.ForeignKey("customer_profile.id"), nullable=False, index=True)
+    referral_code = db.Column(db.String(40), nullable=False, index=True)
+    visitor_key = db.Column(db.String(96), nullable=False, index=True)
+    rewarded = db.Column(db.Boolean, default=False, nullable=False)
+    reward_points = db.Column(db.Integer, default=0, nullable=False)
+    referrer = db.relationship("CustomerProfile")
+    __table_args__ = (
+        UniqueConstraint("referral_code", "visitor_key", name="uq_referral_click_visitor"),
+    )
 class LoyaltyTransaction(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_key = db.Column(db.String(120), nullable=False, index=True)
@@ -379,4 +399,6 @@ class ShopSettings(TimestampMixin, db.Model):
     referral_enabled = db.Column(db.Boolean, default=False, nullable=False)
     referral_reward_points = db.Column(db.Integer, default=50, nullable=False)
     referral_min_order_cents = db.Column(db.Integer, default=0, nullable=False)
+
+
 

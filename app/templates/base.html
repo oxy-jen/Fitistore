@@ -45,6 +45,7 @@
         <a href="{{ url_for('public.contact') }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Contact</span></a>
         <a href="{{ url_for('public.reviews') }}"><svg class="icon"><use href="#icon-star"></use></svg><span>Reviews</span></a>
         <a href="{{ url_for('public.track_order') }}"><svg class="icon"><use href="#icon-truck"></use></svg><span>Track order</span></a>
+        <a href="{{ url_for('public.referrals') }}"><svg class="icon"><use href="#icon-star"></use></svg><span>Rewards</span></a>
       </div>
     </details>
   </nav>
@@ -57,12 +58,14 @@
 </main>
 <footer class="footer enhanced-footer">
   <div class="footer-brand"><strong>{{ settings.shop_name }}</strong><p>{{ settings.tagline }}</p><div class="footer-actions"><a class="btn primary" href="{{ whatsapp_text_link(settings, build_general_message(settings)) }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>WhatsApp FITY</span></a><a class="btn" href="tel:{{ local_contact_number }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Call {{ local_contact_number }}</span></a></div></div>
-  <div><h3>Quick links</h3><a href="{{ url_for('public.shop') }}">Shop products</a><a href="{{ url_for('public.cart') }}">View cart</a><a href="{{ url_for('public.contact') }}">Contact and delivery</a><a href="{{ url_for('public.upcoming') }}">Upcoming goods</a><a href="{{ url_for('public.reviews') }}">Reviews</a>
+  <div><h3>Quick links</h3><a href="{{ url_for('public.shop') }}">Shop products</a><a href="{{ url_for('public.cart') }}">View cart</a><a href="{{ url_for('public.contact') }}">Contact and delivery</a><a href="{{ url_for('public.upcoming') }}">Upcoming goods</a><a href="{{ url_for('public.reviews') }}">Reviews</a><a href="{{ url_for('public.referrals') }}">Rewards and referrals</a>
     <a href="{{ url_for('public.track_order') }}">Track order</a></div>
   <div><h3>Before payment</h3><p>Use WhatsApp or call to confirm price, stock, colour or size, delivery, and collection details.</p><p>{{ settings.payment_instructions }}</p></div>
   <div><h3>Collection and delivery</h3><p>{{ settings.collection_instructions }}</p><p>{{ settings.delivery_area }}</p></div>
 </footer>
 </body>
 </html>
+
+
 
 

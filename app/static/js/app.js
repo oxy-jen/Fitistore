@@ -77,4 +77,18 @@ document.addEventListener('DOMContentLoaded',()=>{
       });
     });
   }
-});
+
+  document.querySelectorAll('[data-copy-link]').forEach(button=>{
+    button.addEventListener('click',async()=>{
+      const link=button.dataset.copyLink||'';
+      try{
+        await navigator.clipboard.writeText(link);
+        button.textContent='Copied';
+      }catch(error){
+        const input=button.closest('.share-link-box')?.querySelector('input');
+        if(input){input.select();document.execCommand('copy');button.textContent='Copied';}
+      }
+      setTimeout(()=>{button.textContent='Copy'},1200);
+    });
+  });});
+

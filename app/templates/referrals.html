@@ -1,0 +1,50 @@
+﻿{% extends "base.html" %}{% block content %}
+<section class="referral-screen">
+  <div class="referral-hero">
+    <p class="eyebrow">BEI FITS rewards</p>
+    <h1>Share your link. Earn points.</h1>
+    <p>Create a lightweight profile with your phone number, then share your referral link with friends.</p>
+  </div>
+
+  {% if profile %}
+    <section class="referral-card referral-profile-card">
+      <div>
+        <span>Your referral code</span>
+        <strong>{{ profile.referral_code }}</strong>
+        <p>{{ profile.phone }}{% if profile.display_name %} | {{ profile.display_name }}{% endif %}</p>
+      </div>
+      <div class="referral-stats">
+        <article><span>Points</span><strong>{{ points }}</strong></article>
+        <article><span>Visits</span><strong>{{ click_count }}</strong></article>
+        <article><span>Rewarded</span><strong>{{ rewarded_clicks }}</strong></article>
+      </div>
+    </section>
+
+    <section class="referral-card">
+      <h2>Your share link</h2>
+      <div class="share-link-box"><input value="{{ share_url }}" readonly onclick="this.select()"><button class="btn" type="button" data-copy-link="{{ share_url }}">Copy</button></div>
+      <div class="referral-actions">
+        <a class="btn primary" target="_blank" rel="noopener" href="{{ whatsapp_text_link(settings, 'Shop at BEI FITS using my referral link: ' ~ share_url) }}"><svg class="icon"><use href="#icon-message"></use></svg><span>Share on WhatsApp</span></a>
+        <a class="btn" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Shop now</span></a>
+      </div>
+    </section>
+  {% else %}
+    <form class="referral-card referral-form" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h2>Create your profile</h2>
+      <label>Your phone number<input name="phone" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" required></label>
+      <label>Name, optional<input name="display_name" maxlength="120" placeholder="Your name"></label>
+      <button class="btn primary"><svg class="icon"><use href="#icon-checkout"></use></svg><span>Create referral link</span></button>
+    </form>
+  {% endif %}
+
+  <section class="referral-card referral-rules">
+    <h2>How rewards work</h2>
+    <div class="referral-rule-grid">
+      <article><span>1</span><strong>Share</strong><p>Send your link to a friend.</p></article>
+      <article><span>2</span><strong>Visit</strong><p>When a new visitor opens it, the click is recorded once.</p></article>
+      <article><span>3</span><strong>Earn</strong><p>{% if referral_settings.referral_enabled %}You earn {{ referral_settings.referral_reward_points }} point(s) per counted visit.{% else %}Referral rewards are currently disabled by the owner.{% endif %}</p></article>
+    </div>
+  </section>
+</section>
+{% endblock %}
