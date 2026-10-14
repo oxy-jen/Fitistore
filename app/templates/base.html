@@ -8,8 +8,8 @@
   <meta property="og:title" content="{{ title or settings.shop_name }}">
   <meta property="og:description" content="{{ settings.tagline }}">
   <link rel="canonical" href="{{ request.url }}">
-  <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mainLogo.png') }}">
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/mainLogo.png') }}">
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <script defer src="{{ url_for('static', filename='js/cart.js') }}"></script>
   <script defer src="{{ url_for('static', filename='js/app.js') }}"></script>
@@ -33,7 +33,7 @@
   <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v6M14 11v6"/></symbol>
 </svg>
 <header class="site-header">
-  <a class="brand" href="{{ url_for('public.home') }}"><img src="{{ url_for('static', filename='images/mainLogo.png') }}" alt="FITY logo"><span>{{ settings.shop_name }}</span></a>
+  <a class="brand" href="{{ url_for('public.home') }}"><img src="{{ url_for('static', filename='images/mainLogo-160.png') }}" alt="FITY logo"><span>{{ settings.shop_name }}</span></a>
   <nav id="nav" class="nav" aria-label="Primary navigation">
     <a href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Shop</span></a>
     <a href="{{ url_for('public.upcoming') }}"><svg class="icon"><use href="#icon-calendar"></use></svg><span>Upcoming</span></a>

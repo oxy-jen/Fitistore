@@ -109,7 +109,7 @@ def product_image_url(image) -> str:
     image_path = legacy_local_image_path(image)
     if image_path and image_path.is_file():
         return url_for("static", filename="uploads/" + image.filename)
-    return url_for("static", filename="images/mainLogo.png")
+    return url_for("static", filename="images/mainLogo-160.png")
 
 
 def product_image_alt(image, fallback="Temporary product placeholder") -> str:

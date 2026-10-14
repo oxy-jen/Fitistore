@@ -5,8 +5,9 @@ from pathlib import Path
 from uuid import uuid4
 from flask import Blueprint, Response, current_app, flash, jsonify, redirect, render_template, request, url_for
 from sqlalchemy import or_
+from sqlalchemy.orm import joinedload, selectinload
 from app.extensions import db, csrf
-from app.models import Category, Order, Product, ProductEnquiry, ProductSuggestion, RestockAlert, Review
+from app.models import Category, Order, Product, ProductEnquiry, ProductSuggestion, ProductVariant, RestockAlert, Review
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
@@ -16,6 +17,14 @@ from werkzeug.utils import secure_filename
 
 public_bp = Blueprint("public", __name__)
 PRODUCTS_PER_PAGE = 8
+
+def product_list_options(query):
+    return query.options(
+        joinedload(Product.category),
+        selectinload(Product.images),
+        selectinload(Product.variants).joinedload(ProductVariant.image),
+    )
+
 TRACKING_STEP_COPY = {
     "Order received": "Your order has been received and is waiting for seller review.",
     "Awaiting payment": "The seller is checking payment or waiting for payment details.",
@@ -82,7 +91,7 @@ def product_query():
     q = request.args.get("q", "").strip()
     category_slug = request.args.get("category", "").strip()
     sort = request.args.get("sort", "newest")
-    query = Product.query.filter_by(active=True).join(Category)
+    query = product_list_options(Product.query.filter_by(active=True).join(Category))
     if q:
         like = f"%{q}%"
         query = query.filter(or_(Product.name.ilike(like), Product.description.ilike(like), Product.sku.ilike(like)))
@@ -125,17 +134,17 @@ UPCOMING_MERCHANDISE = [
 
 @public_bp.route("/")
 def home():
-    latest_products = Product.query.filter_by(active=True).order_by(Product.updated_at.desc(), Product.id.desc()).limit(12).all()
-    featured = Product.query.filter_by(active=True, featured=True).order_by(Product.updated_at.desc(), Product.id.desc()).limit(8).all() or latest_products[:8]
-    discounted = Product.query.filter(Product.active.is_(True), Product.previous_price_cents.isnot(None), Product.price_cents.isnot(None), Product.previous_price_cents > Product.price_cents).order_by(Product.updated_at.desc()).limit(8).all()
+    latest_products = product_list_options(Product.query.filter_by(active=True)).order_by(Product.updated_at.desc(), Product.id.desc()).limit(12).all()
+    featured = product_list_options(Product.query.filter_by(active=True, featured=True)).order_by(Product.updated_at.desc(), Product.id.desc()).limit(8).all() or latest_products[:8]
+    discounted = product_list_options(Product.query.filter(Product.active.is_(True), Product.previous_price_cents.isnot(None), Product.price_cents.isnot(None), Product.previous_price_cents > Product.price_cents)).order_by(Product.updated_at.desc()).limit(8).all()
     categories = Category.query.join(Product).filter(Product.active.is_(True)).group_by(Category.id).order_by(Category.name).all()
     category_sections = []
     for category in categories:
-        products = Product.query.filter_by(active=True, category=category).order_by(Product.updated_at.desc(), Product.id.desc()).limit(6).all()
+        products = product_list_options(Product.query.filter_by(active=True, category=category)).order_by(Product.updated_at.desc(), Product.id.desc()).limit(6).all()
         if products:
             category_sections.append({"category": category, "products": products})
     mamba_category_names = ["Boxers", "Shoes", "Vests", "Ankle socks", "Socks"]
-    mamba_products = Product.query.join(Category).filter(Product.active.is_(True), Category.name.in_(mamba_category_names)).order_by(Category.name.asc(), Product.updated_at.desc()).all()
+    mamba_products = product_list_options(Product.query.join(Category).filter(Product.active.is_(True), Category.name.in_(mamba_category_names))).order_by(Category.name.asc(), Product.updated_at.desc()).all()
     if not mamba_products:
         mamba_products = latest_products[:8]
     mamba_category_ids = {product.category_id for product in mamba_products}
@@ -337,8 +346,8 @@ def api_products():
 
 @public_bp.route("/product/<slug>")
 def product_detail(slug):
-    product = Product.query.filter_by(slug=slug, active=True).first_or_404()
-    related = Product.query.filter(Product.active.is_(True), Product.category_id == product.category_id, Product.id != product.id).limit(4).all()
+    product = product_list_options(Product.query.filter_by(slug=slug, active=True)).first_or_404()
+    related = product_list_options(Product.query.filter(Product.active.is_(True), Product.category_id == product.category_id, Product.id != product.id)).limit(4).all()
     return render_template("product_detail.html", title=product.name, product=product, related=related)
 
 @public_bp.route("/cart")
