@@ -1,8 +1,69 @@
-{% extends "base.html" %}{% block content %}
-<section class="page-head"><h1>Order enquiry saved</h1><p>Reference {{ order.reference }} is awaiting seller confirmation.</p></section>
-<div class="cart-panel">{% for item in order.items %}<p>{{ item.product_name }}{% if item.variant_label %} - {{ item.variant_label }}{% endif %} x {{ item.quantity }} - {{ money(item.subtotal_cents, settings.currency) if item.subtotal_cents is not none else 'Price to be confirmed' }}</p>{% endfor %}<strong>Total: {{ money(order.total_cents, settings.currency) if order.total_cents is not none else 'Some prices to be confirmed' }}</strong></div>
-{% if whatsapp_url %}<a class="btn primary wide" href="{{ whatsapp_url }}" target="_blank" rel="noopener">Open WhatsApp</a>{% else %}<div class="empty">The owner has not configured a WhatsApp number. Share the reference with the seller another way.</div>{% endif %}
-<p class="note">Track this order later with reference <strong>{{ order.reference }}</strong> and private code <strong>{{ order.tracking_token }}</strong>.</p><p><a class="btn" href="{{ url_for('public.track_order', reference=order.reference, tracking_token=order.tracking_token) }}">Open tracking page</a></p><p class="note">This website cannot know whether you sent the WhatsApp message. The order is not confirmed until the seller replies.</p>
+﻿{% extends "base.html" %}{% block content %}
+<section class="receipt-screen" aria-labelledby="receipt-title">
+  <div class="receipt-card">
+    <header class="receipt-hero">
+      <div class="receipt-mark"><svg class="icon"><use href="#icon-checkout"></use></svg></div>
+      <p class="eyebrow">Order enquiry saved</p>
+      <h1 id="receipt-title">Awaiting seller confirmation</h1>
+      <p>Send the WhatsApp message so FITY can confirm stock, payment, and fulfilment details.</p>
+    </header>
+
+    <div class="receipt-meta">
+      <article><span>Reference</span><strong>{{ order.reference }}</strong></article>
+      <article><span>Status</span><strong>{{ order.status }}</strong></article>
+      <article><span>Fulfilment</span><strong>{{ order.fulfilment_method }}</strong></article>
+    </div>
+
+    <section class="receipt-paper" aria-label="Order receipt">
+      <div class="receipt-paper-head">
+        <div><span>BEI FITS</span><strong>Order Receipt</strong></div>
+        <small>{{ order.created_at.strftime('%d %b %Y, %H:%M') if order.created_at else '' }}</small>
+      </div>
+
+      <div class="receipt-lines">
+        {% for item in order.items %}
+          <div class="receipt-line">
+            <div>
+              <strong>{{ item.product_name }}</strong>
+              {% if item.variant_label or item.sku %}<small>{% if item.variant_label %}{{ item.variant_label }}{% endif %}{% if item.sku %} | {{ item.sku }}{% endif %}</small>{% endif %}
+            </div>
+            <span>x{{ item.quantity }}</span>
+            <strong>{{ money(item.subtotal_cents, settings.currency) if item.subtotal_cents is not none else 'Confirm price' }}</strong>
+          </div>
+        {% endfor %}
+      </div>
+
+      <div class="receipt-total">
+        <span>Total</span>
+        <strong>{{ money(order.total_cents, settings.currency) if order.total_cents is not none else 'Some prices to confirm' }}</strong>
+      </div>
+    </section>
+
+    <section class="receipt-next">
+      <h2>Next steps</h2>
+      <ol>
+        <li><span>1</span><p>Open WhatsApp and send the prepared order message.</p></li>
+        <li><span>2</span><p>Wait for seller confirmation before assuming the order is complete.</p></li>
+        <li><span>3</span><p>Use the tracking page to follow updates with your private code.</p></li>
+      </ol>
+    </section>
+
+    <section class="receipt-track-box">
+      <div><span>Private tracking code</span><strong>{{ order.tracking_token }}</strong></div>
+      <a class="btn" href="{{ url_for('public.track_order', reference=order.reference, tracking_token=order.tracking_token) }}"><svg class="icon"><use href="#icon-truck"></use></svg><span>Open tracking</span></a>
+    </section>
+
+    <div class="receipt-actions">
+      {% if whatsapp_url %}
+        <a class="btn primary" href="{{ whatsapp_url }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Open WhatsApp</span></a>
+      {% else %}
+        <div class="empty">The owner has not configured a WhatsApp number. Share the reference with the seller another way.</div>
+      {% endif %}
+      <a class="btn" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Continue shopping</span></a>
+    </div>
+
+    <p class="receipt-note">This website cannot know whether you sent the WhatsApp message. The order is not confirmed until the seller replies.</p>
+  </div>
+</section>
 <script>localStorage.removeItem('fityCart');</script>
 {% endblock %}
-
