@@ -26,11 +26,31 @@ class CartLine:
         return self.variant.label if self.variant else ""
 
 @dataclass
+class CartIssue:
+    product: Product | None
+    quantity: int
+    reason: str
+    variant: ProductVariant | None = None
+
+    @property
+    def stock_quantity(self):
+        if self.variant:
+            return self.variant.available_quantity
+        if self.product:
+            return self.product.available_quantity
+        return 0
+
+    @property
+    def variant_label(self):
+        return self.variant.label if self.variant else ""
+
+@dataclass
 class CartValidation:
     lines: list
     errors: list
     total_cents: int | None
     has_unconfirmed_prices: bool
+    issues: list
 
 def normalize_cart(raw_items):
     normalized = []
@@ -67,22 +87,28 @@ def resolve_variant(product, item):
 def validate_cart(raw_items):
     lines = []
     errors = []
+    issues = []
     total = 0
     has_unknown = False
     for item in normalize_cart(raw_items):
         product = Product.query.get(item["product_id"])
         if not product or not product.active:
+            reason = "This product is no longer available."
             errors.append("A product in your cart is no longer available.")
+            issues.append(CartIssue(product=product, variant=None, quantity=item["quantity"], reason=reason))
             continue
         variant, variant_error = resolve_variant(product, item)
         if variant_error:
             errors.append(f"{product.name}: {variant_error}")
+            issues.append(CartIssue(product=product, variant=variant, quantity=item["quantity"], reason=variant_error))
             continue
         available = variant.available_quantity if variant else product.available_quantity
         requested = item["quantity"]
         display_name = f"{product.name} ({variant.label})" if variant else product.name
         if available <= 0:
+            reason = "Currently out of stock."
             errors.append(f"{display_name} is currently out of stock.")
+            issues.append(CartIssue(product=product, variant=variant, quantity=requested, reason=reason))
             continue
         quantity = min(requested, available)
         if quantity < requested:
@@ -94,4 +120,4 @@ def validate_cart(raw_items):
         else:
             total += subtotal
         lines.append(CartLine(product=product, variant=variant, quantity=quantity, subtotal_cents=subtotal))
-    return CartValidation(lines=lines, errors=errors, total_cents=None if has_unknown else total, has_unconfirmed_prices=has_unknown)
+    return CartValidation(lines=lines, errors=errors, total_cents=None if has_unknown else total, has_unconfirmed_prices=has_unknown, issues=issues)

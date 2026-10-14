@@ -49,7 +49,7 @@
       <label class="check"><input type="checkbox" name="consent_to_contact"> FITY may contact me about this enquiry</label>
       <button class="btn primary"><svg class="icon"><use href="#icon-message"></use></svg><span>Send enquiry</span></button>
     </form>
-    {% if product.available_quantity < 1 and not active_variants %}<form class="mini-form" method="post" action="{{ url_for('public.restock_alert', slug=product.slug) }}">
+    {% if product.available_quantity < 1 and not active_variants %}<form class="mini-form" id="product-restock" method="post" action="{{ url_for('public.restock_alert', slug=product.slug) }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <h2>Back-in-stock alert</h2>
       <div class="form-grid"><label>Size<input name="size" maxlength="50" placeholder="Optional"></label><label>Colour<input name="color" maxlength="50" placeholder="Optional"></label></div>
@@ -60,3 +60,4 @@
   </div></section>
 {% if related %}<section><div class="section-title"><h2>Related products</h2></div><div class="product-grid">{% for product in related %}{% include "partials/product_card.html" %}{% endfor %}</div></section>{% endif %}
 {% endblock %}
+

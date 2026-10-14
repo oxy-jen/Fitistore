@@ -358,6 +358,9 @@ def cart():
 @public_bp.post("/api/cart/validate")
 def api_validate_cart():
     validation = validate_cart((request.get_json(silent=True) or {}).get("items", []))
+    def cart_image(product, variant=None):
+        return variant.image if variant and variant.image else product_display_image(product) if product else None
+
     return jsonify({
         "errors": validation.errors,
         "has_unconfirmed_prices": validation.has_unconfirmed_prices,
@@ -372,8 +375,25 @@ def api_validate_cart():
             "variant_id": line.variant.id if line.variant else None,
             "variant_label": line.variant_label,
             "sku": (line.variant.sku if line.variant and line.variant.sku else line.product.sku) or "",
+            "image_url": product_image_url(cart_image(line.product, line.variant)),
+            "image_alt": product_image_alt(cart_image(line.product, line.variant), line.product.name),
             "url": url_for("public.product_detail", slug=line.product.slug),
-        } for line in validation.lines]
+            "restock_url": url_for("public.product_detail", slug=line.product.slug) + "#product-restock",
+        } for line in validation.lines],
+        "issues": [{
+            "product_id": issue.product.id if issue.product else None,
+            "name": issue.product.name if issue.product else "Unavailable product",
+            "quantity": issue.quantity,
+            "stock_quantity": issue.stock_quantity,
+            "variant_id": issue.variant.id if issue.variant else None,
+            "variant_label": issue.variant_label,
+            "sku": (issue.variant.sku if issue.variant and issue.variant.sku else issue.product.sku if issue.product else "") or "",
+            "reason": issue.reason,
+            "image_url": product_image_url(cart_image(issue.product, issue.variant)) if issue.product else "",
+            "image_alt": product_image_alt(cart_image(issue.product, issue.variant), issue.product.name) if issue.product else "Unavailable product",
+            "url": url_for("public.product_detail", slug=issue.product.slug) if issue.product else url_for("public.shop"),
+            "restock_url": (url_for("public.product_detail", slug=issue.product.slug) + "#product-restock") if issue.product else url_for("public.contact"),
+        } for issue in validation.issues]
     })
 
 @public_bp.route("/checkout", methods=["GET", "POST"])
@@ -442,6 +462,7 @@ def sitemap():
     urls += [url_for("public.product_detail", slug=p.slug, _external=True) for p in Product.query.filter_by(active=True).all()]
     body = "<?xml version='1.0' encoding='UTF-8'?><urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>" + "".join(f"<url><loc>{u}</loc></url>" for u in urls) + "</urlset>"
     return Response(body, mimetype="application/xml")
+
 
 
 
