@@ -1,10 +1,13 @@
 <article class="product-card" data-product-card="{{ product.id }}">
   {% set image = product_display_image(product) %}
   {% set variant_count = product.active_variants|length %}
+  {% set size_option_count = split_options(product.size_options)|length %}
+  {% set color_option_count = split_options(product.color_options)|length %}
+  {% set requires_option_choice = variant_count > 0 or size_option_count > 1 or color_option_count > 1 %}
   {% set display_stock = product.display_stock_quantity %}
   <a href="{{ url_for('public.product_detail', slug=product.slug) }}" class="product-image">
     <img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" loading="lazy" width="540" height="540">
-    {% if product.has_discount %}<span class="badge">Discount</span>{% elif variant_count %}<span class="badge">Options</span>{% endif %}
+    {% if product.has_discount %}<span class="badge">Discount</span>{% elif requires_option_choice %}<span class="badge">Options</span>{% endif %}
   </a>
   <div class="product-body">
     <p class="category">{{ product.category.name }}</p>
@@ -17,12 +20,12 @@
     {% endif %}
     <p class="stock {{ 'bad' if display_stock == 0 else 'warn' if display_stock <= product.low_stock_threshold else '' }}">{% if display_stock > 0 %}{{ display_stock }} available{% if variant_count %} across options{% endif %}{% else %}Out of stock{% endif %}</p>
     {% if product.sku %}<p class="sku">{{ product.sku }}</p>{% endif %}
-    {% if product.price_cents is none and not variant_count %}
+    {% if product.price_cents is none and not requires_option_choice %}
       <div class="card-actions">
         <a class="btn primary" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Confirm price</span></a>
         <a class="btn" href="tel:{{ local_contact_number }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Call</span></a>
       </div>
-    {% elif variant_count %}
+    {% elif requires_option_choice %}
       <a class="btn primary" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>Choose option</span></a>
     {% else %}
       <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" {% if display_stock < 1 %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to cart</span></button>
