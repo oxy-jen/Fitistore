@@ -150,3 +150,8 @@ input,select,textarea,button{max-width:100%}
 @media(max-width:720px){.referral-screen{padding:.75rem .6rem 1.25rem}.referral-hero{border-radius:12px;padding:1rem}.referral-profile-card,.referral-stats,.referral-actions,.referral-rule-grid,.share-link-box{grid-template-columns:1fr}.referral-profile-card strong{font-size:1.45rem}}
 
 .online-image-url-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.6rem;align-items:end;margin:.55rem 0}.online-image-url-row label{display:grid;gap:.35rem}.online-image-url-row .btn{margin-bottom:.15rem}@media(max-width:520px){.online-image-url-row{grid-template-columns:1fr}.online-image-url-row .btn{justify-self:start}}
+
+
+/* Give product photos room to fit while keeping the complete source image visible. */
+.product-image{aspect-ratio:1/1}
+.detail-image{aspect-ratio:4/5}
