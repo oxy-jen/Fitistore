@@ -548,7 +548,9 @@ def parse_nonnegative_money_field(name, default=0):
         parsed = parse_money(value)
     except ValueError as exc:
         raise ValueError(f"Enter a valid amount for {name.replace('_', ' ')}.") from exc
-    return max(0, parsed or default)
+    if parsed is None:
+        return default
+    return max(0, parsed)
 
 
 @admin_bp.route("/settings", methods=["GET", "POST"])
