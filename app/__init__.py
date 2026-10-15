@@ -172,11 +172,28 @@ def is_postgresql_database() -> bool:
 
 
 def ensure_database_schema(app: Flask):
-    """Keep local SQLite installs aligned without running SQLite-oriented DDL on production databases."""
+    """Apply local SQLite setup and the small idempotent referral migration on PostgreSQL."""
     with app.app_context():
         if is_sqlite_database():
             db.create_all()
             ensure_columns()
+        elif is_postgresql_database():
+            ensure_referral_schema()
+
+
+def ensure_referral_schema():
+    """Bring existing PostgreSQL installs up to the referral model schema."""
+    from sqlalchemy import text
+
+    migration_path = Path(__file__).resolve().parent.parent / "migrations" / "20261015_referrals_postgresql.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with db.engine.begin() as connection:
+        # Serialize app instances so concurrent Render workers don't race through DDL.
+        connection.execute(text("SELECT pg_advisory_xact_lock(724930117)"))
+        for statement in statements:
+            statement = statement.strip()
+            if statement:
+                connection.execute(text(statement))
 
 
 def ensure_cloudinary_image_columns():
@@ -311,6 +328,8 @@ def register_errors(app: Flask):
 
     @app.errorhandler(500)
     def server_error(error):
+        # Failed PostgreSQL statements leave the current transaction aborted.
+        db.session.rollback()
         return __import__("flask").render_template("errors/500.html"), 500
 
 def slugify(value: str) -> str:
