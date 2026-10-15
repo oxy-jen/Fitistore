@@ -4,6 +4,7 @@ from sqlalchemy import func
 from app.extensions import db
 from app.models import CustomerProfile, Expense, FinancialAuditEvent, LoyaltyTransaction, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, RefundRequest
 from .cart import validate_cart
+from .referrals import normalize_phone
 
 FULFILMENT_STATUSES = ["Order received", "Awaiting payment", "Payment confirmed", "Preparing order", "Ready for collection", "Out for delivery", "Completed", "Cancelled"]
 PAYMENT_STATUSES = ["Awaiting payment", "Payment reported", "Processing", "Paid", "Failed", "Cancelled", "Unknown", "Reconciliation required", "Refund requested", "Refund processing", "Partially refunded", "Refunded", "Refund failed"]
@@ -191,8 +192,9 @@ def award_loyalty_for_order(order, settings, admin=None):
 def award_referral_for_order(order, settings, admin=None):
     if not settings.referral_enabled or not order.total_cents or order.payment_status != "Paid" or not order.referrer_key:
         return 0
-    customer_key = loyalty_customer_key(order)
-    if customer_key and customer_key == order.referrer_key:
+    customer_phone = normalize_phone(order.customer_phone)
+    referrer_phone = normalize_phone(order.referrer_key)
+    if customer_phone and referrer_phone and customer_phone == referrer_phone:
         return 0
     if settings.referral_min_order_cents and order.total_cents < settings.referral_min_order_cents:
         return 0
