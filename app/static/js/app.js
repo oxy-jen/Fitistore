@@ -90,5 +90,46 @@ document.addEventListener('DOMContentLoaded',()=>{
       }
       setTimeout(()=>{button.textContent='Copy'},1200);
     });
-  });});
+  });
+  const onlineImageUrls=document.getElementById('online-image-urls');
+  const addOnlineImageUrl=document.getElementById('add-online-image-url');
+  if(onlineImageUrls&&addOnlineImageUrl){
+    const updateRemoveButtons=()=>{
+      const rows=Array.from(onlineImageUrls.querySelectorAll('.online-image-url-row'));
+      rows.forEach(row=>{
+        const remove=row.querySelector('[data-remove-online-image-url]');
+        if(remove)remove.hidden=rows.length===1;
+      });
+    };
+    addOnlineImageUrl.addEventListener('click',()=>{
+      const row=document.createElement('div');
+      row.className='online-image-url-row';
+      const label=document.createElement('label');
+      label.appendChild(document.createTextNode('Cloudinary image URL'));
+      const input=document.createElement('input');
+      input.type='url';
+      input.name='online_image_url';
+      input.placeholder='https://res.cloudinary.com/...';
+      label.appendChild(input);
+      const remove=document.createElement('button');
+      remove.type='button';
+      remove.className='btn';
+      remove.dataset.removeOnlineImageUrl='';
+      remove.setAttribute('aria-label','Remove this image URL');
+      remove.textContent='Remove';
+      row.append(label,remove);
+      onlineImageUrls.appendChild(row);
+      updateRemoveButtons();
+      input.focus();
+    });
+    onlineImageUrls.addEventListener('click',event=>{
+      const remove=event.target.closest('[data-remove-online-image-url]');
+      if(!remove)return;
+      remove.closest('.online-image-url-row').remove();
+      updateRemoveButtons();
+    });
+    updateRemoveButtons();
+  }
+
+});
 

@@ -14,7 +14,14 @@
 {% endif %}{% endfor %}{% endif %}</textarea></label>
   <p class="note small">Use one line per option when the same product has different prices or stock, for example hair bands at KSh 10, KSh 40, and KSh 60. Format: Size | Colour | Style | SKU | Price KSh | Cost KSh | Stock | active.</p>
   <label>Main/additional product images<input id="product-images" name="images" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple></label><div id="image-preview" class="preview-grid"></div>
-  <label>Online sample image URL<input name="online_image_url" type="url" placeholder="https://example.com/image.jpg"></label><p class="note small">Use online images only when the license permits it. Replace sample artwork with real owner photos before relying on the image as actual stock.</p>
+  <div id="online-image-urls">
+    <div class="online-image-url-row">
+      <label>Cloudinary image URL<input name="online_image_url" type="url" placeholder="https://res.cloudinary.com/..."></label>
+      <button type="button" class="btn" data-remove-online-image-url aria-label="Remove this image URL" hidden>Remove</button>
+    </div>
+  </div>
+  <button type="button" class="btn" id="add-online-image-url">Add another image URL</button>
+  <p class="note small">Paste a public Cloudinary image URL for each image. Use online images only when the license permits it.</p>
   {% if product and product.images %}<div class="image-manager"><h2>Current images</h2>{% for image in product.images %}<article><img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}"><div><strong>{{ 'Primary image' if image.is_primary else 'Gallery image' }}</strong><p>{{ image.alt_text }}</p><button class="btn" type="submit" form="primary-image-{{ image.id }}" {% if image.is_primary %}disabled{% endif %}>Make primary</button><button class="btn danger" type="submit" form="delete-image-{{ image.id }}">Remove image</button></div></article>{% endfor %}</div>{% endif %}
   <label class="check"><input type="checkbox" name="active" {% if not product or product.active %}checked{% endif %}> Active and visible in shop</label>
   <label class="check"><input type="checkbox" name="featured" {% if product and product.featured %}checked{% endif %}> Featured product</label>

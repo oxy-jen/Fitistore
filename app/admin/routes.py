@@ -371,7 +371,8 @@ def product_form(product_id=None):
         db.session.add(product)
         db.session.flush()
         save_images(request.files.getlist("images"), product)
-        save_image_from_url(request.form.get("online_image_url"), product)
+        for image_url in request.form.getlist("online_image_url"):
+            save_image_from_url(image_url, product)
         if not product.images:
             db.session.rollback()
             flash("Add at least one main product image before saving.", "error")
