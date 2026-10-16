@@ -1,13 +1,13 @@
-# FITY Flask Shop
+# FityStores Flask Shop
 
-FITY is a mobile-first Flask e-commerce starter for a small Kenyan merchandise shop. It uses server-rendered pages, SQLite, local image uploads, owner-managed prices and stock, and WhatsApp as the customer enquiry channel.
+FityStores is a mobile-first Flask e-commerce starter for a small Kenyan merchandise shop. It uses server-rendered pages, SQLite, local image uploads, owner-managed prices and stock, and WhatsApp as the customer enquiry channel.
 
 The app is intentionally honest about manual selling: a WhatsApp message is an enquiry, not proof of payment, delivery, or confirmed stock.
 
 ## Architecture
 
 ```text
-FITY/
+FityStores/
   app/
     __init__.py              Application factory, CLI setup, error handlers
     extensions.py            SQLAlchemy, LoginManager, CSRF extension objects
@@ -16,7 +16,7 @@ FITY/
     admin/routes.py          Login, dashboard, products, inventory, orders, reviews, settings
     services/                Cart validation, order creation, inventory, formatting, WhatsApp links
     templates/               Jinja2 pages and partials
-    static/css/style.css     FITY design system
+    static/css/style.css     FityStores design system
     static/js/               Mobile menu and localStorage cart
     static/images/           Local logo and placeholder artwork
     static/uploads/          Local development product image uploads
@@ -31,7 +31,7 @@ FITY/
 Main models:
 
 - `AdminUser`: protected owner account with hashed password.
-- `Category`: owner-managed catalogue groups seeded with FITY categories.
+- `Category`: owner-managed catalogue groups seeded with FityStores categories.
 - `Product`: product details, price in cents, previous price, stock, low-stock threshold, active/featured flags, sizes and colours.
 - `ProductImage`: uploaded image metadata.
 - `ProductVariant`: future-ready size/colour stock records.

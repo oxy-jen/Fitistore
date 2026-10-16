@@ -224,7 +224,7 @@ def register_cli(app: Flask):
         payment_number = env.get("SHOP_PAYMENT_NUMBER", "0141809661")
         settings = ShopSettings.query.first()
         if not settings:
-            settings = ShopSettings(shop_name="FITY", tagline="Bei Fity, Fits Poa.")
+            settings = ShopSettings(shop_name="FityStores", tagline="FityStores")
             db.session.add(settings)
         if not settings.whatsapp_number:
             settings.whatsapp_number = whatsapp_number
@@ -236,7 +236,7 @@ def register_cli(app: Flask):
             db.session.add(AdminUser(username=username, password_hash=generate_password_hash(password)))
             click.echo(f"Created admin user: {username}")
         db.session.commit()
-        click.echo("FITY database is ready.")
+        click.echo("FityStores database is ready.")
 
 
     @app.cli.command("migrate-cloudinary-schema")

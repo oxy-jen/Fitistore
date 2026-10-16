@@ -24,7 +24,7 @@
       </div>
       <p class="stock" id="variant-stock">Select a variant to see current stock.</p>
     {% else %}
-      {% if product.price_cents is none %}<p class="notice">This price is not confirmed yet. Message FITY on WhatsApp or call {{ local_contact_number }} before paying.</p>{% endif %}
+      {% if product.price_cents is none %}<p class="notice">This price is not confirmed yet. Message FityStores on WhatsApp or call {{ local_contact_number }} before paying.</p>{% endif %}
       <p class="stock {{ 'bad' if product.available_quantity == 0 else 'warn' if product.available_quantity <= product.low_stock_threshold else '' }}">{% if product.available_quantity > 0 %}{{ product.available_quantity }} currently available{% else %}Out of stock{% endif %}</p>
       {% if split_options(product.size_options) %}<label>Size<select id="size-choice">{% for option in split_options(product.size_options) %}<option>{{ option }}</option>{% endfor %}</select></label>{% endif %}
       {% if split_options(product.color_options) %}<label>Colour<select id="color-choice">{% for option in split_options(product.color_options) %}<option>{{ option }}</option>{% endfor %}</select></label>{% endif %}
@@ -46,7 +46,7 @@
       <div class="form-grid"><label>Size<input name="size" maxlength="50" placeholder="Optional"></label><label>Colour<input name="color" maxlength="50" placeholder="Optional"></label></div>
       <label>Question<textarea name="message" maxlength="1000" required placeholder="Ask about price, size, colour, or availability"></textarea></label>
       <div class="form-grid"><label>Contact<input name="contact" maxlength="120" placeholder="Phone or email"></label><label>Preferred contact<select name="preferred_contact"><option>WhatsApp</option><option>Call</option><option>SMS</option><option>Email</option></select></label></div>
-      <label class="check"><input type="checkbox" name="consent_to_contact"> FITY may contact me about this enquiry</label>
+      <label class="check"><input type="checkbox" name="consent_to_contact"> FityStores may contact me about this enquiry</label>
       <button class="btn primary"><svg class="icon"><use href="#icon-message"></use></svg><span>Send enquiry</span></button>
     </form>
     {% if product.available_quantity < 1 and not active_variants %}<form class="mini-form" id="product-restock" method="post" action="{{ url_for('public.restock_alert', slug=product.slug) }}">

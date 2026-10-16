@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block content %}
-<section class="page-head upcoming-head"><p class="eyebrow">Coming next</p><h1>Upcoming merchandise, goods, and fits</h1><p>Preview the next FITY stock ideas and request the items, colours, and sizes you want the owner to prioritize.</p></section>
+<section class="page-head upcoming-head"><p class="eyebrow">Coming next</p><h1>Upcoming merchandise, goods, and fits</h1><p>Preview the next FityStores stock ideas and request the items, colours, and sizes you want the owner to prioritize.</p></section>
 <section class="upcoming-page-grid">
-  {% for item in upcoming_merchandise %}<article><span>{{ item.category }}</span><h2>{{ item.name }}</h2><p>{{ item.detail }}</p><a class="btn" href="{{ whatsapp_text_link(settings, 'Hi FITY, I want to request upcoming stock for: ' ~ item.name) }}" target="_blank" rel="noopener">Request this</a></article>{% endfor %}
+  {% for item in upcoming_merchandise %}<article><span>{{ item.category }}</span><h2>{{ item.name }}</h2><p>{{ item.detail }}</p><a class="btn" href="{{ whatsapp_text_link(settings, 'Hi FityStores, I want to request upcoming stock for: ' ~ item.name) }}" target="_blank" rel="noopener">Request this</a></article>{% endfor %}
 </section>
 <section class="mamba-collection" id="upcoming-request">
   <div class="mamba-copy"><p class="eyebrow">Request stock</p><h2>Ask for a specific item</h2><p>Share the product, colour, size, style, or price range you want. Requests help decide future stock.</p></div>

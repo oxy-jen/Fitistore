@@ -1,7 +1,7 @@
-﻿{% extends "base.html" %}{% block content %}
+{% extends "base.html" %}{% block content %}
 <section class="referral-screen">
   <div class="referral-hero">
-    <p class="eyebrow">BEI FITS rewards</p>
+    <p class="eyebrow">FityStores rewards</p>
     <h1>Share your link. Earn points.</h1>
     <p>Create a lightweight profile with your phone number, then share your referral link with friends.</p>
   </div>
@@ -24,7 +24,7 @@
       <h2>Your share link</h2>
       <div class="share-link-box"><input value="{{ share_url }}" readonly onclick="this.select()"><button class="btn" type="button" data-copy-link="{{ share_url }}">Copy</button></div>
       <div class="referral-actions">
-        <a class="btn primary" target="_blank" rel="noopener" href="{{ whatsapp_text_link(settings, 'Shop at BEI FITS using my referral link: ' ~ share_url) }}"><svg class="icon"><use href="#icon-message"></use></svg><span>Share on WhatsApp</span></a>
+        <a class="btn primary" target="_blank" rel="noopener" href="{{ whatsapp_text_link(settings, 'Shop at FityStores using my referral link: ' ~ share_url) }}"><svg class="icon"><use href="#icon-message"></use></svg><span>Share on WhatsApp</span></a>
         <a class="btn" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Shop now</span></a>
       </div>
     </section>

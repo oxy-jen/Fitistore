@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-<section class="shop-hero page-head"><p class="eyebrow">Bei Fity, Fits Poa.</p><h1>Shop collection</h1><p>Discover fresh everyday essentials, compare available items, and shop confidently with clear prices and quick seller support.</p></section>
+<section class="shop-hero page-head"><p class="eyebrow">FityStores</p><h1>Shop collection</h1><p>Discover fresh everyday essentials, compare available items, and shop confidently with clear prices and quick seller support.</p></section>
 <form class="filters shop-filters" action="{{ url_for('public.shop') }}" id="shop-filters">
   <input name="q" value="{{ q }}" placeholder="Search products..." aria-label="Search products">
   <select name="category" aria-label="Category"><option value="">All categories</option>{% for c in categories %}<option value="{{ c.slug }}" {% if active_category and active_category.id == c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>

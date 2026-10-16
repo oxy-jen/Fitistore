@@ -380,8 +380,8 @@ class FinancialAuditEvent(TimestampMixin, db.Model):
 
 class ShopSettings(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    shop_name = db.Column(db.String(120), default="FITY", nullable=False)
-    tagline = db.Column(db.String(160), default="Bei Fity, Fits Poa.", nullable=False)
+    shop_name = db.Column(db.String(120), default="FityStores", nullable=False)
+    tagline = db.Column(db.String(160), default="FityStores", nullable=False)
     whatsapp_number = db.Column(db.String(32), default="254791305329")
     payment_number = db.Column(db.String(32), default="0141809661")
     contact_email = db.Column(db.String(120), default="")

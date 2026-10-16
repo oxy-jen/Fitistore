@@ -12,7 +12,7 @@ COMPLETED_STATUSES = ["Completed"]
 ACTIVE_SALE_STATUSES = ["Payment confirmed", "Preparing order", "Ready for collection", "Out for delivery", "Completed"]
 
 def make_reference():
-    return "FITY-" + datetime.utcnow().strftime("%y%m%d") + "-" + token_hex(3).upper()
+    return "FITYSTORES-" + datetime.utcnow().strftime("%y%m%d") + "-" + token_hex(3).upper()
 
 def create_checkout_order(raw_items, customer_name, customer_phone, fulfilment_method, instructions, payment_reference="", payment_proof_filename="", referral_code=""):
     validation = validate_cart(raw_items)

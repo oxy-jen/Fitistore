@@ -1,11 +1,11 @@
-﻿{% extends "base.html" %}{% block content %}
+{% extends "base.html" %}{% block content %}
 <section class="receipt-screen" aria-labelledby="receipt-title">
   <div class="receipt-card">
     <header class="receipt-hero">
       <div class="receipt-mark"><svg class="icon"><use href="#icon-checkout"></use></svg></div>
       <p class="eyebrow">Order enquiry saved</p>
       <h1 id="receipt-title">Awaiting seller confirmation</h1>
-      <p>Send the WhatsApp message so FITY can confirm stock, payment, and fulfilment details.</p>
+      <p>Send the WhatsApp message so FityStores can confirm stock, payment, and fulfilment details.</p>
     </header>
 
     <div class="receipt-meta">
@@ -16,7 +16,7 @@
 
     <section class="receipt-paper" aria-label="Order receipt">
       <div class="receipt-paper-head">
-        <div><span>BEI FITS</span><strong>Order Receipt</strong></div>
+        <div><span>FityStores</span><strong>Order Receipt</strong></div>
         <small>{{ order.created_at.strftime('%d %b %Y, %H:%M') if order.created_at else '' }}</small>
       </div>
 

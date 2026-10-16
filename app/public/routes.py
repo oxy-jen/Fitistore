@@ -150,7 +150,7 @@ def home():
         mamba_products = latest_products[:8]
     mamba_category_ids = {product.category_id for product in mamba_products}
     mamba_categories = [category for category in categories if category.id in mamba_category_ids]
-    return render_template("home.html", title="FITY essentials", featured=featured, discounted=discounted, latest_products=latest_products, categories=categories, category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories, suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE)
+    return render_template("home.html", title="FityStores essentials", featured=featured, discounted=discounted, latest_products=latest_products, categories=categories, category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories, suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE)
 
 
 @public_bp.route("/referrals", methods=["GET", "POST"])
@@ -187,7 +187,7 @@ def referral_visit(code):
     profile, rewarded, message = record_referral_click(code, request, settings, session.get("referral_phone", ""))
     session["referral_code"] = (code or "").strip().upper()
     if profile:
-        flash("Referral link applied. Thanks for supporting FITY.", "success" if rewarded else "info")
+        flash("Referral link applied. Thanks for supporting FityStores.", "success" if rewarded else "info")
     else:
         flash(message, "error")
     return redirect(url_for("public.shop", ref=(code or "").strip().upper()))
@@ -324,7 +324,7 @@ def restock_alert(slug):
     size = request.form.get("size", "").strip()[:50]
     color = request.form.get("color", "").strip()[:50]
     if not contact or not request.form.get("consent_to_contact"):
-        flash("Add contact details and consent so FITY can notify you.", "error")
+        flash("Add contact details and consent so FityStores can notify you.", "error")
         return redirect(url_for("public.product_detail", slug=product.slug))
     alert = RestockAlert.query.filter_by(product_id=product.id, contact=contact, status="pending", size=size, color=color).first()
     if alert:
@@ -471,7 +471,7 @@ def contact():
 
 @public_bp.route("/about")
 def about():
-    return render_template("about.html", title="About FITY")
+    return render_template("about.html", title="About FityStores")
 
 @public_bp.route("/reviews", methods=["GET", "POST"])
 def reviews():

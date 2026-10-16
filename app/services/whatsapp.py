@@ -20,11 +20,11 @@ def whatsapp_text_link(settings, message):
 
 def build_product_message(product, settings, page_url="", intent="confirm_price"):
     if intent == "buy":
-        opening = "I want to buy this item from FITY."
+        opening = "I want to buy this item from FityStores."
     elif product.price_cents is None:
-        opening = "I want to confirm the price of this item from FITY."
+        opening = "I want to confirm the price of this item from FityStores."
     else:
-        opening = "I want to confirm availability for this item from FITY."
+        opening = "I want to confirm availability for this item from FityStores."
     lines = [
         opening,
         "",
@@ -48,7 +48,7 @@ def product_whatsapp_link(product, settings, page_url="", intent="confirm_price"
 
 def build_general_message(settings):
     return "\n".join([
-        "I want to ask about FITY products.",
+        "I want to ask about FityStores products.",
         "",
         "Please help me confirm prices, availability, payment details, and collection or delivery options.",
     ])
@@ -56,7 +56,7 @@ def build_general_message(settings):
 
 def build_mamba_suggestion_message(product_name, category, preferences="", price_range="", details=""):
     lines = [
-        "Hello BEI FITS! I would like to suggest a product for the Mamba Collection.",
+        "Hello FityStores! I would like to suggest a product for the Mamba Collection.",
         "",
         f"Product I would like to see: {product_name}",
         f"Category: {category}",
@@ -71,7 +71,7 @@ def build_mamba_suggestion_message(product_name, category, preferences="", price
 
 def build_order_message(order, settings):
     lines = [
-        "I want to buy these items from FITY.",
+        "I want to buy these items from FityStores.",
         f"Order enquiry reference: {order.reference}",
         "",
         "I have chosen:",
