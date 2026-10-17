@@ -8,3 +8,4 @@ pytest==8.3.2
 gunicorn
 psycopg[binary]
 cloudinary==1.41.0
+Pillow==11.3.0

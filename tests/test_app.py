@@ -698,6 +698,20 @@ def test_seo_metadata_uses_clean_production_canonical(client):
     assert b'rel="canonical"' not in private_response.data
     assert b'property="og:url"' not in private_response.data
 
+def test_product_share_card_is_branded_png_with_price_metadata(client):
+    page = client.get("/product/plain-socks")
+    assert page.status_code == 200
+    assert b'property="og:image" content="https://fitystore.top/share/product/plain-socks.png"' in page.data
+    assert b'property="og:image:width" content="1200"' in page.data
+    assert b'property="og:image:type" content="image/png"' in page.data
+    card = client.get("/share/product/plain-socks.png")
+    assert card.status_code == 200
+    assert card.mimetype == "image/png"
+    from PIL import Image
+    preview = Image.open(io.BytesIO(card.data))
+    assert preview.size == (1200, 630)
+    assert preview.format == "PNG"
+
 def test_product_sharing_uses_canonical_links_and_current_prices(client, app):
     priced = client.get("/product/plain-socks")
     assert priced.status_code == 200

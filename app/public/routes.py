@@ -16,6 +16,7 @@ from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
 from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
+from app.services.share_cards import render_product_share_card
 from app.services.referrals import get_or_create_profile, normalize_phone, record_referral_click, referral_points_balance
 from werkzeug.utils import secure_filename
 
@@ -411,8 +412,34 @@ def product_detail(slug):
     share_message = f"Check out {product.name} at FityStores! {share_price}. View it here: {share_url}"
     seo_description = (product_description + " " + share_price + ".")[:300]
     whatsapp_share_url = "https://wa.me/?text=" + quote(share_message)
-    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=image_url, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related)
+    card_url = "https://fitystore.top" + url_for("public.product_share_card", slug=product.slug)
+    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=card_url, og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=product.name + " at FityStores â€” " + share_price, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related)
 
+@public_bp.route("/share/product/<slug>.png")
+def product_share_card(slug):
+    product = product_list_options(Product.query.filter_by(slug=slug, active=True)).first_or_404()
+    from app.services.formatting import money
+    active_variants = [variant for variant in product.variants if variant.active and variant.effective_price_cents is not None]
+    prices = [variant.effective_price_cents for variant in active_variants]
+    if prices:
+        low, high = min(prices), max(prices)
+    elif product.price_cents is not None:
+        low = high = product.price_cents
+    else:
+        low = high = None
+    price_label = (money(low, current_settings().currency) if low == high else money(low, current_settings().currency) + " â€“ " + money(high, current_settings().currency)) if low is not None else "Ask us for today's price"
+    image = product_display_image(product)
+    image_url = product_image_url(image)
+    image_path = None
+    if image and not getattr(image, "cloudinary_public_id", ""):
+        from app.services.product_images import legacy_local_image_path
+        image_path = legacy_local_image_path(image)
+    if not image_path and image_url.startswith("/static/"):
+        local = (Path(current_app.static_folder) / image_url.removeprefix("/static/")).resolve()
+        if Path(current_app.static_folder).resolve() in local.parents and local.is_file():
+            image_path = local
+    card = render_product_share_card(product.name, product.category.name if product.category else "Shop FityStores", price_label, image_path, image_url)
+    return Response(card, mimetype="image/png", headers={"Cache-Control": "public, max-age=3600", "Content-Length": str(len(card))})
 @public_bp.route("/cart")
 def cart():
     return render_template("cart.html", title="Cart")
