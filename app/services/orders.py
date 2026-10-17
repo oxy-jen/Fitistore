@@ -14,7 +14,7 @@ ACTIVE_SALE_STATUSES = ["Payment confirmed", "Preparing order", "Ready for colle
 def make_reference():
     return "FITYSTORES-" + datetime.utcnow().strftime("%y%m%d") + "-" + token_hex(3).upper()
 
-def create_checkout_order(raw_items, customer_name, customer_phone, fulfilment_method, instructions, payment_reference="", payment_proof_filename="", referral_code=""):
+def create_checkout_order(raw_items, customer_name, customer_phone, fulfilment_method, instructions, payment_reference="", payment_proof_filename="", referral_code="", customer_account_id=None):
     validation = validate_cart(raw_items)
     if not validation.lines:
         return None, validation
@@ -56,6 +56,9 @@ def create_checkout_order(raw_items, customer_name, customer_phone, fulfilment_m
         order.items.append(item)
     db.session.add(order)
     db.session.flush()
+    if customer_account_id:
+        from app.models import CustomerOrderLink
+        db.session.add(CustomerOrderLink(account_id=customer_account_id, order_id=order.id))
     db.session.add(OrderStatusHistory(order=order, field="status", old_value="", new_value=order.status, note="Order created from checkout."))
     db.session.add(PaymentAttempt(order=order, expected_amount_cents=order.total_cents, customer_phone=order.customer_phone, status="pending" if order.payment_status == "Awaiting payment" else "reconciliation_required", payment_method="Manual M-Pesa", initiated_at=datetime.utcnow(), result_description="Manual customer payment reference/proof captured." if order.payment_status == "Payment reported" else "Awaiting customer payment."))
     db.session.commit()

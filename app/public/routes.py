@@ -10,7 +10,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
-from app.models import Category, CustomerProfile, Order, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
+from app.models import Category, CustomerAccount, CustomerProfile, Order, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
@@ -19,6 +19,7 @@ from app.services.product_images import product_display_image, product_image_alt
 from app.services.share_cards import render_product_share_card
 from app.services.referrals import get_or_create_profile, normalize_phone, record_referral_click, referral_points_balance
 from werkzeug.utils import secure_filename
+from flask_login import current_user
 
 public_bp = Blueprint("public", __name__)
 PRODUCTS_PER_PAGE = 8
@@ -413,7 +414,7 @@ def product_detail(slug):
     seo_description = (product_description + " " + share_price + ".")[:300]
     whatsapp_share_url = "https://wa.me/?text=" + quote(share_message)
     card_url = "https://fitystore.top" + url_for("public.product_share_card", slug=product.slug)
-    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=card_url, og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=product.name + " at FityStores â€” " + share_price, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related)
+    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=card_url, og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=product.name + " at FityStores ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â " + share_price, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related)
 
 @public_bp.route("/share/product/<slug>.png")
 def product_share_card(slug):
@@ -427,7 +428,7 @@ def product_share_card(slug):
         low = high = product.price_cents
     else:
         low = high = None
-    price_label = (money(low, current_settings().currency) if low == high else money(low, current_settings().currency) + " â€“ " + money(high, current_settings().currency)) if low is not None else "Ask us for today's price"
+    price_label = (money(low, current_settings().currency) if low == high else money(low, current_settings().currency) + " ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ " + money(high, current_settings().currency)) if low is not None else "Ask us for today's price"
     image = product_display_image(product)
     image_url = product_image_url(image)
     image_path = None
@@ -504,12 +505,19 @@ def checkout():
             request.form.get("payment_reference", ""),
             proof_filename,
             session.get("referral_code", ""),
+            customer_account_id=current_user.id if isinstance(current_user._get_current_object(), CustomerAccount) and current_user.email_verified_at else None,
         )
         if not order:
             flash("Your cart could not be checked out. Please review the items and stock levels.", "error")
             return redirect(url_for("public.cart"))
         if order.referral_code:
             session["referral_code"] = order.referral_code
+        if isinstance(current_user._get_current_object(), CustomerAccount) and current_user.email_verified_at:
+            try:
+                from app.services.customer_mail import notify_order_event
+                notify_order_event(order, "order_received", f"order-received:{order.id}")
+            except Exception:
+                current_app.logger.error("Order notification could not be prepared for order %s", order.id)
         link = whatsapp_link(order, settings)
         return render_template("checkout_ready.html", title="Open WhatsApp", order=order, validation=validation, whatsapp_url=link)
     return render_template("checkout.html", title="Checkout", whatsapp_ready=bool(settings.whatsapp_number))
@@ -586,7 +594,7 @@ def render_policy_page(slug):
             "sections": [
                 ("Information you provide", ["Depending on how you use the site, FityStores may receive your name, phone number, order items, fulfilment instructions, payment reference, and any payment proof you choose to upload. Enquiry, review, suggestion, and restock forms collect the details you submit."]),
                 ("How it is used", ["Order and contact details are used to review and fulfil requests, communicate about orders, and provide customer support. Submitted reviews may be shown publicly after approval. The application hashes the submitter IP address when a review is created."]),
-                ("Handling and questions", ["Do not submit passwords, PINs, or payment credentials in free-text fields. For a privacy question or a request about information you submitted, contact the seller using the Contact page. This page does not make a certification or a claim about a specific retention period."]),
+                ("Customer accounts and preferences", ["Customer accounts store a normalized email address, display name, password hash or Google identity, verification status, and marketing preference. Verification, reset, and unsubscribe tokens are stored as hashes. Consent requests and withdrawals include their time, source, and wording version. Promotional messages are separate from necessary account and order updates."]),("Handling and questions", ["Do not submit passwords, PINs, or payment credentials in free-text fields. For a privacy question or a request about information you submitted, contact the seller using the Contact page. This page does not make a certification or a claim about a specific retention period."]),
             ],
         },
         "terms": {

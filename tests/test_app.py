@@ -1,11 +1,12 @@
 import io
+from datetime import datetime
 
 import pytest
 import app as app_module
-from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, Category, Product, ProductImage, ProductSuggestion, Review, ShopSettings
+from app.models import AdminUser, AuthRateLimit, Category, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailMessage, Order, Product, ProductImage, ProductSuggestion, Review, ShopSettings
 from config import TestConfig
 
 @pytest.fixture()
@@ -778,3 +779,218 @@ def test_checkout_and_policy_pages_show_current_store_terms(client, app):
     returns = client.get("/returns-policy")
     assert b"within 48 hours of delivery" in returns.data
     assert b"does not automatically approve a refund or exchange" in returns.data
+
+@pytest.fixture()
+def app_context(app):
+    with app.app_context():
+        yield
+
+def _register_customer(client, email="customer@example.com", marketing=False):
+    data = {
+        "display_name": "Test Customer",
+        "email": email,
+        "password": "a-strong-test-password-123",
+        "confirm_password": "a-strong-test-password-123",
+    }
+    if marketing:
+        data["marketing_opt_in"] = "yes"
+    return client.post("/account/register", data=data, follow_redirects=True)
+
+
+def test_customer_registration_hashes_password_and_defaults_marketing_off(client, app):
+    app.config["MAIL_PROVIDER"] = ""
+    response = _register_customer(client)
+    assert response.status_code == 200
+    assert b"Your FityStores account" in response.data
+    with app.app_context():
+        account = CustomerAccount.query.filter_by(email="customer@example.com").one()
+        assert account.password_hash != "a-strong-test-password-123"
+        assert check_password_hash(account.password_hash, "a-strong-test-password-123")
+        assert account.email_verified_at is None
+        assert account.marketing_status == "none"
+        token = CustomerToken.query.filter_by(account_id=account.id, purpose="verify_email").one()
+        assert len(token.token_hash) == 64
+        assert EmailMessage.query.filter_by(kind="verify_email").one().status == "not_configured"
+        assert CustomerConsentEvent.query.filter_by(account_id=account.id).count() == 0
+
+
+def test_email_verification_is_expiring_and_single_use(client, app, app_context):
+    from datetime import datetime, timedelta
+    import hashlib
+    app.config["MAIL_PROVIDER"] = ""
+    account = CustomerAccount(email="verify@example.com", display_name="Verify", password_hash=generate_password_hash("a-strong-test-password-123"))
+    db.session.add(account)
+    db.session.flush()
+    token = "one-time-verification-token"
+    token_row = CustomerToken(account_id=account.id, purpose="verify_email", token_hash=hashlib.sha256(token.encode()).hexdigest(), expires_at=datetime.utcnow() + timedelta(minutes=30))
+    db.session.add(token_row)
+    expired = CustomerToken(account_id=account.id, purpose="verify_email", token_hash=hashlib.sha256(b"expired-token").hexdigest(), expires_at=datetime.utcnow() - timedelta(seconds=1))
+    db.session.add(expired)
+    db.session.commit()
+    assert client.post("/account/verify/expired-token").status_code == 302
+    assert client.post(f"/account/verify/{token}").status_code == 302
+    db.session.refresh(account)
+    assert account.email_verified_at is not None
+    assert token_row.used_at is not None
+    assert client.post(f"/account/verify/{token}").status_code == 302
+    assert CustomerToken.query.filter_by(token_hash=hashlib.sha256(b"expired-token").hexdigest()).one().used_at is None
+
+
+def test_password_reset_is_single_use_and_requires_verified_account(client, app, app_context):
+    from datetime import datetime, timedelta
+    import hashlib
+    account = CustomerAccount(email="reset@example.com", display_name="Reset", password_hash=generate_password_hash("old-strong-password-123"), email_verified_at=datetime.utcnow())
+    db.session.add(account)
+    db.session.flush()
+    token = "one-time-reset-token"
+    row = CustomerToken(account_id=account.id, purpose="reset_password", token_hash=hashlib.sha256(token.encode()).hexdigest(), expires_at=datetime.utcnow() + timedelta(minutes=30))
+    db.session.add(row)
+    db.session.commit()
+    data = {"password": "new-strong-password-456", "confirm_password": "new-strong-password-456"}
+    assert client.post(f"/account/reset/{token}", data=data).status_code == 302
+    assert check_password_hash(account.password_hash, "new-strong-password-456")
+    assert row.used_at is not None
+    assert client.post(f"/account/reset/{token}", data=data).status_code == 302
+    assert CustomerToken.query.filter_by(purpose="reset_password").count() == 1
+
+
+def test_marketing_double_opt_in_and_unsubscribe_history(client, app, app_context):
+    from datetime import datetime, timedelta
+    import hashlib
+    app.config["MAIL_PROVIDER"] = ""
+    response = _register_customer(client, email="offers@example.com", marketing=True)
+    assert response.status_code == 200
+    account = CustomerAccount.query.filter_by(email="offers@example.com").one()
+    assert account.marketing_status == "pending"
+    assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="requested").count() == 1
+    account.email_verified_at = datetime.utcnow()
+    marketing = CustomerToken.query.filter_by(account_id=account.id, purpose="marketing_confirm").first()
+    token = "marketing-confirm-token"
+    marketing.token_hash = hashlib.sha256(token.encode()).hexdigest()
+    marketing.expires_at = datetime.utcnow() + timedelta(hours=1)
+    db.session.commit()
+    assert client.post(f"/account/marketing/confirm/{token}").status_code == 302
+    assert account.marketing_status == "subscribed"
+    assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed").count() == 1
+    unsubscribe_token = "marketing-unsubscribe-token"
+    db.session.add(CustomerToken(account_id=account.id, purpose="unsubscribe", token_hash=hashlib.sha256(unsubscribe_token.encode()).hexdigest(), expires_at=datetime.utcnow() + timedelta(days=365)))
+    db.session.commit()
+    assert client.get(f"/account/unsubscribe/{unsubscribe_token}").status_code == 200
+    assert client.post(f"/account/unsubscribe/{unsubscribe_token}").status_code == 200
+    db.session.refresh(account)
+    assert account.marketing_status == "unsubscribed"
+    assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="withdrawn").count() == 1
+
+
+def test_customer_orders_are_account_scoped_and_admin_is_not_customer(client, app, app_context):
+    from datetime import datetime
+    first = CustomerAccount(email="first@example.com", display_name="First", password_hash=generate_password_hash("a-strong-test-password-123"), email_verified_at=datetime.utcnow())
+    second = CustomerAccount(email="second@example.com", display_name="Second", password_hash=generate_password_hash("a-strong-test-password-123"), email_verified_at=datetime.utcnow())
+    db.session.add_all([first, second])
+    db.session.flush()
+    order1 = Order(reference="FITY-ACCOUNT-1", fulfilment_method="Collection", customer_name="First")
+    order2 = Order(reference="FITY-ACCOUNT-2", fulfilment_method="Collection", customer_name="Second")
+    db.session.add_all([order1, order2])
+    db.session.flush()
+    db.session.add_all([CustomerOrderLink(account_id=first.id, order_id=order1.id), CustomerOrderLink(account_id=second.id, order_id=order2.id)])
+    db.session.commit()
+    response = client.post("/account/login", data={"email": first.email, "password": "a-strong-test-password-123"}, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"FITY-ACCOUNT-1" in response.data
+    assert b"FITY-ACCOUNT-2" not in response.data
+    assert client.get("/admin/").status_code == 403
+
+
+def test_google_signin_uses_mocked_verified_sub_and_refuses_unsafe_link(client, app, monkeypatch, app_context):
+    import app.customer.routes as customer_routes
+    app.config["GOOGLE_CLIENT_ID"] = "test-client-id"
+    claims = {"sub": "google-sub-123", "email": "googleuser@gmail.com", "name": "Google User", "email_verified": True, "hd": ""}
+    monkeypatch.setattr(customer_routes, "verify_google_credential", lambda credential: claims)
+    client.set_cookie("g_csrf_token", "csrf-state", domain="example.test")
+    response = client.post("/account/google", data={"credential": "mocked", "g_csrf_token": "csrf-state"}, follow_redirects=True)
+    assert response.status_code == 200
+    account = CustomerAccount.query.filter_by(google_sub="google-sub-123").one()
+    assert account.email_verified_at is not None
+    assert account.password_hash is None
+    assert account.marketing_status == "none"
+
+    existing = CustomerAccount(email="owner@example.com", display_name="Existing", password_hash=generate_password_hash("a-strong-test-password-123"), email_verified_at=datetime.utcnow())
+    db.session.add(existing)
+    db.session.commit()
+    claims.update(sub="another-google-sub", email="owner@example.com")
+    client.set_cookie("g_csrf_token", "csrf-state-2", domain="example.test")
+    client.post("/account/google", data={"credential": "mocked", "g_csrf_token": "csrf-state-2"})
+    assert existing.google_sub is None
+
+
+def test_mail_provider_failure_is_recorded_without_secrets(app, monkeypatch, app_context):
+    import smtplib
+    import app.services.customer_mail as customer_mail
+    app.config.update(MAIL_PROVIDER="smtp", MAIL_FROM_VERIFIED=True, MAIL_FROM_ADDRESS="verified@example.test", MAIL_SERVER="smtp.example.test")
+    def fail_send(*args, **kwargs):
+        raise smtplib.SMTPAuthenticationError(535, b"private credential rejected")
+    monkeypatch.setattr(customer_mail, "_send_smtp", fail_send)
+    result = customer_mail.queue_branded_email("person@example.test", "Test", "test", "smtp-failure-test", "Hello", ["Test body"])
+    assert result.status == "failed"
+    assert "private credential" not in result.failure_reason
+    assert result.failure_reason == "SMTP error 535."
+
+
+def test_campaign_only_targets_confirmed_active_subscribers_and_prevents_resend(client, app, monkeypatch, app_context):
+    from datetime import datetime
+    import app.services.customer_mail as customer_mail
+    app.config.update(MAIL_PROVIDER="smtp", MAIL_FROM_VERIFIED=True, MAIL_FROM_ADDRESS="verified@example.test", MAIL_SERVER="smtp.example.test", MAIL_TEST_ADDRESS="owner@example.test")
+    sent = []
+    monkeypatch.setattr(customer_mail, "_send_smtp", lambda recipient, subject, html, text: sent.append((recipient, subject, html)))
+    eligible = CustomerAccount(email="eligible@example.com", display_name="Eligible", email_verified_at=datetime.utcnow(), marketing_status="subscribed", marketing_consent_at=datetime.utcnow())
+    declined = CustomerAccount(email="declined@example.com", display_name="Declined", email_verified_at=datetime.utcnow(), marketing_status="none")
+    db.session.add_all([eligible, declined])
+    db.session.commit()
+    assert client.post("/admin/login", data={"username": "owner", "password": "secret123"}, follow_redirects=True).status_code == 200
+    draft = client.post("/admin/email/campaigns", data={"name": "New arrivals", "subject": "New arrivals", "body": "See what is new."})
+    campaign = EmailCampaign.query.one()
+    assert draft.status_code == 302
+    preview = client.get(f"/admin/email/campaigns/{campaign.id}")
+    assert b"Current eligible subscriber count: 1" in preview.data
+    response = client.post(f"/admin/email/campaigns/{campaign.id}", data={"confirm_send": "SEND"})
+    assert response.status_code == 302
+    assert [item[0] for item in sent] == ["eligible@example.com"]
+    assert "unsubscribe" in sent[0][2]
+    assert EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id).count() == 1
+    assert EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id, status="sent").count() == 1
+    client.post(f"/admin/email/campaigns/{campaign.id}", data={"confirm_send": "SEND"})
+    assert len(sent) == 1
+
+
+def test_customer_auth_forms_keep_csrf_protection(client, app):
+    app.config["WTF_CSRF_ENABLED"] = True
+    response = client.post("/account/register", data={"email": "csrf@example.com"})
+    assert response.status_code == 400
+
+def test_verified_customer_checkout_links_new_order_and_keeps_guest_path(client, app_context, app):
+    from datetime import datetime
+    account = CustomerAccount(email="checkout-account@example.com", display_name="Checkout", password_hash=generate_password_hash("a-strong-test-password-123"), email_verified_at=datetime.utcnow())
+    db.session.add(account)
+    db.session.commit()
+    assert client.post("/account/login", data={"email": account.email, "password": "a-strong-test-password-123"}, follow_redirects=True).status_code == 200
+    response = client.post("/checkout", data={"cart_json": "[{\"product_id\":1,\"quantity\":1}]", "customer_name": "Checkout", "fulfilment_method": "Collection"}, follow_redirects=True)
+    assert response.status_code == 200
+    order = Order.query.filter_by(customer_name="Checkout").one()
+    assert CustomerOrderLink.query.filter_by(account_id=account.id, order_id=order.id).one()
+    assert EmailMessage.query.filter_by(order_id=order.id, kind="order_received").one().status == "not_configured"
+
+
+def test_payment_confirmation_email_requires_paid_order(client, app_context, app, monkeypatch):
+    import app.services.customer_mail as customer_mail
+    account = CustomerAccount(email="payment-owner@example.com", display_name="Payment", password_hash=generate_password_hash("a-strong-test-password-123"), email_verified_at=datetime.utcnow())
+    order = Order(reference="FITY-EMAIL-PAYMENT", fulfilment_method="Collection", payment_status="Awaiting payment")
+    db.session.add_all([account, order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+    assert customer_mail.notify_order_event(order, "payment_confirmed", "unpaid-payment-event") is None
+    assert EmailMessage.query.filter_by(idempotency_key="unpaid-payment-event").count() == 0
+    order.payment_status = "Paid"
+    db.session.commit()
+    assert customer_mail.notify_order_event(order, "payment_confirmed", "verified-payment-event").status == "not_configured"
+    assert EmailMessage.query.filter_by(idempotency_key="verified-payment-event").one().status == "not_configured"

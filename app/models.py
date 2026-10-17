@@ -16,7 +16,12 @@ class AdminUser(UserMixin, TimestampMixin, db.Model):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return AdminUser.query.get(int(user_id))
+    try:
+        if str(user_id).startswith("customer:"):
+            return CustomerAccount.query.get(int(str(user_id).split(":", 1)[1]))
+        return AdminUser.query.get(int(user_id))
+    except (ValueError, TypeError):
+        return None
 
 class Category(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -402,3 +407,93 @@ class ShopSettings(TimestampMixin, db.Model):
 
 
 
+
+class CustomerAccount(UserMixin, TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(254), unique=True, nullable=False, index=True)
+    display_name = db.Column(db.String(120), default="", nullable=False)
+    password_hash = db.Column(db.String(255))
+    google_sub = db.Column(db.String(255), unique=True, index=True)
+    email_verified_at = db.Column(db.DateTime)
+    marketing_status = db.Column(db.String(20), default="none", nullable=False, index=True)
+    marketing_consent_at = db.Column(db.DateTime)
+    marketing_withdrawn_at = db.Column(db.DateTime)
+    active = db.Column(db.Boolean, default=True, nullable=False)
+
+    def get_id(self):
+        return f"customer:{self.id}"
+
+    @property
+    def is_admin(self):
+        return False
+
+
+class CustomerToken(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), nullable=False, index=True)
+    purpose = db.Column(db.String(24), nullable=False, index=True)
+    token_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    used_at = db.Column(db.DateTime)
+    account = db.relationship("CustomerAccount")
+
+
+class CustomerConsentEvent(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), nullable=False, index=True)
+    event = db.Column(db.String(24), nullable=False)
+    method = db.Column(db.String(24), nullable=False)
+    wording_version = db.Column(db.String(32), default="2026-10", nullable=False)
+    account = db.relationship("CustomerAccount")
+
+
+class CustomerOrderLink(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), nullable=False, index=True)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False, unique=True, index=True)
+    account = db.relationship("CustomerAccount")
+    order = db.relationship("Order")
+
+
+class AuthRateLimit(db.Model):
+    key = db.Column(db.String(64), primary_key=True)
+    window_started_at = db.Column(db.DateTime, nullable=False)
+    attempts = db.Column(db.Integer, default=0, nullable=False)
+
+
+class EmailMessage(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    recipient = db.Column(db.String(254), nullable=False, index=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), index=True)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), index=True)
+    campaign_id = db.Column(db.Integer, db.ForeignKey("email_campaign.id"), index=True)
+    kind = db.Column(db.String(32), nullable=False, index=True)
+    subject = db.Column(db.String(200), nullable=False)
+    idempotency_key = db.Column(db.String(160), unique=True, nullable=False)
+    status = db.Column(db.String(24), default="queued", nullable=False, index=True)
+    failure_reason = db.Column(db.String(255), default="")
+    sent_at = db.Column(db.DateTime)
+
+
+class EmailCampaign(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    subject = db.Column(db.String(200), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(24), default="draft", nullable=False, index=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("admin_user.id"), nullable=False)
+    sent_at = db.Column(db.DateTime)
+    admin = db.relationship("AdminUser")
+
+
+class EmailCampaignRecipient(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    campaign_id = db.Column(db.Integer, db.ForeignKey("email_campaign.id"), nullable=False, index=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), nullable=False, index=True)
+    recipient = db.Column(db.String(254), nullable=False)
+    status = db.Column(db.String(24), default="queued", nullable=False, index=True)
+    failure_reason = db.Column(db.String(255), default="")
+    sent_at = db.Column(db.DateTime)
+    campaign = db.relationship("EmailCampaign")
+    account = db.relationship("CustomerAccount")
+    __table_args__ = (UniqueConstraint("campaign_id", "account_id", name="uq_campaign_recipient_account"),)

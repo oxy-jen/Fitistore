@@ -151,6 +151,8 @@ def create_app(config_object=Config):
 
     from .public.routes import public_bp
     from .admin.routes import admin_bp
+    from .customer.routes import customer_bp
+    app.register_blueprint(customer_bp)
     app.register_blueprint(public_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
 
@@ -239,6 +241,21 @@ def register_cli(app: Flask):
         click.echo("FityStores database is ready.")
 
 
+    @app.cli.command("migrate-customer-email-schema")
+    def migrate_customer_email_schema():
+        """Create the additive customer account and email tables in an existing PostgreSQL database."""
+        if not is_postgresql_database():
+            raise click.ClickException("Use the existing SQLite init-db flow for local SQLite databases.")
+        from sqlalchemy import text
+        migration = Path(__file__).resolve().parent.parent / "migrations" / "20261017_customer_accounts_email.sql"
+        statements = migration.read_text(encoding="utf-8").split(";")
+        with db.engine.begin() as connection:
+            connection.execute(text("SELECT pg_advisory_xact_lock(724930117)"))
+            for statement in statements:
+                statement = statement.strip()
+                if statement:
+                    connection.execute(text(statement))
+        click.echo("Customer account and email tables are ready. Existing store data was not changed.")
     @app.cli.command("migrate-cloudinary-schema")
     def migrate_cloudinary_schema():
         """Add the Cloudinary product image columns with safe, idempotent database-specific DDL."""

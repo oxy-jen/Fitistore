@@ -205,3 +205,68 @@ SELECT COUNT(*) FROM product_image;
 Compare the count with the count before the migration if you captured it during backup verification.
 
 To verify deployment, open `/admin/products`, edit a product, upload a small jpg/png/webp/gif, save, and confirm the thumbnail appears in the admin list, home/shop cards, and product detail page. If migration or upload fails, keep the database as-is, check the Render environment variables, rerun `migrate-product-images` for legacy files, or re-upload the affected product photos manually.
+
+## Customer accounts and email
+
+The existing `AdminUser` table and admin authentication remain separate. Customer accounts use `CustomerAccount`; customer sessions have prefixed IDs and the admin blueprint rejects customer identities. Existing guest checkout and WhatsApp ordering remain available. Only orders submitted while signed into a verified customer account are linked to that account. Older guest orders are not automatically claimed by email or phone matching.
+
+### Database setup
+
+SQLite local development creates the new additive tables through the existing `db.create_all()` startup path. Do not run `init-db` against a database with live store records; that command can seed starter data.
+
+For an existing PostgreSQL deployment, back up the database and review `migrations/20261017_customer_accounts_email.sql`, then apply the additive migration explicitly:
+
+```powershell
+python -m flask --app wsgi:app migrate-customer-email-schema
+```
+
+The migration adds customer identity, token, consent, order-link, rate-limit, campaign, and email-message tables. It does not change or delete existing order, product, inventory, payment, image, or admin records. Run it before enabling customer account/email routes on PostgreSQL. The migration is idempotent.
+
+### Email provider setup
+
+No provider or sender is configured by default. Choose an SMTP-capable transactional provider and configure its host, port, TLS mode, username/password, and a sender address that the provider has verified:
+
+```text
+MAIL_PROVIDER=smtp
+MAIL_FROM_ADDRESS=<provider-verified sender>
+MAIL_FROM_NAME=FityStores
+MAIL_REPLY_TO=<real inbox the business monitors>
+MAIL_SERVER=<provider SMTP host>
+MAIL_PORT=587
+MAIL_USERNAME=<provider username>
+MAIL_PASSWORD=<provider password>
+MAIL_USE_TLS=1
+MAIL_FROM_VERIFIED=1
+MAIL_TEST_ADDRESS=<authorized owner test inbox>
+```
+
+Set `MAIL_FROM_VERIFIED=1` only after the provider verifies the sender/domain. `support@fitystore.top`, `orders@fitystore.top`, and `hello@fitystore.top` are naming examples only; this project does not create mailboxes, aliases, or forwarding. A sender identity can send mail but does not itself receive replies. Configure `MAIL_REPLY_TO` to an inbox that exists and is monitored. Buying the domain alone does not include email hosting.
+
+Follow the provider's current DNS instructions to publish SPF and DKIM. Add a DMARC policy for `fitystore.top` and monitor aggregate reports before tightening enforcement. DNS is not changed by this application. Provider plans, free quotas, costs, and setup requirements change; check the selected provider before relying on a free tier.
+
+The admin Customer email page shows whether SMTP is configured, subscriber consent, campaign history, and the last 30 message statuses. SMTP `sent` means the configured relay accepted the message; it does not prove inbox delivery. This SMTP implementation has no delivery/bounce webhook because no provider has been selected. An admin can suppress a permanently bounced address; suppressed accounts are excluded and cannot self-resubscribe. There is no automatic retry worker. Email failures do not roll back committed orders or payment records. Campaign sending is synchronous and intended for low volume; large lists may exceed a web-host request timeout. Do not run a campaign until SMTP is verified with the configured test address.
+
+### Google sign-in setup
+
+Install the pinned dependencies from `requirements.txt`, create an OAuth **Web application** client in Google Cloud, and place its client ID in `GOOGLE_CLIENT_ID`. Add `https://fitystore.top` as an authorized JavaScript origin and these exact HTTPS redirect URIs:
+
+```text
+https://fitystore.top/account/google
+https://fitystore.top/account/google/link
+```
+
+Also authorize `fitystore.top` in the Google consent/branding configuration. The client secret is not used by this Google Identity Services ID-token flow and must not be added to the app. The server verifies the ID token signature, audience, issuer and expiry with `google-auth`, checks `email_verified`, and uses `sub` as the Google identity. Automatic Google registration is limited to Gmail or verified Google Workspace addresses. Existing email accounts are never silently linked; the customer must sign in first and link the matching verified Google address from the account page.
+
+The integration stays unavailable until `GOOGLE_CLIENT_ID` and the `google-auth` package are configured. Google setup/reference: <https://developers.google.com/identity/gsi/web/guides/verify-google-id-token>.
+
+### Safe manual test
+
+1. In a test/local environment, leave real SMTP credentials empty and keep the test database. The app records email as `not_configured` instead of sending it.
+2. Register a customer with an unused email and a 12+ character password. Verify the stored password is a hash and the marketing checkbox starts unchecked.
+3. In the test database only, inspect the `CustomerToken` hash and use a test-created raw token to POST the verification form. Confirm expiry and single-use behavior.
+4. Check that marketing status is `none` when unchecked. If opting in, confirm the separate `marketing_confirm` token only after verifying the account, then unsubscribe using the one-time link.
+5. Sign into a verified account before checkout and confirm its order appears on that account only. Submit a guest order and confirm it remains available through the existing WhatsApp/tracking workflow without an account link.
+6. To exercise SMTP in tests, mock `app.services.customer_mail._send_smtp`. Never put a live provider credential into test settings.
+7. Only after sender verification, configure `MAIL_TEST_ADDRESS`, send one test message from the admin centre, and inspect its status. Preview a campaign and type `SEND` only when the eligible subscriber count and content are correct.
+
+Use HTTPS in production and set `SESSION_COOKIE_SECURE=1`. Registration, login, verification, password reset and Google sign-in are rate-limited per IP/action; session cookies remain HTTP-only and SameSite Lax. Password reset/verification raw tokens are only included in the generated email and are stored in the database as SHA-256 hashes. The email outbox stores recipient, subject, event, status and failure summary, not token links or message bodies. Review privacy wording and any retention schedule with the business owner; this implementation is not a legal compliance certification.

@@ -5,21 +5,189 @@ from datetime import datetime, timedelta
 import re
 import socket
 import urllib.request
+from secrets import token_urlsafe
+from uuid import uuid4
+import hashlib
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 from flask import Blueprint, Response, current_app, flash, redirect, render_template, request, send_from_directory, url_for
 from flask_login import current_user, login_required, login_user, logout_user
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, update
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 from app.extensions import db
-from app.models import AdminUser, Category, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, Order, PaymentAttempt, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, RefundRequest, RestockAlert, Review, ShopSettings
+from app.models import AdminUser, CustomerAccount, Category, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, Order, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailMessage
 from app.services.formatting import parse_money
 from app.services.inventory import InventoryError, adjust_stock, adjust_variant_stock, low_stock_products
 from app.services.orders import FULFILMENT_STATUSES, PAYMENT_STATUSES, award_loyalty_for_order, refundable_cents, sales_summary, update_order_status
 from app.services.product_images import ImageStorageError, cloudinary_configured, cloudinary_public_id, delete_cloudinary_asset, upload_image_bytes
 
 admin_bp = Blueprint("admin", __name__, template_folder="../templates/admin")
+@admin_bp.route("/email")
+@login_required
+def email_center():
+    from app.services.customer_mail import mail_configuration_status
+    search = request.args.get("q", "").strip()[:120]
+    query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None))
+    if search:
+        term = f"%{search}%"
+        query = query.filter(or_(CustomerAccount.email.ilike(term), CustomerAccount.display_name.ilike(term)))
+    subscribers = query.order_by(CustomerAccount.marketing_consent_at.desc()).paginate(page=max(1, request.args.get("page", 1, type=int)), per_page=25, error_out=False)
+    account_query = CustomerAccount.query.order_by(CustomerAccount.created_at.desc())
+    if search:
+        term = f"%{search}%"
+        account_query = account_query.filter(or_(CustomerAccount.email.ilike(term), CustomerAccount.display_name.ilike(term)))
+    accounts = account_query.limit(100).all()
+    campaigns = EmailCampaign.query.order_by(EmailCampaign.created_at.desc()).limit(25).all()
+    messages = EmailMessage.query.order_by(EmailMessage.created_at.desc()).limit(30).all()
+    configured, note = mail_configuration_status()
+    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, accounts=accounts, campaigns=campaigns, messages=messages, search=search, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""))
+
+
+@admin_bp.route("/email/campaigns", methods=["GET", "POST"])
+@login_required
+def email_campaigns():
+    from app.services.customer_mail import mail_configuration_status, queue_branded_email
+    eligible = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None))
+    eligible_count = eligible.count()
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()[:120]
+        subject = request.form.get("subject", "").strip()[:200]
+        body = request.form.get("body", "").strip()[:10000]
+        if not subject or not body:
+            flash("A subject and message are required.", "error")
+            return redirect(url_for("admin.email_campaigns"))
+        if request.form.get("action") == "test":
+            target = current_app.config.get("MAIL_TEST_ADDRESS", "")
+            configured, note = mail_configuration_status()
+            if not target or not configured:
+                flash("Test message was not sent: configure an authorized MAIL_TEST_ADDRESS and verified SMTP sender. " + note, "error")
+            else:
+                key = f"campaign-test:{uuid4().hex}"
+                result = queue_branded_email(target, subject, "campaign_test", key, name or subject, [body])
+                flash("Test message status: " + result.status, "success" if result.status == "sent" else "error")
+            return redirect(url_for("admin.email_center"))
+        if not name:
+            flash("Campaign name is required.", "error")
+            return redirect(url_for("admin.email_campaigns"))
+        campaign = EmailCampaign(name=name, subject=subject, body=body, created_by_id=current_user.id, status="draft")
+        db.session.add(campaign)
+        db.session.flush()
+        db.session.add(FinancialAuditEvent(admin=current_user, event_type="email_campaign_draft_created", entity_type="EmailCampaign", entity_id=campaign.id, note=f"Eligible subscribers at draft: {eligible_count}"))
+        db.session.commit()
+        return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
+    campaigns = EmailCampaign.query.order_by(EmailCampaign.created_at.desc()).limit(50).all()
+    return render_template("admin/email_campaigns.html", title="Promotional campaigns", eligible_count=eligible_count, campaigns=campaigns, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""))
+
+
+@admin_bp.route("/email/campaigns/<int:campaign_id>", methods=["GET", "POST"])
+@login_required
+def email_campaign_detail(campaign_id):
+    from app.services.customer_mail import mail_configuration_status, queue_branded_email
+    campaign = EmailCampaign.query.get_or_404(campaign_id)
+    if request.method == "POST":
+        if campaign.status != "draft" or request.form.get("confirm_send") != "SEND":
+            flash("Campaign was not sent. Type SEND to confirm the previewed campaign.", "error")
+            return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
+        configured, note = mail_configuration_status()
+        if not configured:
+            flash("Campaign was not sent: " + note, "error")
+            return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
+        claimed = db.session.execute(update(EmailCampaign).where(EmailCampaign.id == campaign.id, EmailCampaign.status == "draft").values(status="sending"))
+        if claimed.rowcount != 1:
+            db.session.rollback()
+            flash("This campaign has already been claimed or sent.", "warning")
+            return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
+        db.session.add(FinancialAuditEvent(admin=current_user, event_type="email_campaign_send_started", entity_type="EmailCampaign", entity_id=campaign.id, note="Explicit admin confirmation"))
+        db.session.commit()
+        recipients = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None)).order_by(CustomerAccount.id).all()
+        for account in recipients:
+            db.session.refresh(account)
+            row = EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id, account_id=account.id).first()
+            if row and row.status == "sent":
+                continue
+            if not account.active or account.marketing_status != "subscribed" or not account.email_verified_at:
+                if row:
+                    row.status = "suppressed"
+                    db.session.commit()
+                continue
+            if not row:
+                row = EmailCampaignRecipient(campaign_id=campaign.id, account_id=account.id, recipient=account.email, status="queued")
+                db.session.add(row)
+                db.session.flush()
+            token = token_urlsafe(32)
+            db.session.add(CustomerToken(account_id=account.id, purpose="unsubscribe", token_hash=hashlib.sha256(token.encode()).hexdigest(), expires_at=datetime.utcnow() + timedelta(days=3650)))
+            db.session.commit()
+            unsubscribe_url = url_for("customer.unsubscribe", token=token, _external=True, _scheme="https")
+            try:
+                message = queue_branded_email(account.email, campaign.subject, "marketing_campaign", f"campaign:{campaign.id}:account:{account.id}", campaign.name, [campaign.body], account_id=account.id, campaign_id=campaign.id, unsubscribe_url=unsubscribe_url)
+                row.status = message.status
+                row.failure_reason = message.failure_reason
+                row.sent_at = message.sent_at
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                row = EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id, account_id=account.id).first()
+                if row:
+                    row.status = "failed"
+                    row.failure_reason = "Message preparation or delivery failed."
+                    db.session.commit()
+        counts = {status: EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id, status=status).count() for status in ("sent", "failed", "not_configured", "suppressed")}
+        campaign.status = "sent" if counts["sent"] and not any(counts[key] for key in ("failed", "not_configured")) else "partial"
+        campaign.sent_at = datetime.utcnow() if counts["sent"] else None
+        db.session.add(FinancialAuditEvent(admin=current_user, event_type="email_campaign_send_finished", entity_type="EmailCampaign", entity_id=campaign.id, note=f"sent={counts['sent']} failed={counts['failed']} not_configured={counts['not_configured']} suppressed={counts['suppressed']}"))
+        db.session.commit()
+        flash(f"Campaign result: sent {counts['sent']}; failed {counts['failed']}; not configured {counts['not_configured']}; suppressed {counts['suppressed']}.", "success" if campaign.status == "sent" else "warning")
+        return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
+    recipients = EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id).order_by(EmailCampaignRecipient.id.desc()).all()
+    eligible_count = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None)).count()
+    return render_template("admin/email_campaign_detail.html", title=campaign.name, campaign=campaign, recipients=recipients, eligible_count=eligible_count)
+
+
+@admin_bp.post("/email/customers/<int:account_id>/message")
+@login_required
+def email_customer_message(account_id):
+    from app.services.customer_mail import queue_branded_email
+    account = CustomerAccount.query.get_or_404(account_id)
+    subject = request.form.get("subject", "").strip()[:200]
+    body = request.form.get("body", "").strip()[:5000]
+    if request.form.get("confirm_send") != "yes" or not account.active or not account.email_verified_at or not subject or not body:
+        flash("Choose an active verified customer, enter a subject and message, and confirm the send.", "error")
+    else:
+        result = queue_branded_email(account.email, subject, "admin_service", f"admin-message:{uuid4().hex}", "A message from FityStores", [body], account_id=account.id)
+        db.session.add(FinancialAuditEvent(admin=current_user, event_type="customer_service_email", entity_type="CustomerAccount", entity_id=account.id, note=f"EmailMessage {result.id}: {result.status}"))
+        db.session.commit()
+        flash("Service message status: " + result.status, "success" if result.status == "sent" else "error")
+    return redirect(url_for("admin.email_center"))
+
+
+@admin_bp.post("/email/customers/<int:account_id>/suppress")
+@login_required
+def suppress_customer_marketing(account_id):
+    account = CustomerAccount.query.get_or_404(account_id)
+    account.marketing_status = "suppressed"
+    account.marketing_withdrawn_at = datetime.utcnow()
+    db.session.add(CustomerConsentEvent(account_id=account.id, event="suppressed", method="admin_suppression", wording_version="2026-10"))
+    db.session.add(FinancialAuditEvent(admin=current_user, event_type="customer_marketing_suppressed", entity_type="CustomerAccount", entity_id=account.id, note="Admin suppression"))
+    db.session.commit()
+    flash("Address suppressed from marketing campaigns.", "success")
+    return redirect(url_for("admin.email_center"))
+
+@admin_bp.post("/email/customers/<int:account_id>/active")
+@login_required
+def set_customer_active(account_id):
+    account = CustomerAccount.query.get_or_404(account_id)
+    account.active = request.form.get("active") == "yes"
+    db.session.add(FinancialAuditEvent(admin=current_user, event_type="customer_account_activation_changed", entity_type="CustomerAccount", entity_id=account.id, note="active" if account.active else "inactive"))
+    db.session.commit()
+    flash("Customer account updated.", "success")
+    return redirect(url_for("admin.email_center"))
+
+@admin_bp.before_request
+def require_admin_identity():
+    if current_user.is_authenticated and not isinstance(current_user._get_current_object(), AdminUser):
+        from flask import abort
+        abort(403)
 
 IMAGE_SIGNATURES = {
     "jpg": (b"\xff\xd8\xff",),
@@ -496,6 +664,13 @@ def update_order(order_id):
     try:
         changes = update_order_status(order, request.form.get("status", order.status), request.form.get("payment_status", order.payment_status), request.form.get("notes", order.notes), current_user)
         db.session.commit()
+        if any(field == "status" for field, _old, _new in changes):
+            event = OrderStatusHistory.query.filter_by(order_id=order.id, field="status").order_by(OrderStatusHistory.id.desc()).first()
+            try:
+                from app.services.customer_mail import notify_order_event
+                notify_order_event(order, "order_status", f"order-status:{event.id}" if event else f"order-status:{order.id}:{order.status}")
+            except Exception:
+                current_app.logger.error("Order status notification could not be prepared for order %s", order.id)
         flash("Order updated." if changes else "No status change was needed.", "success")
     except ValueError as exc:
         db.session.rollback()
@@ -821,6 +996,12 @@ def verify_payment(order_id):
     if order.payment_status == "Paid" and settings:
         award_loyalty_for_order(order, settings, current_user)
     db.session.commit()
+    if order.payment_status == "Paid":
+        try:
+            from app.services.customer_mail import notify_order_event
+            notify_order_event(order, "payment_confirmed", f"payment-confirmed:{transaction.id}")
+        except Exception:
+            current_app.logger.error("Payment notification could not be prepared for order %s", order.id)
     flash("Payment outcome recorded with audit trail.", "success")
     return redirect(url_for("admin.reconciliation"))
 
