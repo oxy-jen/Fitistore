@@ -212,7 +212,7 @@ The existing `AdminUser` table and admin authentication remain separate. Custome
 
 ### Database setup
 
-SQLite local development creates the new additive tables through the existing `db.create_all()` startup path. Do not run `init-db` against a database with live store records; that command can seed starter data.
+SQLite local development creates tables through the existing `db.create_all()` startup path. The `migrate-customer-email-schema` command also supports SQLite and creates only the eight customer/account email tables from SQLAlchemy model metadata; for that specific CLI command, app startup skips the broader `ensure_columns()` helper so unrelated order/product columns and tracking tokens are not touched. It verifies required columns, indexes, uniqueness constraints and foreign keys. The SQLite path uses a transaction and reports which tables were created or already existed. An incomplete pre-existing feature table causes a clear error and rollback rather than a destructive repair. A fresh local store must first be initialized with `init-db`; do not run `init-db` against a database with live store records because it can seed starter data.
 
 For an existing PostgreSQL deployment, back up the database and review `migrations/20261017_customer_accounts_email.sql`, then apply the additive migration explicitly:
 

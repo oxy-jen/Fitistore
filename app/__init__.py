@@ -177,6 +177,15 @@ def ensure_database_schema(app: Flask):
     """Apply local SQLite setup and the small idempotent referral migration on PostgreSQL."""
     with app.app_context():
         if is_sqlite_database():
+            # The targeted migration must not also run legacy ensure_columns(), which
+            # can backfill unrelated order fields while Flask imports the CLI app.
+            import os
+            import sys
+            if (
+                os.environ.get("FLASK_RUN_FROM_CLI", "").lower() == "true"
+                and "migrate-customer-email-schema" in sys.argv
+            ):
+                return
             db.create_all()
             ensure_columns()
         elif is_postgresql_database():
@@ -243,19 +252,143 @@ def register_cli(app: Flask):
 
     @app.cli.command("migrate-customer-email-schema")
     def migrate_customer_email_schema():
-        """Create the additive customer account and email tables in an existing PostgreSQL database."""
-        if not is_postgresql_database():
-            raise click.ClickException("Use the existing SQLite init-db flow for local SQLite databases.")
-        from sqlalchemy import text
-        migration = Path(__file__).resolve().parent.parent / "migrations" / "20261017_customer_accounts_email.sql"
-        statements = migration.read_text(encoding="utf-8").split(";")
-        with db.engine.begin() as connection:
-            connection.execute(text("SELECT pg_advisory_xact_lock(724930117)"))
-            for statement in statements:
-                statement = statement.strip()
-                if statement:
-                    connection.execute(text(statement))
-        click.echo("Customer account and email tables are ready. Existing store data was not changed.")
+        """Create only the additive account/email tables for the active database."""
+        from sqlalchemy import inspect, text
+
+        dialect = database_dialect_name()
+        if dialect not in {"sqlite", "postgresql", "postgres"}:
+            raise click.ClickException(
+                f"Unsupported database dialect for customer/email schema migration: {dialect}."
+            )
+
+        from .models import (
+            AuthRateLimit,
+            CustomerAccount,
+            CustomerConsentEvent,
+            CustomerOrderLink,
+            CustomerToken,
+            EmailCampaign,
+            EmailCampaignRecipient,
+            EmailMessage,
+        )
+        tables = [
+            CustomerAccount.__table__,
+            CustomerToken.__table__,
+            CustomerConsentEvent.__table__,
+            CustomerOrderLink.__table__,
+            AuthRateLimit.__table__,
+            EmailCampaign.__table__,
+            EmailMessage.__table__,
+            EmailCampaignRecipient.__table__,
+        ]
+        table_names = {table.name for table in tables}
+
+        def validate_columns(connection):
+            inspector = inspect(connection)
+            incomplete = []
+            for table in tables:
+                if table.name not in set(inspector.get_table_names()):
+                    incomplete.append(table.name + " (table missing)")
+                    continue
+                actual_columns = {column["name"] for column in inspector.get_columns(table.name)}
+                missing_columns = sorted({column.name for column in table.columns} - actual_columns)
+                if missing_columns:
+                    incomplete.append(table.name + " (missing columns: " + ", ".join(missing_columns) + ")")
+                    continue
+
+                actual_indexes = {index["name"] for index in inspector.get_indexes(table.name)}
+                missing_indexes = sorted(index.name for index in table.indexes if index.name not in actual_indexes)
+                if missing_indexes:
+                    incomplete.append(table.name + " (missing indexes: " + ", ".join(missing_indexes) + ")")
+
+                expected_unique = {
+                    tuple(column.name for column in constraint.columns)
+                    for constraint in table.constraints
+                    if constraint.__class__.__name__ == "UniqueConstraint"
+                }
+                actual_unique = {
+                    tuple(constraint.get("column_names") or ())
+                    for constraint in inspector.get_unique_constraints(table.name)
+                }
+                actual_unique.update(
+                    tuple(index.get("column_names") or ())
+                    for index in inspector.get_indexes(table.name)
+                    if index.get("unique")
+                )
+                if expected_unique - actual_unique:
+                    missing_unique = sorted(",".join(columns) for columns in expected_unique - actual_unique)
+                    incomplete.append(table.name + " (missing unique constraints: " + ", ".join(missing_unique) + ")")
+
+                expected_foreign_keys = {
+                    (foreign_key.parent.name, foreign_key.column.table.name, foreign_key.column.name)
+                    for foreign_key in table.foreign_keys
+                }
+                actual_foreign_keys = {
+                    (column, foreign_key.get("referred_table"), referred_column)
+                    for foreign_key in inspector.get_foreign_keys(table.name)
+                    for column, referred_column in zip(
+                        foreign_key.get("constrained_columns") or (),
+                        foreign_key.get("referred_columns") or (),
+                    )
+                }
+                if expected_foreign_keys - actual_foreign_keys:
+                    incomplete.append(table.name + " (missing foreign key constraints)")
+            if incomplete:
+                raise click.ClickException("Existing customer/email table is incomplete: " + "; ".join(incomplete) + ". No changes from this migration were committed.")
+
+        try:
+            before = set(inspect(db.engine).get_table_names())
+            missing_parents = {"admin_user", "order"} - before
+            if missing_parents:
+                names = ", ".join(sorted(missing_parents))
+                raise click.ClickException(
+                    f"Base store schema is missing required table(s): {names}. "
+                    "Initialize a new local store with init-db first; this command does not seed store data."
+                )
+
+            if dialect == "sqlite":
+                # SQLAlchemy compiles the model constraints and indexes into SQLite DDL.
+                # An explicit SQLite transaction makes the additive DDL rollback together.
+                with db.engine.connect() as connection:
+                    transaction = connection.begin()
+                    try:
+                        connection.exec_driver_sql("BEGIN IMMEDIATE")
+                        db.metadata.create_all(
+                            bind=connection, tables=tables, checkfirst=True
+                        )
+                        validate_columns(connection)
+                        transaction.commit()
+                    except Exception:
+                        transaction.rollback()
+                        raise
+            else:
+                # Keep the established Postgres DDL and advisory lock for production.
+                migration = Path(__file__).resolve().parent.parent / "migrations" / "20261017_customer_accounts_email.sql"
+                statements = migration.read_text(encoding="utf-8").split(";")
+                with db.engine.begin() as connection:
+                    connection.execute(text("SELECT pg_advisory_xact_lock(724930117)"))
+                    for statement in statements:
+                        statement = statement.strip()
+                        if statement:
+                            connection.execute(text(statement))
+                    validate_columns(connection)
+
+            after = set(inspect(db.engine).get_table_names())
+        except click.ClickException:
+            raise
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(
+                f"Customer/email schema migration failed for {dialect} "
+                f"({type(exc).__name__}); the transaction was rolled back where supported."
+            ) from None
+
+        created = sorted((after - before) & table_names)
+        existed = sorted(before & table_names)
+        click.echo(f"Customer account/email schema ready for {dialect}.")
+        click.echo("Created tables: " + (", ".join(created) if created else "none"))
+        click.echo("Already existing tables: " + (", ".join(existed) if existed else "none"))
+        click.echo("No existing store records were changed.")
     @app.cli.command("migrate-cloudinary-schema")
     def migrate_cloudinary_schema():
         """Add the Cloudinary product image columns with safe, idempotent database-specific DDL."""

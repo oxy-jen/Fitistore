@@ -6,7 +6,7 @@ import app as app_module
 from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, AuthRateLimit, Category, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailMessage, Order, Product, ProductImage, ProductSuggestion, Review, ShopSettings
+from app.models import AdminUser, AuthRateLimit, Category, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailMessage, Order, OrderItem, Product, ProductImage, ProductSuggestion, Review, ShopSettings
 from config import TestConfig
 
 @pytest.fixture()
@@ -960,6 +960,230 @@ def test_campaign_only_targets_confirmed_active_subscribers_and_prevents_resend(
     assert EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id, status="sent").count() == 1
     client.post(f"/admin/email/campaigns/{campaign.id}", data={"confirm_send": "SEND"})
     assert len(sent) == 1
+
+
+def _isolated_legacy_sqlite_app(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "ensure_database_schema", lambda _app: None)
+    config = type(
+        "MigrationSQLiteConfig",
+        (TestConfig,),
+        {"SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path / 'legacy-store.sqlite3'}"},
+    )
+    isolated_app = create_app(config)
+    feature_tables = {
+        "customer_account", "customer_token", "customer_consent_event",
+        "customer_order_link", "auth_rate_limit", "email_message",
+        "email_campaign", "email_campaign_recipient",
+    }
+    with isolated_app.app_context():
+        legacy_tables = [table for table in db.metadata.sorted_tables if table.name not in feature_tables]
+        db.metadata.create_all(bind=db.engine, tables=legacy_tables, checkfirst=True)
+        settings = ShopSettings(shop_name="Existing shop", tagline="Existing tagline", payment_number="123456")
+        admin = AdminUser(username="existing-admin", password_hash=generate_password_hash("keep-this-hash"))
+        category = Category(name="Existing category", slug="existing-category")
+        db.session.add_all([settings, admin, category])
+        db.session.flush()
+        product = Product(
+            name="Existing product", slug="existing-product", category=category,
+            description="Preserve this", price_cents=32100, previous_price_cents=40000,
+            stock_quantity=7, reserved_quantity=2, sku="KEEP-SKU",
+        )
+        order = Order(reference="KEEP-ORDER", fulfilment_method="Collection", total_cents=32100)
+        db.session.add_all([product, order])
+        db.session.flush()
+        image = ProductImage(
+            product=product, filename="existing-transparent.png", alt_text="Existing image",
+            storage_backend="cloudinary", cloudinary_public_id="fity/products/existing-transparent",
+            sort_order=4, is_primary=True,
+        )
+        item = OrderItem(order=order, product=product, product_name=product.name, quantity=1, price_cents=32100, subtotal_cents=32100)
+        db.session.add_all([image, item])
+        db.session.commit()
+        snapshot = {
+            "settings": (settings.shop_name, settings.tagline, settings.payment_number),
+            "admin_hash": admin.password_hash,
+            "product": (product.name, product.price_cents, product.previous_price_cents, product.stock_quantity, product.reserved_quantity, product.sku),
+            "image": (image.filename, image.storage_backend, image.cloudinary_public_id, image.sort_order, image.is_primary, image.alt_text),
+            "order": (order.reference, order.total_cents, len(order.items)),
+        }
+    return isolated_app, feature_tables, snapshot
+
+
+def test_customer_email_migration_creates_schema_on_fresh_sqlite_database(tmp_path, monkeypatch):
+    import sys
+    monkeypatch.setenv("FLASK_RUN_FROM_CLI", "true")
+    monkeypatch.setattr(sys, "argv", ["flask", "--app", "wsgi:app", "migrate-customer-email-schema"])
+    config = type(
+        "FreshMigrationSQLiteConfig",
+        (TestConfig,),
+        {"SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path / 'fresh-store.sqlite3'}"},
+    )
+    isolated_app = create_app(config)
+    with isolated_app.app_context():
+        from sqlalchemy import inspect
+        assert inspect(db.engine).get_table_names() == []
+        db.metadata.create_all(bind=db.engine, tables=[AdminUser.__table__, Order.__table__])
+    result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+    assert result.exit_code == 0, result.output
+    assert "Created tables:" in result.output
+    with isolated_app.app_context():
+        from sqlalchemy import inspect
+        expected = {
+            "admin_user", "order", "customer_account", "customer_token",
+            "customer_consent_event", "customer_order_link", "auth_rate_limit",
+            "email_message", "email_campaign", "email_campaign_recipient",
+        }
+        assert set(inspect(db.engine).get_table_names()) == expected
+
+
+def test_customer_email_postgresql_migration_keeps_locked_idempotent_sql(monkeypatch, app):
+    import sqlalchemy
+    statements = []
+
+    class FakeConnection:
+        def execute(self, statement):
+            statements.append(str(statement))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeEngine:
+        def begin(self):
+            return FakeConnection()
+
+    class FakeInspector:
+        calls = 0
+
+        def get_table_names(self):
+            self.calls += 1
+            base = {"admin_user", "order"}
+            if self.calls == 1:
+                return sorted(base)
+            return sorted(base | {
+                "customer_account", "customer_token", "customer_consent_event",
+                "customer_order_link", "auth_rate_limit", "email_message",
+                "email_campaign", "email_campaign_recipient",
+            })
+
+        def get_columns(self, table_name):
+            return [{"name": column.name} for column in db.metadata.tables[table_name].columns]
+
+        def get_indexes(self, table_name):
+            return [{"name": index.name, "column_names": [column.name for column in index.columns], "unique": index.unique} for index in db.metadata.tables[table_name].indexes]
+
+        def get_unique_constraints(self, table_name):
+            return [{"column_names": [column.name for column in constraint.columns]} for constraint in db.metadata.tables[table_name].constraints if constraint.__class__.__name__ == "UniqueConstraint"]
+
+        def get_foreign_keys(self, table_name):
+            return [
+                {
+                    "constrained_columns": [foreign_key.parent.name],
+                    "referred_table": foreign_key.column.table.name,
+                    "referred_columns": [foreign_key.column.name],
+                }
+                for foreign_key in db.metadata.tables[table_name].foreign_keys
+            ]
+
+    inspector = FakeInspector()
+    with app.app_context():
+        monkeypatch.setitem(db.engines, None, FakeEngine())
+        monkeypatch.setattr(sqlalchemy, "inspect", lambda _engine: inspector)
+        monkeypatch.setattr(app_module, "database_dialect_name", lambda: "postgresql")
+        result = app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+    assert result.exit_code == 0, result.output
+    assert statements[0] == "SELECT pg_advisory_xact_lock(724930117)"
+    assert any("CREATE TABLE IF NOT EXISTS customer_account" in sql for sql in statements)
+    assert any("CREATE TABLE IF NOT EXISTS email_campaign_recipient" in sql for sql in statements)
+    assert "Created tables:" in result.output
+
+
+def test_customer_email_migration_creates_missing_sqlite_tables_and_preserves_store_records(tmp_path, monkeypatch):
+    isolated_app, feature_tables, expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+    assert result.exit_code == 0, result.output
+    assert "Created tables:" in result.output
+    assert "No existing store records were changed." in result.output
+    with isolated_app.app_context():
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        assert feature_tables <= set(inspector.get_table_names())
+        settings = ShopSettings.query.one()
+        admin = AdminUser.query.one()
+        product = Product.query.filter_by(slug="existing-product").one()
+        image = ProductImage.query.filter_by(filename="existing-transparent.png").one()
+        order = Order.query.filter_by(reference="KEEP-ORDER").one()
+        actual = {
+            "settings": (settings.shop_name, settings.tagline, settings.payment_number),
+            "admin_hash": admin.password_hash,
+            "product": (product.name, product.price_cents, product.previous_price_cents, product.stock_quantity, product.reserved_quantity, product.sku),
+            "image": (image.filename, image.storage_backend, image.cloudinary_public_id, image.sort_order, image.is_primary, image.alt_text),
+            "order": (order.reference, order.total_cents, len(order.items)),
+        }
+        assert actual == expected
+        assert {fk["constrained_columns"][0] for fk in inspector.get_foreign_keys("customer_token")} == {"account_id"}
+        assert "ix_customer_account_marketing_status" in {index["name"] for index in inspector.get_indexes("customer_account")}
+        assert any(unique["name"] == "uq_campaign_recipient_account" for unique in inspector.get_unique_constraints("email_campaign_recipient"))
+
+
+def test_customer_email_sqlite_migration_is_idempotent_and_enforces_uniqueness(tmp_path, monkeypatch):
+    isolated_app, feature_tables, _expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    runner = isolated_app.test_cli_runner()
+    first = runner.invoke(args=["migrate-customer-email-schema"])
+    second = runner.invoke(args=["migrate-customer-email-schema"])
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+    assert "Created tables: none" in second.output
+    assert feature_tables <= set(db.metadata.tables)
+    with isolated_app.app_context():
+        db.session.add_all([
+            CustomerAccount(email="duplicate@example.com", display_name="First"),
+            CustomerAccount(email="duplicate@example.com", display_name="Second"),
+        ])
+        with pytest.raises(Exception):
+            db.session.commit()
+        db.session.rollback()
+
+
+def test_customer_email_sqlite_migration_rolls_back_failed_ddl(tmp_path, monkeypatch):
+    isolated_app, feature_tables, _expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    original_create_all = db.metadata.create_all
+
+    def fail_after_first_table(*, bind, tables, checkfirst=True):
+        original_create_all(bind=bind, tables=tables[:1], checkfirst=checkfirst)
+        raise RuntimeError("simulated DDL failure")
+
+    with isolated_app.app_context():
+        monkeypatch.setattr(db.metadata, "create_all", fail_after_first_table)
+        result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+        assert result.exit_code != 0
+        assert "RuntimeError" in result.output
+        assert not (feature_tables & set(__import__("sqlalchemy").inspect(db.engine).get_table_names()))
+
+
+def test_customer_email_migration_fails_safely_on_partial_existing_table(tmp_path, monkeypatch):
+    isolated_app, feature_tables, _expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    with isolated_app.app_context():
+        from sqlalchemy import inspect, text
+        db.session.execute(text("CREATE TABLE customer_account (id INTEGER PRIMARY KEY, email VARCHAR(254))"))
+        db.session.execute(text("INSERT INTO customer_account (id, email) VALUES (1, 'keep@example.test')"))
+        db.session.commit()
+        result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+        assert result.exit_code != 0
+        assert "customer/email table is incomplete" in result.output
+        assert "missing columns" in result.output
+        existing = set(inspect(db.engine).get_table_names()) & feature_tables
+        assert existing == {"customer_account"}
+        assert db.session.execute(text("SELECT email FROM customer_account WHERE id = 1")).scalar_one() == "keep@example.test"
+
+
+def test_customer_email_migration_rejects_unsupported_dialect(app, monkeypatch):
+    monkeypatch.setattr(app_module, "database_dialect_name", lambda: "mysql")
+    result = app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+    assert result.exit_code != 0
+    assert "Unsupported database dialect" in result.output
 
 
 def test_customer_auth_forms_keep_csrf_protection(client, app):
