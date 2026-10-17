@@ -659,3 +659,39 @@ def test_admin_cloudinary_page_accepts_pasted_cloudinary_url(client, app):
         image = ProductImage.query.get(image_id)
         assert image.cloudinary_public_id == "fity/products/product-1/abc123-socks"
         assert image.storage_backend == "cloudinary"
+def test_public_policy_pages_and_sitemap_xml(client):
+    import xml.etree.ElementTree as ET
+
+    pages = {
+        "/delivery-policy": "Delivery and collection",
+        "/payment-policy": "Payment information",
+        "/returns-policy": "Returns, exchanges, and cancellations",
+        "/privacy": "Privacy information",
+        "/terms": "Terms and conditions",
+    }
+    for path, heading in pages.items():
+        response = client.get(path)
+        assert response.status_code == 200
+        assert heading.encode() in response.data
+        assert b"<title>" in response.data
+        assert b'rel="canonical"' in response.data
+    sitemap = client.get("/sitemap.xml")
+    assert sitemap.status_code == 200
+    root = ET.fromstring(sitemap.data)
+    locations = [node.text for node in root.findall("{http://www.sitemaps.org/schemas/sitemap/0.9}url/{http://www.sitemaps.org/schemas/sitemap/0.9}loc")]
+    assert "http://example.test/delivery-policy" in locations
+    assert "http://example.test/privacy" in locations
+
+
+def test_seo_metadata_uses_clean_production_canonical(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert b"<title>" in response.data
+    assert b'name="description"' in response.data
+    assert b'href="https://fitystore.top/"' in response.data
+    assert b'property="og:url" content="https://fitystore.top/"' in response.data
+
+    private_response = client.get('/checkout')
+    assert b'name="robots" content="noindex,follow"' in private_response.data
+    assert b'rel="canonical"' not in private_response.data
+    assert b'property="og:url"' not in private_response.data

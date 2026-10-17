@@ -1,11 +1,13 @@
 import hashlib
 import json
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 from flask import Blueprint, Response, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 from sqlalchemy import or_
 from sqlalchemy.orm import joinedload, selectinload
+from xml.sax.saxutils import escape
 from app.extensions import db, csrf
 from app.models import Category, CustomerProfile, Order, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
 from app.services.cart import validate_cart
@@ -150,7 +152,7 @@ def home():
         mamba_products = latest_products[:8]
     mamba_category_ids = {product.category_id for product in mamba_products}
     mamba_categories = [category for category in categories if category.id in mamba_category_ids]
-    return render_template("home.html", title="FityStores essentials", featured=featured, discounted=discounted, latest_products=latest_products, categories=categories, category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories, suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE)
+    return render_template("home.html", title="FityStores essentials", seo_title="FityStores | Shop everyday essentials", seo_description="Browse available products, check listed prices and stock, and contact FityStores to confirm collection or delivery.", featured=featured, discounted=discounted, latest_products=latest_products, categories=categories, category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories, suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE)
 
 
 @public_bp.route("/referrals", methods=["GET", "POST"])
@@ -364,7 +366,7 @@ def shop():
     page = 1
     pagination = query.paginate(page=page, per_page=PRODUCTS_PER_PAGE, error_out=False)
     categories = Category.query.order_by(Category.name).all()
-    return render_template("shop.html", title="Shop", products=pagination.items, categories=categories, active_category=active_category, q=q, sort=sort, page=page, has_next=pagination.has_next)
+    return render_template("shop.html", title="Shop", seo_title=((active_category.name + " | Shop at FityStores") if active_category else "Shop products | FityStores"), seo_description=("Browse available " + active_category.name + " products, check current listing details, and contact FityStores with questions." if active_category else "Browse available FityStores products, check current listing details, and contact the seller to confirm stock and fulfilment."), products=pagination.items, categories=categories, active_category=active_category, q=q, sort=sort, page=page, has_next=pagination.has_next)
 
 @public_bp.route("/api/products")
 def api_products():
@@ -389,7 +391,12 @@ def api_products():
 def product_detail(slug):
     product = product_list_options(Product.query.filter_by(slug=slug, active=True)).first_or_404()
     related = product_list_options(Product.query.filter(Product.active.is_(True), Product.category_id == product.category_id, Product.id != product.id)).limit(4).all()
-    return render_template("product_detail.html", title=product.name, product=product, related=related)
+    product_description = re.sub(r"<[^>]+>", " ", product.description or "")
+    product_description = " ".join(product_description.split())[:300] or ("View details and current availability for " + product.name + " at FityStores.")
+    image_url = product_image_url(product_display_image(product))
+    if image_url and image_url.startswith("/"):
+        image_url = "https://fitystore.top" + image_url
+    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=product_description, og_type="product", og_image=image_url, product=product, related=related)
 
 @public_bp.route("/cart")
 def cart():
@@ -467,11 +474,11 @@ def checkout():
 
 @public_bp.route("/contact")
 def contact():
-    return render_template("contact.html", title="Contact and delivery")
+    return render_template("contact.html", title="Contact FityStores", seo_title="Contact FityStores | Customer Support", seo_description="Contact FityStores about products, orders, payment instructions, delivery, or collection.")
 
 @public_bp.route("/about")
 def about():
-    return render_template("about.html", title="About FityStores")
+    return render_template("about.html", title="About FityStores", seo_title="About FityStores | BEI FITS", seo_description="Learn about FityStores and how to ask questions or confirm product and order details.")
 
 @public_bp.route("/reviews", methods=["GET", "POST"])
 def reviews():
@@ -496,6 +503,92 @@ def reviews():
     approved = Review.query.filter_by(status="approved").order_by(Review.created_at.desc()).all()
     return render_template("reviews.html", title="Reviews", reviews=approved, products=products)
 
+
+def render_policy_page(slug):
+    settings = current_settings()
+    policies = {
+        "delivery": {
+            "title": "Delivery and collection",
+            "description": "How to confirm delivery availability, fees, and collection arrangements with FityStores.",
+            "sections": [
+                ("Delivery availability", [settings.delivery_area or "Contact FityStores to check whether delivery is available for your location. Availability and any fee are confirmed for each order."]),
+                ("Collection", [settings.collection_instructions or "Contact the seller to agree on a collection point and time before travelling."]),
+                ("Before travelling or paying", ["Confirm the item, price, stock, fulfilment method, any delivery fee, and the collection or delivery arrangements with the seller. An order or payment reference alone does not confirm fulfilment."]),
+            ],
+        },
+        "payment": {
+            "title": "Payment information",
+            "description": "Payment instructions and confirmation steps for FityStores orders.",
+            "sections": [
+                ("Available instructions", [settings.payment_instructions or "Ask the seller to confirm the payment method and amount for your order."]),
+                ("Confirm before paying", ["Confirm product availability, the total amount, and the payment instructions with the seller before sending payment. Keep your transaction message and enter the requested reference at checkout."]),
+                ("Payment confirmation", ["A reference submitted with an order is not, by itself, confirmation that payment has been verified or that an order is confirmed. Follow the order status and contact the seller if you need help."]),
+            ],
+        },
+        "returns": {
+            "title": "Returns, exchanges, and cancellations",
+            "description": "How to contact FityStores about an incorrect, damaged, or defective order.",
+            "sections": [
+                ("Report a problem", ["Contact the seller promptly if an item is incorrect, damaged, or appears defective. Include your order reference and a clear description of the issue. Do not send sensitive payment credentials."]),
+                ("Review and next steps", ["The seller will review the order details and discuss an appropriate next step with you. Eligibility and any exchange, repair, cancellation, or refund arrangement must be confirmed for the specific order."]),
+                ("Current policy details", ["A fixed reporting deadline, product-condition rule, and guaranteed refund or exchange outcome have not been published here. Ask the seller to confirm the applicable terms before ordering. This page does not replace rights provided by applicable Kenyan law."]),
+                ("Contact", ["Use the Contact page to call or message the seller about an order."]),
+            ],
+        },
+        "privacy": {
+            "title": "Privacy information",
+            "description": "What information FityStores may receive through shopping, ordering, and customer support.",
+            "sections": [
+                ("Information you provide", ["Depending on how you use the site, FityStores may receive your name, phone number, order items, fulfilment instructions, payment reference, and any payment proof you choose to upload. Enquiry, review, suggestion, and restock forms collect the details you submit."]),
+                ("How it is used", ["Order and contact details are used to review and fulfil requests, communicate about orders, and provide customer support. Submitted reviews may be shown publicly after approval. The application hashes the submitter IP address when a review is created."]),
+                ("Handling and questions", ["Do not submit passwords, PINs, or payment credentials in free-text fields. For a privacy question or a request about information you submitted, contact the seller using the Contact page. This page does not make a certification or a claim about a specific retention period."]),
+            ],
+        },
+        "terms": {
+            "title": "Terms and conditions",
+            "description": "Plain-language information about product listings, order review, payment, and fulfilment.",
+            "sections": [
+                ("Listings, prices, and stock", ["Product information, prices, variants, and stock are shown as currently recorded by the store and may change. Confirm availability, selected options, and the total with the seller before paying. An unavailable or unpriced item cannot be treated as a confirmed sale at a guessed price."]),
+                ("Order review and payment", ["Submitting checkout details creates an order request for seller review. Follow the payment instructions shown by the store and confirm them with the seller. A payment reference or WhatsApp message does not alone mean the order has been accepted or payment verified."]),
+                ("Delivery and collection", ["The seller must confirm the available fulfilment method, location, timing, and any delivery fee for each order before you travel or rely on delivery."]),
+                ("Problems and legal rights", ["Contact the seller promptly about an order problem. These terms do not remove rights that apply under Kenyan law. No legal entity details or guarantees are added by this page."]),
+            ],
+        },
+    }
+    policy = policies[slug]
+    return render_template(
+        "policy.html",
+        title=policy["title"],
+        seo_title=policy["title"] + " | FityStores",
+        seo_description=policy["description"],
+        policy=policy,
+    )
+
+
+@public_bp.route("/delivery-policy")
+def delivery_policy():
+    return render_policy_page("delivery")
+
+
+@public_bp.route("/payment-policy")
+def payment_policy():
+    return render_policy_page("payment")
+
+
+@public_bp.route("/returns-policy")
+def returns_policy():
+    return render_policy_page("returns")
+
+
+@public_bp.route("/privacy")
+def privacy_policy():
+    return render_policy_page("privacy")
+
+
+@public_bp.route("/terms")
+def terms():
+    return render_policy_page("terms")
+
 @public_bp.route("/robots.txt")
 def robots():
     return Response("User-agent: *\nDisallow: /admin\nSitemap: " + url_for("public.sitemap", _external=True) + "\n", mimetype="text/plain")
@@ -504,7 +597,8 @@ def robots():
 def sitemap():
     urls = [url_for("public.home", _external=True), url_for("public.shop", _external=True), url_for("public.upcoming", _external=True), url_for("public.contact", _external=True), url_for("public.about", _external=True), url_for("public.reviews", _external=True)]
     urls += [url_for("public.product_detail", slug=p.slug, _external=True) for p in Product.query.filter_by(active=True).all()]
-    body = "<?xml version='1.0' encoding='UTF-8'?><urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>" + "".join(f"<url><loc>{u}</loc></url>" for u in urls) + "</urlset>"
+    urls += [url_for("public.delivery_policy", _external=True), url_for("public.payment_policy", _external=True), url_for("public.returns_policy", _external=True), url_for("public.privacy_policy", _external=True), url_for("public.terms", _external=True)]
+    body = "<?xml version='1.0' encoding='UTF-8'?><urlset xmlns='http://www.sitemaps.org/schemas/sitemap/0.9'>" + "".join(f"<url><loc>{escape(u)}</loc></url>" for u in urls) + "</urlset>"
     return Response(body, mimetype="application/xml")
 
 

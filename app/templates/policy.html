@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head policy-page">
+  <p class="eyebrow">FityStores information</p>
+  <h1>{{ policy.title }}</h1>
+  {% for heading, paragraphs in policy.sections %}
+  <section class="policy-section">
+    <h2>{{ heading }}</h2>
+    {% for paragraph in paragraphs %}<p>{{ paragraph }}</p>{% endfor %}
+  </section>
+  {% endfor %}
+  <p class="policy-contact">Need help? <a href="{{ url_for('public.contact') }}">Contact FityStores</a>.</p>
+</section>
+{% endblock %}

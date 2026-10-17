@@ -3,11 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ title or settings.shop_name }} | {{ settings.shop_name }}</title>
-  <meta name="description" content="{{ settings.tagline }} Affordable everyday essentials from FityStores.">
-  <meta property="og:title" content="{{ title or settings.shop_name }}">
-  <meta property="og:description" content="{{ settings.tagline }}">
-  <link rel="canonical" href="{{ request.url }}">
+  {% set page_title = seo_title or ((title or settings.shop_name) ~ ' | ' ~ settings.shop_name) %}
+  {% set page_description = seo_description or settings.tagline %}
+  {% set canonical = canonical_url or ('https://fitystore.top' ~ request.path) %}
+  {% set private_page = request.path in ['/cart', '/checkout', '/track', '/track-order', '/referrals'] or request.path.startswith('/track/') %}
+  <title>{{ page_title }}</title>
+  <meta name="description" content="{{ page_description }}">
+  {% if private_page %}<meta name="robots" content="noindex,follow">{% else %}<link rel="canonical" href="{{ canonical }}">{% endif %}
+  <meta property="og:type" content="{{ og_type or 'website' }}">
+  {% if not private_page %}<meta property="og:url" content="{{ canonical }}">{% endif %}
+  <meta property="og:title" content="{{ page_title }}">
+  <meta property="og:description" content="{{ page_description }}">
+  {% if og_image %}<meta property="og:image" content="{{ og_image }}">{% endif %}
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -60,6 +67,7 @@
   <div class="footer-brand"><strong>{{ settings.shop_name }}</strong><p>{{ settings.tagline }}</p><div class="footer-actions"><a class="btn primary" href="{{ whatsapp_text_link(settings, build_general_message(settings)) }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>WhatsApp FityStores</span></a><a class="btn" href="tel:{{ local_contact_number }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Call {{ local_contact_number }}</span></a></div></div>
   <div><h3>Quick links</h3><a href="{{ url_for('public.shop') }}">Shop products</a><a href="{{ url_for('public.cart') }}">View cart</a><a href="{{ url_for('public.contact') }}">Contact and delivery</a><a href="{{ url_for('public.upcoming') }}">Upcoming goods</a><a href="{{ url_for('public.reviews') }}">Reviews</a><a href="{{ url_for('public.referrals') }}">Rewards and referrals</a>
     <a href="{{ url_for('public.track_order') }}">Track order</a></div>
+  <div><h3>Policies</h3><a href="{{ url_for('public.about') }}">About FityStores</a><a href="{{ url_for('public.contact') }}">Contact Us</a><a href="{{ url_for('public.delivery_policy') }}">Delivery and collection</a><a href="{{ url_for('public.payment_policy') }}">Payment information</a><a href="{{ url_for('public.returns_policy') }}">Returns and exchanges</a><a href="{{ url_for('public.privacy_policy') }}">Privacy</a><a href="{{ url_for('public.terms') }}">Terms and conditions</a></div>
   <div><h3>Before payment</h3><p>Use WhatsApp or call to confirm price, stock, colour or size, delivery, and collection details.</p><p>{{ settings.payment_instructions }}</p></div>
   <div><h3>Collection and delivery</h3><p>{{ settings.collection_instructions }}</p><p>{{ settings.delivery_area }}</p></div>
 </footer>
