@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+from urllib.parse import quote
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -396,7 +397,21 @@ def product_detail(slug):
     image_url = product_image_url(product_display_image(product))
     if image_url and image_url.startswith("/"):
         image_url = "https://fitystore.top" + image_url
-    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=product_description, og_type="product", og_image=image_url, product=product, related=related)
+    from app.services.formatting import money
+    active_variants = [variant for variant in product.variants if variant.active]
+    variant_prices = [variant.effective_price_cents for variant in active_variants if variant.effective_price_cents is not None]
+    if variant_prices:
+        low_price, high_price = min(variant_prices), max(variant_prices)
+        share_price = ("Price: " + money(low_price, current_settings().currency)) if low_price == high_price else ("Options: " + money(low_price, current_settings().currency) + " - " + money(high_price, current_settings().currency))
+    elif product.price_cents is not None:
+        share_price = "Price: " + money(product.price_cents, current_settings().currency)
+    else:
+        share_price = "Contact the store for the current price"
+    share_url = "https://fitystore.top" + request.path
+    share_message = f"Check out {product.name} at FityStores! {share_price}. View it here: {share_url}"
+    seo_description = (product_description + " " + share_price + ".")[:300]
+    whatsapp_share_url = "https://wa.me/?text=" + quote(share_message)
+    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=image_url, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related)
 
 @public_bp.route("/cart")
 def cart():

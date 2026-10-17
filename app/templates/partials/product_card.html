@@ -5,6 +5,14 @@
   {% set color_option_count = split_options(product.color_options)|length %}
   {% set requires_option_choice = variant_count > 0 or size_option_count > 1 or color_option_count > 1 %}
   {% set display_stock = product.display_stock_quantity %}
+  {% set share_url = "https://fitystore.top" ~ url_for('public.product_detail', slug=product.slug) %}
+  {% set share_price = "Contact the store for the current price" %}
+  {% if variant_count and product.min_variant_price_cents is not none %}
+    {% if product.min_variant_price_cents == product.max_variant_price_cents %}{% set share_price = "Price: " ~ money(product.min_variant_price_cents, settings.currency) %}{% else %}{% set share_price = "Options: " ~ money(product.min_variant_price_cents, settings.currency) ~ " - " ~ money(product.max_variant_price_cents, settings.currency) %}{% endif %}
+  {% elif product.price_cents is not none %}
+    {% set share_price = "Price: " ~ money(product.price_cents, settings.currency) %}
+  {% endif %}
+  {% set share_message = "Check out " ~ product.name ~ " at FityStores! " ~ share_price ~ ". View it here: " ~ share_url %}
   <a href="{{ url_for('public.product_detail', slug=product.slug) }}" class="product-image">
     <img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" loading="lazy" width="540" height="540">
     {% if product.has_discount %}<span class="badge">Discount</span>{% elif requires_option_choice %}<span class="badge">Options</span>{% endif %}
@@ -20,6 +28,10 @@
     {% endif %}
     <p class="stock {{ 'bad' if display_stock == 0 else 'warn' if display_stock <= product.low_stock_threshold else '' }}">{% if display_stock > 0 %}{{ display_stock }} available{% if variant_count %} across options{% endif %}{% else %}Out of stock{% endif %}</p>
     {% if product.sku %}<p class="sku">{{ product.sku }}</p>{% endif %}
+    <div class="card-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}">
+      <button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share</button>
+      <span class="share-status" data-share-status role="status" aria-live="polite"></span>
+    </div>
     {% if product.price_cents is none and not requires_option_choice %}
       <div class="card-actions">
         <a class="btn primary" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Confirm price</span></a>

@@ -155,3 +155,5 @@ input,select,textarea,button{max-width:100%}
 /* Give product photos room to fit while keeping the complete source image visible. */
 .product-image{aspect-ratio:1/1}
 .detail-image{aspect-ratio:4/5}
+
+.product-share{display:flex;flex-wrap:wrap;align-items:center;gap:.55rem;margin-top:.75rem}.product-share .btn,.card-share .btn{min-height:40px;padding:.55rem .75rem}.card-share{display:flex;align-items:center;gap:.45rem;margin-top:.55rem}.share-status{font-size:.85rem;color:var(--muted)}

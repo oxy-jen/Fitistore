@@ -695,3 +695,46 @@ def test_seo_metadata_uses_clean_production_canonical(client):
     assert b'name="robots" content="noindex,follow"' in private_response.data
     assert b'rel="canonical"' not in private_response.data
     assert b'property="og:url"' not in private_response.data
+
+def test_product_sharing_uses_canonical_links_and_current_prices(client, app):
+    priced = client.get("/product/plain-socks")
+    assert priced.status_code == 200
+    assert b'data-share-url="https://fitystore.top/product/plain-socks"' in priced.data
+    assert b"Price: KSh 150" in priced.data
+    assert b"data-share-native" in priced.data
+    assert b"data-share-copy" in priced.data
+    assert b"WhatsApp a friend" in priced.data
+    assert b"Ask on WhatsApp" in priced.data
+    assert b"data-product-id=" in priced.data
+
+    unpriced = client.get("/product/unpriced-cap")
+    assert unpriced.status_code == 200
+    assert b"Contact the store for the current price" in unpriced.data
+    assert b"Price: KSh 0" not in unpriced.data
+    assert b'data-share-url="https://fitystore.top/product/unpriced-cap"' in unpriced.data
+    listing = client.get("/shop")
+    assert listing.status_code == 200
+    assert b'data-share-url="https://fitystore.top/product/plain-socks"' in listing.data
+    assert b'data-share-native' in listing.data
+
+
+def test_product_whatsapp_share_encodes_special_characters(client, app):
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        product.name = "Plain & Socks"
+        db.session.commit()
+
+    response = client.get("/product/plain-socks")
+    assert response.status_code == 200
+    assert b"Plain &amp; Socks" in response.data
+    assert b"Plain%20%26%20Socks" in response.data
+    assert b"view%20it%20here" in response.data.lower()
+
+
+def test_unpublished_product_has_no_shareable_public_page(client, app):
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        product.active = False
+        db.session.commit()
+
+    assert client.get("/product/plain-socks").status_code == 404

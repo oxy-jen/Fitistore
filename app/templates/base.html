@@ -14,6 +14,12 @@
   {% if not private_page %}<meta property="og:url" content="{{ canonical }}">{% endif %}
   <meta property="og:title" content="{{ page_title }}">
   <meta property="og:description" content="{{ page_description }}">
+  <meta property="og:site_name" content="FityStores">
+  <meta property="og:locale" content="en_KE">
+  <meta name="twitter:card" content="{{ 'summary_large_image' if og_image else 'summary' }}">
+  <meta name="twitter:title" content="{{ page_title }}">
+  <meta name="twitter:description" content="{{ page_description }}">
+  {% if og_image %}<meta name="twitter:image" content="{{ og_image }}">{% endif %}
   {% if og_image %}<meta property="og:image" content="{{ og_image }}">{% endif %}
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">

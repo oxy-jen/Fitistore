@@ -37,6 +37,12 @@
         <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" data-detail="true" {% if (active_variants and not active_variants|selectattr('available_quantity')|list) or (not active_variants and product.available_quantity < 1) %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to cart</span></button><a class="btn" href="{{ product_whatsapp_link(product, settings, request.url, 'buy') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask on WhatsApp</span></a>
       {% endif %}
     </div>
+    <div class="product-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}">
+      <button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share product</button>
+      <button class="btn" type="button" data-share-copy>Copy link</button>
+      <a class="btn" href="{{ whatsapp_share_url }}" target="_blank" rel="noopener">WhatsApp a friend</a>
+      <span class="share-status" data-share-status role="status" aria-live="polite"></span>
+    </div>
   </div>
   <div class="request-grid">
     <form class="mini-form" method="post" action="{{ url_for('public.product_enquiry', slug=product.slug) }}">

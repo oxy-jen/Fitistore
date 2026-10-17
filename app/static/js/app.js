@@ -91,6 +91,43 @@ document.addEventListener('DOMContentLoaded',()=>{
       setTimeout(()=>{button.textContent='Copy'},1200);
     });
   });
+  async function copyShareUrl(url){
+    if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(url);return}
+    const field=document.createElement('textarea');
+    field.value=url;
+    field.setAttribute('readonly','');
+    field.style.position='fixed';
+    field.style.opacity='0';
+    document.body.appendChild(field);
+    field.select();
+    const copied=document.execCommand('copy');
+    field.remove();
+    if(!copied)throw new Error('Copy command unavailable');
+  }
+  document.addEventListener('click',async event=>{
+    const action=event.target.closest('[data-share-native],[data-share-copy]');
+    if(!action)return;
+    const share=action.closest('[data-product-share]');
+    if(!share)return;
+    const url=share.dataset.shareUrl||window.location.href;
+    const status=share.querySelector('[data-share-status]');
+    const announce=message=>{if(status)status.textContent=message};
+    if(action.hasAttribute('data-share-copy')){
+      try{await copyShareUrl(url);announce('Product link copied.')}
+      catch(error){announce('Copy was unavailable. You can copy the product address from your browser.')}
+      return;
+    }
+    if(typeof navigator.share==='function'){
+      try{await navigator.share({title:share.dataset.shareTitle||'FityStores product',text:share.dataset.shareText||'',url});announce('Share sheet closed.')}
+      catch(error){
+        try{await copyShareUrl(url);announce(error&&error.name==='AbortError'?'Sharing cancelled. Product link copied.':'Sharing unavailable. Product link copied.')}
+        catch(copyError){announce('Sharing is unavailable. You can copy the product address from your browser.')}
+      }
+    }else{
+      try{await copyShareUrl(url);announce('Native sharing is unavailable. Product link copied.')}
+      catch(error){announce('Sharing is unavailable. You can copy the product address from your browser.')}
+    }
+  });
   const onlineImageUrls=document.getElementById('online-image-urls');
   const addOnlineImageUrl=document.getElementById('add-online-image-url');
   if(onlineImageUrls&&addOnlineImageUrl){
