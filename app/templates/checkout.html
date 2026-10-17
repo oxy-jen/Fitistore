@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-<section class="page-head"><h1>Checkout</h1><p>Review your selected items, add your M-Pesa reference code if you have paid, then open WhatsApp so the seller can confirm everything.</p></section>
+<section class="page-head"><h1>Checkout</h1><p>Submit an order request for seller review. The seller will confirm item availability, final total, payment, and fulfilment before the order is complete.</p></section>
 {% if not whatsapp_ready %}<div class="empty">WhatsApp checkout is disabled until the owner adds a business WhatsApp number in admin settings.</div>{% endif %}
 <section class="checkout-layout">
   <div class="cart-panel checkout-summary"><h2>Selected items</h2><div id="checkout-summary"><div class="empty">Loading selected items...</div></div></div>
@@ -9,9 +9,21 @@
     <label>Contact number, optional<input name="customer_phone" maxlength="40" placeholder="Your phone number"></label>
     <label>Fulfilment preference<select name="fulfilment_method"><option>Collection</option><option>Nearby delivery</option></select></label>
     <label>Instructions<textarea name="instructions" placeholder="Collection point, delivery area, timing notes, colour, size, or anything the seller should know"></textarea></label>
-    <div class="payment-box"><strong>M-Pesa payment number: {{ settings.payment_number or "0141809661" }}</strong><p>You can pay for any confirmed item using this number. After paying, enter the M-Pesa reference code below so it appears in the WhatsApp message with your selected items.</p></div>
+    <section class="checkout-guidance" aria-labelledby="fulfilment-guidance-title">
+      <h2 id="fulfilment-guidance-title">Collection and delivery details</h2>
+      <p><strong>Collection:</strong> {{ settings.collection_instructions or "Contact the seller to agree on a collection point and time." }}</p>
+      <p><strong>Nearby delivery:</strong> {{ settings.delivery_area or "Ask the seller whether delivery is available for your location." }}</p>
+      {% if settings.delivery_fee_cents is not none %}<p>The configured delivery fee is {{ money(settings.delivery_fee_cents, settings.currency) }}. Confirm that it applies to your order before paying.</p>{% else %}<p>Any delivery fee will be confirmed by the seller before you pay.</p>{% endif %}
+    </section>
+    <div class="payment-box">
+      <strong>Payment instructions</strong>
+      <p>{{ settings.payment_instructions or "Confirm the payment method and amount with the seller before paying." }}</p>
+      {% if settings.payment_number %}<p><strong>Configured M-Pesa number:</strong> {{ settings.payment_number }}</p>{% endif %}
+      <p>FityStores checks submitted M-Pesa references manually. A reference or screenshot is not payment confirmation. Never share your M-Pesa PIN. Read the <a href="{{ url_for('public.payment_policy') }}">payment information</a>.</p>
+    </div>
     <label>M-Pesa reference code, if paid<input name="payment_reference" maxlength="120" placeholder="e.g. QAB12C3D4E"></label>
     <label>Payment screenshot, optional<input name="payment_proof" type="file" accept="image/*"></label>
+    <p class="checkout-policy-links">Before submitting, review <a href="{{ url_for('public.delivery_policy') }}">delivery and collection</a>, <a href="{{ url_for('public.returns_policy') }}">returns</a>, and <a href="{{ url_for('public.terms') }}">terms</a>.</p>
     <button class="btn primary" {% if not whatsapp_ready %}disabled{% endif %}><svg class="icon"><use href="#icon-message"></use></svg><span>Prepare WhatsApp message</span></button>
   </form>
 </section>

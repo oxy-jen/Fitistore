@@ -520,6 +520,8 @@ def reviews():
 
 
 def render_policy_page(slug):
+    from app.services.formatting import money
+
     settings = current_settings()
     policies = {
         "delivery": {
@@ -528,6 +530,7 @@ def render_policy_page(slug):
             "sections": [
                 ("Delivery availability", [settings.delivery_area or "Contact FityStores to check whether delivery is available for your location. Availability and any fee are confirmed for each order."]),
                 ("Collection", [settings.collection_instructions or "Contact the seller to agree on a collection point and time before travelling."]),
+                ("Delivery fee", [("The configured delivery fee is " + money(settings.delivery_fee_cents, settings.currency) + ". Confirm that it applies to your order before paying.") if settings.delivery_fee_cents is not None else "No fixed delivery fee is configured here. The seller will confirm any fee for your location before payment."]),
                 ("Before travelling or paying", ["Confirm the item, price, stock, fulfilment method, any delivery fee, and the collection or delivery arrangements with the seller. An order or payment reference alone does not confirm fulfilment."]),
             ],
         },
@@ -544,9 +547,9 @@ def render_policy_page(slug):
             "title": "Returns, exchanges, and cancellations",
             "description": "How to contact FityStores about an incorrect, damaged, or defective order.",
             "sections": [
-                ("Report a problem", ["Contact the seller promptly if an item is incorrect, damaged, or appears defective. Include your order reference and a clear description of the issue. Do not send sensitive payment credentials."]),
+                ("Report a problem", ["Contact FityStores within 48 hours of delivery if an item is incorrect, damaged, or appears defective. Include your order reference and describe the issue; photos can help the seller review it. Do not send sensitive payment credentials."]),
                 ("Review and next steps", ["The seller will review the order details and discuss an appropriate next step with you. Eligibility and any exchange, repair, cancellation, or refund arrangement must be confirmed for the specific order."]),
-                ("Current policy details", ["A fixed reporting deadline, product-condition rule, and guaranteed refund or exchange outcome have not been published here. Ask the seller to confirm the applicable terms before ordering. This page does not replace rights provided by applicable Kenyan law."]),
+                ("Assessment and outcome", ["The seller will review the order details and discuss the next step with you. Contacting the store within 48 hours starts a review; it does not automatically approve a refund or exchange. Any remedy will be assessed for the specific case and applicable consumer rights are not waived."]),
                 ("Contact", ["Use the Contact page to call or message the seller about an order."]),
             ],
         },

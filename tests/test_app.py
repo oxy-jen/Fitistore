@@ -67,6 +67,8 @@ def test_whatsapp_checkout_creates_pending_order(client):
     assert rv.status_code == 200
     assert b"Open WhatsApp" in rv.data
     assert b"awaiting seller confirmation" in rv.data.lower()
+    assert b"A submitted M-Pesa reference or screenshot is not confirmation of payment." in rv.data
+    assert b"payment-policy" in rv.data
 
 def test_admin_requires_login(client):
     rv = client.get("/admin/", follow_redirects=False)
@@ -738,3 +740,27 @@ def test_unpublished_product_has_no_shareable_public_page(client, app):
         db.session.commit()
 
     assert client.get("/product/plain-socks").status_code == 404
+def test_checkout_and_policy_pages_show_current_store_terms(client, app):
+    with app.app_context():
+        settings = ShopSettings.query.first()
+        settings.collection_instructions = "Meet at the confirmed Othaya collection point."
+        settings.delivery_area = "Nearby delivery is arranged by contacting the seller."
+        settings.delivery_fee_cents = 5000
+        settings.payment_instructions = "Confirm availability, then use the configured manual M-Pesa payment number."
+        settings.payment_number = "254700000000"
+        db.session.commit()
+
+    checkout = client.get("/checkout")
+    assert checkout.status_code == 200
+    assert b"Meet at the confirmed Othaya collection point." in checkout.data
+    assert b"Nearby delivery is arranged by contacting the seller." in checkout.data
+    assert b"KSh 50" in checkout.data
+    assert b"Confirm availability, then use the configured manual M-Pesa payment number." in checkout.data
+    assert b"Never share your M-Pesa PIN." in checkout.data
+    assert b"/returns-policy" in checkout.data
+
+    delivery = client.get("/delivery-policy")
+    assert b"KSh 50" in delivery.data
+    returns = client.get("/returns-policy")
+    assert b"within 48 hours of delivery" in returns.data
+    assert b"does not automatically approve a refund or exchange" in returns.data

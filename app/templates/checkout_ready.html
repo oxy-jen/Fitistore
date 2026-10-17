@@ -5,7 +5,7 @@
       <div class="receipt-mark"><svg class="icon"><use href="#icon-checkout"></use></svg></div>
       <p class="eyebrow">Order enquiry saved</p>
       <h1 id="receipt-title">Awaiting seller confirmation</h1>
-      <p>Send the WhatsApp message so FityStores can confirm stock, payment, and fulfilment details.</p>
+      <p>This is an order request. Send the WhatsApp message so FityStores can confirm item availability, the final amount, payment status, and collection or delivery arrangements.</p>
     </header>
 
     <div class="receipt-meta">
@@ -43,7 +43,7 @@
       <h2>Next steps</h2>
       <ol>
         <li><span>1</span><p>Open WhatsApp and send the prepared order message.</p></li>
-        <li><span>2</span><p>Wait for seller confirmation before assuming the order is complete.</p></li>
+        <li><span>2</span><p>Wait for the seller to confirm the items, final total, payment, and fulfilment. A submitted M-Pesa reference or screenshot is not confirmation of payment.</p></li>
         <li><span>3</span><p>Use the tracking page to follow updates with your private code.</p></li>
       </ol>
     </section>
@@ -62,7 +62,7 @@
       <a class="btn" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Continue shopping</span></a>
     </div>
 
-    <p class="receipt-note">This website cannot know whether you sent the WhatsApp message. The order is not confirmed until the seller replies.</p>
+    <p class="receipt-note">This website cannot confirm whether you sent the WhatsApp message or whether payment has been received. The order remains unconfirmed until the seller replies. <a href="{{ url_for('public.payment_policy') }}">Payment details</a> · <a href="{{ url_for('public.delivery_policy') }}">Delivery and collection</a> · <a href="{{ url_for('public.returns_policy') }}">Returns information</a></p>
   </div>
 </section>
 <script>localStorage.removeItem('fityCart');</script>
