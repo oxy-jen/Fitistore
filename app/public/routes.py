@@ -555,6 +555,26 @@ def reviews():
 
 
 def render_policy_page(slug):
+    # Terms are static content. Render them before evaluating store settings used
+    # by the delivery and payment policies, so unrelated configuration cannot
+    # make the terms page fail.
+    if slug == "terms":
+        policy = {
+            "title": "Terms and conditions",
+            "description": "Plain-language information about product listings, order review, payment, and fulfilment.",
+            "sections": [
+                ("Listings, prices, and stock", ["Product information, prices, variants, and stock are shown as currently recorded by the store and may change. Confirm availability, selected options, and the total with the seller before paying. An unavailable or unpriced item cannot be treated as a confirmed sale at a guessed price."]),
+                ("Order review and payment", ["Submitting checkout details creates an order request for seller review. Follow the payment instructions shown by the store and confirm them with the seller. A payment reference or WhatsApp message does not alone mean the order has been accepted or payment verified."]),
+                ("Delivery and collection", ["The seller must confirm the available fulfilment method, location, timing, and any delivery fee for each order before you travel or rely on delivery."]),
+                ("Problems and legal rights", ["Contact the seller promptly about an order problem. These terms do not remove rights that apply under Kenyan law. No legal entity details or guarantees are added by this page."]),
+            ],
+        }
+        return render_template(
+            "policy.html", title=policy["title"],
+            seo_title=policy["title"] + " | FityStores",
+            seo_description=policy["description"], policy=policy,
+        )
+
     from app.services.formatting import money
 
     settings = current_settings()
