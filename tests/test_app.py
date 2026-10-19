@@ -868,6 +868,7 @@ def test_marketing_double_opt_in_and_unsubscribe_history(client, app, app_contex
     token = "marketing-confirm-token"
     marketing.token_hash = hashlib.sha256(token.encode()).hexdigest()
     marketing.expires_at = datetime.utcnow() + timedelta(hours=1)
+    marketing.used_at = None
     db.session.commit()
     assert client.post(f"/account/marketing/confirm/{token}").status_code == 302
     assert account.marketing_status == "subscribed"
@@ -1218,3 +1219,159 @@ def test_payment_confirmation_email_requires_paid_order(client, app_context, app
     db.session.commit()
     assert customer_mail.notify_order_event(order, "payment_confirmed", "verified-payment-event").status == "not_configured"
     assert EmailMessage.query.filter_by(idempotency_key="verified-payment-event").one().status == "not_configured"
+
+
+def test_registration_shows_honest_email_delivery_status_and_public_url(client, app, monkeypatch):
+    import app.services.customer_mail as customer_mail
+    app.config.update(
+        MAIL_PROVIDER="smtp", MAIL_FROM_VERIFIED=True,
+        MAIL_FROM_ADDRESS="verified@example.test", MAIL_SERVER="smtp.example.test",
+        MAIL_USE_TLS=True, MAIL_USE_SSL=False, PUBLIC_BASE_URL="https://fitystore.top",
+    )
+    sent = []
+    monkeypatch.setattr(customer_mail, "_send_smtp", lambda recipient, subject, html, text: sent.append(text))
+    response = _register_customer(client, email="mail-status@example.com")
+    assert response.status_code == 200
+    assert b"accepted by the mail server" in response.data
+    assert "https://fitystore.top/account/verify/" in sent[0]
+    with app.app_context():
+        row = EmailMessage.query.filter_by(kind="verify_email").one()
+        assert row.status == "sent"
+
+
+def test_resend_verification_reports_not_configured_and_rate_limits(client, app):
+    app.config["MAIL_PROVIDER"] = ""
+    with app.app_context():
+        account = CustomerAccount(email="resend@example.com", display_name="Resend", password_hash=generate_password_hash("a-strong-test-password-123"))
+        db.session.add(account)
+        db.session.commit()
+    client.post("/account/login", data={"email": "resend@example.com", "password": "a-strong-test-password-123"})
+    first = client.post("/account/verification/resend", follow_redirects=True)
+    assert b"No verification email was sent" in first.data
+    client.post("/account/verification/resend", follow_redirects=True)
+    client.post("/account/verification/resend", follow_redirects=True)
+    limited = client.post("/account/verification/resend", follow_redirects=True)
+    assert b"Too many verification requests" in limited.data
+    with app.app_context():
+        assert EmailMessage.query.filter_by(kind="verify_email", status="not_configured").count() == 3
+
+
+def test_failed_resend_preserves_previous_delivered_token(app, monkeypatch, app_context):
+    import hashlib
+    import smtplib
+    import app.customer.routes as customer_routes
+    import app.services.customer_mail as customer_mail
+    from datetime import timedelta
+    account = CustomerAccount(email="preserve@example.com", display_name="Preserve")
+    db.session.add(account)
+    db.session.flush()
+    old_raw = "previous-delivered-token"
+    old = CustomerToken(
+        account_id=account.id, purpose="verify_email",
+        token_hash=hashlib.sha256(old_raw.encode()).hexdigest(),
+        expires_at=datetime.utcnow() + timedelta(hours=1),
+    )
+    db.session.add(old)
+    db.session.commit()
+    app.config.update(
+        MAIL_PROVIDER="smtp", MAIL_FROM_VERIFIED=True,
+        MAIL_FROM_ADDRESS="verified@example.test", MAIL_SERVER="smtp.example.test",
+        MAIL_USE_TLS=True, MAIL_USE_SSL=False,
+    )
+    monkeypatch.setattr(customer_mail, "_send_smtp", lambda *args: (_ for _ in ()).throw(smtplib.SMTPServerDisconnected("private details")))
+    result = customer_routes._issue_and_send(account, "verify_email")
+    assert result.status == "failed"
+    assert old.used_at is None
+    new_row = CustomerToken.query.filter_by(account_id=account.id, purpose="verify_email").filter(CustomerToken.id != old.id).one()
+    assert new_row.used_at is None
+    assert "private details" not in result.failure_reason
+    monkeypatch.setattr(customer_mail, "_send_smtp", lambda *args: None)
+    accepted = customer_routes._issue_and_send(account, "verify_email")
+    assert accepted.status == "sent"
+    assert old.used_at is not None
+    assert new_row.used_at is not None
+    newest = CustomerToken.query.filter_by(account_id=account.id, purpose="verify_email").order_by(CustomerToken.id.desc()).first()
+    assert newest.used_at is None
+
+
+def test_smtp_timeout_is_recorded_without_exception_details(app, monkeypatch, app_context):
+    import socket
+    import app.services.customer_mail as customer_mail
+    app.config.update(
+        MAIL_PROVIDER="smtp", MAIL_FROM_VERIFIED=True,
+        MAIL_FROM_ADDRESS="verified@example.test", MAIL_SERVER="smtp.example.test",
+        MAIL_USE_TLS=True, MAIL_USE_SSL=False,
+    )
+    monkeypatch.setattr(customer_mail, "_send_smtp", lambda *args: (_ for _ in ()).throw(socket.timeout("private timeout detail")))
+    result = customer_mail.queue_branded_email("person@example.test", "Test", "test", "smtp-timeout-test", "Hello", ["Test body"])
+    assert result.status == "failed"
+    assert result.failure_reason == "SMTP send failed (TimeoutError)."
+    assert "private timeout detail" not in result.failure_reason
+
+
+def test_smtp_success_and_ssl_configuration_validation(app, monkeypatch, app_context):
+    import app.services.customer_mail as customer_mail
+    app.config.update(
+        MAIL_PROVIDER="smtp", MAIL_FROM_VERIFIED=True,
+        MAIL_FROM_ADDRESS="verified@example.test", MAIL_SERVER="smtp.example.test",
+        MAIL_USE_TLS=True, MAIL_USE_SSL=False,
+    )
+    monkeypatch.setattr(customer_mail, "_send_smtp", lambda *args: None)
+    result = customer_mail.queue_branded_email("person@example.test", "Test", "test", "smtp-success-test", "Hello", ["Test body"])
+    assert result.status == "sent"
+    app.config.update(MAIL_USE_TLS=True, MAIL_USE_SSL=True)
+    assert customer_mail.mail_configuration_status() == (False, "Choose either STARTTLS or implicit TLS, not both.")
+    app.config.update(MAIL_USE_TLS=False, MAIL_USE_SSL=False)
+    assert customer_mail.mail_configuration_status()[0] is False
+
+
+def test_google_id_token_audience_rejection_is_logged_without_token(app, monkeypatch, caplog, app_context):
+    import sys
+    import types
+    import app.customer.routes as customer_routes
+    app.config["GOOGLE_CLIENT_ID"] = "expected-web-client-id"
+    google = types.ModuleType("google"); google.__path__ = []
+    auth = types.ModuleType("google.auth"); auth.__path__ = []
+    transport = types.ModuleType("google.auth.transport"); transport.__path__ = []
+    requests = types.ModuleType("google.auth.transport.requests")
+    requests.Request = lambda: object()
+    oauth2 = types.ModuleType("google.oauth2"); oauth2.__path__ = []
+    id_token = types.ModuleType("google.oauth2.id_token")
+    def reject_wrong_audience(token, request, audience):
+        assert token == "do-not-log-this-token"
+        assert audience == "expected-web-client-id"
+        raise ValueError("sensitive token contents")
+    id_token.verify_oauth2_token = reject_wrong_audience
+    transport.requests = requests
+    oauth2.id_token = id_token
+    modules = {
+        "google": google, "google.auth": auth, "google.auth.transport": transport,
+        "google.auth.transport.requests": requests, "google.oauth2": oauth2,
+        "google.oauth2.id_token": id_token,
+    }
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+    assert customer_routes.verify_google_credential("do-not-log-this-token") is None
+    assert "ValueError" in caplog.text
+    assert "do-not-log-this-token" not in caplog.text
+    assert "sensitive token contents" not in caplog.text
+
+
+def test_google_login_redirect_uri_uses_configured_canonical_host(client, app):
+    app.config["GOOGLE_CLIENT_ID"] = "web-client-id"
+    app.config["PUBLIC_BASE_URL"] = "https://fitystore.top"
+    response = client.get("/account/login")
+    assert b'data-login_uri="https://fitystore.top/account/google"' in response.data
+
+
+def test_admin_account_controls_do_not_manually_verify_email(client, app, app_context):
+    account = CustomerAccount(email="admin-view@example.com", display_name="Admin View")
+    db.session.add(account)
+    db.session.commit()
+    assert client.post("/admin/login", data={"username": "owner", "password": "secret123"}).status_code == 302
+    page = client.get("/admin/email")
+    assert b"email not verified" in page.data
+    assert client.post(f"/admin/email/customers/{account.id}/active", data={"active": "no"}).status_code == 302
+    db.session.refresh(account)
+    assert account.active is False
+    assert account.email_verified_at is None

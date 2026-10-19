@@ -1,27 +1,46 @@
 from __future__ import annotations
 
+import logging
 import smtplib
+import ssl
 from datetime import datetime
 from email.message import EmailMessage as MimeMessage
-from email.utils import formataddr
+from email.utils import formataddr, parseaddr
 
 from flask import current_app, render_template
 
 from app.extensions import db
 from app.models import EmailMessage
 
+logger = logging.getLogger(__name__)
+
 
 def mail_configuration_status() -> tuple[bool, str]:
     cfg = current_app.config
-    if cfg.get("MAIL_PROVIDER", "").lower() != "smtp":
-        return False, "Email sending is not configured."
+    if (cfg.get("MAIL_PROVIDER") or "").strip().lower() != "smtp":
+        return False, "Email sending is not configured (MAIL_PROVIDER must be smtp)."
     if not cfg.get("MAIL_FROM_VERIFIED"):
         return False, "Sender address is not marked verified with the email provider."
-    if not cfg.get("MAIL_FROM_ADDRESS") or not cfg.get("MAIL_SERVER"):
-        return False, "Sender address and SMTP server are required."
+    sender = (cfg.get("MAIL_FROM_ADDRESS") or "").strip()
+    if not sender or parseaddr(sender)[1] != sender or "@" not in sender:
+        return False, "A valid provider-verified MAIL_FROM_ADDRESS is required."
+    if not (cfg.get("MAIL_SERVER") or "").strip():
+        return False, "MAIL_SERVER is required."
+    try:
+        port = int(cfg.get("MAIL_PORT", 587))
+        if not 1 <= port <= 65535:
+            raise ValueError
+    except (TypeError, ValueError):
+        return False, "MAIL_PORT must be a number from 1 to 65535."
+    use_tls = bool(cfg.get("MAIL_USE_TLS", True))
+    use_ssl = bool(cfg.get("MAIL_USE_SSL", False))
+    if use_tls and use_ssl:
+        return False, "Choose either STARTTLS or implicit TLS, not both."
+    if not use_tls and not use_ssl:
+        return False, "SMTP must use TLS (MAIL_USE_TLS=1) or implicit TLS (MAIL_USE_SSL=1)."
     if bool(cfg.get("MAIL_USERNAME")) != bool(cfg.get("MAIL_PASSWORD")):
         return False, "Provide both SMTP username and password, or leave both blank."
-    return True, "SMTP sender is configured."
+    return True, "SMTP sender is configured with encrypted transport."
 
 
 def _send_smtp(recipient: str, subject: str, html_body: str, text_body: str) -> None:
@@ -34,9 +53,21 @@ def _send_smtp(recipient: str, subject: str, html_body: str, text_body: str) -> 
         message["Reply-To"] = cfg["MAIL_REPLY_TO"]
     message.set_content(text_body)
     message.add_alternative(html_body, subtype="html")
-    with smtplib.SMTP(cfg["MAIL_SERVER"], cfg.get("MAIL_PORT", 587), timeout=12) as smtp:
+    timeout = 12
+    if cfg.get("MAIL_USE_SSL", False):
+        with smtplib.SMTP_SSL(
+            cfg["MAIL_SERVER"], int(cfg.get("MAIL_PORT", 465)), timeout=timeout,
+            context=ssl.create_default_context(),
+        ) as smtp:
+            if cfg.get("MAIL_USERNAME"):
+                smtp.login(cfg["MAIL_USERNAME"], cfg["MAIL_PASSWORD"])
+            smtp.send_message(message)
+        return
+    with smtplib.SMTP(cfg["MAIL_SERVER"], int(cfg.get("MAIL_PORT", 587)), timeout=timeout) as smtp:
+        smtp.ehlo()
         if cfg.get("MAIL_USE_TLS", True):
-            smtp.starttls()
+            smtp.starttls(context=ssl.create_default_context())
+            smtp.ehlo()
         if cfg.get("MAIL_USERNAME"):
             smtp.login(cfg["MAIL_USERNAME"], cfg["MAIL_PASSWORD"])
         smtp.send_message(message)
@@ -63,6 +94,7 @@ def deliver_email(record: EmailMessage, html_body: str, text_body: str) -> bool:
         record.status = "not_configured"
         record.failure_reason = reason[:255]
         db.session.commit()
+        logger.warning("email_delivery_not_configured message_id=%s reason=%s", record.id, record.failure_reason)
         return False
     if record.status != "queued":
         return record.status == "sent"
@@ -75,6 +107,10 @@ def deliver_email(record: EmailMessage, html_body: str, text_body: str) -> bool:
         record.status = "failed"
         record.failure_reason = (f"SMTP error {code}." if code else f"SMTP send failed ({type(exc).__name__}).")
         db.session.commit()
+        logger.warning(
+            "email_delivery_failed message_id=%s error_type=%s smtp_code=%s",
+            record.id, type(exc).__name__, code if isinstance(code, int) else "none",
+        )
         return False
     record.status = "sent"
     record.failure_reason = ""

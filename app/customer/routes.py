@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import re
 from datetime import datetime, timedelta
 from functools import wraps
 from secrets import token_urlsafe
+from urllib.parse import urlsplit
 
 from email_validator import EmailNotValidError, validate_email
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
@@ -19,6 +21,28 @@ from app.services.customer_mail import mail_configuration_status, queue_branded_
 
 customer_bp = Blueprint("customer", __name__, url_prefix="/account")
 CONSENT_TEXT_VERSION = "2026-10"
+logger = logging.getLogger(__name__)
+
+
+def _public_url(endpoint, **values):
+    path = url_for(endpoint, **values)
+    base = (current_app.config.get("PUBLIC_BASE_URL") or "https://fitystore.top").strip().rstrip("/")
+    parsed = urlsplit(base)
+    if parsed.scheme.lower() != "https" or not parsed.netloc or parsed.path or parsed.query or parsed.fragment:
+        logger.error("PUBLIC_BASE_URL must be an HTTPS origin; using the canonical FityStores host.")
+        base = "https://fitystore.top"
+    return f"{base}{path}"
+
+
+def _delivery_message(result, label="verification"):
+    status = getattr(result, "status", "")
+    if status == "sent":
+        return f"The {label} email was accepted by the mail server. Check your inbox and spam folder; acceptance does not guarantee inbox delivery."
+    if status == "not_configured":
+        return f"No {label} email was sent because email delivery is not configured. Please try again later."
+    if status == "failed":
+        return f"The {label} email could not be sent. Please try again later."
+    return f"The {label} email could not be queued. Please try again later."
 
 
 def customer_required(view):
@@ -62,22 +86,12 @@ def _rate_allowed(action, value="", limit=8, window_minutes=15):
     return True
 
 
-def _new_token(account, purpose, minutes=60):
-    now = datetime.utcnow()
-    CustomerToken.query.filter_by(account_id=account.id, purpose=purpose, used_at=None).update({"used_at": now})
-    raw = token_urlsafe(32)
-    row = CustomerToken(account_id=account.id, purpose=purpose, token_hash=hashlib.sha256(raw.encode()).hexdigest(), expires_at=now + timedelta(minutes=minutes))
-    db.session.add(row)
-    db.session.flush()
-    return raw
-
-
 def _find_token(raw, purpose):
     if not raw or len(raw) > 200:
         return None
     digest = hashlib.sha256(raw.encode()).hexdigest()
     row = CustomerToken.query.filter_by(token_hash=digest, purpose=purpose, used_at=None).first()
-    if not row or row.expires_at < datetime.utcnow() or not row.account.active:
+    if not row or row.expires_at <= datetime.utcnow() or not row.account.active:
         return None
     return row
 
@@ -101,7 +115,7 @@ def _send_token_email(account, purpose, raw):
         heading = "Confirm promotional email preferences"
         text = "Confirm that you would like to receive occasional FityStores offers, new arrivals, and promotions by email."
         minutes = 24 * 60
-    url = url_for(path, token=raw, _external=True, _scheme="https")
+    url = _public_url(path, token=raw)
     event_key = hashlib.sha256(raw.encode()).hexdigest()[:24]
     return queue_branded_email(
         account.email, subject, purpose, f"{purpose}:{event_key}", heading, [text], account_id=account.id,
@@ -110,10 +124,37 @@ def _send_token_email(account, purpose, raw):
 
 
 def _issue_and_send(account, purpose, minutes=None):
-    with db.session.begin_nested():
-        raw = _new_token(account, purpose, minutes or (30 if purpose == "reset_password" else 24 * 60))
+    raw = token_urlsafe(32)
+    token_row = CustomerToken(
+        account_id=account.id,
+        purpose=purpose,
+        token_hash=hashlib.sha256(raw.encode()).hexdigest(),
+        expires_at=datetime.utcnow() + timedelta(minutes=minutes or (30 if purpose == "reset_password" else 24 * 60)),
+    )
+    db.session.add(token_row)
     db.session.commit()
-    _send_token_email(account, purpose, raw)
+    try:
+        result = _send_token_email(account, purpose, raw)
+    except Exception:
+        token_row.used_at = datetime.utcnow()
+        db.session.commit()
+        raise
+
+    now = datetime.utcnow()
+    if result and result.status == "sent":
+        CustomerToken.query.filter(
+            CustomerToken.account_id == account.id,
+            CustomerToken.purpose == purpose,
+            CustomerToken.id != token_row.id,
+            CustomerToken.used_at.is_(None),
+        ).update({"used_at": now}, synchronize_session="fetch")
+    elif result and result.status == "not_configured":
+        # No mail was attempted, so retire this unsent token while retaining a prior usable link.
+        token_row.used_at = now
+    # A failed SMTP call can be ambiguous if the server accepted the message before a
+    # connection dropped. Keep both links usable; the next accepted send retires older tokens.
+    db.session.commit()
+    return result
 
 
 def _record_consent(account, event, method):
@@ -137,7 +178,9 @@ def verify_google_credential(credential):
         from google.auth.transport import requests as google_requests
         from google.oauth2 import id_token
         claims = id_token.verify_oauth2_token(credential, google_requests.Request(), current_app.config["GOOGLE_CLIENT_ID"])
-    except Exception:
+    except Exception as exc:
+        # Keep tokens and provider response bodies out of logs; type is enough to diagnose audience/network/library failures.
+        logger.warning("Google ID token verification failed error_type=%s", type(exc).__name__)
         return None
     if claims.get("iss") not in {"accounts.google.com", "https://accounts.google.com"} or not claims.get("email_verified"):
         return None
@@ -192,11 +235,11 @@ def register():
             _record_consent(account, "requested", "registration")
         db.session.commit()
         login_user(account)
-        _issue_and_send(account, "verify_email")
+        verification_result = _issue_and_send(account, "verify_email")
         if account.marketing_status == "pending":
             _issue_and_send(account, "marketing_confirm")
-        mail_ready, _mail_note = mail_configuration_status()
-        flash("Account created. " + ("Check your email for verification." if mail_ready else "Email delivery is not configured yet; ask the store owner to configure it before verifying.") + " Promotional email requires a separate confirmation.", "success")
+        flash("Your FityStores account was created. Promotional email requires a separate confirmation.", "success")
+        flash(_delivery_message(verification_result), "success" if verification_result and verification_result.status == "sent" else "warning")
         return redirect(url_for("customer.dashboard"))
     return render_template("customer/register.html", title="Create account")
 
@@ -207,14 +250,14 @@ def login():
         email_input = request.form.get("email", "").strip().lower()
         if not _rate_allowed("login", email_input[:254], limit=10):
             flash("Invalid email or password. Please try again later.", "error")
-            return render_template("customer/login.html", title="Customer sign in", google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""))
+            return render_template("customer/login.html", title="Customer sign in", google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""), google_login_uri=_public_url("customer.google_signin"))
         account = CustomerAccount.query.filter_by(email=email_input).first()
         password = request.form.get("password", "")
         if account and account.active and account.password_hash and check_password_hash(account.password_hash, password):
             login_user(account)
             return redirect(request.args.get("next") if request.args.get("next", "").startswith("/account") else url_for("customer.dashboard"))
         flash("Invalid email or password.", "error")
-    return render_template("customer/login.html", title="Customer sign in", google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""))
+    return render_template("customer/login.html", title="Customer sign in", google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""), google_login_uri=_public_url("customer.google_signin"))
 
 
 @customer_bp.post("/logout")
@@ -258,8 +301,8 @@ def subscribe_marketing():
     elif current_user.marketing_status != "subscribed":
         _record_consent(current_user, "requested", "account_preferences")
         db.session.commit()
-        _issue_and_send(current_user, "marketing_confirm")
-        flash("Check your email to confirm promotional messages.", "success")
+        result = _issue_and_send(current_user, "marketing_confirm")
+        flash(_delivery_message(result, "promotional confirmation"), "success" if result and result.status == "sent" else "warning")
     return redirect(url_for("customer.dashboard"))
 
 
@@ -277,14 +320,31 @@ def unsubscribe_account():
 def verify_email(token):
     row = _find_token(token, "verify_email")
     if request.method == "GET":
-        return render_template("customer/confirm_token.html", title="Verify email", heading="Verify your email", action=url_for("customer.verify_email", token=token), valid=bool(row))
+        valid = bool(row and not row.account.email_verified_at)
+        heading = "Verify your email"
+        if row and row.account.email_verified_at:
+            heading = "Email already verified"
+        return render_template("customer/confirm_token.html", title=heading, heading=heading, action=url_for("customer.verify_email", token=token), valid=valid)
     if not row:
-        flash("That verification link is invalid or expired. Request a new one after signing in.", "error")
+        flash("That verification link is invalid, expired, or already used. Sign in and request another if your email is not verified.", "error")
         return redirect(url_for("customer.login"))
-    row.used_at = datetime.utcnow()
-    row.account.email_verified_at = row.account.email_verified_at or datetime.utcnow()
+    if row.account.email_verified_at:
+        row.used_at = row.used_at or datetime.utcnow()
+        db.session.commit()
+        flash("Your email is already verified.", "info")
+        return redirect(url_for("customer.login"))
+    verified_at = datetime.utcnow()
+    row.used_at = verified_at
+    row.account.email_verified_at = row.account.email_verified_at or verified_at
+    CustomerToken.query.filter(
+        CustomerToken.account_id == row.account_id,
+        CustomerToken.purpose == "verify_email",
+        CustomerToken.id != row.id,
+        CustomerToken.used_at.is_(None),
+        CustomerToken.expires_at > verified_at,
+    ).update({"used_at": verified_at}, synchronize_session="fetch")
     db.session.commit()
-    queue_branded_email(row.account.email, "Welcome to FityStores", "welcome", f"welcome:{row.account.id}", "Welcome to FityStores", ["Your account is ready. You can view your linked orders and manage your account preferences on our website."], account_id=row.account.id, button_url=url_for("customer.dashboard", _external=True, _scheme="https"), button_text="View your account")
+    queue_branded_email(row.account.email, "Welcome to FityStores", "welcome", f"welcome:{row.account.id}", "Welcome to FityStores", ["Your account is ready. You can view your linked orders and manage your account preferences on our website."], account_id=row.account.id, button_url=_public_url("customer.dashboard"), button_text="View your account")
     flash("Your email is verified.", "success")
     return redirect(url_for("customer.login"))
 
@@ -292,9 +352,13 @@ def verify_email(token):
 @customer_bp.post("/verification/resend")
 @customer_required
 def resend_verification():
-    if not current_user.email_verified_at and _rate_allowed("verify", current_user.email, limit=3, window_minutes=60):
-        _issue_and_send(current_user, "verify_email")
-    flash("If verification is still needed, a new link has been sent when email is configured.", "info")
+    if current_user.email_verified_at:
+        flash("Your email is already verified.", "info")
+    elif not _rate_allowed("verify", current_user.email, limit=3, window_minutes=60):
+        flash("Too many verification requests. Please wait before trying again.", "warning")
+    else:
+        result = _issue_and_send(current_user, "verify_email")
+        flash(_delivery_message(result), "success" if result and result.status == "sent" else "warning")
     return redirect(url_for("customer.dashboard"))
 
 
@@ -377,8 +441,11 @@ def google_signin():
     if not _google_csrf_ok() or not credential or len(credential) > 10000:
         abort(400)
     claims = verify_google_credential(credential)
-    if not claims or not claims.get("sub") or not _google_email_authoritative(claims):
-        flash("Google sign-in could not be verified. Use an authoritative Gmail or Google Workspace email.", "error")
+    if not claims or not claims.get("sub"):
+        flash("Google could not verify this sign-in. Check the Web client ID configured for this site and try again.", "error")
+        return redirect(url_for("customer.login"))
+    if not _google_email_authoritative(claims):
+        flash("Use a Google account with a verified Gmail or Google Workspace email address.", "error")
         return redirect(url_for("customer.login"))
     if not _rate_allowed("google", claims["email"], limit=8):
         abort(429)
@@ -405,7 +472,7 @@ def google_signin():
     login_user(account)
     if account.marketing_status == "pending":
         _issue_and_send(account, "marketing_confirm")
-    queue_branded_email(account.email, "Welcome to FityStores", "welcome", f"welcome:{account.id}", "Welcome to FityStores", ["Your account is ready. You can view your linked orders and manage your account preferences on our website."], account_id=account.id, button_url=url_for("customer.dashboard", _external=True, _scheme="https"), button_text="View your account")
+    queue_branded_email(account.email, "Welcome to FityStores", "welcome", f"welcome:{account.id}", "Welcome to FityStores", ["Your account is ready. You can view your linked orders and manage your account preferences on our website."], account_id=account.id, button_url=_public_url("customer.dashboard"), button_text="View your account")
     return redirect(url_for("customer.dashboard"))
 
 
