@@ -9,4 +9,4 @@ gunicorn
 psycopg[binary]
 cloudinary==1.41.0
 Pillow==11.3.0
-google-auth==2.62.0
+google-auth[requests]==2.62.0
