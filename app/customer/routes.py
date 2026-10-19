@@ -236,12 +236,6 @@ def _google_email_authoritative(claims):
     return bool(claims.get("email_verified")) and (domain == "gmail.com" or bool(claims.get("hd")))
 
 
-def _google_csrf_ok():
-    cookie = request.cookies.get("g_csrf_token", "")
-    submitted = request.form.get("g_csrf_token", "")
-    return bool(cookie and submitted and hmac.compare_digest(cookie, submitted))
-
-
 @customer_bp.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -549,7 +543,6 @@ def unsubscribe(token):
     return render_template("customer/unsubscribed.html", title="Email preferences updated")
 
 
-@csrf.exempt
 @customer_bp.post("/google")
 def google_signin():
     if not current_app.config.get("GOOGLE_CLIENT_ID"):
@@ -558,7 +551,7 @@ def google_signin():
     if not _rate_allowed("google_ip", "", limit=20, window_minutes=15):
         abort(429)
     credential = request.form.get("credential", "")
-    if not _google_csrf_ok() or not credential or len(credential) > 10000:
+    if not credential or len(credential) > 10000:
         abort(400)
     claims = verify_google_credential(credential)
     if not claims or not claims.get("sub"):
@@ -604,8 +597,6 @@ def google_signin():
 def link_google():
     if not current_user.email_verified_at:
         abort(403)
-    if not _google_csrf_ok():
-        abort(400)
     claims = verify_google_credential(request.form.get("credential", ""))
     if not claims or not _google_email_authoritative(claims) or claims.get("email") != current_user.email:
         flash("Google account email must match your verified FityStores email.", "error")
