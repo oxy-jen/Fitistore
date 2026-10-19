@@ -356,6 +356,9 @@ def register_cli(app: Flask):
                         db.metadata.create_all(
                             bind=connection, tables=tables, checkfirst=True
                         )
+                        account_columns = {column["name"] for column in inspect(connection).get_columns("customer_account")}
+                        if "two_factor_enabled" not in account_columns:
+                            connection.exec_driver_sql("ALTER TABLE customer_account ADD COLUMN two_factor_enabled BOOLEAN NOT NULL DEFAULT 0")
                         validate_columns(connection)
                         transaction.commit()
                     except Exception:

@@ -415,6 +415,7 @@ class CustomerAccount(UserMixin, TimestampMixin, db.Model):
     password_hash = db.Column(db.String(255))
     google_sub = db.Column(db.String(255), unique=True, index=True)
     email_verified_at = db.Column(db.DateTime)
+    two_factor_enabled = db.Column(db.Boolean, default=False, nullable=False)
     marketing_status = db.Column(db.String(20), default="none", nullable=False, index=True)
     marketing_consent_at = db.Column(db.DateTime)
     marketing_withdrawn_at = db.Column(db.DateTime)

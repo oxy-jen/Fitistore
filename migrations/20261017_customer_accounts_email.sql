@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS customer_account (
  id SERIAL PRIMARY KEY, email VARCHAR(254) NOT NULL UNIQUE, display_name VARCHAR(120) NOT NULL DEFAULT '', password_hash VARCHAR(255), google_sub VARCHAR(255) UNIQUE, email_verified_at TIMESTAMP, marketing_status VARCHAR(20) NOT NULL DEFAULT 'none', marketing_consent_at TIMESTAMP, marketing_withdrawn_at TIMESTAMP, active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE customer_account ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS ix_customer_account_email ON customer_account(email);
 CREATE INDEX IF NOT EXISTS ix_customer_account_google_sub ON customer_account(google_sub);
 CREATE INDEX IF NOT EXISTS ix_customer_account_marketing_status ON customer_account(marketing_status);
