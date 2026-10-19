@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
 import smtplib
 import ssl
+import urllib.request
 from datetime import datetime
 from email.message import EmailMessage as MimeMessage
 from email.utils import formataddr, parseaddr
@@ -17,13 +19,18 @@ logger = logging.getLogger(__name__)
 
 def mail_configuration_status() -> tuple[bool, str]:
     cfg = current_app.config
-    if (cfg.get("MAIL_PROVIDER") or "").strip().lower() != "smtp":
-        return False, "Email sending is not configured (MAIL_PROVIDER must be smtp)."
+    provider = (cfg.get("MAIL_PROVIDER") or "").strip().lower()
+    if provider not in {"smtp", "resend"}:
+        return False, "Email sending is not configured (set MAIL_PROVIDER to smtp or resend)."
     if not cfg.get("MAIL_FROM_VERIFIED"):
         return False, "Sender address is not marked verified with the email provider."
     sender = (cfg.get("MAIL_FROM_ADDRESS") or "").strip()
     if not sender or parseaddr(sender)[1] != sender or "@" not in sender:
         return False, "A valid provider-verified MAIL_FROM_ADDRESS is required."
+    if provider == "resend":
+        if not (cfg.get("RESEND_API_KEY") or "").strip():
+            return False, "RESEND_API_KEY is required when MAIL_PROVIDER=resend."
+        return True, "Resend HTTPS API sender is configured."
     if not (cfg.get("MAIL_SERVER") or "").strip():
         return False, "MAIL_SERVER is required."
     try:
@@ -73,6 +80,32 @@ def _send_smtp(recipient: str, subject: str, html_body: str, text_body: str) -> 
         smtp.send_message(message)
 
 
+
+def _send_resend(recipient: str, subject: str, html_body: str, text_body: str) -> None:
+    cfg = current_app.config
+    payload = {
+        "from": formataddr((cfg.get("MAIL_FROM_NAME") or "FityStores", cfg["MAIL_FROM_ADDRESS"])),
+        "to": [recipient],
+        "subject": (subject or "FityStores update").replace("\r", " ").replace("\n", " "),
+        "html": html_body,
+        "text": text_body,
+    }
+    if cfg.get("MAIL_REPLY_TO"):
+        payload["reply_to"] = cfg["MAIL_REPLY_TO"]
+    request = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {cfg['RESEND_API_KEY'].strip()}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        if not 200 <= response.status < 300:
+            raise RuntimeError(f"Resend API returned HTTP {response.status}.")
+
+
 def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *, account_id=None, order_id=None, campaign_id=None, html_body: str, text_body: str) -> EmailMessage:
     record = EmailMessage.query.filter_by(idempotency_key=idempotency_key).first()
     if record:
@@ -101,15 +134,19 @@ def deliver_email(record: EmailMessage, html_body: str, text_body: str) -> bool:
     record.status = "sending"
     db.session.commit()
     try:
-        _send_smtp(record.recipient, record.subject, html_body, text_body)
+        if (current_app.config.get("MAIL_PROVIDER") or "").strip().lower() == "resend":
+            _send_resend(record.recipient, record.subject, html_body, text_body)
+        else:
+            _send_smtp(record.recipient, record.subject, html_body, text_body)
     except Exception as exc:
         code = getattr(exc, "smtp_code", None)
+        provider = (current_app.config.get("MAIL_PROVIDER") or "smtp").strip().lower()
         record.status = "failed"
-        record.failure_reason = (f"SMTP error {code}." if code else f"SMTP send failed ({type(exc).__name__}).")
+        record.failure_reason = (f"SMTP error {code}." if provider == "smtp" and code else f"{provider.title()} send failed ({type(exc).__name__}).")
         db.session.commit()
         logger.warning(
-            "email_delivery_failed message_id=%s error_type=%s smtp_code=%s",
-            record.id, type(exc).__name__, code if isinstance(code, int) else "none",
+            "email_delivery_failed message_id=%s provider=%s error_type=%s smtp_code=%s",
+            record.id, provider, type(exc).__name__, code if isinstance(code, int) else "none",
         )
         return False
     record.status = "sent"

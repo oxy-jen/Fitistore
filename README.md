@@ -224,10 +224,11 @@ The migration adds customer identity, token, consent, order-link, rate-limit, ca
 
 ### Email provider setup
 
-No provider or sender is configured by default. Choose an SMTP-capable transactional provider and configure its host, port, TLS mode, username/password, and a sender address that the provider has verified:
+Configure a transactional provider and a sender address that the provider has verified. For Render Free, use Resend over HTTPS; Render Free blocks outbound SMTP ports 25, 465, and 587:
 
 ```text
-MAIL_PROVIDER=smtp
+MAIL_PROVIDER=resend
+RESEND_API_KEY=<Resend API key stored as a secret>
 MAIL_FROM_ADDRESS=<provider-verified sender>
 MAIL_FROM_NAME=FityStores
 MAIL_REPLY_TO=<real inbox the business monitors>
@@ -242,11 +243,11 @@ MAIL_TEST_ADDRESS=<authorized owner test inbox>
 PUBLIC_BASE_URL=https://fitystore.top
 ```
 
-Choose exactly one encrypted transport: MAIL_USE_TLS=1 for STARTTLS (typically port 587), or MAIL_USE_SSL=1 for implicit TLS (typically port 465). Never enable both or disable both. Set MAIL_FROM_VERIFIED=1 only after the provider verifies the sender/domain. support@fitystore.top, orders@fitystore.top, and hello@fitystore.top are naming examples only; this project does not create mailboxes, aliases, or forwarding. A sender identity can send mail but does not itself receive replies. Configure MAIL_REPLY_TO to an inbox that exists and is monitored. Buying the domain alone does not include email hosting. Set PUBLIC_BASE_URL=https://fitystore.top in Render so verification links and Google callbacks use the canonical HTTPS host regardless of proxy headers. After environment changes, save and redeploy or restart the web service.
+For MAIL_PROVIDER=resend, only RESEND_API_KEY and the verified sender settings are needed; this sends through HTTPS. If using SMTP on a host that allows it, choose exactly one encrypted transport: MAIL_USE_TLS=1 for STARTTLS (typically port 587), or MAIL_USE_SSL=1 for implicit TLS (typically port 465). Never enable both or disable both. Set MAIL_FROM_VERIFIED=1 only after the provider verifies the sender/domain. support@fitystore.top, orders@fitystore.top, and hello@fitystore.top are naming examples only; this project does not create mailboxes, aliases, or forwarding. A sender identity can send mail but does not itself receive replies. Configure MAIL_REPLY_TO to an inbox that exists and is monitored. Buying the domain alone does not include email hosting. Set PUBLIC_BASE_URL=https://fitystore.top in Render so verification links and Google callbacks use the canonical HTTPS host regardless of proxy headers. After environment changes, save and redeploy or restart the web service.
 
 Follow the provider's current DNS instructions to publish SPF and DKIM. Add a DMARC policy for `fitystore.top` and monitor aggregate reports before tightening enforcement. DNS is not changed by this application. Provider plans, free quotas, costs, and setup requirements change; check the selected provider before relying on a free tier.
 
-The admin Customer email page shows whether SMTP is configured, subscriber consent, campaign history, and the last 30 message statuses. SMTP `sent` means the configured relay accepted the message; it does not prove inbox delivery. This SMTP implementation does not include a delivery/bounce webhook. An admin can suppress a permanently bounced address; suppressed accounts are excluded and cannot self-resubscribe. There is no automatic retry worker. Email failures do not roll back committed orders or payment records. Campaign sending is synchronous and intended for low volume; large lists may exceed a web-host request timeout. Do not run a campaign until SMTP is verified with the configured test address.
+The admin Customer email page shows whether the selected email provider is configured, subscriber consent, campaign history, and the last 30 message statuses. SMTP `sent` means the configured relay accepted the message; it does not prove inbox delivery. This SMTP implementation does not include a delivery/bounce webhook. An admin can suppress a permanently bounced address; suppressed accounts are excluded and cannot self-resubscribe. There is no automatic retry worker. Email failures do not roll back committed orders or payment records. Campaign sending is synchronous and intended for low volume; large lists may exceed a web-host request timeout. Do not run a campaign until SMTP is verified with the configured test address.
 
 ### Google sign-in setup
 

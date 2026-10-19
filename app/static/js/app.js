@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(!copied)throw new Error('Copy command unavailable');
   }
   document.addEventListener('click',async event=>{
-    const action=event.target.closest('[data-share-native],[data-share-copy]');
+    const action=event.target.closest('[data-share-native],[data-share-copy],[data-share-tiktok]');
     if(!action)return;
     const share=action.closest('[data-product-share]');
     if(!share)return;
@@ -115,6 +115,35 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(action.hasAttribute('data-share-copy')){
       try{await copyShareUrl(url);announce('Product link copied.')}
       catch(error){announce('Copy was unavailable. You can copy the product address from your browser.')}
+      return;
+    }
+    if(action.hasAttribute('data-share-tiktok')){
+      const productDetail=share.closest('.product-detail');
+      const productCard=share.closest('.product-card');
+      const image=productDetail?.querySelector('#detail-product-image')||productCard?.querySelector('.product-image img');
+      const imageUrl=image?.currentSrc||image?.src||share.dataset.shareImage||'';
+      if(!imageUrl){announce('This product has no shareable image.');return;}
+      try{
+        const response=await fetch(imageUrl,{mode:'cors',credentials:'omit'});
+        if(!response.ok)throw new Error('Image download failed');
+        const blob=await response.blob();
+        if(!blob.type.startsWith('image/'))throw new Error('Product image could not be read');
+        const extension=({'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif'})[blob.type]||'img';
+        const file=new File([blob],'fity-product.'+extension,{type:blob.type});
+        const canShareFile=typeof navigator.share==='function'&&(!navigator.canShare||navigator.canShare({files:[file]}));
+        if(canShareFile){
+          await navigator.share({files:[file],title:share.dataset.shareTitle||'FityStores product',text:share.dataset.shareText||url});
+          announce('Choose TikTok in the share sheet, then review and post the image.');
+        }else{
+          const objectUrl=URL.createObjectURL(blob);
+          const download=document.createElement('a');download.href=objectUrl;download.download='fity-product.'+extension;document.body.appendChild(download);download.click();download.remove();
+          window.setTimeout(()=>URL.revokeObjectURL(objectUrl),30000);
+          announce('Image downloaded. Open TikTok and upload it to a post.');
+        }
+      }catch(error){
+        if(error&&error.name==='AbortError')announce('Sharing cancelled.');
+        else{window.open(imageUrl,'_blank','noopener');announce('Could not prepare the image. Save it from the opened tab, then upload it in TikTok.');}
+      }
       return;
     }
     if(typeof navigator.share==='function'){
