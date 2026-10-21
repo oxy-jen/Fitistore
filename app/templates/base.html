@@ -6,7 +6,7 @@
   {% set page_title = seo_title or ((title or settings.shop_name) ~ ' | ' ~ settings.shop_name) %}
   {% set page_description = seo_description or settings.tagline %}
   {% set canonical = canonical_url or ('https://fitystore.top' ~ request.path) %}
-  {% set private_page = request.path in ['/cart', '/checkout', '/track', '/track-order', '/referrals'] or request.path.startswith('/track/') %}
+  {% set private_page = request.path.startswith('/account') or request.path in ['/cart', '/checkout', '/track', '/track-order', '/referrals'] or request.path.startswith('/track/') %}
   <title>{{ page_title }}</title>
   <meta name="description" content="{{ page_description }}">
   {% if private_page %}<meta name="robots" content="noindex,follow">{% else %}<link rel="canonical" href="{{ canonical }}">{% endif %}

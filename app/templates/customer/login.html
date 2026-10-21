@@ -1,1 +1,43 @@
-{% extends "base.html" %}{% block content %}<section class="form-card account-form"><h1>Customer sign in</h1><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Email<input type="email" name="email" required autocomplete="email"></label><label>Password<input type="password" name="password" required autocomplete="current-password"></label><button class="btn primary">Sign in</button></form><p><a href="{{ url_for('customer.forgot_password') }}">Forgot password?</a> · <a href="{{ url_for('customer.register') }}">Create account</a></p>{% if google_client_id %}<script src="https://accounts.google.com/gsi/client" async defer></script><div id="g_id_onload" data-client_id="{{ google_client_id }}" data-login_uri="{{ google_login_uri }}" data-callback="onGoogleSignIn" data-ux_mode="popup" data-auto_prompt="false"></div><div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="continue_with" data-shape="rectangular"></div><form id="google-signin-form" method="post" action="{{ url_for('customer.google_signin') }}" hidden><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input id="google-credential" type="hidden" name="credential"></form><script>function onGoogleSignIn(result){const form=document.getElementById("google-signin-form");document.getElementById("google-credential").value=result.credential;form.requestSubmit();}</script>{% else %}<p>Google sign-in is not configured yet. Email sign-in is available.</p>{% endif %}</section>{% endblock %}
+{% extends "base.html" %}
+{% block content %}
+<section class="account-page">
+  <div class="account-intro">
+    <p class="eyebrow">FityStores account</p>
+    <h1>Your orders and account details, together.</h1>
+    <p>Sign in to see orders linked to your account and manage your preferences.</p>
+  </div>
+  <div class="account-panel">
+    <h2>Sign in</h2>
+    <p class="account-muted">Use your password, a one-time email code, or Google.</p>
+    <form method="post" action="{{ url_for('customer.login') }}" class="account-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <label>Email address<input type="email" name="email" autocomplete="email" required></label>
+      <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+      <button class="btn primary wide" type="submit">Sign in with password</button>
+    </form>
+    <p class="account-inline-links"><a href="{{ url_for('customer.forgot_password') }}">Forgot password?</a><span aria-hidden="true">&middot;</span><a href="{{ url_for('customer.register') }}">Create an account</a></p>
+    <div class="account-divider"><span>or use an email code</span></div>
+    <form method="post" action="{{ url_for('customer.email_code_login') }}" class="account-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <label>Email address<input type="email" name="email" autocomplete="email" required></label>
+      <button class="btn wide" type="submit">Email me a sign-in code</button>
+    </form>
+    <div class="account-divider"><span>or continue with Google</span></div>
+    {% if google_client_id %}
+      <script src="https://accounts.google.com/gsi/client" async defer></script>
+      <div id="g_id_onload" data-client_id="{{ google_client_id }}" data-login_uri="{{ google_login_uri }}" data-callback="onGoogleSignIn" data-ux_mode="popup" data-auto_prompt="false"></div>
+      <div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="continue_with" data-shape="rectangular"></div>
+      <form id="google-signin-form" method="post" action="{{ url_for('customer.google_signin') }}" hidden>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <input id="google-credential" type="hidden" name="credential">
+      </form>
+      <script>function onGoogleSignIn(result){const form=document.getElementById("google-signin-form");document.getElementById("google-credential").value=result.credential;form.requestSubmit();}</script>
+    {% else %}
+      <p class="account-note">Google sign-in is unavailable until the site owner configures the Google Web client ID.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

@@ -1,1 +1,23 @@
-{% extends "base.html" %}{% block content %}<section class="form-card account-form"><h1>Enter your email code</h1><p>Enter the six-digit code for <strong>{{ email }}</strong>. Codes expire in 10 minutes. Check Spam or All Mail if you do not see yours.</p><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Six-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code" required></label><button class="btn primary">Verify code</button></form><form method="post" action="{{ url_for('customer.resend_email_code') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn">Resend code</button></form></section>{% endblock %}
+{% extends "base.html" %}
+{% block content %}
+<section class="account-page account-page-single">
+  <div class="account-intro">
+    <p class="eyebrow">{% if is_verification %}Email verification{% else %}Secure sign-in{% endif %}</p>
+    <h1>{% if is_verification %}Verify your email address.{% else %}Enter your sign-in code.{% endif %}</h1>
+    <p>We sent a six-digit code to <strong>{{ email }}</strong>. It expires in 10 minutes and can only be used once.</p>
+  </div>
+  <div class="account-panel">
+    <h2>Enter your code</h2>
+    <form method="post" class="account-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Six-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code" required autofocus></label>
+      <button class="btn primary wide" type="submit">Verify and continue</button>
+    </form>
+    <form method="post" action="{{ url_for('customer.resend_email_code') }}" class="account-resend">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn wide" type="submit">Send a new code</button>
+    </form>
+    <p class="account-muted">Check your spam folder if you do not see the message. <a href="{{ url_for('customer.login') }}">Return to sign in</a></p>
+  </div>
+</section>
+{% endblock %}

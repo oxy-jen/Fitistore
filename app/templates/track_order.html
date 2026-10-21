@@ -525,7 +525,7 @@
 
 .tracking-steps li.completed .tracking-dot::after,
 .tracking-steps li.current .tracking-dot::after {
-    content: "✓";
+    content: "âœ“";
     color: #fff;
     font-size: 12px;
     font-weight: 850;
@@ -826,7 +826,7 @@
             </div>
 
             <aside class="tr-hero-card">
-                <div class="tr-hero-icon" aria-hidden="true">✓</div>
+                <div class="tr-hero-icon" aria-hidden="true">âœ“</div>
 
                 <h2>Your Order at a Glance</h2>
 
@@ -879,9 +879,7 @@
                 <span class="tr-eyebrow">Order lookup</span>
                 <h2>Where Is Your Order?</h2>
                 <p>
-                    Enter both details exactly as provided during
-                    checkout. Your private tracking code is required
-                    to access the order information.
+                    Enter your order reference and private tracking code to see the latest updates.
                 </p>
             </div>
 
@@ -894,10 +892,10 @@
                        value="{{ csrf_token() }}">
 
                 <div class="tr-search-heading">
-                    <div class="tr-trust-icon" aria-hidden="true">⌕</div>
+                    <div class="tr-trust-icon" aria-hidden="true">âŒ•</div>
                     <div>
                         <h2>Find Your Order</h2>
-                        <p>Both fields are required.</p>
+                        <p>Enter the two details from your order confirmation.</p>
                     </div>
                 </div>
 
@@ -920,7 +918,7 @@
                         >
 
                         <span class="tr-field-hint">
-                            Your order reference from checkout.
+                            From your order confirmation.
                         </span>
                     </label>
 
@@ -940,8 +938,7 @@
                         >
 
                         <span class="tr-field-hint">
-                            Keep this code private. It helps protect
-                            your order details.
+                            Your private code protects your order details.
                         </span>
                     </label>
 
@@ -949,7 +946,7 @@
 
                 <div class="tr-search-actions">
                     <button type="submit" class="tr-btn tr-btn-red">
-                        Track Order →
+                        Track Order â†’
                     </button>
 
                     <button type="reset"
@@ -961,7 +958,7 @@
                 <div class="tr-privacy-note">
                     <span aria-hidden="true"></span>
                     <div>
-                        <strong>Keep your tracking code private.</strong>
+                        <strong>Your tracking code is private.</strong>
                         Enter both your reference and tracking code.
                         Do not share the code publicly or with anyone
                         you do not trust.
@@ -1250,3 +1247,4 @@
 </script>
 
 {% endblock %}
+

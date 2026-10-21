@@ -51,12 +51,22 @@ def customer_required(view):
         if not current_user.is_authenticated:
             return redirect(url_for("customer.login", next=request.path))
         if not isinstance(current_user._get_current_object(), CustomerAccount):
-            abort(403)
+            flash("Sign in with a customer account to view this page.", "warning")
+            return redirect(url_for("customer.login", next=request.path))
         if not current_user.active:
             logout_user()
-            abort(403)
+            flash("This customer account is unavailable. Contact FityStores for help.", "error")
+            return redirect(url_for("customer.login"))
         return view(*args, **kwargs)
     return wrapped
+
+
+def _safe_customer_next(value):
+    parsed = urlsplit((value or "").strip())
+    allowed_path = parsed.path in {"/account", "/account/"}
+    if parsed.scheme or parsed.netloc or not allowed_path or parsed.path.startswith("//") or "\\" in parsed.path:
+        return url_for("customer.dashboard")
+    return parsed.path + (("?" + parsed.query) if parsed.query else "")
 
 
 def normalize_email(value):
@@ -188,12 +198,20 @@ def _start_email_code(account, purpose):
     return result
 
 
-def _begin_code_challenge(account, purpose):
+def _begin_code_challenge(account, purpose, next_url=None):
+    result = _start_email_code(account, purpose)
+    if not result or result.status != "sent":
+        session.pop("pending_customer_id", None)
+        session.pop("pending_customer_purpose", None)
+        session.pop("pending_customer_next", None)
+        flash(_delivery_message(result, "verification code"), "warning")
+        return redirect(url_for("customer.login", next=_safe_customer_next(next_url)))
+
     session["pending_customer_id"] = account.id
     session["pending_customer_purpose"] = purpose
+    session["pending_customer_next"] = _safe_customer_next(next_url)
     session.permanent = True
-    result = _start_email_code(account, purpose)
-    flash(_delivery_message(result, "verification code"), "success" if result and result.status == "sent" else "warning")
+    flash(_delivery_message(result, "verification code"), "success")
     return redirect(url_for("customer.verify_code"))
 
 
@@ -281,22 +299,46 @@ def register():
 
 @customer_bp.route("/login", methods=["GET", "POST"])
 def login():
+    next_url = _safe_customer_next(request.values.get("next"))
+    if current_user.is_authenticated and isinstance(current_user._get_current_object(), CustomerAccount):
+        return redirect(next_url)
     if request.method == "POST":
         email_input = request.form.get("email", "").strip().lower()
         if not _rate_allowed("login", email_input[:254], limit=10):
-            flash("Invalid email or password. Please try again later.", "error")
-            return render_template("customer/login.html", title="Customer sign in", google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""), google_login_uri=_public_url("customer.google_signin"))
-        account = CustomerAccount.query.filter_by(email=email_input).first()
-        password = request.form.get("password", "")
-        if account and account.active and account.password_hash and check_password_hash(account.password_hash, password):
-            if not account.email_verified_at:
-                return _begin_code_challenge(account, "verify_code")
-            if account.two_factor_enabled:
-                return _begin_code_challenge(account, "login_code")
-            login_user(account)
-            return redirect(request.args.get("next") if request.args.get("next", "").startswith("/account") else url_for("customer.dashboard"))
-        flash("Invalid email or password.", "error")
-    return render_template("customer/login.html", title="Customer sign in", google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""), google_login_uri=_public_url("customer.google_signin"))
+            flash("Too many sign-in attempts. Please wait and try again.", "warning")
+        else:
+            account = CustomerAccount.query.filter_by(email=email_input).first()
+            password = request.form.get("password", "")
+            if account and account.active and account.password_hash and check_password_hash(account.password_hash, password):
+                if not account.email_verified_at:
+                    return _begin_code_challenge(account, "verify_code", next_url)
+                if account.two_factor_enabled:
+                    return _begin_code_challenge(account, "login_code", next_url)
+                login_user(account)
+                return redirect(next_url)
+            flash("The email or password was not recognized.", "error")
+    return render_template(
+        "customer/login.html",
+        title="Sign in to your FityStores account",
+        google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""),
+        google_login_uri=_public_url("customer.google_signin"),
+        next_url=next_url,
+    )
+
+
+@customer_bp.post("/email-code")
+def email_code_login():
+    email_input = request.form.get("email", "").strip().lower()
+    next_url = _safe_customer_next(request.form.get("next"))
+    if not _rate_allowed("email_code_request", email_input[:254], limit=4, window_minutes=15):
+        flash("Too many code requests. Please wait before trying again.", "warning")
+        return redirect(url_for("customer.login", next=next_url))
+    account = CustomerAccount.query.filter_by(email=email_input).first()
+    if not account or not account.active:
+        flash("If an active account uses that email, a sign-in code will be sent when email delivery is available.", "info")
+        return redirect(url_for("customer.login", next=next_url))
+    purpose = "verify_code" if not account.email_verified_at else "login_code"
+    return _begin_code_challenge(account, purpose, next_url)
 
 
 @customer_bp.route("/verify-code", methods=["GET", "POST"])
@@ -304,42 +346,51 @@ def verify_code():
     account_id = session.get("pending_customer_id")
     purpose = session.get("pending_customer_purpose")
     if not account_id or purpose not in {"verify_code", "login_code"}:
+        flash("Start sign-in again to request a fresh code.", "warning")
         return redirect(url_for("customer.login"))
     account = db.session.get(CustomerAccount, account_id)
     if not account or not account.active:
         session.pop("pending_customer_id", None)
         session.pop("pending_customer_purpose", None)
+        session.pop("pending_customer_next", None)
+        flash("This customer account is unavailable. Contact FityStores for help.", "error")
         return redirect(url_for("customer.login"))
     if request.method == "POST":
         if not _rate_allowed("email_code", str(account.id), limit=6, window_minutes=15):
-            flash("Too many code attempts. Wait 15 minutes and request a new code.", "warning")
-            return render_template("customer/verify_code.html", title="Enter your email code", email=account.email)
-        code = request.form.get("code", "").strip()
-        if not re.fullmatch(r"[0-9]{6}", code):
-            flash("Enter the six-digit code from your email.", "error")
+            flash("Too many code attempts. Wait 15 minutes before trying again.", "warning")
         else:
-            digest = hashlib.sha256(code.encode()).hexdigest()
-            row = CustomerToken.query.filter_by(account_id=account.id, purpose=purpose, token_hash=digest, used_at=None).first()
-            if not row or row.expires_at <= datetime.utcnow():
-                flash("That code is incorrect, expired, or already used. Request a new code.", "error")
+            code = request.form.get("code", "").strip()
+            if not re.fullmatch(r"[0-9]{6}", code):
+                flash("Enter the six-digit code from your email.", "error")
             else:
-                now = datetime.utcnow()
-                row.used_at = now
-                if purpose == "verify_code":
-                    account.email_verified_at = account.email_verified_at or now
-                    CustomerToken.query.filter(
-                        CustomerToken.account_id == account.id,
-                        CustomerToken.purpose == "verify_email",
-                        CustomerToken.used_at.is_(None),
-                    ).update({"used_at": now}, synchronize_session="fetch")
-                db.session.commit()
-                session.pop("pending_customer_id", None)
-                session.pop("pending_customer_purpose", None)
-                login_user(account)
-                flash("Your email is verified." if purpose == "verify_code" else "Two-step sign-in complete.", "success")
-                return redirect(url_for("customer.dashboard"))
+                digest = hashlib.sha256(code.encode()).hexdigest()
+                row = CustomerToken.query.filter_by(account_id=account.id, purpose=purpose, token_hash=digest, used_at=None).first()
+                if not row or row.expires_at <= datetime.utcnow():
+                    flash("That code is incorrect, expired, or already used. Request another code.", "error")
+                else:
+                    now = datetime.utcnow()
+                    row.used_at = now
+                    if purpose == "verify_code":
+                        account.email_verified_at = account.email_verified_at or now
+                        CustomerToken.query.filter(
+                            CustomerToken.account_id == account.id,
+                            CustomerToken.purpose == "verify_email",
+                            CustomerToken.used_at.is_(None),
+                        ).update({"used_at": now}, synchronize_session="fetch")
+                    db.session.commit()
+                    next_url = session.pop("pending_customer_next", None)
+                    session.pop("pending_customer_id", None)
+                    session.pop("pending_customer_purpose", None)
+                    login_user(account)
+                    flash("Your email is verified." if purpose == "verify_code" else "You are signed in.", "success")
+                    return redirect(_safe_customer_next(next_url))
         db.session.commit()
-    return render_template("customer/verify_code.html", title="Enter your email code", email=account.email)
+    return render_template(
+        "customer/verify_code.html",
+        title="Verify your email" if purpose == "verify_code" else "Enter your sign-in code",
+        email=account.email,
+        is_verification=(purpose == "verify_code"),
+    )
 
 
 @customer_bp.post("/verify-code/resend")
@@ -387,7 +438,7 @@ def logout():
 @customer_required
 def dashboard():
     links = CustomerOrderLink.query.filter_by(account_id=current_user.id).order_by(CustomerOrderLink.created_at.desc()).all()
-    return render_template("customer/dashboard.html", title="Your FityStores account", account=current_user, order_links=links, mail_status=mail_configuration_status()[1], google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""))
+    return render_template("customer/dashboard.html", title="Your FityStores account", account=current_user, order_links=links, mail_configured=mail_configuration_status()[0], google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""))
 
 
 @customer_bp.post("/profile")
@@ -553,36 +604,41 @@ def unsubscribe(token):
 
 @customer_bp.post("/google")
 def google_signin():
+    next_url = _safe_customer_next(request.form.get("next"))
     if not current_app.config.get("GOOGLE_CLIENT_ID"):
         flash("Google sign-in is not configured yet.", "warning")
-        return redirect(url_for("customer.login"))
+        return redirect(url_for("customer.login", next=next_url))
     if not _rate_allowed("google_ip", "", limit=20, window_minutes=15):
-        abort(429)
+        flash("Too many Google sign-in attempts. Please wait and try again.", "warning")
+        return redirect(url_for("customer.login", next=next_url))
     credential = request.form.get("credential", "")
     if not credential or len(credential) > 10000:
-        abort(400)
+        flash("Google could not verify this sign-in. Please try again.", "error")
+        return redirect(url_for("customer.login", next=next_url))
     claims = verify_google_credential(credential)
     if not claims or not claims.get("sub"):
-        flash("Google could not verify this sign-in. Check the Web client ID configured for this site and try again.", "error")
-        return redirect(url_for("customer.login"))
+        flash("Google could not verify this sign-in. Check the Web client ID and try again.", "error")
+        return redirect(url_for("customer.login", next=next_url))
     if not _google_email_authoritative(claims):
         flash("Use a Google account with a verified Gmail or Google Workspace email address.", "error")
-        return redirect(url_for("customer.login"))
+        return redirect(url_for("customer.login", next=next_url))
     if not _rate_allowed("google", claims["email"], limit=8):
-        abort(429)
+        flash("Too many sign-in attempts for this account. Please wait and try again.", "warning")
+        return redirect(url_for("customer.login", next=next_url))
     account = CustomerAccount.query.filter_by(google_sub=claims["sub"]).first()
     if account:
         if not account.active:
-            abort(403)
+            flash("This customer account is unavailable. Contact FityStores for help.", "error")
+            return redirect(url_for("customer.login", next=next_url))
         if not account.email_verified_at:
-            return _begin_code_challenge(account, "verify_code")
+            return _begin_code_challenge(account, "verify_code", next_url)
         if account.two_factor_enabled:
-            return _begin_code_challenge(account, "login_code")
+            return _begin_code_challenge(account, "login_code", next_url)
         login_user(account)
-        return redirect(url_for("customer.dashboard"))
+        return redirect(next_url)
     if CustomerAccount.query.filter_by(email=claims["email"]).first():
         flash("An account already uses this email. Sign in with its existing method, then link Google from your account.", "warning")
-        return redirect(url_for("customer.login"))
+        return redirect(url_for("customer.login", next=next_url))
     account = CustomerAccount(
         email=claims["email"], display_name=claims.get("name", ""),
         google_sub=claims["sub"], email_verified_at=datetime.utcnow(),
@@ -593,7 +649,7 @@ def google_signin():
     except IntegrityError:
         db.session.rollback()
         flash("A FityStores account already exists for that Google identity. Sign in with its existing method.", "warning")
-        return redirect(url_for("customer.login"))
+        return redirect(url_for("customer.login", next=next_url))
     if request.form.get("marketing_opt_in") == "yes":
         _record_consent(account, "requested", "google_registration")
     db.session.commit()
@@ -601,7 +657,7 @@ def google_signin():
         _issue_and_send(account, "marketing_confirm")
     login_user(account)
     flash("Your Google account is verified and ready to use.", "success")
-    return redirect(url_for("customer.dashboard"))
+    return redirect(next_url)
 
 
 @customer_bp.post("/google/link")

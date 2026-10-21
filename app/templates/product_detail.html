@@ -11,7 +11,7 @@
     {% if active_variants and product.min_variant_price_cents is not none %}
       <p class="price big" id="detail-price">{% if product.min_variant_price_cents == product.max_variant_price_cents %}{{ money(product.min_variant_price_cents, settings.currency) }}{% else %}{{ money(product.min_variant_price_cents, settings.currency) }} - {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}</p>
     {% else %}
-      <p class="price big" id="detail-price">{{ money(product.price_cents, settings.currency) }}{% if product.has_discount %}<s>{{ money(product.previous_price_cents, settings.currency) }}</s>{% endif %}</p>
+      <p class="price big" id="detail-price">{{ money(product.price_cents, settings.currency) }}{% if product.has_discount %}<s>{{ money(product.previous_price_cents, settings.currency) }}</s><span class="discount-ribbon detail-discount">{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% OFF</span>{% endif %}</p>
     {% endif %}
     <p>{{ product.description }}</p>
     {% if active_variants %}

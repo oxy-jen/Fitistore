@@ -1,1 +1,4 @@
-{% extends "base.html" %}{% block content %}<section class="form-card account-form"><h1>Email preferences updated</h1><p>You are unsubscribed from promotional email. This does not affect essential account or order messages.</p><a class="btn" href="{{ url_for('public.home') }}">Return to FityStores</a></section>{% endblock %}
+{% extends "base.html" %}
+{% block content %}
+<section class="account-page account-page-single"><div class="account-intro"><p class="eyebrow">Email preferences</p><h1>You are unsubscribed.</h1><p>Promotional email has been stopped.</p></div><div class="account-panel"><p>This does not affect essential account or order messages.</p><a class="btn primary" href="{{ url_for('public.home') }}">Return to FityStores</a></div></section>
+{% endblock %}

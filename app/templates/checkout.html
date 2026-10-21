@@ -1,30 +1,28 @@
-{% extends "base.html" %}{% block content %}
-<section class="page-head"><h1>Checkout</h1><p>Submit an order request for seller review. The seller will confirm item availability, final total, payment, and fulfilment before the order is complete.</p></section>
+﻿{% extends "base.html" %}{% block content %}
+<section class="page-head"><p class="eyebrow">Secure order request</p><h1>Checkout</h1><p>Review your items and fulfilment details. The seller confirms availability, total and payment manually.</p></section>
 {% if not whatsapp_ready %}<div class="empty">WhatsApp checkout is disabled until the owner adds a business WhatsApp number in admin settings.</div>{% endif %}
 <section class="checkout-layout">
   <div class="cart-panel checkout-summary"><h2>Selected items</h2><div id="checkout-summary"><div class="empty">Loading selected items...</div></div></div>
-  <form class="form-card" method="post" id="checkout-form" enctype="multipart/form-data">
+  <form class="form-card checkout-form" method="post" id="checkout-form" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="cart_json" id="cart-json">
-    <label>Preferred name<input name="customer_name" maxlength="120" placeholder="Your name"></label>
-    <label>Contact number, optional<input name="customer_phone" maxlength="40" placeholder="Your phone number"></label>
-    <label>Fulfilment preference<select name="fulfilment_method"><option>Collection</option><option>Nearby delivery</option></select></label>
-    <label>Instructions<textarea name="instructions" placeholder="Collection point, delivery area, timing notes, colour, size, or anything the seller should know"></textarea></label>
-    <section class="checkout-guidance" aria-labelledby="fulfilment-guidance-title">
-      <h2 id="fulfilment-guidance-title">Collection and delivery details</h2>
-      <p><strong>Collection:</strong> {{ settings.collection_instructions or "Contact the seller to agree on a collection point and time." }}</p>
-      <p><strong>Nearby delivery:</strong> {{ settings.delivery_area or "Ask the seller whether delivery is available for your location." }}</p>
-      {% if settings.delivery_fee_cents is not none %}<p>The configured delivery fee is {{ money(settings.delivery_fee_cents, settings.currency) }}. Confirm that it applies to your order before paying.</p>{% else %}<p>Any delivery fee will be confirmed by the seller before you pay.</p>{% endif %}
-    </section>
-    <div class="payment-box">
-      <strong>Payment instructions</strong>
-      <p>{{ settings.payment_instructions or "Confirm the payment method and amount with the seller before paying." }}</p>
-      {% if settings.payment_number %}<p><strong>Configured M-Pesa number:</strong> {{ settings.payment_number }}</p>{% endif %}
-      <p>FityStores checks submitted M-Pesa references manually. A reference or screenshot is not payment confirmation. Never share your M-Pesa PIN. Read the <a href="{{ url_for('public.payment_policy') }}">payment information</a>.</p>
-    </div>
-    <label>M-Pesa reference code, if paid<input name="payment_reference" maxlength="120" placeholder="e.g. QAB12C3D4E"></label>
-    <label>Payment screenshot, optional<input name="payment_proof" type="file" accept="image/*"></label>
-    <p class="checkout-policy-links">Before submitting, review <a href="{{ url_for('public.delivery_policy') }}">delivery and collection</a>, <a href="{{ url_for('public.returns_policy') }}">returns</a>, and <a href="{{ url_for('public.terms') }}">terms</a>.</p>
-    <button class="btn primary" {% if not whatsapp_ready %}disabled{% endif %}><svg class="icon"><use href="#icon-message"></use></svg><span>Prepare WhatsApp message</span></button>
+    <label>Your name<input name="customer_name" maxlength="120" autocomplete="name" required placeholder="Name for this order"></label>
+    <label>Contact number<input name="customer_phone" maxlength="40" autocomplete="tel" required placeholder="Phone number we can reach you on"></label>
+    <details class="checkout-guidance"><summary>Collection, delivery and fees</summary><p><strong>Collection:</strong> {{ settings.collection_instructions or "Call the seller before travelling to confirm collection." }}</p><p><strong>Nearby delivery:</strong> {{ settings.delivery_area or "Discuss nearby delivery by WhatsApp or phone before payment." }}</p>{% if settings.delivery_fee_cents is not none %}<p>Configured delivery fee: {{ money(settings.delivery_fee_cents, settings.currency) }}. Confirm with the seller that it applies to your order.</p>{% else %}<p>Any delivery fee will be confirmed before payment.</p>{% endif %}</details>
+    <fieldset class="checkout-fulfilment"><legend>How would you like to receive it?</legend><label><input type="radio" name="fulfilment_method" value="Collection" checked><span><strong>Collection</strong><small>Call the seller on 0791305329 before leaving to agree on collection.</small></span></label><label><input type="radio" name="fulfilment_method" value="Nearby delivery"><span><strong>Nearby delivery</strong><small>Share your location and delivery address.</small></span></label></fieldset>
+    <div class="fulfilment-motion" id="fulfilment-motion" role="status" aria-live="polite"><span aria-hidden="true">ðŸš¶</span><strong>Collection selected</strong><small>Call the seller on 0791305329 before setting off.</small></div>
+    <label id="delivery-address-field" hidden>Where are you and what is the delivery address?<textarea name="delivery_address" id="delivery-address" maxlength="500" placeholder="Area, estate/building, street and a useful landmark"></textarea></label>
+    <label>Instructions for the seller<textarea name="instructions" maxlength="1000" placeholder="Timing, size, colour, or anything else important"></textarea></label>
+    <section class="payment-box checkout-payment"><div><span class="eyebrow">M-Pesa payment</span><h2>Pay to FityStores</h2><p>Send money to this number after confirming item availability:</p></div><div class="mpesa-number" aria-label="M-Pesa number 0141809661"><span class="mpesa-typing" aria-hidden="true">0141809661</span><span class="mpesa-static">0141809661</span><span class="mpesa-car" aria-hidden="true">ðŸš—</span></div><p class="payment-safety">A reference or screenshot is not payment confirmation. Never share your M-Pesa PIN. We check payment manually. <a href="{{ url_for('public.payment_policy') }}">Payment information</a></p><p class="nearby-contact"><strong>Nearby delivery:</strong> discuss availability on WhatsApp or call <a href="tel:0791305329">0791305329</a> before payment.</p></section>
+    <label>M-Pesa payer name<input name="mpesa_payer_name" maxlength="120" autocomplete="name" required placeholder="Name shown on the M-Pesa payment"></label>
+    <label>Phone number used to pay<input name="mpesa_payer_phone" maxlength="40" autocomplete="tel" required placeholder="Number used for this M-Pesa payment"></label>
+    <label>M-Pesa reference code, if paid<input name="payment_reference" maxlength="120" placeholder="e.g. QAB12C3D4E"></label><label>Payment screenshot, optional<input name="payment_proof" type="file" accept="image/*"></label>
+    <p class="checkout-policy-links">Review <a href="{{ url_for('public.delivery_policy') }}">delivery and collection</a>, <a href="{{ url_for('public.returns_policy') }}">returns</a>, and <a href="{{ url_for('public.terms') }}">terms</a>.</p>
+    <button class="btn primary" type="submit" {% if not whatsapp_ready %}disabled{% endif %}><span>Continue to review</span></button>
   </form>
 </section>
+<section class="receipt-review" id="checkout-review" hidden aria-labelledby="review-title"><div class="receipt-review-card"><div class="receipt-motion" id="receipt-motion" aria-hidden="true">ðŸš—</div><p class="eyebrow">Final check</p><h2 id="review-title">Is this information correct?</h2><div id="receipt-review-content"></div><p class="review-note">This is an order request. Payment is verified manually by FityStores.</p><div class="actions"><button class="btn" type="button" id="edit-checkout">Edit information</button><button class="btn primary" type="button" id="confirm-checkout">Yes, prepare WhatsApp message</button></div></div></section>
+<script defer src="{{ url_for('static', filename='js/checkout-review.js') }}"></script>
 {% endblock %}
+
+
+

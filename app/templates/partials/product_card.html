@@ -1,4 +1,4 @@
-<article class="product-card" data-product-card="{{ product.id }}">
+﻿<article class="product-card" data-product-card="{{ product.id }}">
   {% set image = product_display_image(product) %}
   {% set variant_count = product.active_variants|length %}
   {% set size_option_count = split_options(product.size_options)|length %}
@@ -15,7 +15,7 @@
   {% set share_message = "Check out " ~ product.name ~ " at FityStores! " ~ share_price ~ ". View it here: " ~ share_url %}
   <a href="{{ url_for('public.product_detail', slug=product.slug) }}" class="product-image">
     <img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" loading="lazy" width="540" height="540">
-    {% if product.has_discount %}<span class="badge">Discount</span>{% elif requires_option_choice %}<span class="badge">Options</span>{% endif %}
+    {% if product.has_discount %}<span class="discount-ribbon" aria-label="{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% discount">{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% OFF</span>{% elif requires_option_choice %}<span class="badge">Options</span>{% endif %}
   </a>
   <div class="product-body">
     <p class="category">{{ product.category.name }}</p>
@@ -44,3 +44,4 @@
     {% endif %}
   </div>
 </article>
+

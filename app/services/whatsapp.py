@@ -89,7 +89,7 @@ def build_order_message(order, settings):
         f"Customer name: {order.customer_name or 'Not provided'}",
         f"Customer phone: {order.customer_phone or 'Not provided'}",
         f"Instructions: {order.instructions or 'None'}",
-        f"Payment number shown on site: {settings.payment_number or 'Not configured'}",
+        "Payment number shown on site: 0141809661",
         f"Payment reference/code: {order.payment_reference or 'Not provided'}",
         "",
         "Please confirm who I am chatting with, item availability, final total, payment status, and collection/delivery details.",
