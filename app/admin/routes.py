@@ -1090,6 +1090,15 @@ def sales_csv():
 
 DATA_EXPORT_MAX_AGE_SECONDS = 24 * 60 * 60
 DATA_CLEAR_CONFIRMATION = "CLEAR OPERATIONAL DATA"
+DATA_CLEANUP_CATEGORIES = {
+    "orders": {"label": "Orders and payment records", "tables": ("customer_order_link", "refund_request", "payment_transaction", "payment_attempt", "order_status_history", "order_item", "order")},
+    "customers": {"label": "Customer accounts and verification data", "tables": ("customer_token", "customer_consent_event", "customer_order_link", "email_campaign_recipient", "email_message", "customer_account", "customer_profile")},
+    "customer_activity": {"label": "Reviews, enquiries, suggestions, and restock alerts", "tables": ("review", "product_enquiry", "product_suggestion", "restock_alert")},
+    "referrals_loyalty": {"label": "Referrals and loyalty history", "tables": ("referral_click", "referral", "loyalty_transaction")},
+    "finance_inventory": {"label": "Expenses and inventory movements", "tables": ("expense", "inventory_movement")},
+    "email": {"label": "Email campaigns and message logs", "tables": ("email_campaign_recipient", "email_message", "email_campaign")},
+    "audit": {"label": "Previous audit history and temporary login limits", "tables": ("financial_audit_event", "auth_rate_limit")},
+}
 
 
 def _share_card_cache_dir():
@@ -1228,24 +1237,18 @@ def data_management():
     export = _valid_admin_data_export()
     from app.services.share_cards import product_share_card_cache_count
     cache_count = product_share_card_cache_count(_share_card_cache_dir())
-    clear_tables = [
-        "email_campaign_recipient", "email_message", "customer_token",
-        "customer_consent_event", "customer_order_link", "referral_click",
-        "refund_request", "payment_transaction", "payment_attempt",
-        "order_status_history", "order_item", "referral", "loyalty_transaction",
-        "inventory_movement", "review", "product_enquiry", "product_suggestion",
-        "restock_alert", "expense", "financial_audit_event", "email_campaign",
-        "order", "customer_account", "customer_profile", "auth_rate_limit",
-    ]
-    clear_counts = {table: len(export["records"].get(table, [])) for table in clear_tables} if export else {}
+    all_clear_tables = set().union(*(set(category["tables"]) for category in DATA_CLEANUP_CATEGORIES.values()))
+    clear_counts = {table: len(export["records"].get(table, [])) for table in all_clear_tables} if export else {}
+    cleanup_categories = [{"key": key, "label": definition["label"], "tables": definition["tables"], "total": sum(clear_counts.get(table, 0) for table in definition["tables"])} for key, definition in DATA_CLEANUP_CATEGORIES.items()]
     return render_template(
         "admin/data.html",
         title="Data export and cleanup",
         export=export,
         export_max_age_hours=DATA_EXPORT_MAX_AGE_SECONDS // 3600,
         clear_confirmation=DATA_CLEAR_CONFIRMATION,
-        clear_counts=clear_counts,
         clear_total=sum(clear_counts.values()),
+        clear_counts=clear_counts,
+        cleanup_categories=cleanup_categories,
         cache_count=cache_count,
     )
 
@@ -1315,6 +1318,11 @@ def clear_admin_data():
     if request.form.get("export_confirmed") != "yes" or request.form.get("confirmation", "").strip() != DATA_CLEAR_CONFIRMATION:
         flash(f"Cleanup stopped: confirm the downloaded export and type {DATA_CLEAR_CONFIRMATION} exactly.", "error")
         return redirect(url_for("admin.data_management"))
+    selected_categories = set(request.form.getlist("categories"))
+    if not selected_categories or not selected_categories.issubset(DATA_CLEANUP_CATEGORIES):
+        flash("Cleanup stopped: select at least one valid data category.", "error")
+        return redirect(url_for("admin.data_management"))
+    selected_tables = set().union(*(set(DATA_CLEANUP_CATEGORIES[key]["tables"]) for key in selected_categories))
 
     from app.models import (
         AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink,
@@ -1341,8 +1349,11 @@ def clear_admin_data():
             ProductSuggestion, RestockAlert, Expense, FinancialAuditEvent,
             EmailCampaign, Order, CustomerAccount, CustomerProfile, AuthRateLimit,
         ]
+        order_proof_filenames = {row.get("payment_proof_filename") for row in export["records"].get("order", []) if row.get("payment_proof_filename")} if "orders" in selected_categories else set()
         deleted = {}
         for model in delete_models:
+            if model.__tablename__ not in selected_tables:
+                continue
             query = db.session.query(model)
             deleted[model.__tablename__] = query.count()
             query.delete(synchronize_session=False)
@@ -1359,11 +1370,11 @@ def clear_admin_data():
         flash("Cleanup failed and was rolled back. No records were cleared.", "error")
         return redirect(url_for("admin.data_management"))
 
-    from app.services.share_cards import clear_product_share_card_cache
-    cleared_cache_count = clear_product_share_card_cache(_share_card_cache_dir())
     proof_folder = Path(current_app.config["PAYMENT_PROOF_FOLDER"]).resolve()
     failed_proof_deletes = 0
     for item in current_proofs:
+        if item["filename"] not in order_proof_filenames:
+            continue
         if item["data"] is None:
             continue
         proof_path = (proof_folder / item["filename"]).resolve()
@@ -1376,7 +1387,8 @@ def clear_admin_data():
             failed_proof_deletes += 1
             current_app.logger.exception("Could not remove archived payment proof %s", item["filename"])
     session.pop("admin_data_export", None)
-    message = f"Operational records were cleared after matching the verified export. Cleared {cleared_cache_count} cached share-card image(s). Catalog, admin accounts, shop settings, and a cleanup audit entry were preserved."
+    labels = ", ".join(DATA_CLEANUP_CATEGORIES[key]["label"] for key in DATA_CLEANUP_CATEGORIES if key in selected_categories)
+    message = f"Removed {sum(deleted.values())} record(s) from {labels} after matching the verified export. Catalog, admin accounts, shop settings, and a cleanup audit entry were preserved."
     if failed_proof_deletes:
         flash(message + f" {failed_proof_deletes} archived payment proof file(s) could not be removed from the server.", "warning")
     else:

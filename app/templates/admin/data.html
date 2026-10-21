@@ -19,16 +19,17 @@
 </section>
 <section class="text-panel data-management-card">
   <h2>What cleanup removes</h2>
-  <p>Customer accounts and consent/token records; orders, payments, refunds, and order history; enquiries, suggestions, reviews, and restock alerts; referral and loyalty history; expenses, inventory movements, email campaigns and logs, prior audit events, and transient login rate limits.</p>
-  {% if export %}<details class="data-clear-preview"><summary>Review {{ clear_total }} records in {{ clear_counts|length }} tables scheduled for removal</summary><ul>{% for table, count in clear_counts.items() %}<li><code>{{ table }}</code>: {{ count }}</li>{% endfor %}</ul></details>{% endif %}
-  <p>It preserves the product catalog and its images/variants, admin accounts, and shop settings so the store remains configured. A new audit entry records the cleanup and export ID.</p>
-  <p>Full cleanup also clears the generated share-card cache. Previously cached responses in visitor browsers cannot be remotely erased, but new share-card responses are marked no-store.</p>
+  <p>Select only the record groups you want to remove. Orders include their payment attempts, transactions, refunds, status history, customer links, and attached payment proof files. Removing customers also removes links to orders and email records tied to those accounts.</p>
+  <p>Some linked records may be included by more than one selected group; each record is deleted only once.</p>
+  {% if export %}<details class="data-clear-preview"><summary>Review {{ clear_total }} records across {{ clear_counts|length }} removable tables in the export</summary><ul>{% for table, count in clear_counts.items()|sort %}<li><code>{{ table }}</code>: {{ count }}</li>{% endfor %}</ul></details>{% endif %}
+  <p>The product catalog, its images and variants, admin accounts, and shop settings are preserved. Each cleanup creates a new audit entry. The generated share-card cache remains separate and can be cleared above.</p>
   {% if export %}
-  <form method="post" action="{{ url_for('admin.clear_admin_data') }}" class="data-clear-form" onsubmit="return confirm('This will permanently remove operational records. Continue only after checking your downloaded export.');">
+  <form method="post" action="{{ url_for('admin.clear_admin_data') }}" class="data-clear-form" onsubmit="return confirm('This will permanently remove the selected records. Continue only after checking your downloaded export.');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="export_id" value="{{ export.id }}">
+    <fieldset><legend>Select data to remove</legend>{% for category in cleanup_categories %}<label class="check"><input type="checkbox" name="categories" value="{{ category.key }}"> {{ category.label }} <span>({{ category.total }} records in this group)</span></label>{% endfor %}</fieldset>
     <label class="check"><input type="checkbox" name="export_confirmed" value="yes" required> I downloaded and reviewed the export above.</label>
     <label>Type <code>{{ clear_confirmation }}</code> to confirm<input name="confirmation" autocomplete="off" required></label>
-    <button class="btn danger" type="submit">Clear exported operational records</button>
+    <button class="btn danger" type="submit">Remove selected records</button>
   </form>
   {% else %}<button class="btn danger" type="button" disabled>Export required before cleanup</button>{% endif %}
 </section>
