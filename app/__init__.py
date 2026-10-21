@@ -196,6 +196,9 @@ def ensure_referral_schema():
     """Bring existing PostgreSQL installs up to the referral model schema."""
     from sqlalchemy import text
 
+    if db.engine.dialect.name != "postgresql":
+        return
+
     migration_path = Path(__file__).resolve().parent.parent / "migrations" / "20261015_referrals_postgresql.sql"
     statements = migration_path.read_text(encoding="utf-8").split(";")
     with db.engine.begin() as connection:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import smtplib
 import ssl
 import urllib.request
@@ -15,6 +16,11 @@ from app.extensions import db
 from app.models import EmailMessage
 
 logger = logging.getLogger(__name__)
+
+_EMAIL_ADDRESS_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+
+def _redact_email_addresses(value: str) -> str:
+    return _EMAIL_ADDRESS_RE.sub("[redacted email]", value)
 
 
 def mail_configuration_status() -> tuple[bool, str]:
@@ -141,12 +147,32 @@ def deliver_email(record: EmailMessage, html_body: str, text_body: str) -> bool:
     except Exception as exc:
         code = getattr(exc, "smtp_code", None)
         provider = (current_app.config.get("MAIL_PROVIDER") or "smtp").strip().lower()
+        resend_status = getattr(exc, "code", None) if provider == "resend" else None
+        resend_message = ""
+        if provider == "resend" and isinstance(exc, urllib.error.HTTPError):
+            try:
+                body = exc.read().decode("utf-8", errors="replace")
+                try:
+                    error_payload = json.loads(body)
+                    resend_message = error_payload.get("message") or error_payload.get("error") or body
+                except (json.JSONDecodeError, AttributeError):
+                    resend_message = body
+            except Exception:
+                resend_message = ""
+            resend_message = _redact_email_addresses(str(resend_message)).replace("\r", " ").replace("\n", " ")[:500]
         record.status = "failed"
-        record.failure_reason = (f"SMTP error {code}." if provider == "smtp" and code else f"{provider.title()} send failed ({type(exc).__name__}).")
+        if provider == "smtp" and code:
+            record.failure_reason = f"SMTP error {code}."
+        elif provider == "resend" and resend_status:
+            record.failure_reason = f"Resend HTTP {resend_status}: {resend_message}"[:255]
+        else:
+            provider_name = "SMTP" if provider == "smtp" else provider.title()
+            record.failure_reason = f"{provider_name} send failed ({type(exc).__name__})."
         db.session.commit()
         logger.warning(
-            "email_delivery_failed message_id=%s provider=%s error_type=%s smtp_code=%s",
+            "email_delivery_failed message_id=%s provider=%s error_type=%s smtp_code=%s resend_status=%s resend_message=%s",
             record.id, provider, type(exc).__name__, code if isinstance(code, int) else "none",
+            resend_status if isinstance(resend_status, int) else "none", resend_message or "none",
         )
         return False
     record.status = "sent"

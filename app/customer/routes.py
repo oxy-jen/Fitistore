@@ -270,8 +270,12 @@ def register():
         db.session.commit()
         if account.marketing_status == "pending":
             _issue_and_send(account, "marketing_confirm")
-        flash("Your account was created. Enter the code sent to your email to verify it.", "success")
-        return _begin_code_challenge(account, "verify_code")
+        result = _issue_and_send(account, "verify_email")
+        flash(
+            "Your FityStores account was created. " + _delivery_message(result),
+            "success" if result and result.status == "sent" else "warning",
+        )
+        return redirect(url_for("customer.login"))
     return render_template("customer/register.html", title="Create account")
 
 
@@ -461,19 +465,23 @@ def verify_email(token):
 
 
 @customer_bp.post("/verification/resend")
-@customer_required
 def resend_verification():
-    if current_user.email_verified_at:
+    account = current_user._get_current_object()
+    if not isinstance(account, CustomerAccount):
+        pending_id = session.get("pending_customer_id")
+        if session.get("pending_customer_purpose") != "verify_code" or not pending_id:
+            return redirect(url_for("customer.login"))
+        account = db.session.get(CustomerAccount, pending_id)
+    if not account or not account.active:
+        return redirect(url_for("customer.login"))
+    if account.email_verified_at:
         flash("Your email is already verified.", "info")
-    elif not _rate_allowed("verify", current_user.email, limit=3, window_minutes=60):
+    elif not _rate_allowed("verify", account.email, limit=3, window_minutes=60):
         flash("Too many verification requests. Please wait before trying again.", "warning")
     else:
-        session["pending_customer_id"] = current_user.id
-        session["pending_customer_purpose"] = "verify_code"
-        result = _start_email_code(current_user, "verify_code")
-        flash(_delivery_message(result, "verification code"), "success" if result and result.status == "sent" else "warning")
-        return redirect(url_for("customer.verify_code"))
-    return redirect(url_for("customer.dashboard"))
+        result = _issue_and_send(account, "verify_email")
+        flash(_delivery_message(result), "success" if result and result.status == "sent" else "warning")
+    return redirect(url_for("customer.dashboard") if isinstance(current_user._get_current_object(), CustomerAccount) else url_for("customer.verify_code"))
 
 
 @customer_bp.route("/forgot-password", methods=["GET", "POST"])
@@ -575,7 +583,10 @@ def google_signin():
     if CustomerAccount.query.filter_by(email=claims["email"]).first():
         flash("An account already uses this email. Sign in with its existing method, then link Google from your account.", "warning")
         return redirect(url_for("customer.login"))
-    account = CustomerAccount(email=claims["email"], display_name=claims.get("name", ""), google_sub=claims["sub"])
+    account = CustomerAccount(
+        email=claims["email"], display_name=claims.get("name", ""),
+        google_sub=claims["sub"], email_verified_at=datetime.utcnow(),
+    )
     db.session.add(account)
     try:
         db.session.flush()
@@ -588,8 +599,9 @@ def google_signin():
     db.session.commit()
     if account.marketing_status == "pending":
         _issue_and_send(account, "marketing_confirm")
-    flash("Your account was created. Enter the code sent to your email to verify it.", "success")
-    return _begin_code_challenge(account, "verify_code")
+    login_user(account)
+    flash("Your Google account is verified and ready to use.", "success")
+    return redirect(url_for("customer.dashboard"))
 
 
 @customer_bp.post("/google/link")
