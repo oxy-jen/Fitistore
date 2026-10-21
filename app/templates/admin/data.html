@@ -7,11 +7,22 @@
   {% if export %}<p class="data-export-ready">A verified export is available from {{ export.exported_at }} UTC. It expires after {{ export_max_age_hours }} hours. Cleanup will stop if any database records or payment proof files change.</p>{% else %}<p class="note">No current export is ready. After downloading an export, refresh this page to enable cleanup.</p>{% endif %}
 </section>
 <section class="text-panel data-management-card">
+  <h2>Generated share-card cache</h2>
+  <p>The server stores generated product share-card images privately so they can be reused without rendering them again. There are currently {{ cache_count }} cached image(s). This cache can be rebuilt from the catalog at any time.</p>
+  {% if export %}
+  <form method="post" action="{{ url_for('admin.clear_admin_cache') }}" class="cache-clear-form" onsubmit="return confirm('Clear the generated share-card cache? Product records will remain unchanged.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="export_id" value="{{ export.id }}">
+    <label class="check"><input type="checkbox" name="export_confirmed" value="yes" required> I downloaded the current export.</label>
+    <button class="btn" type="submit">Clear generated image cache</button>
+  </form>
+  {% else %}<button class="btn" type="button" disabled>Export required before cache clear</button>{% endif %}
+</section>
+<section class="text-panel data-management-card">
   <h2>What cleanup removes</h2>
   <p>Customer accounts and consent/token records; orders, payments, refunds, and order history; enquiries, suggestions, reviews, and restock alerts; referral and loyalty history; expenses, inventory movements, email campaigns and logs, prior audit events, and transient login rate limits.</p>
   {% if export %}<details class="data-clear-preview"><summary>Review {{ clear_total }} records in {{ clear_counts|length }} tables scheduled for removal</summary><ul>{% for table, count in clear_counts.items() %}<li><code>{{ table }}</code>: {{ count }}</li>{% endfor %}</ul></details>{% endif %}
   <p>It preserves the product catalog and its images/variants, admin accounts, and shop settings so the store remains configured. A new audit entry records the cleanup and export ID.</p>
-  <p><strong>Cache:</strong> this app has no server-side cache store to flush. Share-card responses are browser cached for up to one hour; existing copies cannot be remotely erased from visitors? devices.</p>
+  <p>Full cleanup also clears the generated share-card cache. Previously cached responses in visitor browsers cannot be remotely erased, but new share-card responses are marked no-store.</p>
   {% if export %}
   <form method="post" action="{{ url_for('admin.clear_admin_data') }}" class="data-clear-form" onsubmit="return confirm('This will permanently remove operational records. Continue only after checking your downloaded export.');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="export_id" value="{{ export.id }}">

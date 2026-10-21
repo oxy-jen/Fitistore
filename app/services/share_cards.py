@@ -1,7 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+import hashlib
+import json
+import os
+from uuid import uuid4
 from urllib.request import Request, urlopen
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -90,3 +94,75 @@ def render_product_share_card(name: str, category: str, price: str, image_path: 
     output = BytesIO()
     canvas.save(output, format="PNG", optimize=True)
     return output.getvalue()
+
+
+def cached_product_share_card(
+    name: str,
+    category: str,
+    price: str,
+    image_path: Path | None,
+    image_url: str,
+    cache_dir: Path,
+    revision: str = "",
+) -> bytes:
+    """Return a cached share card, regenerating it when its source data changes."""
+    image_stat = None
+    if image_path:
+        try:
+            stat = image_path.stat()
+            image_stat = {"mtime_ns": stat.st_mtime_ns, "size": stat.st_size}
+        except OSError:
+            image_stat = None
+    key_material = json.dumps(
+        [name, category, price, image_url, str(image_path or ""), image_stat, revision],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    key = hashlib.sha256(key_material).hexdigest()
+    folder = Path(cache_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"{key}.png"
+    try:
+        return target.read_bytes()
+    except OSError:
+        pass
+
+    card = render_product_share_card(name, category, price, image_path, image_url)
+    temporary = folder / f".{key}.{uuid4().hex}.tmp"
+    try:
+        temporary.write_bytes(card)
+        os.replace(temporary, target)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return card
+
+
+def clear_product_share_card_cache(cache_dir: Path) -> int:
+    """Remove cached share-card files without following paths outside the cache folder."""
+    folder = Path(cache_dir)
+    if not folder.exists():
+        return 0
+    root = folder.resolve()
+    removed = 0
+    for path in folder.iterdir():
+        if path.suffix not in {".png", ".tmp"}:
+            continue
+        try:
+            resolved = path.resolve()
+            if resolved.parent != root or not path.is_file():
+                continue
+            path.unlink()
+            removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+def product_share_card_cache_count(cache_dir: Path) -> int:
+    folder = Path(cache_dir)
+    if not folder.exists():
+        return 0
+    return sum(1 for path in folder.iterdir() if path.suffix == ".png" and path.is_file())

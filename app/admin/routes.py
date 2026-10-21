@@ -1092,6 +1092,10 @@ DATA_EXPORT_MAX_AGE_SECONDS = 24 * 60 * 60
 DATA_CLEAR_CONFIRMATION = "CLEAR OPERATIONAL DATA"
 
 
+def _share_card_cache_dir():
+    return Path(current_app.instance_path) / "cache" / "product-share-cards"
+
+
 def _admin_data_export_dir():
     folder = Path(current_app.instance_path) / "data_exports"
     folder.mkdir(parents=True, exist_ok=True)
@@ -1141,8 +1145,15 @@ def _collect_payment_proof_files(records):
     folder = Path(current_app.config["PAYMENT_PROOF_FOLDER"]).resolve()
     files = []
     order_rows = records.get("order", [])
-    filenames = sorted({row.get("payment_proof_filename") for row in order_rows if row.get("payment_proof_filename")})
-    for filename in filenames:
+    filenames = {row.get("payment_proof_filename") for row in order_rows if row.get("payment_proof_filename")}
+    if folder.is_dir():
+        for path in folder.iterdir():
+            try:
+                if path.is_file() and path.resolve().parent == folder:
+                    filenames.add(path.name)
+            except OSError:
+                continue
+    for filename in sorted(filenames):
         if Path(filename).name != filename:
             raise ValueError("Unsafe payment proof filename in order data")
         path = (folder / filename).resolve()
@@ -1186,7 +1197,7 @@ def _valid_admin_data_export():
         return None
     if not isinstance(exported_at, (int, float)) or datetime.utcnow().timestamp() - exported_at > DATA_EXPORT_MAX_AGE_SECONDS:
         return None
-    path = _admin_data_export_dir() / f"{export_id}.json"
+    path = _admin_data_export_dir() / f"{export_id}.zip"
     try:
         data = path.read_bytes()
         if hashlib.sha256(data).hexdigest() != metadata.get("sha256"):
@@ -1215,6 +1226,8 @@ def _valid_admin_data_export():
 @login_required
 def data_management():
     export = _valid_admin_data_export()
+    from app.services.share_cards import product_share_card_cache_count
+    cache_count = product_share_card_cache_count(_share_card_cache_dir())
     clear_tables = [
         "email_campaign_recipient", "email_message", "customer_token",
         "customer_consent_event", "customer_order_link", "referral_click",
@@ -1233,6 +1246,7 @@ def data_management():
         clear_confirmation=DATA_CLEAR_CONFIRMATION,
         clear_counts=clear_counts,
         clear_total=sum(clear_counts.values()),
+        cache_count=cache_count,
     )
 
 
@@ -1244,7 +1258,7 @@ def export_admin_data():
     exported_at = datetime.now(timezone.utc).isoformat()
     data = _admin_export_archive(records, exported_at)
     export_id = uuid4().hex
-    path = _admin_data_export_dir() / f"{export_id}.json"
+    path = _admin_data_export_dir() / f"{export_id}.zip"
     path.write_bytes(data)
     session["admin_data_export"] = {
         "id": export_id,
@@ -1254,11 +1268,41 @@ def export_admin_data():
     db.session.rollback()
     return send_file(
         io.BytesIO(data),
-        mimetype="application/json",
+        mimetype="application/zip",
         as_attachment=True,
         download_name=f"fitystores-data-export-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.zip",
         max_age=0,
     )
+
+
+@admin_bp.post("/data/clear-cache")
+@login_required
+def clear_admin_cache():
+    export = _valid_admin_data_export()
+    if not export or request.form.get("export_id") != export["id"]:
+        flash("Cache clear stopped: download a fresh data export first, then refresh this page.", "error")
+        return redirect(url_for("admin.data_management"))
+    if request.form.get("export_confirmed") != "yes":
+        flash("Cache clear stopped: confirm that you downloaded the export first.", "error")
+        return redirect(url_for("admin.data_management"))
+    try:
+        current_records = _collect_admin_data_records()
+        current_proofs = _collect_payment_proof_files(current_records)
+        proof_state = [{"filename": item["filename"], "sha256": item["sha256"], "included": item["data"] is not None} for item in current_proofs]
+        if current_records != export["records"] or proof_state != export["payment_proofs"]:
+            db.session.rollback()
+            flash("Cache clear stopped: records or payment proof files changed after export. Download a fresh export first.", "error")
+            return redirect(url_for("admin.data_management"))
+        db.session.rollback()
+        from app.services.share_cards import clear_product_share_card_cache
+        cleared = clear_product_share_card_cache(_share_card_cache_dir())
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Admin product share-card cache clear failed")
+        flash("Cache clear failed. No database records were changed.", "error")
+        return redirect(url_for("admin.data_management"))
+    flash(f"Cleared {cleared} cached product share-card image(s). Other records were not changed.", "success")
+    return redirect(url_for("admin.data_management"))
 
 
 @admin_bp.post("/data/clear")
@@ -1315,6 +1359,8 @@ def clear_admin_data():
         flash("Cleanup failed and was rolled back. No records were cleared.", "error")
         return redirect(url_for("admin.data_management"))
 
+    from app.services.share_cards import clear_product_share_card_cache
+    cleared_cache_count = clear_product_share_card_cache(_share_card_cache_dir())
     proof_folder = Path(current_app.config["PAYMENT_PROOF_FOLDER"]).resolve()
     failed_proof_deletes = 0
     for item in current_proofs:
@@ -1330,7 +1376,7 @@ def clear_admin_data():
             failed_proof_deletes += 1
             current_app.logger.exception("Could not remove archived payment proof %s", item["filename"])
     session.pop("admin_data_export", None)
-    message = "Operational records were cleared after matching the verified export. Catalog, admin accounts, shop settings, and a cleanup audit entry were preserved."
+    message = f"Operational records were cleared after matching the verified export. Cleared {cleared_cache_count} cached share-card image(s). Catalog, admin accounts, shop settings, and a cleanup audit entry were preserved."
     if failed_proof_deletes:
         flash(message + f" {failed_proof_deletes} archived payment proof file(s) could not be removed from the server.", "warning")
     else:

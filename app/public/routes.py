@@ -16,7 +16,6 @@ from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
 from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
-from app.services.share_cards import render_product_share_card
 from app.services.referrals import get_or_create_profile, normalize_phone, record_referral_click, referral_points_balance
 from werkzeug.utils import secure_filename
 from flask_login import current_user
@@ -439,7 +438,16 @@ def product_share_card(slug):
         local = (Path(current_app.static_folder) / image_url.removeprefix("/static/")).resolve()
         if Path(current_app.static_folder).resolve() in local.parents and local.is_file():
             image_path = local
-    card = render_product_share_card(product.name, product.category.name if product.category else "Shop FityStores", price_label, image_path, image_url)
+    category_name = product.category.name if product.category else "Shop FityStores"
+    revision = "|".join(
+        [str(product.updated_at or ""), str(getattr(image, "updated_at", "") or "")]
+        + [str(variant.updated_at or "") for variant in product.variants]
+    )
+    from app.services.share_cards import cached_product_share_card
+    cache_dir = Path(current_app.instance_path) / "cache" / "product-share-cards"
+    card = cached_product_share_card(
+        product.name, category_name, price_label, image_path, image_url, cache_dir, revision
+    )
     return Response(card, mimetype="image/png", headers={"Cache-Control": "no-store, max-age=0, must-revalidate", "Pragma": "no-cache", "Expires": "0", "Content-Length": str(len(card))})
 @public_bp.route("/cart")
 def cart():
