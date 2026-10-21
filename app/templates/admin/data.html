@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% block content %}
+<section class="page-head"><div><p class="eyebrow">Admin tools</p><h1>Data export and cleanup</h1><p>Export a complete copy, review it, then clear operational records only if the database still matches that export.</p></div></section>
+<section class="text-panel data-management-card">
+  <h2>Export all application records</h2>
+  <p>The ZIP export contains every mapped application table, customer details and account security fields, plus the payment proof images referenced by orders. Store the downloaded file somewhere private.</p>
+  <form method="post" action="{{ url_for('admin.export_admin_data') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn primary">Download complete data export</button></form>
+  {% if export %}<p class="data-export-ready">A verified export is available from {{ export.exported_at }} UTC. It expires after {{ export_max_age_hours }} hours. Cleanup will stop if any database records or payment proof files change.</p>{% else %}<p class="note">No current export is ready. After downloading an export, refresh this page to enable cleanup.</p>{% endif %}
+</section>
+<section class="text-panel data-management-card">
+  <h2>What cleanup removes</h2>
+  <p>Customer accounts and consent/token records; orders, payments, refunds, and order history; enquiries, suggestions, reviews, and restock alerts; referral and loyalty history; expenses, inventory movements, email campaigns and logs, prior audit events, and transient login rate limits.</p>
+  {% if export %}<details class="data-clear-preview"><summary>Review {{ clear_total }} records in {{ clear_counts|length }} tables scheduled for removal</summary><ul>{% for table, count in clear_counts.items() %}<li><code>{{ table }}</code>: {{ count }}</li>{% endfor %}</ul></details>{% endif %}
+  <p>It preserves the product catalog and its images/variants, admin accounts, and shop settings so the store remains configured. A new audit entry records the cleanup and export ID.</p>
+  <p><strong>Cache:</strong> this app has no server-side cache store to flush. Share-card responses are browser cached for up to one hour; existing copies cannot be remotely erased from visitors? devices.</p>
+  {% if export %}
+  <form method="post" action="{{ url_for('admin.clear_admin_data') }}" class="data-clear-form" onsubmit="return confirm('This will permanently remove operational records. Continue only after checking your downloaded export.');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="export_id" value="{{ export.id }}">
+    <label class="check"><input type="checkbox" name="export_confirmed" value="yes" required> I downloaded and reviewed the export above.</label>
+    <label>Type <code>{{ clear_confirmation }}</code> to confirm<input name="confirmation" autocomplete="off" required></label>
+    <button class="btn danger" type="submit">Clear exported operational records</button>
+  </form>
+  {% else %}<button class="btn danger" type="button" disabled>Export required before cleanup</button>{% endif %}
+</section>
+{% endblock %}

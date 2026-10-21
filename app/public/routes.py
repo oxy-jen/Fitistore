@@ -440,7 +440,7 @@ def product_share_card(slug):
         if Path(current_app.static_folder).resolve() in local.parents and local.is_file():
             image_path = local
     card = render_product_share_card(product.name, product.category.name if product.category else "Shop FityStores", price_label, image_path, image_url)
-    return Response(card, mimetype="image/png", headers={"Cache-Control": "public, max-age=3600", "Content-Length": str(len(card))})
+    return Response(card, mimetype="image/png", headers={"Cache-Control": "no-store, max-age=0, must-revalidate", "Pragma": "no-cache", "Expires": "0", "Content-Length": str(len(card))})
 @public_bp.route("/cart")
 def cart():
     return render_template("cart.html", title="Cart")

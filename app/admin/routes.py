@@ -1,6 +1,8 @@
 import ipaddress
 import csv
 import io
+import json
+import zipfile
 from datetime import datetime, timedelta
 import re
 import socket
@@ -10,7 +12,7 @@ from uuid import uuid4
 import hashlib
 from pathlib import Path
 from urllib.parse import unquote, urlparse
-from flask import Blueprint, Response, current_app, flash, redirect, render_template, request, send_from_directory, url_for
+from flask import Blueprint, Response, current_app, flash, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func, or_, update
 from werkzeug.security import check_password_hash
@@ -1084,3 +1086,253 @@ def sales_csv():
 
 
 
+
+
+DATA_EXPORT_MAX_AGE_SECONDS = 24 * 60 * 60
+DATA_CLEAR_CONFIRMATION = "CLEAR OPERATIONAL DATA"
+
+
+def _admin_data_export_dir():
+    folder = Path(current_app.instance_path) / "data_exports"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _collect_admin_data_records():
+    """Serialize every mapped application table into a stable, JSON-safe snapshot."""
+    records = {}
+    mappers = sorted(db.Model.registry.mappers, key=lambda mapper: mapper.local_table.name)
+    for mapper in mappers:
+        model = mapper.class_
+        primary_keys = list(mapper.primary_key)
+        query = db.session.query(model)
+        if primary_keys:
+            query = query.order_by(*primary_keys)
+        rows = query.all()
+        records[model.__tablename__] = [
+            {
+                column.name: (
+                    getattr(row, column.key).isoformat()
+                    if hasattr(getattr(row, column.key), "isoformat")
+                    else getattr(row, column.key)
+                )
+                for column in model.__table__.columns
+            }
+            for row in rows
+        ]
+    return records
+
+
+def _admin_export_bytes(records, exported_at):
+    payload = {
+        "format": "fitystores-database-export-v1",
+        "exported_at": exported_at,
+        "records": records,
+    }
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+        default=lambda value: value.isoformat() if hasattr(value, "isoformat") else str(value),
+    ).encode("utf-8")
+
+
+def _collect_payment_proof_files(records):
+    folder = Path(current_app.config["PAYMENT_PROOF_FOLDER"]).resolve()
+    files = []
+    order_rows = records.get("order", [])
+    filenames = sorted({row.get("payment_proof_filename") for row in order_rows if row.get("payment_proof_filename")})
+    for filename in filenames:
+        if Path(filename).name != filename:
+            raise ValueError("Unsafe payment proof filename in order data")
+        path = (folder / filename).resolve()
+        if path.parent != folder:
+            raise ValueError("Payment proof path escapes its configured folder")
+        if path.is_file():
+            data = path.read_bytes()
+            files.append({"filename": filename, "sha256": hashlib.sha256(data).hexdigest(), "data": data})
+        else:
+            files.append({"filename": filename, "sha256": None, "data": None})
+    return files
+
+
+def _admin_export_archive(records, exported_at):
+    database = _admin_export_bytes(records, exported_at)
+    proof_files = _collect_payment_proof_files(records)
+    manifest = {
+        "format": "fitystores-data-archive-v1",
+        "exported_at": exported_at,
+        "database_sha256": hashlib.sha256(database).hexdigest(),
+        "payment_proofs": [
+            {"filename": item["filename"], "sha256": item["sha256"], "included": item["data"] is not None}
+            for item in proof_files
+        ],
+    }
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
+        bundle.writestr("database.json", database)
+        bundle.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        for item in proof_files:
+            if item["data"] is not None:
+                bundle.writestr(f"payment_proofs/{item['filename']}", item["data"])
+    return archive.getvalue()
+
+
+def _valid_admin_data_export():
+    metadata = session.get("admin_data_export") or {}
+    export_id = metadata.get("id", "")
+    exported_at = metadata.get("exported_at", 0)
+    if not re.fullmatch(r"[a-f0-9]{32}", export_id):
+        return None
+    if not isinstance(exported_at, (int, float)) or datetime.utcnow().timestamp() - exported_at > DATA_EXPORT_MAX_AGE_SECONDS:
+        return None
+    path = _admin_data_export_dir() / f"{export_id}.json"
+    try:
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != metadata.get("sha256"):
+            return None
+        with zipfile.ZipFile(io.BytesIO(data), "r") as bundle:
+            manifest = json.loads(bundle.read("manifest.json").decode("utf-8"))
+            database = bundle.read("database.json")
+        if manifest.get("format") != "fitystores-data-archive-v1":
+            return None
+        if hashlib.sha256(database).hexdigest() != manifest.get("database_sha256"):
+            return None
+        payload = json.loads(database.decode("utf-8"))
+        if payload.get("format") != "fitystores-database-export-v1":
+            return None
+        return {
+            "id": export_id,
+            "exported_at": payload.get("exported_at"),
+            "records": payload.get("records"),
+            "payment_proofs": manifest.get("payment_proofs", []),
+        }
+    except (OSError, ValueError, TypeError, KeyError, zipfile.BadZipFile):
+        return None
+
+
+@admin_bp.route("/data", methods=["GET"])
+@login_required
+def data_management():
+    export = _valid_admin_data_export()
+    clear_tables = [
+        "email_campaign_recipient", "email_message", "customer_token",
+        "customer_consent_event", "customer_order_link", "referral_click",
+        "refund_request", "payment_transaction", "payment_attempt",
+        "order_status_history", "order_item", "referral", "loyalty_transaction",
+        "inventory_movement", "review", "product_enquiry", "product_suggestion",
+        "restock_alert", "expense", "financial_audit_event", "email_campaign",
+        "order", "customer_account", "customer_profile", "auth_rate_limit",
+    ]
+    clear_counts = {table: len(export["records"].get(table, [])) for table in clear_tables} if export else {}
+    return render_template(
+        "admin/data.html",
+        title="Data export and cleanup",
+        export=export,
+        export_max_age_hours=DATA_EXPORT_MAX_AGE_SECONDS // 3600,
+        clear_confirmation=DATA_CLEAR_CONFIRMATION,
+        clear_counts=clear_counts,
+        clear_total=sum(clear_counts.values()),
+    )
+
+
+@admin_bp.post("/data/export")
+@login_required
+def export_admin_data():
+    from datetime import timezone
+    records = _collect_admin_data_records()
+    exported_at = datetime.now(timezone.utc).isoformat()
+    data = _admin_export_archive(records, exported_at)
+    export_id = uuid4().hex
+    path = _admin_data_export_dir() / f"{export_id}.json"
+    path.write_bytes(data)
+    session["admin_data_export"] = {
+        "id": export_id,
+        "exported_at": datetime.utcnow().timestamp(),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+    db.session.rollback()
+    return send_file(
+        io.BytesIO(data),
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=f"fitystores-data-export-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.zip",
+        max_age=0,
+    )
+
+
+@admin_bp.post("/data/clear")
+@login_required
+def clear_admin_data():
+    export = _valid_admin_data_export()
+    if not export or request.form.get("export_id") != export["id"]:
+        flash("Cleanup stopped: download a fresh data export first, then refresh this page.", "error")
+        return redirect(url_for("admin.data_management"))
+    if request.form.get("export_confirmed") != "yes" or request.form.get("confirmation", "").strip() != DATA_CLEAR_CONFIRMATION:
+        flash(f"Cleanup stopped: confirm the downloaded export and type {DATA_CLEAR_CONFIRMATION} exactly.", "error")
+        return redirect(url_for("admin.data_management"))
+
+    from app.models import (
+        AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink,
+        CustomerProfile, CustomerToken, EmailCampaign, EmailCampaignRecipient,
+        EmailMessage, Expense, FinancialAuditEvent, InventoryMovement,
+        LoyaltyTransaction, Order, OrderItem, OrderStatusHistory, PaymentAttempt,
+        PaymentTransaction, ProductEnquiry, ProductSuggestion, Referral,
+        ReferralClick, RefundRequest, RestockAlert, Review,
+    )
+    try:
+        current_records = _collect_admin_data_records()
+        current_proofs = _collect_payment_proof_files(current_records)
+        proof_state = [{"filename": item["filename"], "sha256": item["sha256"], "included": item["data"] is not None} for item in current_proofs]
+        if current_records != export["records"] or proof_state != export["payment_proofs"]:
+            db.session.rollback()
+            flash("Cleanup stopped: database records or payment proof files changed after export. Download a fresh export and review it before retrying.", "error")
+            return redirect(url_for("admin.data_management"))
+
+        delete_models = [
+            EmailCampaignRecipient, EmailMessage, CustomerToken, CustomerConsentEvent,
+            CustomerOrderLink, ReferralClick, RefundRequest, PaymentTransaction,
+            PaymentAttempt, OrderStatusHistory, OrderItem, Referral,
+            LoyaltyTransaction, InventoryMovement, Review, ProductEnquiry,
+            ProductSuggestion, RestockAlert, Expense, FinancialAuditEvent,
+            EmailCampaign, Order, CustomerAccount, CustomerProfile, AuthRateLimit,
+        ]
+        deleted = {}
+        for model in delete_models:
+            query = db.session.query(model)
+            deleted[model.__tablename__] = query.count()
+            query.delete(synchronize_session=False)
+        db.session.add(FinancialAuditEvent(
+            admin_id=current_user.id,
+            event_type="operational_data_cleared",
+            entity_type="DatabaseExport",
+            note=json.dumps({"export_id": export["id"], "deleted_counts": deleted}, sort_keys=True),
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Admin operational data cleanup failed; transaction rolled back")
+        flash("Cleanup failed and was rolled back. No records were cleared.", "error")
+        return redirect(url_for("admin.data_management"))
+
+    proof_folder = Path(current_app.config["PAYMENT_PROOF_FOLDER"]).resolve()
+    failed_proof_deletes = 0
+    for item in current_proofs:
+        if item["data"] is None:
+            continue
+        proof_path = (proof_folder / item["filename"]).resolve()
+        if proof_path.parent != proof_folder:
+            failed_proof_deletes += 1
+            continue
+        try:
+            proof_path.unlink(missing_ok=True)
+        except OSError:
+            failed_proof_deletes += 1
+            current_app.logger.exception("Could not remove archived payment proof %s", item["filename"])
+    session.pop("admin_data_export", None)
+    message = "Operational records were cleared after matching the verified export. Catalog, admin accounts, shop settings, and a cleanup audit entry were preserved."
+    if failed_proof_deletes:
+        flash(message + f" {failed_proof_deletes} archived payment proof file(s) could not be removed from the server.", "warning")
+    else:
+        flash(message, "success")
+    return redirect(url_for("admin.data_management"))

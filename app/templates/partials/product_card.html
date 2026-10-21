@@ -30,7 +30,6 @@
     {% if product.sku %}<p class="sku">{{ product.sku }}</p>{% endif %}
     <div class="card-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ product_image_url(image) }}">
       <button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share</button>
-      <button class="btn" type="button" data-share-tiktok aria-label="Share {{ product.name }} image to TikTok">TikTok image</button>
       <span class="share-status" data-share-status role="status" aria-live="polite"></span>
     </div>
     {% if product.price_cents is none and not requires_option_choice %}
