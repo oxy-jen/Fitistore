@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import smtplib
 import ssl
 import urllib.request
@@ -17,17 +16,11 @@ from app.models import EmailMessage
 
 logger = logging.getLogger(__name__)
 
-_EMAIL_ADDRESS_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
-
-def _redact_email_addresses(value: str) -> str:
-    return _EMAIL_ADDRESS_RE.sub("[redacted email]", value)
-
-
 def mail_configuration_status() -> tuple[bool, str]:
     cfg = current_app.config
     provider = (cfg.get("MAIL_PROVIDER") or "").strip().lower()
-    if provider not in {"smtp", "resend"}:
-        return False, "Email sending is not configured (set MAIL_PROVIDER to smtp or resend)."
+    if provider not in {"smtp", "resend", "brevo"}:
+        return False, "Email sending is not configured (set MAIL_PROVIDER to smtp, resend, or brevo)."
     if not cfg.get("MAIL_FROM_VERIFIED"):
         return False, "Sender address is not marked verified with the email provider."
     sender = (cfg.get("MAIL_FROM_ADDRESS") or "").strip()
@@ -37,6 +30,10 @@ def mail_configuration_status() -> tuple[bool, str]:
         if not (cfg.get("RESEND_API_KEY") or "").strip():
             return False, "RESEND_API_KEY is required when MAIL_PROVIDER=resend."
         return True, "Resend HTTPS API sender is configured."
+    if provider == "brevo":
+        if not (cfg.get("BREVO_API_KEY") or "").strip():
+            return False, "BREVO_API_KEY is required when MAIL_PROVIDER=brevo."
+        return True, "Brevo HTTPS API sender is configured."
     if not (cfg.get("MAIL_SERVER") or "").strip():
         return False, "MAIL_SERVER is required."
     try:
@@ -112,6 +109,34 @@ def _send_resend(recipient: str, subject: str, html_body: str, text_body: str) -
             raise RuntimeError(f"Resend API returned HTTP {response.status}.")
 
 
+def _send_brevo(recipient: str, subject: str, html_body: str, text_body: str) -> None:
+    cfg = current_app.config
+    payload = {
+        "sender": {
+            "name": cfg.get("MAIL_FROM_NAME") or "FityStores",
+            "email": cfg["MAIL_FROM_ADDRESS"],
+        },
+        "to": [{"email": recipient}],
+        "subject": (subject or "FityStores update").replace("\r", " ").replace("\n", " "),
+        "htmlContent": html_body,
+        "textContent": text_body,
+    }
+    if cfg.get("MAIL_REPLY_TO"):
+        payload["replyTo"] = {"email": cfg["MAIL_REPLY_TO"]}
+    request = urllib.request.Request(
+        "https://api.brevo.com/v3/smtp/email",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "api-key": cfg["BREVO_API_KEY"].strip(),
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        if not 200 <= response.status < 300:
+            raise RuntimeError(f"Brevo API returned HTTP {response.status}.")
+
+
 def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *, account_id=None, order_id=None, campaign_id=None, html_body: str, text_body: str) -> EmailMessage:
     record = EmailMessage.query.filter_by(idempotency_key=idempotency_key).first()
     if record:
@@ -140,39 +165,30 @@ def deliver_email(record: EmailMessage, html_body: str, text_body: str) -> bool:
     record.status = "sending"
     db.session.commit()
     try:
-        if (current_app.config.get("MAIL_PROVIDER") or "").strip().lower() == "resend":
+        provider = (current_app.config.get("MAIL_PROVIDER") or "").strip().lower()
+        if provider == "resend":
             _send_resend(record.recipient, record.subject, html_body, text_body)
+        elif provider == "brevo":
+            _send_brevo(record.recipient, record.subject, html_body, text_body)
         else:
             _send_smtp(record.recipient, record.subject, html_body, text_body)
     except Exception as exc:
         code = getattr(exc, "smtp_code", None)
         provider = (current_app.config.get("MAIL_PROVIDER") or "smtp").strip().lower()
-        resend_status = getattr(exc, "code", None) if provider == "resend" else None
-        resend_message = ""
-        if provider == "resend" and isinstance(exc, urllib.error.HTTPError):
-            try:
-                body = exc.read().decode("utf-8", errors="replace")
-                try:
-                    error_payload = json.loads(body)
-                    resend_message = error_payload.get("message") or error_payload.get("error") or body
-                except (json.JSONDecodeError, AttributeError):
-                    resend_message = body
-            except Exception:
-                resend_message = ""
-            resend_message = _redact_email_addresses(str(resend_message)).replace("\r", " ").replace("\n", " ")[:500]
+        http_status = getattr(exc, "code", None) if provider in {"resend", "brevo"} else None
         record.status = "failed"
         if provider == "smtp" and code:
             record.failure_reason = f"SMTP error {code}."
-        elif provider == "resend" and resend_status:
-            record.failure_reason = f"Resend HTTP {resend_status}: {resend_message}"[:255]
+        elif provider in {"resend", "brevo"} and isinstance(http_status, int):
+            record.failure_reason = f"{provider.title()} HTTP {http_status}."
         else:
             provider_name = "SMTP" if provider == "smtp" else provider.title()
             record.failure_reason = f"{provider_name} send failed ({type(exc).__name__})."
         db.session.commit()
         logger.warning(
-            "email_delivery_failed message_id=%s provider=%s error_type=%s smtp_code=%s resend_status=%s resend_message=%s",
+            "email_delivery_failed message_id=%s provider=%s error_type=%s smtp_code=%s http_status=%s",
             record.id, provider, type(exc).__name__, code if isinstance(code, int) else "none",
-            resend_status if isinstance(resend_status, int) else "none", resend_message or "none",
+            http_status if isinstance(http_status, int) else "none",
         )
         return False
     record.status = "sent"

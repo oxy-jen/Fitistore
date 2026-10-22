@@ -63,7 +63,7 @@ def email_campaigns():
             target = current_app.config.get("MAIL_TEST_ADDRESS", "")
             configured, note = mail_configuration_status()
             if not target or not configured:
-                flash("Test message was not sent: configure an authorized MAIL_TEST_ADDRESS and verified SMTP sender. " + note, "error")
+                flash("Test message was not sent: configure an authorized MAIL_TEST_ADDRESS and verified email sender. " + note, "error")
             else:
                 key = f"campaign-test:{uuid4().hex}"
                 result = queue_branded_email(target, subject, "campaign_test", key, name or subject, [body])
