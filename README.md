@@ -224,11 +224,12 @@ The migration adds customer identity, token, consent, order-link, rate-limit, ca
 
 ### Email provider setup
 
-Configure a transactional provider and a sender address that the provider has verified. For Render Free, use Resend over HTTPS; Render Free blocks outbound SMTP ports 25, 465, and 587:
+Configure a transactional provider and a sender address that the provider has verified. For Render Free, use Brevo or Resend over HTTPS; Render Free blocks outbound SMTP ports 25, 465, and 587. The application supports `MAIL_PROVIDER=brevo`, `MAIL_PROVIDER=resend`, and `MAIL_PROVIDER=smtp`:
 
 ```text
-MAIL_PROVIDER=resend
-RESEND_API_KEY=<Resend API key stored as a secret>
+MAIL_PROVIDER=brevo
+BREVO_API_KEY=<Brevo API key stored as a secret>
+RESEND_API_KEY=<only needed when MAIL_PROVIDER=resend>
 MAIL_FROM_ADDRESS=<provider-verified sender>
 MAIL_FROM_NAME=FityStores
 MAIL_REPLY_TO=<real inbox the business monitors>
@@ -243,11 +244,11 @@ MAIL_TEST_ADDRESS=<authorized owner test inbox>
 PUBLIC_BASE_URL=https://fitystore.top
 ```
 
-For MAIL_PROVIDER=resend, only RESEND_API_KEY and the verified sender settings are needed; this sends through HTTPS. If using SMTP on a host that allows it, choose exactly one encrypted transport: MAIL_USE_TLS=1 for STARTTLS (typically port 587), or MAIL_USE_SSL=1 for implicit TLS (typically port 465). Never enable both or disable both. Set MAIL_FROM_VERIFIED=1 only after the provider verifies the sender/domain. support@fitystore.top, orders@fitystore.top, and hello@fitystore.top are naming examples only; this project does not create mailboxes, aliases, or forwarding. A sender identity can send mail but does not itself receive replies. Configure MAIL_REPLY_TO to an inbox that exists and is monitored. Buying the domain alone does not include email hosting. Set PUBLIC_BASE_URL=https://fitystore.top in Render so verification links and Google callbacks use the canonical HTTPS host regardless of proxy headers. After environment changes, save and redeploy or restart the web service.
+For MAIL_PROVIDER=brevo, only BREVO_API_KEY and the verified sender settings are needed; this sends through Brevo HTTPS API. MAIL_SERVER, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_USE_TLS, and MAIL_USE_SSL can remain unset or unchanged because Brevo does not use SMTP. RESEND_API_KEY is needed only for MAIL_PROVIDER=resend. Resend remains available with MAIL_PROVIDER=resend and RESEND_API_KEY. If using SMTP on a host that allows it, choose exactly one encrypted transport: MAIL_USE_TLS=1 for STARTTLS (typically port 587), or MAIL_USE_SSL=1 for implicit TLS (typically port 465). Never enable both or disable both. Set MAIL_FROM_VERIFIED=1 only after the provider verifies the sender/domain. support@fitystore.top, orders@fitystore.top, and hello@fitystore.top are naming examples only; this project does not create mailboxes, aliases, or forwarding. A sender identity can send mail but does not itself receive replies. Configure MAIL_REPLY_TO to an inbox that exists and is monitored. Buying the domain alone does not include email hosting. Set PUBLIC_BASE_URL=https://fitystore.top in Render so verification links and Google callbacks use the canonical HTTPS host regardless of proxy headers. After environment changes, save and redeploy or restart the web service.
 
 Follow the provider's current DNS instructions to publish SPF and DKIM. Add a DMARC policy for `fitystore.top` and monitor aggregate reports before tightening enforcement. DNS is not changed by this application. Provider plans, free quotas, costs, and setup requirements change; check the selected provider before relying on a free tier.
 
-The admin Customer email page shows whether the selected email provider is configured, subscriber consent, campaign history, and the last 30 message statuses. SMTP `sent` means the configured relay accepted the message; it does not prove inbox delivery. This SMTP implementation does not include a delivery/bounce webhook. An admin can suppress a permanently bounced address; suppressed accounts are excluded and cannot self-resubscribe. There is no automatic retry worker. Email failures do not roll back committed orders or payment records. Campaign sending is synchronous and intended for low volume; large lists may exceed a web-host request timeout. Do not run a campaign until SMTP is verified with the configured test address.
+The admin Customer email page shows whether the selected email provider is configured, subscriber consent, campaign history, and the last 30 message statuses. A `sent` status means the selected provider accepted the message; it does not prove inbox delivery. This implementation does not include a delivery/bounce webhook. An admin can suppress a permanently bounced address; suppressed accounts are excluded and cannot self-resubscribe. There is no automatic retry worker. Email failures do not roll back committed orders or payment records. Campaign sending is synchronous and intended for low volume; large lists may exceed a web-host request timeout. Send a test message to the configured test address before running a campaign.
 
 ### Google sign-in setup
 
@@ -269,7 +270,7 @@ The integration stays unavailable until `GOOGLE_CLIENT_ID` and the `google-auth`
 3. In the test database only, inspect the `CustomerToken` hash and use a test-created raw token to POST the verification form. Confirm expiry and single-use behavior.
 4. Check that marketing status is `none` when unchecked. If opting in, confirm the separate `marketing_confirm` token only after verifying the account, then unsubscribe using the one-time link.
 5. Sign into a verified account before checkout and confirm its order appears on that account only. Submit a guest order and confirm it remains available through the existing WhatsApp/tracking workflow without an account link.
-6. To exercise SMTP in tests, mock `app.services.customer_mail._send_smtp`. Never put a live provider credential into test settings.
+6. To exercise email delivery in tests, mock the provider transport (`app.services.customer_mail._send_smtp`, `_send_resend`, or `_send_brevo`) or mock `urllib.request.urlopen`. Automated tests must never use a live provider credential.
 7. Only after sender verification, configure `MAIL_TEST_ADDRESS`, send one test message from the admin centre, and inspect its status. Preview a campaign and type `SEND` only when the eligible subscriber count and content are correct.
 
 Use HTTPS in production and set `SESSION_COOKIE_SECURE=1`. Registration, login, verification, password reset and Google sign-in are rate-limited per IP/action; session cookies remain HTTP-only and SameSite Lax. Password reset/verification raw tokens are only included in the generated email and are stored in the database as SHA-256 hashes. The email outbox stores recipient, subject, event, status and failure summary, not token links or message bodies. Review privacy wording and any retention schedule with the business owner; this implementation is not a legal compliance certification.

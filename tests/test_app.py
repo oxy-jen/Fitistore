@@ -1375,3 +1375,169 @@ def test_admin_account_controls_do_not_manually_verify_email(client, app, app_co
     db.session.refresh(account)
     assert account.active is False
     assert account.email_verified_at is None
+
+
+def _configure_brevo_test(app, api_key="test-brevo-key"):
+    app.config.update(
+        MAIL_PROVIDER="brevo", BREVO_API_KEY=api_key,
+        MAIL_FROM_VERIFIED=True, MAIL_FROM_ADDRESS="verified@example.test",
+        MAIL_FROM_NAME="Test Shop", MAIL_REPLY_TO="replies@example.test",
+    )
+
+
+def test_resend_success_still_uses_https_provider(app, monkeypatch, app_context):
+    import json
+    import app.services.customer_mail as customer_mail
+
+    app.config.update(
+        MAIL_PROVIDER="resend", RESEND_API_KEY="test-resend-key",
+        MAIL_FROM_VERIFIED=True, MAIL_FROM_ADDRESS="verified@example.test",
+        MAIL_FROM_NAME="Test Shop", MAIL_REPLY_TO="replies@example.test",
+    )
+    captured = {}
+    class Response:
+        status = 200
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+    def fake_urlopen(request, timeout):
+        captured.update(request=request, timeout=timeout)
+        return Response()
+    monkeypatch.setattr(customer_mail.urllib.request, "urlopen", fake_urlopen)
+
+    result = customer_mail.queue_email(
+        "buyer@example.test", "Order ready", "order_update", "resend-success",
+        html_body="<p>Ready</p>", text_body="Ready",
+    )
+
+    request = captured["request"]
+    payload = json.loads(request.data.decode("utf-8"))
+    assert result.status == "sent"
+    assert request.full_url == "https://api.resend.com/emails"
+    assert request.get_header("Authorization") == "Bearer test-resend-key"
+    assert captured["timeout"] == 15
+    assert payload["to"] == ["buyer@example.test"]
+    assert payload["html"] == "<p>Ready</p>"
+    assert payload["text"] == "Ready"
+    assert payload["reply_to"] == "replies@example.test"
+
+def test_brevo_success_posts_expected_payload_over_https(app, monkeypatch, app_context):
+    import json
+    import app.services.customer_mail as customer_mail
+
+    _configure_brevo_test(app)
+    captured = {}
+
+    class Response:
+        status = 201
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+
+    def fake_urlopen(request, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(customer_mail.urllib.request, "urlopen", fake_urlopen)
+    result = customer_mail.queue_email(
+        "buyer@example.test", "Order ready", "order_update", "brevo-success",
+        html_body="<p>Ready</p>", text_body="Ready",
+    )
+
+    request = captured["request"]
+    payload = json.loads(request.data.decode("utf-8"))
+    assert result.status == "sent"
+    assert request.full_url == "https://api.brevo.com/v3/smtp/email"
+    assert request.method == "POST"
+    assert request.get_header("Api-key") == "test-brevo-key"
+    assert request.get_header("Content-type") == "application/json"
+    assert captured["timeout"] == 15
+    assert payload == {
+        "sender": {"name": "Test Shop", "email": "verified@example.test"},
+        "to": [{"email": "buyer@example.test"}],
+        "subject": "Order ready",
+        "htmlContent": "<p>Ready</p>",
+        "textContent": "Ready",
+        "replyTo": {"email": "replies@example.test"},
+    }
+
+
+def test_brevo_timeout_is_recorded_without_exception_details(app, monkeypatch, app_context, caplog):
+    import socket
+    import app.services.customer_mail as customer_mail
+
+    _configure_brevo_test(app)
+    def timeout(*_args, **_kwargs):
+        raise socket.timeout("private timeout and code detail")
+    monkeypatch.setattr(customer_mail.urllib.request, "urlopen", timeout)
+    result = customer_mail.queue_email(
+        "buyer@example.test", "Test", "test", "brevo-timeout",
+        html_body="<p>private verification code 123456</p>", text_body="private body",
+    )
+
+    assert result.status == "failed"
+    assert result.failure_reason == "Brevo send failed (TimeoutError)."
+    assert "private timeout" not in caplog.text
+    assert "123456" not in caplog.text
+    assert "test-brevo-key" not in caplog.text
+
+
+def test_brevo_http_error_is_generic_and_does_not_expose_response(app, monkeypatch, app_context, caplog):
+    import io
+    import urllib.error
+    import app.services.customer_mail as customer_mail
+
+    _configure_brevo_test(app)
+    sensitive_response = b'{"message":"private token test-brevo-key and verification code 654321"}'
+    def fail(*_args, **_kwargs):
+        raise urllib.error.HTTPError(
+            "https://api.brevo.com/v3/smtp/email", 401, "Unauthorized", {},
+            io.BytesIO(sensitive_response),
+        )
+    monkeypatch.setattr(customer_mail.urllib.request, "urlopen", fail)
+    result = customer_mail.queue_email(
+        "buyer@example.test", "Test", "test", "brevo-http-error",
+        html_body="<p>private email body</p>", text_body="private text",
+    )
+
+    assert result.status == "failed"
+    assert result.failure_reason == "Brevo HTTP 401."
+    assert "test-brevo-key" not in result.failure_reason + caplog.text
+    assert "654321" not in result.failure_reason + caplog.text
+    assert "private token" not in result.failure_reason + caplog.text
+    assert result.failure_reason not in sensitive_response.decode()
+
+
+def test_brevo_invalid_sender_configuration_does_not_call_api(app, monkeypatch, app_context):
+    import app.services.customer_mail as customer_mail
+
+    _configure_brevo_test(app)
+    app.config["MAIL_FROM_VERIFIED"] = False
+    calls = []
+    monkeypatch.setattr(customer_mail.urllib.request, "urlopen", lambda *a, **k: calls.append(True))
+    result = customer_mail.queue_email(
+        "buyer@example.test", "Test", "test", "brevo-invalid-config",
+        html_body="<p>Test</p>", text_body="Test",
+    )
+
+    assert result.status == "not_configured"
+    assert calls == []
+
+
+def test_brevo_missing_api_key_is_not_configured(app, monkeypatch, app_context):
+    import app.services.customer_mail as customer_mail
+
+    _configure_brevo_test(app, api_key="")
+    calls = []
+    monkeypatch.setattr(customer_mail.urllib.request, "urlopen", lambda *a, **k: calls.append(True))
+    result = customer_mail.queue_email(
+        "buyer@example.test", "Test", "test", "brevo-missing-key",
+        html_body="<p>Test</p>", text_body="Test",
+    )
+
+    assert result.status == "not_configured"
+    assert "BREVO_API_KEY is required" in result.failure_reason
+    assert calls == []

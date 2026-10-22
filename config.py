@@ -22,6 +22,7 @@ class Config:
     SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "0" if os.environ.get("FLASK_DEBUG", "").lower() in {"1", "true"} else "1").lower() in {"1", "true", "yes"}
     MAIL_PROVIDER = os.environ.get("MAIL_PROVIDER", "")
     RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+    BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")
     MAIL_FROM_ADDRESS = os.environ.get("MAIL_FROM_ADDRESS", "")
     MAIL_FROM_NAME = os.environ.get("MAIL_FROM_NAME", "FityStores")
     MAIL_REPLY_TO = os.environ.get("MAIL_REPLY_TO", "")
