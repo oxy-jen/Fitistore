@@ -552,3 +552,83 @@ input,select,textarea,button{max-width:100%}
   .checkout-form .checkout-fulfilment strong{font-size:.92rem;line-height:1.25}
   .checkout-form .checkout-fulfilment small{font-size:.78rem;line-height:1.35;overflow-wrap:anywhere}
 }
+
+/* Checkout motion loops smoothly; the complete payment number remains within the card. */
+.mpesa-number{display:flex;align-items:center;justify-content:center;width:100%;min-width:0;overflow:hidden;padding:0 .35rem;font-size:clamp(1.2rem,7vw,1.8rem);letter-spacing:.015em}
+.mpesa-typing{width:11ch;max-width:100%;animation:mpesa-type-loop 8s infinite}
+@keyframes mpesa-type-loop{
+  0%{width:0ch;border-color:#078b50;animation-timing-function:steps(10,end)}
+  18.75%{width:11ch;border-color:#078b50;animation-timing-function:step-end}
+  81.25%{width:11ch;border-color:transparent;animation-timing-function:steps(10,start)}
+  100%{width:0ch;border-color:transparent}
+}
+.mpesa-number:hover .mpesa-typing,.mpesa-number:focus .mpesa-typing{width:11ch;border-right:3px solid #078b50;animation:mpesa-type-loop 8s infinite}
+.fulfilment-motion.is-delivery .checkout-motion-copy{animation-duration:8s}
+.checkout-delivery-track svg{animation:checkout-delivery-drive 8s linear infinite}
+@keyframes checkout-delivery-drive{
+  0%{left:-112px;opacity:1}
+  100%{left:calc(100% + 112px);opacity:1}
+}
+@media(max-width:360px){.mpesa-number{font-size:1.18rem;letter-spacing:0}}
+@media(prefers-reduced-motion:reduce){.mpesa-typing{display:inline-block!important;width:11ch!important;border:0!important;animation:none!important}.fulfilment-motion.is-delivery .checkout-motion-copy{clip-path:none;animation:none}.checkout-delivery-track svg{animation:none;left:1rem;opacity:1}}
+
+/* Keep home product marquees as one seamless, always-moving ribbon. */
+.product-marquee:hover .marquee-track,.product-marquee:focus-within .marquee-track,.product-marquee:active .marquee-track{animation-play-state:running!important}
+.marquee-track{gap:0!important}
+.marquee-group{display:flex;flex:0 0 auto;gap:1rem;padding-right:1rem}
+@keyframes fity-marquee{from{transform:translateX(0)}to{transform:translateX(-25%)}}
+@media(max-width:720px){.marquee-group{gap:.75rem;padding-right:.75rem}}
+@media(prefers-reduced-motion:reduce){.marquee-track{animation:none!important;transform:none!important}}
+
+/* About page redesign: editorial product story, clear steps, and responsive category cards. */
+.about-page{background:#fff;color:#1f2937;overflow-x:clip;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}
+.about-page .about-container,.about-page .about-hero-content{width:min(1180px,calc(100% - 2rem));margin-inline:auto}
+.about-page .about-hero{position:relative;min-height:430px;background:#f4f5f7;color:#111827;overflow:hidden}
+.about-page .about-hero::before{content:"";position:absolute;inset:0;z-index:0;background:linear-gradient(90deg,#f4f5f7 0%,#f4f5f7 34%,rgba(244,245,247,.88) 48%,rgba(244,245,247,.12) 75%),url('/static/images/shop-hero/shoe3.fitistores-removebg-preview.png') 83% 68%/29% auto no-repeat,url('/static/images/shop-hero/hair_bonnet-removebg-preview.webp') 61% 45%/28% auto no-repeat,url('/static/images/shop-hero/hair_bands-removebg-preview.webp') 98% 28%/19% auto no-repeat}
+.about-page .about-hero-content{position:relative;z-index:1;min-height:430px;padding:3.5rem 0;align-items:center}
+.about-page .about-hero-copy{max-width:560px}
+.about-page .about-hero .about-eyebrow,.about-page .about-eyebrow{color:#dc2626;letter-spacing:.12em}
+.about-page .about-hero h1{max-width:610px;color:#111827;font-size:clamp(2.7rem,5.5vw,4.6rem);line-height:1.02;letter-spacing:-.055em}
+.about-page .about-hero h1 span,.about-page .about-slogan{color:#dc2626}
+.about-page .about-hero p{color:#475569;max-width:44ch;line-height:1.65}
+.about-page .about-btn{min-height:46px;border-radius:9px;padding:.75rem 1.1rem}
+.about-page .about-btn-red{background:#dc2626;color:#fff!important}
+.about-page .about-btn-outline{background:#fff;color:#111827!important;border:1px solid #cbd5e1}
+.about-page .about-quick-nav{display:none}
+.about-page .about-section{padding:clamp(3rem,6vw,5rem) 0;background:#fff}
+.about-page .about-story-grid{grid-template-columns:minmax(0,.9fr) minmax(0,1fr);gap:clamp(2rem,6vw,5rem)}
+.about-page .about-story-grid>div:first-child{order:2}
+.about-page .about-story-grid>div:last-child{order:1}
+.about-page .about-story-image{min-height:320px;max-height:430px;object-fit:contain;padding:1.5rem;background:#f4f5f7;border-radius:16px;box-shadow:0 14px 38px rgba(15,23,42,.08)}
+.about-page .about-categories{background:#f4f5f7}
+.about-page .about-category-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}
+.about-page .about-category{border-color:#e5e7eb;border-radius:12px;box-shadow:0 4px 16px rgba(15,23,42,.04)}
+.about-page .about-category:hover{transform:translateY(-4px);box-shadow:0 12px 24px rgba(15,23,42,.09)}
+.about-page .about-category:nth-child(n+5){display:none}
+.about-page .about-category-placeholder{aspect-ratio:4/3;background-color:#f1f3f5;background-position:center;background-repeat:no-repeat;background-size:contain;color:transparent;font-size:0}
+.about-page .about-category:nth-child(1) .about-category-placeholder{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 120'%3E%3Cpath fill='%2321252b' d='M42 20h26v48c0 8 17 10 24 18 5 6 0 14-9 14H37c-11 0-15-10-8-18 6-7 13-11 13-21V20zm50 0h24v42c0 9 13 12 22 19 7 6 2 18-8 18H83c-10 0-14-9-8-17 7-8 17-10 17-20V20z'/%3E%3C/svg%3E")}
+.about-page .about-category:nth-child(2) .about-category-placeholder{background-image:url('/static/images/shop-hero/hair_bonnet-removebg-preview.webp')}
+.about-page .about-category:nth-child(3) .about-category-placeholder{background-image:url('/static/images/shop-hero/hair_bonnet-removebg-preview.webp')}
+.about-page .about-category:nth-child(4) .about-category-placeholder{background-image:url('/static/images/shop-hero/hair_bands-removebg-preview.webp')}
+.about-page .about-values-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem}
+.about-page .about-value-card{border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 4px 16px rgba(15,23,42,.04);padding:1.5rem}
+.about-page .about-steps{background:#fff;color:#111827}
+.about-page .about-steps .about-description,.about-page .about-step p{color:#64748b}
+.about-page .about-steps-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem}
+.about-page .about-step{background:#f8f9fa;color:#111827;border:1px solid #e5e7eb;border-radius:12px;padding:1.35rem}
+.about-page .about-step:nth-child(n+4){display:none}
+.about-page .about-step-number{color:#dc2626}
+.about-page .about-suggest{background:#f4f5f7;border:0;border-radius:14px}
+.about-page .about-final-cta{background:#dc2626;color:#fff;padding:clamp(3rem,6vw,5rem) 0}
+.about-page .about-final-cta .about-eyebrow,.about-page .about-final-cta .about-slogan{color:#ffe1e3}
+.about-page .about-final-cta p{color:#fff}
+.about-page .about-final-cta .about-btn-red{background:#fff;color:#dc2626!important}
+.about-page .about-final-cta .about-btn-outline{background:transparent;color:#fff!important;border-color:rgba(255,255,255,.75)}
+.about-page .about-trust-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem}
+.about-page .about-trust-link{border:1px solid #e5e7eb;border-radius:12px;min-height:90px}
+body:has(.about-page) .site-header .nav a[href*="about"]{color:#dc2626;border-bottom:2px solid #dc2626;font-weight:700}
+.about-whatsapp-float{position:fixed;right:20px;bottom:20px;z-index:99;display:grid;place-items:center;width:56px;height:56px;border-radius:50%;background:#25d366;color:#fff!important;box-shadow:0 8px 24px rgba(0,0,0,.22)}
+.about-whatsapp-float svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+@media(max-width:820px){.about-page .about-category-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.about-page .about-story-grid{grid-template-columns:1fr}.about-page .about-story-grid>div:first-child,.about-page .about-story-grid>div:last-child{order:initial}}
+@media(max-width:600px){.about-page .about-hero,.about-page .about-hero-content{min-height:0}.about-page .about-hero::before{opacity:.42;background:linear-gradient(180deg,rgba(244,245,247,.16),#f4f5f7 88%),url('/static/images/shop-hero/hair_bonnet-removebg-preview.webp') 88% 12%/42% auto no-repeat,url('/static/images/shop-hero/shoe3.fitistores-removebg-preview.png') 8% 94%/38% auto no-repeat}.about-page .about-hero-content{padding:4.5rem 0 3rem}.about-page .about-hero h1{font-size:clamp(2.5rem,12vw,3.8rem)}.about-page .about-hero-actions{display:grid;grid-template-columns:1fr}.about-page .about-hero-actions .about-btn{width:100%}.about-page .about-category-grid{grid-template-columns:1fr 1fr;gap:.65rem}.about-page .about-category-info{padding:.8rem}.about-page .about-values-grid,.about-page .about-steps-grid{grid-template-columns:1fr}.about-page .about-final-cta .about-hero-actions{display:grid}.about-page .about-whatsapp-float{right:14px;bottom:14px;width:52px;height:52px}}
+@media(max-width:360px){.about-page .about-category-grid{grid-template-columns:1fr}}
