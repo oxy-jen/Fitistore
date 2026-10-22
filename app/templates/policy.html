@@ -1,44 +1,23 @@
 ﻿{% extends "base.html" %}
 {% block content %}
-{% if request.path == '/terms' %}
-<section class="page-head policy-page terms-page">
-  <header class="terms-hero">
-    <p class="eyebrow">FityStores · Customer information</p>
-    <h1>{{ policy.title }}</h1>
-    <p>These terms explain what happens when you browse, place an order request, pay, and arrange collection or delivery. Please read them before ordering.</p>
-    <p class="terms-callout">A checkout submission starts an order request. Wait for the seller to confirm the item, total, payment, and fulfilment details.</p>
-  </header>
-  <div class="terms-layout">
-    <nav class="terms-nav" aria-label="Terms sections">
-      <h2>On this page</h2>
-      <ol>
-        {% for heading, paragraphs in policy.sections %}
-        <li><a href="#terms-section-{{ loop.index }}">{{ heading }}</a></li>
-        {% endfor %}
-      </ol>
-    </nav>
-    <div class="terms-content">
-      {% for heading, paragraphs in policy.sections %}
-      <section class="terms-section" id="terms-section-{{ loop.index }}">
-        <h2>{{ loop.index }}. {{ heading }}</h2>
-        {% for paragraph in paragraphs %}<p>{{ paragraph }}</p>{% endfor %}
-      </section>
-      {% endfor %}
-    </div>
-  </div>
-  <p class="terms-contact">Need help with an order or these terms? <a href="{{ url_for('public.contact') }}">Contact FityStores</a>.</p>
-</section>
-{% else %}
-<section class="page-head policy-page">
-  <p class="eyebrow">FityStores information</p>
-  <h1>{{ policy.title }}</h1>
-  {% for heading, paragraphs in policy.sections %}
-  <section class="policy-section">
-    <h2>{{ heading }}</h2>
-    {% for paragraph in paragraphs %}<p>{{ paragraph }}</p>{% endfor %}
-  </section>
-  {% endfor %}
-  <p class="policy-contact">Need help? <a href="{{ url_for('public.contact') }}">Contact FityStores</a>.</p>
-</section>
+{% set policies = [('public.terms', 'Terms of Service'), ('public.privacy_policy', 'Privacy Policy'), ('public.payment_policy', 'Payment Policy'), ('public.delivery_policy', 'Delivery and Collection'), ('public.returns_policy', 'Returns and Refunds')] %}
+<section class="policy-center">
+<header class="policy-hero"><p class="eyebrow">FityStores Â· Customer information</p><h1>{{ policy.title }}</h1><p>{{ policy.description }}</p><p class="policy-callout">A checkout submission is an order request. Confirm stock, price, payment, and collection or delivery arrangements with the seller before sending payment or travelling.</p></header>
+<nav class="policy-tabs" aria-label="Policy pages">{% for endpoint,label in policies %}<a href="{{ url_for(endpoint) }}" {% if request.endpoint == endpoint %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>
+<div class="policy-layout"><nav class="policy-toc" aria-label="On this page"><h2>On this page</h2><ol>{% for heading, paragraphs in policy.sections %}<li><a href="#policy-section-{{ loop.index }}">{{ heading }}</a></li>{% endfor %}</ol></nav>
+<div class="policy-sections">{% for heading, paragraphs in policy.sections %}<details class="policy-section" id="policy-section-{{ loop.index }}" {% if loop.first %}open{% endif %}><summary><span class="policy-number">{{ '%02d'|format(loop.index) }}</span><span>{{ heading }}</span><span class="policy-toggle" aria-hidden="true">+</span></summary><div class="policy-section-body">{% for paragraph in paragraphs %}<p>{{ paragraph }}</p>{% endfor %}</div></details>{% endfor %}
+{% if request.endpoint == 'public.terms' %}
+<details class="policy-section"><summary><span class="policy-number">+</span><span>Website use and customer responsibilities</span><span class="policy-toggle">+</span></summary><div class="policy-section-body"><p>Use the site lawfully and provide accurate contact and fulfilment details. Product pages and displayed stock are a guide to what is currently recorded; availability, options, and prices can change before the seller reviews a request. Do not treat an item as reserved or a price as agreed until the seller confirms it.</p><p>Checkout details create an order request. The seller reviews it and confirms the product, total, payment and fulfilment details. A payment reference, uploaded proof, or message sent to WhatsApp does not by itself confirm payment or acceptance.</p><p>Kenyan law provides consumer protections. Depending on the transaction, these can include rights to goods and services of reasonable quality, information needed to benefit from them, protection of health, safety and economic interests, and compensation for loss or injury. These terms do not remove rights or remedies that apply to your purchase. See the <a href="https://new.kenyalaw.org/akn/ke/act/2010/12/eng%402022-12-31" target="_blank" rel="noopener">Constitution of Kenya</a> and the <a href="https://new.kenyalaw.org/akn/ke/act/2012/46/eng%402022-12-31" target="_blank" rel="noopener">Consumer Protection Act</a>.</p></div></details>
+{% elif request.endpoint == 'public.payment_policy' %}
+<details class="policy-section"><summary><span class="policy-number">+</span><span>Payment problems and next steps</span><span class="policy-toggle">+</span></summary><div class="policy-section-body"><p>The checkout records a reference or optional proof as payment reported; it does not verify the transaction automatically. The store records verified payment separately.</p><ol class="policy-steps"><li>Keep the M-Pesa transaction message and order reference.</li><li>If the reference is missing, incorrect, duplicated, or payment status has not changed, contact the store with your order reference and transaction reference.</li><li>Do not send your M-Pesa PIN or other login credentials.</li></ol><p>Do not pay again until you have checked the status with the seller.</p></div></details>
+{% elif request.endpoint == 'public.delivery_policy' %}
+<details class="policy-section"><summary><span class="policy-number">+</span><span>Timing changes or delays</span><span class="policy-toggle">+</span></summary><div class="policy-section-body"><p>The site does not publish a guaranteed delivery time. Agree the expected timing and handover details directly with the seller. Keep your phone available for updates. If arrangements change or are delayed, contact the seller using the Contact page before travelling or making alternate plans.</p></div></details>
+{% elif request.endpoint == 'public.returns_policy' %}
+<details class="policy-section"><summary><span class="policy-number">+</span><span>Cancellation, exchange, or refund request</span><span class="policy-toggle">+</span></summary><div class="policy-section-body"><p>Contact the store promptly through the Contact page with your order reference and request (cancellation, exchange, or refund). For an incorrect, damaged, or apparently defective item, report it within the 48-hour period stated above and describe the issue; photos may help the review. Wait for the seller to confirm the next step before sending an item back or expecting a refund.</p><p>A request starts a review; it does not automatically approve a return or refund. Refund requests are reviewed and recorded by the store, and no processing deadline is promised here. Applicable consumer rights remain unaffected.</p></div></details>
+{% elif request.endpoint == 'public.privacy_policy' %}
+<details class="policy-section"><summary><span class="policy-number">+</span><span>How to ask about your information</span><span class="policy-toggle">+</span></summary><div class="policy-section-body"><p>Contact the store through the Contact page and describe the information or account request. Include enough detail for the store to identify the relevant order or account, but do not share passwords or sign-in codes. The site does not state a retention period or response deadline.</p><p>Site sessions and cart contents may be held in browser storage to support shopping. Avoid using shared devices for account access and sign out when finished.</p></div></details>
 {% endif %}
+<section class="policy-faq"><h2>Quick answers</h2><details><summary>Does submitting checkout confirm my order?</summary><p>No. It creates an order request. Wait for the seller to confirm the item, total, payment, and fulfilment.</p></details><details><summary>What should I include when contacting the store?</summary><p>Include your order reference and a brief description. Never send a password, PIN, or payment credentials.</p></details></section></div></div>
+<aside class="policy-contact"><div><p class="eyebrow">Need help?</p><h2>Talk to FityStores</h2><p>Use the Contact page to call or message about an order or policy question.</p></div><a class="btn primary" href="{{ url_for('public.contact') }}">Contact the store</a></aside>
+</section>
 {% endblock %}

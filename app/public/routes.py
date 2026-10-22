@@ -568,8 +568,8 @@ def render_policy_page(slug):
     # make the terms page fail.
     if slug == "terms":
         policy = {
-            "title": "Terms and conditions",
-            "description": "Plain-language information about product listings, order review, payment, and fulfilment.",
+            "title": "Terms of Service",
+            "description": "How FityStores listings, order requests, payment checks, and fulfilment arrangements work.",
             "sections": [
                 ("Listings, prices, and stock", ["Product information, prices, variants, and stock are shown as currently recorded by the store and may change. Confirm availability, selected options, and the total with the seller before paying. An unavailable or unpriced item cannot be treated as a confirmed sale at a guessed price."]),
                 ("Order review and payment", ["Submitting checkout details creates an order request for seller review. Follow the payment instructions shown by the store and confirm them with the seller. A payment reference or WhatsApp message does not alone mean the order has been accepted or payment verified."]),
@@ -588,8 +588,8 @@ def render_policy_page(slug):
     settings = current_settings()
     policies = {
         "delivery": {
-            "title": "Delivery and collection",
-            "description": "How to confirm delivery availability, fees, and collection arrangements with FityStores.",
+            "title": "Delivery and Collection Policy",
+            "description": "Check delivery availability, discuss any fee, and agree collection or delivery details before paying or travelling.",
             "sections": [
                 ("Delivery availability", [settings.delivery_area or "Contact FityStores to check whether delivery is available for your location. Availability and any fee are confirmed for each order."]),
                 ("Collection", [settings.collection_instructions or "Contact the seller to agree on a collection point and time before travelling."]),
@@ -598,8 +598,8 @@ def render_policy_page(slug):
             ],
         },
         "payment": {
-            "title": "Payment information",
-            "description": "Payment instructions and confirmation steps for FityStores orders.",
+            "title": "Payment Policy",
+            "description": "Follow the current payment instructions and understand how payment is checked and confirmed.",
             "sections": [
                 ("Available instructions", [settings.payment_instructions or "Ask the seller to confirm the payment method and amount for your order."]),
                 ("Confirm before paying", ["Confirm product availability, the total amount, and the payment instructions with the seller before sending payment. Keep your transaction message and enter the requested reference at checkout."]),
@@ -607,27 +607,27 @@ def render_policy_page(slug):
             ],
         },
         "returns": {
-            "title": "Returns, exchanges, and cancellations",
-            "description": "How to contact FityStores about an incorrect, damaged, or defective order.",
+            "title": "Returns and Refunds Policy",
+            "description": "How to raise a return, exchange, cancellation, or refund request for review.",
             "sections": [
                 ("Report a problem", ["Contact FityStores within 48 hours of delivery if an item is incorrect, damaged, or appears defective. Include your order reference and describe the issue; photos can help the seller review it. Do not send sensitive payment credentials."]),
-                ("Review and next steps", ["The seller will review the order details and discuss an appropriate next step with you. Eligibility and any exchange, repair, cancellation, or refund arrangement must be confirmed for the specific order."]),
+                ("Review and next steps", ["The seller will review the order details and discuss an appropriate next step with you. Eligibility and any return, exchange, cancellation, or refund arrangement must be confirmed for the specific order."]),
                 ("Assessment and outcome", ["The seller will review the order details and discuss the next step with you. Contacting the store within 48 hours starts a review; it does not automatically approve a refund or exchange. Any remedy will be assessed for the specific case and applicable consumer rights are not waived."]),
                 ("Contact", ["Use the Contact page to call or message the seller about an order."]),
             ],
         },
         "privacy": {
-            "title": "Privacy information",
-            "description": "What information FityStores may receive through shopping, ordering, and customer support.",
+            "title": "Privacy Policy",
+            "description": "What shopping and account features collect, how FityStores uses information, and how to ask a question.",
             "sections": [
                 ("Information you provide", ["Depending on how you use the site, FityStores may receive your name, phone number, order items, fulfilment instructions, payment reference, and any payment proof you choose to upload. Enquiry, review, suggestion, and restock forms collect the details you submit."]),
                 ("How it is used", ["Order and contact details are used to review and fulfil requests, communicate about orders, and provide customer support. Submitted reviews may be shown publicly after approval. The application hashes the submitter IP address when a review is created."]),
-                ("Customer accounts and preferences", ["Customer accounts store a normalized email address, display name, password hash or Google identity, verification status, and marketing preference. Verification, reset, and unsubscribe tokens are stored as hashes. Consent requests and withdrawals include their time, source, and wording version. Promotional messages are separate from necessary account and order updates."]),("Handling and questions", ["Do not submit passwords, PINs, or payment credentials in free-text fields. For a privacy question or a request about information you submitted, contact the seller using the Contact page. This page does not make a certification or a claim about a specific retention period."]),
+                ("Customer accounts and preferences", ["Customer accounts store a normalized email address, display name, password hash or Google identity, verification status, and marketing preference. Verification, reset, and unsubscribe tokens are stored as hashes. Consent requests and withdrawals include their time, source, and wording version. Promotional messages are separate from necessary account and order updates."]),("Handling and questions", ["Do not submit passwords, PINs, or payment credentials in free-text fields. For a privacy question or a request about information you submitted, contact the seller using the Contact page. The site does not state a retention period or response deadline. The project does not document which external service providers may handle submitted information, so the store should confirm those arrangements before publishing a complete privacy notice."]),
             ],
         },
         "terms": {
-            "title": "Terms and conditions",
-            "description": "Plain-language information about product listings, order review, payment, and fulfilment.",
+            "title": "Terms of Service",
+            "description": "How FityStores listings, order requests, payment checks, and fulfilment arrangements work.",
             "sections": [
                 ("Listings, prices, and stock", ["Product information, prices, variants, and stock are shown as currently recorded by the store and may change. Confirm availability, selected options, and the total with the seller before paying. An unavailable or unpriced item cannot be treated as a confirmed sale at a guessed price."]),
                 ("Order review and payment", ["Submitting checkout details creates an order request for seller review. Follow the payment instructions shown by the store and confirm them with the seller. A payment reference or WhatsApp message does not alone mean the order has been accepted or payment verified."]),
