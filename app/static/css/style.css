@@ -202,15 +202,7 @@ input,select,textarea,button{max-width:100%}
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .product-grid,
-  .info-grid,
-  .stat-grid,
-  .department-grid,
-  .upcoming-grid,
-  .upcoming-page-grid,
-  .account-dashboard-grid,
-  .form-grid,
-  .review-receipt {
+  .product-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -334,5 +326,16 @@ input,select,textarea,button{max-width:100%}
   .account-order > div {
     flex-wrap: wrap;
     overflow-wrap: anywhere;
+  }
+
+  .mamba-browser .product-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .product-grid,
+  .mamba-browser .product-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
