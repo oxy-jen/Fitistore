@@ -175,3 +175,164 @@ input,select,textarea,button{max-width:100%}
 .about-quick-nav{position:sticky;top:0;z-index:9;display:flex;justify-content:center;gap:.5rem;flex-wrap:wrap;padding:.7rem 1rem;background:rgba(255,255,255,.94);border-bottom:1px solid var(--border-subtle);backdrop-filter:blur(12px)}.about-quick-nav a{padding:.55rem .8rem;border-radius:999px;background:#f5f6f7;color:#222;text-decoration:none;font-size:.88rem;font-weight:850;transition:background .18s,color .18s,transform .18s}.about-quick-nav a:hover,.about-quick-nav a:focus-visible{background:var(--red);color:#fff;transform:translateY(-2px)}@media(max-width:600px){.about-quick-nav{justify-content:flex-start;overflow-x:auto;flex-wrap:nowrap}.about-quick-nav a{white-space:nowrap}}
 .detail-discount{position:static;display:inline-block;margin-left:.55rem;vertical-align:middle}
 .checkout-guidance{padding:.8rem 1rem;border:1px solid var(--border-subtle);border-radius:12px;background:#fff}.checkout-guidance summary{font-weight:850;cursor:pointer}.checkout-guidance p{margin:.6rem 0 0;color:var(--muted);line-height:1.5}
+
+/* Responsive layout fixes for small and wide phones. */
+@media (max-width: 760px) {
+  .site-header {
+    gap: .5rem;
+    padding: .55rem .85rem;
+  }
+
+  main > section,
+  .flash-wrap,
+  .shop-filters,
+  .load-panel,
+  .admin-nav,
+  .table-wrap,
+  .footer {
+    min-width: 0;
+  }
+
+  .hero,
+  .product-detail,
+  .account-page,
+  .account-page-single,
+  .terms-layout,
+  .footer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .product-grid,
+  .info-grid,
+  .stat-grid,
+  .department-grid,
+  .upcoming-grid,
+  .upcoming-page-grid,
+  .account-dashboard-grid,
+  .form-grid,
+  .review-receipt {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .product-grid > *,
+  .info-grid > *,
+  .stat-grid > *,
+  .department-grid > *,
+  .upcoming-grid > *,
+  .upcoming-page-grid > *,
+  .account-dashboard-grid > *,
+  .form-grid > *,
+  .terms-layout > *,
+  .product-detail > * {
+    min-width: 0;
+  }
+
+  .product-card,
+  .product-body,
+  .account-panel,
+  .terms-section,
+  .checkout-payment,
+  .receipt-review-card {
+    min-width: 0;
+  }
+
+  .product-body {
+    overflow-wrap: anywhere;
+  }
+
+  .product-body .btn,
+  .shop-filters > *,
+  .shop-filters input,
+  .shop-filters select,
+  .shop-filters .btn,
+  .search input,
+  .search .btn,
+  .form-card input:not([type="checkbox"]),
+  .form-card select,
+  .form-card textarea,
+  .account-form input:not([type="checkbox"]),
+  .account-form select,
+  .account-form textarea {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .section-title,
+  .admin-head,
+  .account-dashboard-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table-wrap table {
+    min-width: 620px;
+  }
+
+  .receipt-motion {
+    max-width: 100%;
+    animation-name: none;
+  }
+
+  .mpesa-number {
+    letter-spacing: .02em;
+  }
+}
+
+@media (max-width: 430px) {
+  .product-grid,
+  .info-grid,
+  .stat-grid,
+  .department-grid,
+  .upcoming-grid,
+  .upcoming-page-grid,
+  .account-dashboard-grid,
+  .form-grid,
+  .review-receipt {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-nav {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .product-grid {
+    gap: .85rem;
+  }
+
+  .product-body {
+    padding: .9rem;
+  }
+
+  .site-header {
+    padding-inline: .65rem;
+  }
+
+  .shop-hero,
+  .upcoming-head {
+    margin-inline: .6rem;
+  }
+
+  .checkout-fulfilment,
+  .checkout-payment,
+  .receipt-review-card,
+  .terms-section {
+    padding: .85rem;
+  }
+
+  .account-details div,
+  .account-order > div {
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+}
