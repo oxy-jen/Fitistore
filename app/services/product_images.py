@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
+from PIL import Image, ImageOps, UnidentifiedImageError
 from uuid import uuid4
 from urllib.parse import quote
 
@@ -41,7 +43,24 @@ def cloudinary_public_id(product, original_filename: str, prefix: str = "product
     return f"fity/{prefix}/{product_part}/{uuid4().hex}-{safe_name}"
 
 
+def optimize_image_bytes(data: bytes) -> bytes:
+    """Downscale and WebP-encode static raster uploads when the result is smaller."""
+    try:
+        with Image.open(BytesIO(data)) as image:
+            if getattr(image, "n_frames", 1) > 1:
+                return data
+            image = ImageOps.exif_transpose(image)
+            image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+            output = BytesIO()
+            mode = "RGBA" if "A" in image.getbands() or "transparency" in image.info else "RGB"
+            image.convert(mode).save(output, format="WEBP", quality=82, method=5)
+            optimized = output.getvalue()
+            return optimized if len(optimized) < len(data) else data
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+        return data
 def upload_image_bytes(data: bytes, public_id: str, resource_type: str = "image") -> dict:
+    if resource_type == "image":
+        data = optimize_image_bytes(data)
     configure_cloudinary()
     import cloudinary.uploader
 
@@ -109,7 +128,7 @@ def product_image_url(image) -> str:
     image_path = legacy_local_image_path(image)
     if image_path and image_path.is_file():
         return url_for("static", filename="uploads/" + image.filename)
-    return url_for("static", filename="images/mainLogo.png")
+    return url_for("static", filename="images/mainLogo-160.png")
 
 
 def product_image_alt(image, fallback="Temporary product placeholder") -> str:

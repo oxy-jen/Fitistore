@@ -703,7 +703,11 @@ def review_admin():
 @login_required
 def update_review(review_id):
     review = Review.query.get_or_404(review_id)
-    review.status = request.form.get("status", "pending")
+    status = request.form.get("status", "pending")
+    if status not in {"pending", "approved", "rejected"}:
+        flash("Choose a valid review status.", "error")
+        return redirect(url_for("admin.review_admin"))
+    review.status = status
     db.session.commit()
     flash("Review updated.", "success")
     return redirect(url_for("admin.review_admin"))

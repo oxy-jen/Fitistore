@@ -30,13 +30,15 @@ def make_referral_code(phone):
             return code
 
 
-def get_or_create_profile(phone, display_name="", referred_by_code=""):
+def get_or_create_profile(phone, display_name="", referred_by_code="", account_id=None):
     normalized = normalize_phone(phone)
     if not normalized:
         raise ValueError("Enter a phone number to create your referral profile.")
     profile = CustomerProfile.query.filter_by(phone=normalized).first()
+    if profile and account_id and profile.account_id != account_id:
+        raise ValueError("That phone number already has a rewards profile. Contact FityStores support to link an existing profile safely.")
     if not profile:
-        profile = CustomerProfile(phone=normalized, display_name=(display_name or "").strip(), referral_code=make_referral_code(normalized), referred_by_code=(referred_by_code or "").strip().upper())
+        profile = CustomerProfile(phone=normalized, display_name=(display_name or "").strip(), referral_code=make_referral_code(normalized), referred_by_code=(referred_by_code or "").strip().upper(), account_id=account_id)
         db.session.add(profile)
     else:
         if display_name is not None:
@@ -44,8 +46,6 @@ def get_or_create_profile(phone, display_name="", referred_by_code=""):
         if referred_by_code and not profile.referred_by_code and referred_by_code.upper() != profile.referral_code:
             profile.referred_by_code = referred_by_code.upper()
     return profile
-
-
 def visitor_key_for_request(request):
     raw = "|".join([
         request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip(),

@@ -80,10 +80,16 @@ def test_admin_login(client):
     assert b"Admin dashboard" in rv.data
 
 def test_review_moderation(client, app):
-    client.post("/reviews", data={"display_name":"Sam","rating":"5","text":"Good"})
+    client.post("/reviews", data={"display_name":"Sam","rating":"5","title":"Good service","text":"Good"})
     with app.app_context():
         review = Review.query.first()
         assert review.status == "pending"
+def test_reviews_page_renders_empty_summary_and_review_form(client):
+    rv = client.get("/reviews")
+    assert rv.status_code == 200
+    assert b"No approved reviews yet" in rv.data
+    assert b"Overall rating" in rv.data
+    assert b"Review title" in rv.data
 def test_mamba_suggestion_saves_to_database(client, app):
     rv = client.post("/mamba-suggestion", data={
         "product_name": "Canvas sneakers",
@@ -411,7 +417,7 @@ def test_cloudinary_url_and_legacy_fallback_helpers(app):
         assert product_image_url(cloud) == "https://res.cloudinary.com/demo/image/upload/fity/products/sock"
         missing = ProductImage(filename="missing.jpg", alt_text="Missing")
         assert valid_product_image(missing) is False
-        assert product_image_url(missing).endswith("/static/images/mainLogo.png")
+        assert product_image_url(missing).endswith("/static/images/mainLogo-160.png")
 
 
 def test_cloudinary_image_delete_failure_keeps_record(client, app, monkeypatch):
@@ -1244,8 +1250,12 @@ def test_resend_verification_reports_not_configured_and_rate_limits(client, app)
     with app.app_context():
         account = CustomerAccount(email="resend@example.com", display_name="Resend", password_hash=generate_password_hash("a-strong-test-password-123"))
         db.session.add(account)
+        db.session.flush()
+        account_id = account.id
         db.session.commit()
-    client.post("/account/login", data={"email": "resend@example.com", "password": "a-strong-test-password-123"})
+    with client.session_transaction() as session:
+        session["pending_customer_id"] = account_id
+        session["pending_customer_purpose"] = "verify_code"
     first = client.post("/account/verification/resend", follow_redirects=True)
     assert b"No verification email was sent" in first.data
     client.post("/account/verification/resend", follow_redirects=True)
@@ -1254,7 +1264,6 @@ def test_resend_verification_reports_not_configured_and_rate_limits(client, app)
     assert b"Too many verification requests" in limited.data
     with app.app_context():
         assert EmailMessage.query.filter_by(kind="verify_email", status="not_configured").count() == 3
-
 
 def test_failed_resend_preserves_previous_delivered_token(app, monkeypatch, app_context):
     import hashlib
