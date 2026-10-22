@@ -2,12 +2,12 @@
 {% block content %}
 <section class="account-dashboard">
   <div class="account-dashboard-head">
-    <div><p class="eyebrow">Customer account</p><h1>Welcome{% if account.display_name %}, {{ account.display_name }}{% endif %}.</h1><p>Manage your profile, sign-in options, email preferences, and linked orders.</p></div>
+    <div class="account-welcome-copy"><p class="eyebrow">Your FityStores account</p><h1>Welcome back, {{ account.display_name or account.email.split('@', 1)[0] }}.</h1><p>Your profile keeps your linked orders and tracking together, and gives you control of your sign-in options. New arrivals and current price drops are here for you whenever you visit; you do not need promotional email to see them.</p><div class="account-welcome-actions"><a class="btn primary" href="#customer-discovery">See fresh arrivals and offers</a><a class="btn" href="{{ url_for('public.shop') }}">Explore the shop</a></div></div>
     <form method="post" action="{{ url_for('customer.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Sign out</button></form>
   </div>
   <div class="account-dashboard-grid">
     <section class="account-panel">
-      <p class="account-kicker">Profile</p><h2>Your details</h2>
+      <div class="profile-panel-heading"><span class="profile-icon" aria-hidden="true"><svg class="icon"><use href="#icon-user"></use></svg></span><div><p class="account-kicker">Profile</p><h2>Your details</h2></div></div>
       <dl class="account-details"><div><dt>Email</dt><dd>{{ account.email }}</dd></div><div><dt>Email status</dt><dd>{% if account.email_verified_at %}<span class="account-status">Verified</span>{% else %}<span class="account-status account-status-pending">Needs verification</span>{% endif %}</dd></div></dl>
       {% if not account.email_verified_at %}<form method="post" action="{{ url_for('customer.resend_verification') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn">Resend verification link</button></form><p class="account-muted">Verify your email before changing account details.</p>
       {% else %}<form method="post" action="{{ url_for('customer.update_profile') }}" class="account-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Display name<input name="display_name" maxlength="120" value="{{ account.display_name }}" required></label><button class="btn primary" type="submit">Save profile</button></form>{% endif %}
@@ -26,11 +26,17 @@
       {% else %}<div class="account-empty"><p>No orders are linked to this account yet.</p><a href="{{ url_for('public.shop') }}">Browse the shop</a><p class="account-muted">Orders placed before signing in may not appear here.</p></div>{% endfor %}
     </section>
     <section class="account-panel">
-      <p class="account-kicker">Email preferences</p><h2>Promotional messages</h2>
-      <p>Status: <strong>{{ account.marketing_status|replace('_',' ')|title }}</strong></p>
-      {% if account.marketing_consent_at %}<p class="account-muted">Last confirmed {{ account.marketing_consent_at.strftime('%Y-%m-%d') }}.</p>{% endif %}
-      {% if account.email_verified_at and account.marketing_status != 'subscribed' %}<form method="post" action="{{ url_for('customer.subscribe_marketing') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><p>Promotional email is optional and separate from order and account messages.</p><button class="btn primary" type="submit">Request promotional emails</button></form>{% elif account.marketing_status == 'subscribed' %}<form method="post" action="{{ url_for('customer.unsubscribe_account') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Unsubscribe</button></form>{% endif %}
+      <p class="account-kicker">Your account benefits</p><h2>Shop at your pace</h2>
+      <ul class="account-benefits"><li>See new arrivals and discounted items below without subscribing to promotional email.</li><li>Keep eligible orders linked to your account and open their tracking details here.</li><li>Update your display name and choose the sign-in options that work for you.</li></ul>
+      {% if account.marketing_status == 'subscribed' %}<p class="account-muted">Promotional email: subscribed{% if account.marketing_consent_at %} since {{ account.marketing_consent_at.strftime('%Y-%m-%d') }}{% endif %}.</p><form method="post" action="{{ url_for('customer.unsubscribe_account') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Unsubscribe from promotional email</button></form>{% else %}<p class="account-muted">Promotional email is optional. Your access to arrivals and offers on this site is not affected by your email preference.</p>{% endif %}
     </section>
   </div>
+
+  <section class="account-discovery" id="customer-discovery">
+    <div class="account-discovery-heading"><p class="eyebrow">Picked for your next visit</p><h2>Fresh arrivals and current offers</h2><p>Browse the latest products and marked-down items. Product availability and prices can change, so confirm details before paying.</p></div>
+    {% if fresh_arrivals %}<section class="product-section" id="customer-fresh-arrivals"><div class="section-title"><div><p class="eyebrow">Just added</p><h3>Fresh arrivals</h3></div><a href="{{ url_for('public.shop', sort='newest') }}">Browse all new items</a></div><div class="product-row">{% for product in fresh_arrivals %}<div class="product-tile">{% include "partials/product_card.html" %}</div>{% endfor %}</div></section>{% endif %}
+    {% if discounted_products %}<section class="product-section"><div class="section-title"><div><p class="eyebrow">Price drops</p><h3>Discounted goods</h3></div><a href="{{ url_for('public.shop', sort='price-low') }}">Browse the shop</a></div><div class="product-row">{% for product in discounted_products %}<div class="product-tile">{% include "partials/product_card.html" %}</div>{% endfor %}</div></section>{% endif %}
+    {% if not fresh_arrivals and not discounted_products %}<div class="account-empty"><p>New products and offers will appear here when available.</p><a href="{{ url_for('public.shop') }}">Browse all products</a></div>{% endif %}
+  </section>
 </section>
 {% endblock %}

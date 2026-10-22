@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import json
 import re
 from urllib.parse import quote
@@ -6,17 +6,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 from flask import Blueprint, Response, current_app, flash, jsonify, redirect, render_template, request, session, url_for
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
-from app.models import Category, CustomerAccount, CustomerProfile, Order, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
+from app.models import CartAddCount, Category, CustomerAccount, CustomerOrderLink, CustomerProfile, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
 from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
-from app.services.referrals import get_or_create_profile, normalize_phone, record_referral_click, referral_points_balance
+from app.services.referrals import get_or_create_profile, normalize_phone, record_referral_click
 from werkzeug.utils import secure_filename
 from flask_login import current_user
 
@@ -139,56 +139,100 @@ UPCOMING_MERCHANDISE = [
 
 @public_bp.route("/")
 def home():
-    latest_products = product_list_options(Product.query.filter_by(active=True)).order_by(Product.updated_at.desc(), Product.id.desc()).limit(12).all()
-    featured = product_list_options(Product.query.filter_by(active=True, featured=True)).order_by(Product.updated_at.desc(), Product.id.desc()).limit(8).all() or latest_products[:8]
-    discounted = product_list_options(Product.query.filter(Product.active.is_(True), Product.previous_price_cents.isnot(None), Product.price_cents.isnot(None), Product.previous_price_cents > Product.price_cents)).order_by(Product.updated_at.desc()).limit(8).all()
+    fresh_arrivals = product_list_options(Product.query.filter_by(active=True)).order_by(Product.created_at.desc(), Product.id.desc()).limit(8).all()
+    used_product_ids = {product.id for product in fresh_arrivals}
+
+    discounted_query = Product.query.filter(
+        Product.active.is_(True),
+        Product.previous_price_cents.isnot(None),
+        Product.price_cents.isnot(None),
+        Product.previous_price_cents > Product.price_cents,
+        Product.id.notin_(used_product_ids),
+    )
+    discounted = product_list_options(discounted_query).order_by(Product.updated_at.desc(), Product.id.desc()).limit(8).all()
+    used_product_ids.update(product.id for product in discounted)
+
+    featured_query = Product.query.filter_by(active=True, featured=True).filter(Product.id.notin_(used_product_ids))
+    featured = product_list_options(featured_query).order_by(Product.updated_at.desc(), Product.id.desc()).limit(8).all()
+    used_product_ids.update(product.id for product in featured)
+
+    top_added = [product for product in product_list_options(Product.query.join(CartAddCount, CartAddCount.product_id == Product.id).filter(Product.active.is_(True)).order_by(CartAddCount.add_count.desc(), Product.name.asc())).all() if product.display_stock_quantity > 0][:8]
+
     categories = Category.query.join(Product).filter(Product.active.is_(True)).group_by(Category.id).order_by(Category.name).all()
     category_sections = []
     for category in categories:
-        products = product_list_options(Product.query.filter_by(active=True, category=category)).order_by(Product.updated_at.desc(), Product.id.desc()).limit(6).all()
+        category_query = Product.query.filter_by(active=True, category=category).filter(Product.id.notin_(used_product_ids))
+        products = product_list_options(category_query).order_by(Product.updated_at.desc(), Product.id.desc()).limit(4).all()
         if products:
             category_sections.append({"category": category, "products": products})
+            used_product_ids.update(product.id for product in products)
+
     mamba_category_names = ["Boxers", "Shoes", "Vests", "Ankle socks", "Socks"]
-    mamba_products = product_list_options(Product.query.join(Category).filter(Product.active.is_(True), Category.name.in_(mamba_category_names))).order_by(Category.name.asc(), Product.updated_at.desc()).all()
-    if not mamba_products:
-        mamba_products = latest_products[:8]
+    mamba_query = Product.query.join(Category).filter(
+        Product.active.is_(True),
+        Category.name.in_(mamba_category_names),
+        Product.id.notin_(used_product_ids),
+    )
+    mamba_products = product_list_options(mamba_query).order_by(Category.name.asc(), Product.updated_at.desc(), Product.id.desc()).all()
     mamba_category_ids = {product.category_id for product in mamba_products}
     mamba_categories = [category for category in categories if category.id in mamba_category_ids]
-    return render_template("home.html", title="FityStores essentials", seo_title="FityStores | Shop everyday essentials", seo_description="Browse available products, check listed prices and stock, and contact FityStores to confirm collection or delivery.", featured=featured, discounted=discounted, latest_products=latest_products, categories=categories, category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories, suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE)
+    return render_template("home.html", title="FityStores essentials", seo_title="FityStores | Shop everyday essentials", seo_description="Browse available products, check listed prices and stock, and contact FityStores to confirm collection or delivery.", fresh_arrivals=fresh_arrivals, featured=featured, top_added=top_added, discounted=discounted, category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories, suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE)
 
 
 @public_bp.route("/referrals", methods=["GET", "POST"])
 def referrals():
+    if not current_user.is_authenticated or not isinstance(current_user._get_current_object(), CustomerAccount):
+        flash("Sign in or create a customer account to access rewards.", "warning")
+        return redirect(url_for("customer.login", next=url_for("public.referrals")))
+    customer_account = current_user._get_current_object()
+    if not customer_account.active:
+        flash("This customer account is unavailable. Contact FityStores for help.", "error")
+        return redirect(url_for("customer.login"))
+
     settings = current_settings()
-    profile = None
-    phone = session.get("referral_phone", "")
+    profile = CustomerProfile.query.filter_by(account_id=customer_account.id).first()
     if request.method == "POST":
         phone = request.form.get("phone", "").strip()
-        name = request.form.get("display_name", "").strip()
         try:
-            profile = get_or_create_profile(phone, name, session.get("referral_code", ""))
+            profile = get_or_create_profile(
+                phone,
+                customer_account.display_name,
+                session.get("referral_code", ""),
+                account_id=customer_account.id,
+            )
             db.session.commit()
         except ValueError as exc:
             db.session.rollback()
             flash(str(exc), "error")
             return redirect(url_for("public.referrals"))
-        session["referral_phone"] = profile.phone
-        flash("Referral profile ready. Share your link to earn points.", "success")
+        flash("Your account rewards profile is ready. Share your referral link to earn points.", "success")
         return redirect(url_for("public.referrals"))
-    normalized = normalize_phone(phone)
-    if normalized:
-        profile = CustomerProfile.query.filter_by(phone=normalized).first()
+
     share_url = url_for("public.referral_visit", code=profile.referral_code, _external=True) if profile else ""
     click_count = ReferralClick.query.filter_by(referral_code=profile.referral_code).count() if profile else 0
     rewarded_clicks = ReferralClick.query.filter_by(referral_code=profile.referral_code, rewarded=True).count() if profile else 0
-    points = referral_points_balance(profile.phone) if profile else 0
-    return render_template("referrals.html", title="Referrals", profile=profile, share_url=share_url, click_count=click_count, rewarded_clicks=rewarded_clicks, points=points, referral_settings=settings)
-
+    customer_keys = {profile.phone.strip().lower()} if profile else set()
+    account_orders = db.session.query(Order.customer_phone, Order.customer_name).join(
+        CustomerOrderLink, CustomerOrderLink.order_id == Order.id
+    ).filter(CustomerOrderLink.account_id == customer_account.id).all()
+    customer_keys.update((phone or name or "").strip().lower() for phone, name in account_orders)
+    points = 0
+    if customer_keys:
+        points = db.session.query(func.coalesce(func.sum(LoyaltyTransaction.points), 0)).filter(
+            LoyaltyTransaction.customer_key.in_(customer_keys),
+            LoyaltyTransaction.status == "posted",
+        ).scalar() or 0
+    return render_template("referrals.html", title="Rewards", profile=profile, share_url=share_url, click_count=click_count, rewarded_clicks=rewarded_clicks, points=points, referral_settings=settings, customer_account=customer_account)
 
 @public_bp.route("/r/<code>")
 def referral_visit(code):
     settings = current_settings()
-    profile, rewarded, message = record_referral_click(code, request, settings, session.get("referral_phone", ""))
+    current_phone = session.get("referral_phone", "")
+    if current_user.is_authenticated and isinstance(current_user._get_current_object(), CustomerAccount):
+        owned_profile = CustomerProfile.query.filter_by(account_id=current_user.id).first()
+        if owned_profile:
+            current_phone = owned_profile.phone
+    profile, rewarded, message = record_referral_click(code, request, settings, current_phone)
     session["referral_code"] = (code or "").strip().upper()
     if profile:
         flash("Referral link applied. Thanks for supporting FityStores.", "success" if rewarded else "info")
@@ -413,7 +457,7 @@ def product_detail(slug):
     seo_description = (product_description + " " + share_price + ".")[:300]
     whatsapp_share_url = "https://wa.me/?text=" + quote(share_message)
     card_url = "https://fitystore.top" + url_for("public.product_share_card", slug=product.slug)
-    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=card_url, og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=product.name + " at FityStores ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â " + share_price, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related)
+    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=card_url, og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=product.name + " at FityStores ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â " + share_price, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related)
 
 @public_bp.route("/share/product/<slug>.png")
 def product_share_card(slug):
@@ -427,7 +471,7 @@ def product_share_card(slug):
         low = high = product.price_cents
     else:
         low = high = None
-    price_label = (money(low, current_settings().currency) if low == high else money(low, current_settings().currency) + " ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ " + money(high, current_settings().currency)) if low is not None else "Ask us for today's price"
+    price_label = (money(low, current_settings().currency) if low == high else money(low, current_settings().currency) + " ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ " + money(high, current_settings().currency)) if low is not None else "Ask us for today's price"
     image = product_display_image(product)
     image_url = product_image_url(image)
     image_path = None
@@ -452,6 +496,31 @@ def product_share_card(slug):
 @public_bp.route("/cart")
 def cart():
     return render_template("cart.html", title="Cart")
+
+@public_bp.post("/api/cart/add")
+def api_record_cart_add():
+    payload = request.get_json(silent=True) or {}
+    try:
+        product_id = int(payload.get("product_id"))
+        quantity = max(1, min(99, int(payload.get("quantity", 1))))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False}), 400
+    product = Product.query.filter_by(id=product_id, active=True).first()
+    if not product:
+        return jsonify({"ok": False}), 404
+    counter = CartAddCount.query.get(product_id)
+    if counter:
+        counter.add_count += quantity
+    else:
+        db.session.add(CartAddCount(product_id=product_id, add_count=quantity))
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Could not record cart addition")
+        return jsonify({"ok": False}), 503
+    return jsonify({"ok": True})
+
 
 @csrf.exempt
 @public_bp.post("/api/cart/validate")
@@ -541,25 +610,171 @@ def about():
 @public_bp.route("/reviews", methods=["GET", "POST"])
 def reviews():
     products = Product.query.filter_by(active=True).order_by(Product.name).all()
+    account = current_user._get_current_object() if current_user.is_authenticated else None
+    customer_account = account if isinstance(account, CustomerAccount) else None
+    form_values = {}
+
     if request.method == "POST":
-        rating = int(request.form.get("rating", 0) or 0)
-        if not 1 <= rating <= 5:
-            flash("Choose a star rating from 1 to 5.", "error")
+        form_values = request.form
+        if request.form.get("website_url", "").strip():
+            flash("We could not accept that review. Please try again.", "error")
         else:
-            ip_hash = hashlib.sha256((request.remote_addr or "unknown").encode()).hexdigest()
-            review = Review(
-                display_name=request.form.get("display_name", "Customer").strip()[:80] or "Customer",
-                rating=rating,
-                text=request.form.get("text", "").strip()[:1000],
-                product_id=request.form.get("product_id") or None,
-                ip_hash=ip_hash,
+            try:
+                rating = int(request.form.get("rating", ""))
+            except (TypeError, ValueError):
+                rating = 0
+            title = request.form.get("title", "").strip()
+            review_text = request.form.get("text", "").strip()
+            raw_product_id = request.form.get("product_id", "").strip()
+            product = None
+            invalid_product = False
+            if raw_product_id:
+                try:
+                    product = Product.query.filter_by(id=int(raw_product_id), active=True).first()
+                except (TypeError, ValueError):
+                    product = None
+                invalid_product = product is None
+
+            display_name = (
+                (customer_account.display_name or "").strip() or "Customer"
+                if customer_account
+                else request.form.get("display_name", "").strip()
             )
-            db.session.add(review)
-            db.session.commit()
-            flash("Thanks. Your review will appear after the owner approves it.", "success")
-            return redirect(url_for("public.reviews"))
-    approved = Review.query.filter_by(status="approved").order_by(Review.created_at.desc()).all()
-    return render_template("reviews.html", title="Reviews", reviews=approved, products=products)
+            errors = []
+            if not 1 <= rating <= 5:
+                errors.append("Choose a star rating from 1 to 5.")
+            if not display_name:
+                errors.append("Add a display name for your review.")
+            if not title:
+                errors.append("Add a short title for your review.")
+            elif len(title) > 120:
+                errors.append("Keep the review title to 120 characters or fewer.")
+            if not review_text:
+                errors.append("Write a few words about your experience.")
+            elif len(review_text) > 1000:
+                errors.append("Keep your review to 1000 characters or fewer.")
+            if invalid_product:
+                errors.append("That product is no longer available for review. Choose another product or a general review.")
+
+            if customer_account and product:
+                duplicate = Review.query.filter_by(
+                    customer_account_id=customer_account.id,
+                    product_id=product.id,
+                ).filter(Review.status.in_(["pending", "approved"])).first()
+                if duplicate:
+                    errors.append("You have already submitted a review for this product.")
+
+            if errors:
+                for error in errors:
+                    flash(error, "error")
+            else:
+                ip_hash = hashlib.sha256((request.remote_addr or "unknown").encode()).hexdigest()
+                review = Review(
+                    display_name=display_name[:80],
+                    title=title[:120],
+                    rating=rating,
+                    text=review_text[:1000],
+                    product=product,
+                    customer_account_id=(customer_account.id if customer_account and customer_account.email_verified_at else None),
+                    ip_hash=ip_hash,
+                )
+                db.session.add(review)
+                try:
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                    current_app.logger.exception("Could not save customer review")
+                    flash("We could not save your review just now. Please try again.", "error")
+                else:
+                    flash("Thanks for sharing your experience. Your review is saved and will appear after moderation.", "success")
+                    return redirect(url_for("public.reviews", product_id=product.id if product else None, _anchor="approved-reviews"))
+
+    approved_query = Review.query.filter_by(status="approved")
+    selected_product = None
+    raw_selected_product = request.values.get("product_id", "").strip()
+    if raw_selected_product:
+        try:
+            selected_product = Product.query.filter_by(id=int(raw_selected_product), active=True).first()
+        except (TypeError, ValueError):
+            selected_product = None
+        if selected_product is None:
+            flash("That product review page is unavailable. Showing store reviews instead.", "info")
+        else:
+            approved_query = approved_query.filter_by(product_id=selected_product.id)
+
+    rating_filter = request.values.get("rating_filter", "").strip()
+    if rating_filter not in {"1", "2", "3", "4", "5"}:
+        rating_filter = ""
+    sort_by = request.values.get("sort", "recent").strip()
+    if sort_by not in {"recent", "highest", "lowest"}:
+        sort_by = "recent"
+
+    average_rating, approved_count = db.session.query(
+        func.avg(Review.rating), func.count(Review.id)
+    ).filter(Review.status == "approved").filter(
+        Review.product_id == selected_product.id if selected_product else True
+    ).first()
+    distribution_rows = db.session.query(
+        Review.rating, func.count(Review.id)
+    ).filter(Review.status == "approved").filter(
+        Review.product_id == selected_product.id if selected_product else True
+    ).group_by(Review.rating).all()
+    rating_distribution = {star: 0 for star in range(1, 6)}
+    rating_distribution.update({int(star): count for star, count in distribution_rows})
+    approved_count = int(approved_count or 0)
+    average_rating = float(average_rating or 0)
+
+    reviews_query = approved_query
+    if rating_filter:
+        reviews_query = reviews_query.filter_by(rating=int(rating_filter))
+    sort_column = {
+        "highest": (Review.rating.desc(), Review.created_at.desc()),
+        "lowest": (Review.rating.asc(), Review.created_at.desc()),
+        "recent": (Review.created_at.desc(), Review.id.desc()),
+    }[sort_by]
+    try:
+        page = max(1, int(request.values.get("page", "1")))
+    except (TypeError, ValueError):
+        page = 1
+    pagination = reviews_query.order_by(*sort_column).paginate(page=page, per_page=12, error_out=False)
+    public_reviews = pagination.items
+
+    verified_review_ids = set()
+    account_ids = {review.customer_account_id for review in public_reviews if review.customer_account_id and review.product_id}
+    product_ids = {review.product_id for review in public_reviews if review.customer_account_id and review.product_id}
+    if account_ids and product_ids:
+        verified_pairs = db.session.query(
+            CustomerOrderLink.account_id, OrderItem.product_id
+        ).join(Order, CustomerOrderLink.order_id == Order.id).join(
+            OrderItem, OrderItem.order_id == Order.id
+        ).filter(
+            CustomerOrderLink.account_id.in_(account_ids),
+            OrderItem.product_id.in_(product_ids),
+            Order.status == "Completed",
+            Order.payment_status == "Paid",
+        ).distinct().all()
+        verified_pair_set = set(verified_pairs)
+        verified_review_ids = {
+            review.id for review in public_reviews
+            if (review.customer_account_id, review.product_id) in verified_pair_set
+        }
+
+    return render_template(
+        "reviews.html",
+        title="Customer Reviews",
+        reviews=public_reviews,
+        products=products,
+        selected_product=selected_product,
+        rating_filter=rating_filter,
+        sort_by=sort_by,
+        average_rating=average_rating,
+        approved_count=approved_count,
+        rating_distribution=rating_distribution,
+        pagination=pagination,
+        verified_review_ids=verified_review_ids,
+        customer_account=customer_account,
+        form_values=form_values,
+    )
 
 
 def render_policy_page(slug):
@@ -607,7 +822,7 @@ def render_policy_page(slug):
             ],
         },
         "returns": {
-            "title": "Returns and Refunds Policy",
+            "title": "Returns, exchanges, and cancellations",
             "description": "How to raise a return, exchange, cancellation, or refund request for review.",
             "sections": [
                 ("Report a problem", ["Contact FityStores within 48 hours of delivery if an item is incorrect, damaged, or appears defective. Include your order reference and describe the issue; photos can help the seller review it. Do not send sensitive payment credentials."]),
@@ -617,7 +832,7 @@ def render_policy_page(slug):
             ],
         },
         "privacy": {
-            "title": "Privacy Policy",
+            "title": "Privacy information",
             "description": "What shopping and account features collect, how FityStores uses information, and how to ask a question.",
             "sections": [
                 ("Information you provide", ["Depending on how you use the site, FityStores may receive your name, phone number, order items, fulfilment instructions, payment reference, and any payment proof you choose to upload. Enquiry, review, suggestion, and restock forms collect the details you submit."]),

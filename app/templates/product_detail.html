@@ -37,6 +37,7 @@
         <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" data-detail="true" {% if (active_variants and not active_variants|selectattr('available_quantity')|list) or (not active_variants and product.available_quantity < 1) %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to cart</span></button><a class="btn" href="{{ product_whatsapp_link(product, settings, request.url, 'buy') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask on WhatsApp</span></a>
       {% endif %}
     </div>
+    <p class="product-review-link"><a class="btn" href="{{ url_for('public.reviews', product_id=product.id) }}#write-review">Review this product</a></p>
     <div class="product-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ product_image_url(main_image) }}">
       <button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share product</button>
       <button class="btn" type="button" data-share-copy>Copy link</button>

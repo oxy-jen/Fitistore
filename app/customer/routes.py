@@ -16,7 +16,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db, csrf
-from app.models import AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken
+from app.models import AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, Product
 from app.services.customer_mail import mail_configuration_status, queue_branded_email
 
 customer_bp = Blueprint("customer", __name__, url_prefix="/account")
@@ -63,7 +63,7 @@ def customer_required(view):
 
 def _safe_customer_next(value):
     parsed = urlsplit((value or "").strip())
-    allowed_path = parsed.path in {"/account", "/account/"}
+    allowed_path = parsed.path in {"/account", "/account/", "/referrals"}
     if parsed.scheme or parsed.netloc or not allowed_path or parsed.path.startswith("//") or "\\" in parsed.path:
         return url_for("customer.dashboard")
     return parsed.path + (("?" + parsed.query) if parsed.query else "")
@@ -438,7 +438,16 @@ def logout():
 @customer_required
 def dashboard():
     links = CustomerOrderLink.query.filter_by(account_id=current_user.id).order_by(CustomerOrderLink.created_at.desc()).all()
-    return render_template("customer/dashboard.html", title="Your FityStores account", account=current_user, order_links=links, mail_configured=mail_configuration_status()[0], google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""))
+    fresh_arrivals = Product.query.filter_by(active=True).order_by(Product.created_at.desc(), Product.id.desc()).limit(6).all()
+    fresh_ids = {product.id for product in fresh_arrivals}
+    discounted_products = Product.query.filter(
+        Product.active.is_(True),
+        Product.previous_price_cents.isnot(None),
+        Product.price_cents.isnot(None),
+        Product.previous_price_cents > Product.price_cents,
+        Product.id.notin_(fresh_ids),
+    ).order_by(Product.updated_at.desc(), Product.id.desc()).limit(6).all()
+    return render_template("customer/dashboard.html", title="Your FityStores account", account=current_user, order_links=links, fresh_arrivals=fresh_arrivals, discounted_products=discounted_products, mail_configured=mail_configuration_status()[0], google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""))
 
 
 @customer_bp.post("/profile")

@@ -1,0 +1,2 @@
+ALTER TABLE customer_profile ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES customer_account(id);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_customer_profile_account_id ON customer_profile(account_id);

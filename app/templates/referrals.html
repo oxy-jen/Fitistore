@@ -3,7 +3,7 @@
   <div class="referral-hero">
     <p class="eyebrow">FityStores rewards</p>
     <h1>Share your link. Earn points.</h1>
-    <p>Create a lightweight profile with your phone number, then share your referral link with friends.</p>
+    <p>Your points and referral link are connected to your signed-in customer account.</p>
   </div>
 
   {% if profile %}
@@ -29,12 +29,13 @@
       </div>
     </section>
   {% else %}
+    <section class="referral-card"><h2>Your order rewards</h2><p><strong>{{ points }} points</strong> from orders linked to your signed-in account.</p><p>Connect a referral profile to unlock your personal share link and referral rewards.</p></section>
     <form class="referral-card referral-form" method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <h2>Create your profile</h2>
-      <label>Your phone number<input name="phone" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" required></label>
-      <label>Name, optional<input name="display_name" maxlength="120" placeholder="Your name"></label>
-      <button class="btn primary"><svg class="icon"><use href="#icon-checkout"></use></svg><span>Create referral link</span></button>
+      <h2>Connect your rewards profile</h2>
+      <label>Phone number for your rewards profile<input name="phone" inputmode="tel" autocomplete="tel" placeholder="0712 345 678" required></label><p class="note small">For privacy, existing phone-based rewards profiles cannot be claimed by entering a number alone. Contact support if you already have a referral profile to link.</p>
+
+      <button class="btn primary"><svg class="icon"><use href="#icon-checkout"></use></svg><span>Connect rewards</span></button>
     </form>
   {% endif %}
 

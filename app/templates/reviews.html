@@ -1,1040 +1,134 @@
-
 {% extends "base.html" %}
-
 {% block title %}Customer Reviews | FityStores{% endblock %}
-
 {% block content %}
-
 <style>
-/* =====================================
-   FityStores CUSTOMER REVIEWS
-   White 60% | Black 30% | Red 10%
-   Green for positive accents
-===================================== */
-
-.reviews-page {
-    --rv-white: #ffffff;
-    --rv-black: #111111;
-    --rv-red: #e32636;
-    --rv-green: #218838;
-    --rv-green-light: #eaf6ed;
-    --rv-bg: #f6f6f6;
-    --rv-muted: #686868;
-    --rv-border: #e8e8e8;
-
-    background: var(--rv-bg);
-    color: var(--rv-black);
-    padding-bottom: 65px;
-}
-
-.reviews-page * {
-    box-sizing: border-box;
-}
-
-.reviews-container {
-    width: min(1120px, 92%);
-    margin: 0 auto;
-}
-
-.reviews-page a {
-    text-decoration: none;
-}
-
-.reviews-page a:focus-visible,
-.reviews-page button:focus-visible,
-.reviews-page input:focus-visible,
-.reviews-page select:focus-visible,
-.reviews-page textarea:focus-visible {
-    outline: 3px solid var(--rv-red);
-    outline-offset: 3px;
-}
-
-.rv-eyebrow {
-    color: var(--rv-red);
-    font-size: 12px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 1.8px;
-    display: inline-block;
-    margin-bottom: 13px;
-}
-
-.rv-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 48px;
-    padding: 13px 21px;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 750;
-    text-align: center;
-    transition: background .2s, transform .2s, box-shadow .2s;
-}
-
-.rv-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 7px 17px rgba(0,0,0,.1);
-}
-
-.rv-btn-red {
-    background: var(--rv-red);
-    color: #fff !important;
-}
-
-.rv-btn-red:hover {
-    background: #c91d2c;
-}
-
-.rv-btn-black {
-    background: var(--rv-black);
-    color: #fff !important;
-}
-
-.rv-btn-outline {
-    background: #fff;
-    border-color: #dedede;
-    color: var(--rv-black) !important;
-}
-
-/* HERO */
-
-.rv-hero {
-    position: relative;
-    overflow: hidden;
-    background: var(--rv-black);
-    color: #fff;
-    padding: 65px 0;
-}
-
-.rv-hero::after {
-    content: "★";
-    position: absolute;
-    right: 5%;
-    top: 0;
-    font-size: 250px;
-    line-height: 1;
-    color: rgba(227,38,54,.10);
-    transform: rotate(-12deg);
-    pointer-events: none;
-}
-
-.rv-hero-inner {
-    position: relative;
-    z-index: 1;
-    display: grid;
-    grid-template-columns: 1.4fr .7fr;
-    align-items: center;
-    gap: 45px;
-}
-
-.rv-hero .rv-eyebrow {
-    color: #ff6976;
-}
-
-.rv-hero h1 {
-    font-size: clamp(37px, 5vw, 59px);
-    line-height: 1.08;
-    letter-spacing: -1.8px;
-    margin: 0 0 19px;
-}
-
-.rv-hero h1 span {
-    color: #ff5363;
-}
-
-.rv-hero-copy {
-    max-width: 640px;
-}
-
-.rv-hero-copy > p {
-    max-width: 550px;
-    color: #dedede;
-    line-height: 1.85;
-    margin: 0 0 26px;
-}
-
-.rv-hero-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-}
-
-.rv-hero-card {
-    padding: 27px;
-    background: #1d1d1d;
-    border: 1px solid #383838;
-    border-radius: 14px;
-}
-
-.rv-hero-card .rv-star-display {
-    font-size: 28px;
-    letter-spacing: 3px;
-    color: #f2b544;
-    margin-bottom: 12px;
-}
-
-.rv-hero-card h2 {
-    font-size: 22px;
-    margin: 0 0 12px;
-}
-
-.rv-hero-card p {
-    font-size: 14px;
-    color: #d0d0d0;
-    line-height: 1.8;
-    margin: 0;
-}
-
-/* TRUST STRIP */
-
-.rv-trust-strip {
-    background: #fff;
-    border-bottom: 1px solid var(--rv-border);
-}
-
-.rv-trust-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.rv-trust-item {
-    display: flex;
-    align-items: center;
-    gap: 13px;
-    padding: 22px 17px;
-    border-right: 1px solid var(--rv-border);
-}
-
-.rv-trust-item:last-child {
-    border-right: 0;
-}
-
-.rv-trust-icon {
-    width: 43px;
-    height: 43px;
-    flex-shrink: 0;
-    display: grid;
-    place-items: center;
-    background: #fff0f1;
-    color: var(--rv-red);
-    border-radius: 10px;
-    font-weight: 850;
-    font-size: 18px;
-}
-
-.rv-trust-item strong {
-    display: block;
-    font-size: 13px;
-    margin-bottom: 5px;
-}
-
-.rv-trust-item small {
-    color: var(--rv-muted);
-    font-size: 12px;
-    line-height: 1.6;
-}
-
-/* MAIN CONTENT */
-
-.rv-section {
-    padding: 62px 0;
-}
-
-.rv-section-heading {
-    margin-bottom: 28px;
-}
-
-.rv-section-heading h2 {
-    font-size: clamp(27px, 4vw, 37px);
-    letter-spacing: -1px;
-    margin: 0 0 12px;
-}
-
-.rv-section-heading p {
-    max-width: 660px;
-    color: var(--rv-muted);
-    line-height: 1.8;
-    margin: 0;
-}
-
-/* FORM */
-
-.rv-form-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1.3fr) minmax(260px, .7fr);
-    align-items: start;
-    gap: 25px;
-}
-
-.rv-form-card {
-    background: #fff;
-    border: 1px solid var(--rv-border);
-    border-radius: 14px;
-    padding: 30px;
-    box-shadow: 0 6px 24px rgba(0,0,0,.035);
-}
-
-.rv-form-card h3 {
-    font-size: 22px;
-    margin: 0 0 9px;
-}
-
-.rv-form-intro {
-    color: var(--rv-muted);
-    font-size: 14px;
-    line-height: 1.8;
-    margin: 0 0 25px;
-}
-
-.rv-form-card label {
-    display: block;
-    font-weight: 750;
-    font-size: 13px;
-    margin-bottom: 19px;
-}
-
-.rv-form-card input,
-.rv-form-card select,
-.rv-form-card textarea {
-    display: block;
-    width: 100%;
-    margin-top: 9px;
-    padding: 13px 14px;
-    border: 1px solid #dedede;
-    border-radius: 8px;
-    background: #fff;
-    color: var(--rv-black);
-    font: inherit;
-    font-size: 14px;
-    transition: border-color .2s, box-shadow .2s;
-}
-
-.rv-form-card input:focus,
-.rv-form-card select:focus,
-.rv-form-card textarea:focus {
-    border-color: var(--rv-red);
-    box-shadow: 0 0 0 3px rgba(227,38,54,.08);
-    outline: none;
-}
-
-.rv-form-card textarea {
-    resize: vertical;
-    min-height: 145px;
-    line-height: 1.7;
-}
-
-.rv-form-card .rv-btn {
-    width: 100%;
-    font: inherit;
-    font-size: 14px;
-}
-
-.rv-field-hint {
-    display: block;
-    margin-top: 7px;
-    font-size: 12px;
-    line-height: 1.6;
-    color: var(--rv-muted);
-}
-
-.rv-char-count {
-    display: block;
-    margin-top: 7px;
-    text-align: right;
-    font-size: 12px;
-    color: var(--rv-muted);
-    font-weight: 400;
-}
-
-.rv-form-note {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 14px;
-    border-radius: 9px;
-    background: var(--rv-green-light);
-    color: #226333;
-    font-size: 12px;
-    line-height: 1.7;
-    margin: 20px 0;
-}
-
-/* SIDE PANEL */
-
-.rv-guidelines {
-    display: grid;
-    gap: 17px;
-}
-
-.rv-guide-card {
-    padding: 24px;
-    background: #fff;
-    border: 1px solid var(--rv-border);
-    border-radius: 12px;
-}
-
-.rv-guide-card h3 {
-    font-size: 17px;
-    margin: 0 0 11px;
-}
-
-.rv-guide-card p,
-.rv-guide-card li {
-    font-size: 13px;
-    line-height: 1.8;
-    color: var(--rv-muted);
-}
-
-.rv-guide-card p {
-    margin: 0;
-}
-
-.rv-guide-card ul {
-    padding-left: 18px;
-    margin: 10px 0 0;
-}
-
-.rv-guide-icon {
-    width: 42px;
-    height: 42px;
-    display: grid;
-    place-items: center;
-    background: #fff0f1;
-    color: var(--rv-red);
-    font-size: 18px;
-    font-weight: 850;
-    border-radius: 10px;
-    margin-bottom: 15px;
-}
-
-/* APPROVED REVIEWS */
-
-.rv-reviews-section {
-    background: #fff;
-    border-top: 1px solid var(--rv-border);
-}
-
-.rv-review-heading-row {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 20px;
-    margin-bottom: 28px;
-}
-
-.rv-review-heading-row .rv-section-heading {
-    margin: 0;
-}
-
-.rv-approved-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 9px 12px;
-    border-radius: 7px;
-    background: var(--rv-green-light);
-    color: var(--rv-green);
-    font-size: 12px;
-    font-weight: 800;
-}
-
-.rv-review-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 20px;
-}
-
-.rv-review-card {
-    min-width: 0;
-    padding: 25px;
-    background: #fff;
-    border: 1px solid var(--rv-border);
-    border-radius: 12px;
-    transition: transform .2s, box-shadow .2s;
-}
-
-.rv-review-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 10px 25px rgba(0,0,0,.06);
-}
-
-.rv-review-top {
-    display: flex;
-    align-items: center;
-    gap: 13px;
-    margin-bottom: 16px;
-}
-
-.rv-avatar {
-    width: 44px;
-    height: 44px;
-    flex-shrink: 0;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    background: var(--rv-black);
-    color: #fff;
-    font-size: 17px;
-    font-weight: 850;
-}
-
-.rv-review-name {
-    min-width: 0;
-}
-
-.rv-review-name strong {
-    display: block;
-    font-size: 14px;
-    overflow-wrap: anywhere;
-}
-
-.rv-review-name small {
-    display: block;
-    font-size: 11px;
-    color: var(--rv-muted);
-    margin-top: 4px;
-}
-
-.rv-review-stars {
-    color: #d99a16;
-    font-size: 17px;
-    letter-spacing: 2px;
-    margin-bottom: 13px;
-}
-
-.rv-review-text {
-    color: #555;
-    font-size: 14px;
-    line-height: 1.85;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-    margin: 0;
-}
-
-.rv-product-tag {
-    display: inline-block;
-    padding: 7px 10px;
-    margin-top: 17px;
-    border-radius: 6px;
-    background: #f3f3f3;
-    color: #444;
-    font-size: 11px;
-    font-weight: 750;
-}
-
-/* EMPTY STATE */
-
-.rv-empty {
-    text-align: center;
-    padding: 45px 25px;
-    border: 1px dashed #d8d8d8;
-    border-radius: 13px;
-    background: #fafafa;
-}
-
-.rv-empty-icon {
-    width: 62px;
-    height: 62px;
-    margin: 0 auto 18px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    background: #fff0f1;
-    color: var(--rv-red);
-    font-size: 26px;
-}
-
-.rv-empty h3 {
-    font-size: 21px;
-    margin: 0 0 10px;
-}
-
-.rv-empty p {
-    color: var(--rv-muted);
-    line-height: 1.8;
-    font-size: 14px;
-    max-width: 480px;
-    margin: 0 auto;
-}
-
-/* FINAL CTA */
-
-.rv-final-cta {
-    padding: 42px;
-    border-radius: 14px;
-    background: var(--rv-black);
-    color: #fff;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 25px;
-}
-
-.rv-final-cta h2 {
-    font-size: clamp(24px, 3vw, 33px);
-    margin: 0 0 10px;
-}
-
-.rv-final-cta p {
-    color: #d0d0d0;
-    font-size: 14px;
-    line-height: 1.8;
-    margin: 0;
-}
-
-/* RESPONSIVE */
-
-@media (max-width: 900px) {
-    .rv-hero-inner {
-        grid-template-columns: 1fr;
-    }
-
-    .rv-hero-card {
-        max-width: 500px;
-    }
-
-    .rv-form-layout {
-        grid-template-columns: 1fr;
-    }
-
-    .rv-review-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
-@media (max-width: 600px) {
-    .rv-hero {
-        padding: 48px 0;
-    }
-
-    .rv-hero h1 {
-        font-size: 39px;
-        letter-spacing: -1px;
-    }
-
-    .rv-hero-actions {
-        flex-direction: column;
-    }
-
-    .rv-hero-actions .rv-btn {
-        width: 100%;
-    }
-
-    .rv-trust-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .rv-trust-item {
-        border-right: 0;
-        border-bottom: 1px solid var(--rv-border);
-        padding: 16px 4%;
-    }
-
-    .rv-trust-item:last-child {
-        border-bottom: 0;
-    }
-
-    .rv-section {
-        padding: 46px 0;
-    }
-
-    .rv-form-card {
-        padding: 22px;
-    }
-
-    .rv-review-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .rv-review-heading-row {
-        align-items: flex-start;
-        flex-direction: column;
-    }
-
-    .rv-final-cta {
-        align-items: stretch;
-        flex-direction: column;
-        padding: 27px 22px;
-    }
-
-    .rv-final-cta .rv-btn {
-        width: 100%;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .reviews-page *,
-    .reviews-page *::before,
-    .reviews-page *::after {
-        transition: none !important;
-        scroll-behavior: auto !important;
-    }
-}
+.reviews-page{--rv-red:#e32636;--rv-gold:#e5a91a;--rv-green:#16834a;--rv-ink:#17191d;--rv-muted:#667080;--rv-line:#e6e9ed;--rv-soft:#f6f7f8;background:#fff;color:var(--rv-ink);padding-bottom:2.5rem}
+.reviews-page *{box-sizing:border-box}.reviews-container{width:min(1160px,92%);margin:0 auto}.reviews-page a{text-decoration:none}.reviews-page button:focus-visible,.reviews-page a:focus-visible,.reviews-page input:focus-visible,.reviews-page select:focus-visible,.reviews-page textarea:focus-visible{outline:3px solid rgba(227,38,54,.35);outline-offset:3px}
+.rv-hero{padding:clamp(25px,4vw,46px) 0 22px;background:linear-gradient(115deg,#fff 0%,#fff 58%,#fff1f2 100%);border-bottom:1px solid var(--rv-line)}.rv-hero-row{display:flex;align-items:center;justify-content:space-between;gap:22px}.rv-eyebrow{display:inline-block;margin:0 0 7px;color:var(--rv-red);font-size:.72rem;font-weight:850;letter-spacing:.14em;text-transform:uppercase}.rv-hero h1{margin:0 0 8px;font-size:clamp(30px,4vw,44px);line-height:1.1;letter-spacing:-.045em}.rv-hero p{margin:0;color:var(--rv-muted);font-size:15px;line-height:1.6}.rv-hero-actions{display:flex;gap:9px;flex:none}.rv-btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:11px 17px;border:1px solid transparent;border-radius:10px;font:inherit;font-size:13px;font-weight:800;text-align:center;cursor:pointer;transition:transform .18s,box-shadow .18s,background .18s}.rv-btn:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(20,20,20,.1)}.rv-btn-red{background:var(--rv-red);color:#fff}.rv-btn-outline{background:#fff;border-color:#dfe2e7;color:var(--rv-ink)}
+.rv-summary-section{padding:25px 0 10px}.rv-summary{display:grid;grid-template-columns:minmax(220px,.72fr) minmax(0,1.28fr);gap:clamp(18px,4vw,42px);align-items:center;padding:clamp(20px,3vw,30px);border:1px solid var(--rv-line);border-radius:17px;background:#fff;box-shadow:0 8px 24px rgba(20,20,20,.045)}.rv-score{display:flex;align-items:center;gap:17px}.rv-score-number{font-size:clamp(40px,6vw,58px);font-weight:900;line-height:1;letter-spacing:-.06em}.rv-score-meta{display:grid;gap:5px}.rv-stars-static{color:var(--rv-gold);font-size:20px;letter-spacing:2px;white-space:nowrap}.rv-count-label{color:var(--rv-muted);font-size:12px}.rv-dist{display:grid;gap:8px}.rv-dist-row{display:grid;grid-template-columns:44px minmax(60px,1fr) 34px;align-items:center;gap:10px;color:var(--rv-muted);font-size:12px}.rv-dist-track{height:8px;overflow:hidden;border-radius:99px;background:#edf0f2}.rv-dist-fill{height:100%;border-radius:inherit;background:var(--rv-gold)}.rv-dist-count{text-align:right;font-variant-numeric:tabular-nums}.rv-empty-summary{color:var(--rv-muted);font-size:13px;line-height:1.55}
+.rv-section{padding:36px 0}.rv-section-heading{margin:0 0 18px}.rv-section-heading h2{margin:0 0 6px;font-size:clamp(22px,3vw,29px);letter-spacing:-.035em}.rv-section-heading p{margin:0;color:var(--rv-muted);font-size:13px;line-height:1.6}.rv-selected-product{display:inline-flex;margin-top:9px;padding:6px 10px;border-radius:8px;background:#fff1f2;color:#a51929;font-size:12px;font-weight:750}
+.rv-form-layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(240px,.75fr);align-items:start;gap:20px}.rv-form-card,.rv-guide-card{padding:clamp(18px,2.6vw,27px);border:1px solid var(--rv-line);border-radius:15px;background:#fff;box-shadow:0 7px 24px rgba(17,17,17,.045)}.rv-form-card h3{margin:0 0 6px;font-size:20px}.rv-form-intro{margin:0 0 18px;color:var(--rv-muted);font-size:13px;line-height:1.6}.rv-form-card label,.rv-form-card .rv-field-label{display:block;margin:0 0 14px;font-size:12px;font-weight:800}.rv-form-card input:not([type=radio]),.rv-form-card select,.rv-form-card textarea{display:block;width:100%;min-height:44px;margin-top:7px;padding:11px 12px;border:1px solid #d9dee5;border-radius:9px;background:#fff;color:var(--rv-ink);font:inherit;font-size:14px}.rv-form-card textarea{min-height:120px;line-height:1.6;resize:vertical}.rv-form-card input:focus,.rv-form-card select:focus,.rv-form-card textarea:focus{border-color:var(--rv-red);outline:none;box-shadow:0 0 0 3px rgba(227,38,54,.09)}.rv-hint{display:block;margin-top:6px;color:var(--rv-muted);font-size:11px;font-weight:450;line-height:1.45}.rv-rating-fieldset{margin:0 0 16px;padding:0;border:0}.rv-rating-fieldset legend{margin-bottom:8px;font-size:12px;font-weight:800}.rv-rating-control{display:flex;align-items:center;gap:5px}.rv-rating-option{position:relative;display:block!important;margin:0!important;cursor:pointer}.rv-rating-input{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.rv-star-mark{display:grid;place-items:center;width:42px;height:42px;border:1px solid #e3e6ea;border-radius:10px;background:#fafbfc;color:#c6cbd2;font-size:27px;line-height:1;transition:color .15s,background .15s,border-color .15s,transform .15s}.rv-rating-option:hover .rv-star-mark,.rv-rating-option.preview .rv-star-mark,.rv-rating-option.selected .rv-star-mark{color:var(--rv-gold);background:#fff9e8;border-color:#f2dfab}.rv-rating-option.selected .rv-star-mark{transform:translateY(-2px)}.rv-rating-input:focus-visible+.rv-star-mark{outline:3px solid rgba(227,38,54,.35);outline-offset:2px}.rv-rating-caption{min-height:18px;margin:6px 0 0;color:var(--rv-muted);font-size:12px}.rv-char-count{display:block;margin-top:6px;color:var(--rv-muted);font-size:11px;font-weight:500;text-align:right}.rv-form-note{display:flex;gap:9px;margin:3px 0 15px;padding:12px 13px;border-radius:10px;background:#f4f7f5;color:#466250;font-size:11px;line-height:1.55}.rv-honeypot{position:absolute!important;left:-10000px!important;width:1px!important;height:1px!important;overflow:hidden!important}.rv-form-submit{width:100%;min-height:47px}.rv-guides{display:grid;gap:12px}.rv-guide-card h3{margin:0 0 7px;font-size:15px}.rv-guide-card p,.rv-guide-card li{margin:0;color:var(--rv-muted);font-size:12px;line-height:1.65}.rv-guide-card ul{display:grid;gap:5px;margin:9px 0 0;padding-left:18px}.rv-guide-card .rv-guide-kicker{display:block;margin-bottom:7px;color:var(--rv-red);font-size:10px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}
+.rv-reviews-section{border-top:1px solid var(--rv-line);background:#fafbfc}.rv-review-head{display:flex;align-items:flex-end;justify-content:space-between;gap:15px;margin-bottom:16px}.rv-review-head h2{margin:0 0 5px;font-size:clamp(23px,3vw,30px);letter-spacing:-.04em}.rv-review-head p{margin:0;color:var(--rv-muted);font-size:13px}.rv-controls{display:grid;gap:12px;margin:0 0 18px;padding:15px;border:1px solid var(--rv-line);border-radius:13px;background:#fff}.rv-filter-row{display:flex;align-items:center;gap:7px;overflow-x:auto;padding:2px 2px 5px;scrollbar-width:thin}.rv-filter-chip{flex:none;padding:8px 11px;border:1px solid #e0e3e7;border-radius:999px;background:#fff;color:#444;font-size:11px;font-weight:750;white-space:nowrap}.rv-filter-chip.active{border-color:var(--rv-red);background:#fff0f1;color:#bd1e2c}.rv-control-form{display:flex;align-items:end;gap:10px;flex-wrap:wrap}.rv-control-form label{display:grid;gap:5px;color:var(--rv-muted);font-size:11px;font-weight:750}.rv-control-form select{min-width:165px;min-height:39px;padding:8px 10px;border:1px solid #dfe2e7;border-radius:8px;background:#fff;color:var(--rv-ink);font:inherit;font-size:12px}.rv-control-form .rv-btn{min-height:39px;padding:8px 14px;font-size:12px}.rv-review-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.rv-review-card{display:flex;flex-direction:column;min-width:0;padding:19px;border:1px solid var(--rv-line);border-radius:14px;background:#fff;box-shadow:0 5px 18px rgba(17,17,17,.035);transition:transform .18s,box-shadow .18s}.rv-review-card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(17,17,17,.07)}.rv-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:9px}.rv-review-stars{color:var(--rv-gold);font-size:15px;letter-spacing:1.5px;white-space:nowrap}.rv-review-date{color:var(--rv-muted);font-size:10px;white-space:nowrap}.rv-review-title{margin:11px 0 7px;font-size:16px;line-height:1.35;overflow-wrap:anywhere}.rv-review-text{margin:0;color:#515b68;font-size:13px;line-height:1.7;overflow-wrap:anywhere;white-space:pre-wrap}.rv-review-by{margin-top:auto;padding-top:14px;color:#32363c;font-size:12px;font-weight:800;overflow-wrap:anywhere}.rv-review-product{display:flex;align-items:center;gap:9px;margin-top:12px;padding-top:11px;border-top:1px solid #eff0f2;color:#4e5967;font-size:11px;font-weight:700;overflow-wrap:anywhere}.rv-review-product img{width:40px;height:40px;flex:none;border:1px solid var(--rv-line);border-radius:8px;background:#f7f8f9;object-fit:cover}.rv-verified{display:inline-flex;align-items:center;gap:4px;margin-top:8px;color:var(--rv-green);font-size:10px;font-weight:800}.rv-empty{padding:32px 18px;border:1px dashed #d5d9df;border-radius:14px;background:#fff;text-align:center}.rv-empty h3{margin:0 0 6px;font-size:17px}.rv-empty p{max-width:480px;margin:0 auto;color:var(--rv-muted);font-size:13px;line-height:1.6}.rv-pagination{display:flex;justify-content:center;align-items:center;gap:6px;margin-top:20px;flex-wrap:wrap}.rv-pagination a,.rv-pagination span{min-width:36px;padding:8px 10px;border:1px solid var(--rv-line);border-radius:8px;background:#fff;color:#333;font-size:12px;text-align:center}.rv-pagination .current{border-color:var(--rv-red);background:#fff0f1;color:#b61e2b;font-weight:850}
+.rv-alert{margin:12px auto;padding:12px 14px;border:1px solid #f1c9ce;border-radius:10px;background:#fff4f5;color:#8f1f2a;font-size:13px}.rv-alert.success{border-color:#bfe1c9;background:#f0faf2;color:#176638}.rv-alert.info{border-color:#c9dff3;background:#f3f9ff;color:#285a80}
+@media(max-width:900px){.rv-summary{grid-template-columns:minmax(200px,.8fr) minmax(0,1.2fr);gap:20px}.rv-review-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.rv-form-layout{grid-template-columns:minmax(0,1.1fr) minmax(220px,.9fr)}}
+@media(max-width:680px){.rv-hero{padding:22px 0 18px}.rv-hero-row{align-items:flex-start;flex-direction:column;gap:14px}.rv-hero-actions{width:100%}.rv-hero-actions .rv-btn{flex:1}.rv-summary-section{padding-top:16px}.rv-summary{grid-template-columns:1fr;gap:16px;padding:18px}.rv-score-number{font-size:45px}.rv-section{padding:28px 0}.rv-form-layout{grid-template-columns:1fr;gap:13px}.rv-form-card,.rv-guide-card{padding:17px}.rv-review-head{align-items:flex-start;flex-direction:column}.rv-review-grid{grid-template-columns:1fr}.rv-review-card{padding:17px}.rv-control-form{align-items:stretch}.rv-control-form label{flex:1;min-width:130px}.rv-control-form select{width:100%;min-width:0}.rv-control-form .rv-btn{width:100%}.rv-filter-row{margin-inline:-4px}.rv-score{gap:12px}}
+@media(max-width:360px){.reviews-container{width:94%}.rv-hero h1{font-size:29px}.rv-hero-actions{flex-direction:column}.rv-star-mark{width:39px;height:39px}}
+@media(prefers-reduced-motion:reduce){.rv-btn,.rv-review-card,.rv-star-mark{transition:none}}
 </style>
-
 <div class="reviews-page">
+  <section class="rv-hero">
+    <div class="reviews-container rv-hero-row">
+      <div>
+        <span class="rv-eyebrow">The customer voice</span>
+        <h1>Customer Reviews</h1>
+        <p>Real feedback. Better shopping. Fits poa.</p>
+        {% if selected_product %}<span class="rv-selected-product">Reviews for {{ selected_product.name }}</span>{% endif %}
+      </div>
+      <div class="rv-hero-actions"><a class="rv-btn rv-btn-red" href="#write-review">Write a Review</a><a class="rv-btn rv-btn-outline" href="#approved-reviews">Read Reviews</a></div>
+    </div>
+  </section>
 
-    <!-- HERO -->
-    <section class="rv-hero">
-        <div class="reviews-container rv-hero-inner">
-
-            <div class="rv-hero-copy">
-                <span class="rv-eyebrow">The customer voice</span>
-
-                <h1>
-                    Your Experience.<br>
-                    <span>Your Review.</span>
-                </h1>
-
-                <p>
-                    Shopping at FityStores? Share your experience
-                    and help other customers make informed choices.
-                    Honest feedback helps us understand what we're
-                    doing well and where we can improve.
-                </p>
-
-                <div class="rv-hero-actions">
-                    <a href="#write-review" class="rv-btn rv-btn-red">
-                        Write a Review
-                    </a>
-
-                    <a href="#approved-reviews"
-                       class="rv-btn rv-btn-outline">
-                        Read Customer Reviews
-                    </a>
-                </div>
-            </div>
-
-            <aside class="rv-hero-card">
-                <div class="rv-star-display"
-                     aria-label="Star rating illustration">
-                    ★★★★★
-                </div>
-
-                <h2>Every Experience Matters</h2>
-
-                <p>
-                    Your feedback gives the shop useful insights
-                    and helps future customers understand real
-                    shopping experiences.
-                </p>
-            </aside>
-
+  <section class="rv-summary-section" aria-label="Approved review summary">
+    <div class="reviews-container">
+      <div class="rv-summary">
+        <div class="rv-score">
+          <div class="rv-score-number">{% if approved_count %}{{ '%.1f'|format(average_rating) }}{% else %}--{% endif %}</div>
+          <div class="rv-score-meta">
+            <div class="rv-stars-static" aria-label="Average {{ '%.1f'|format(average_rating) }} out of 5 stars">{% for star in range(1,6) %}<span aria-hidden="true">{% if star <= average_rating|round(0,'floor')|int %}&#9733;{% else %}&#9734;{% endif %}</span>{% endfor %}</div>
+            <span class="rv-count-label">{% if approved_count %}{{ approved_count }} approved {{ 'review' if approved_count == 1 else 'reviews' }}{% else %}No approved reviews yet{% endif %}</span>
+          </div>
         </div>
-    </section>
-
-    <!-- TRUST STRIP -->
-    <section class="rv-trust-strip">
-        <div class="reviews-container rv-trust-grid">
-
-            <div class="rv-trust-item">
-                <div class="rv-trust-icon">01</div>
-                <div>
-                    <strong>Share Honest Feedback</strong>
-                    <small>Tell us about your experience.</small>
-                </div>
-            </div>
-
-            <div class="rv-trust-item">
-                <div class="rv-trust-icon">02</div>
-                <div>
-                    <strong>Moderated Reviews</strong>
-                    <small>Submissions are reviewed before publication.</small>
-                </div>
-            </div>
-
-            <div class="rv-trust-item">
-                <div class="rv-trust-icon">03</div>
-                <div>
-                    <strong>Help Other Shoppers</strong>
-                    <small>Useful feedback supports better decisions.</small>
-                </div>
-            </div>
-
+        {% if approved_count %}
+        <div class="rv-dist" aria-label="Rating distribution">
+          {% for star in range(5,0,-1) %}{% set count=rating_distribution[star] %}{% set percent=(count * 100 / approved_count)|round|int %}
+          <div class="rv-dist-row"><span>{{ star }} star{{ '' if star == 1 else 's' }}</span><div class="rv-dist-track" role="progressbar" aria-label="{{ star }} star reviews" aria-valuemin="0" aria-valuemax="{{ approved_count }}" aria-valuenow="{{ count }}"><div class="rv-dist-fill" style="width:{{ percent }}%"></div></div><span class="rv-dist-count">{{ count }}</span></div>
+          {% endfor %}
         </div>
-    </section>
+        {% else %}<p class="rv-empty-summary">Be the first customer to share an honest review. Ratings and totals will appear here after reviews are approved.</p>{% endif %}
+      </div>
+    </div>
+  </section>
 
-    <!-- REVIEW FORM -->
-    <section class="rv-section" id="write-review">
-        <div class="reviews-container">
+  {% with messages=get_flashed_messages(with_categories=true) %}{% if messages %}<div class="reviews-container" role="status">{% for category,message in messages %}<p class="rv-alert {{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}{% endwith %}
 
-            <div class="rv-section-heading">
-                <span class="rv-eyebrow">Your voice counts</span>
-                <h2>Share Your Experience</h2>
-                <p>
-                    Tell us what you think. Complete the form below
-                    and submit your review for moderation.
-                </p>
-            </div>
+  <section class="rv-section" id="write-review">
+    <div class="reviews-container">
+      <div class="rv-section-heading"><span class="rv-eyebrow">Your voice counts</span><h2>Share your experience</h2><p>Tell us about a product or your experience shopping with FityStores. Reviews are checked before they are published.</p></div>
+      <div class="rv-form-layout">
+        <form class="rv-form-card" method="post" id="review-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="rv-honeypot" aria-hidden="true" tabindex="-1">Leave this field blank<input name="website_url" tabindex="-1" autocomplete="off"></label>
+          <h3>Write a review</h3><p class="rv-form-intro">Share a useful, respectful account of your own experience.</p>
+          {% if customer_account %}<p class="rv-form-note"><span>Your public display name is <strong>{{ customer_account.display_name or 'Customer' }}</strong>. Your email and account details stay private.</span></p>{% else %}
+          <label for="rv-display-name">Display name<input id="rv-display-name" name="display_name" maxlength="80" required value="{{ form_values.get('display_name','') }}" placeholder="Name shown with your review"><span class="rv-hint">Use a name you are comfortable showing publicly.</span></label>{% endif %}
+          <fieldset class="rv-rating-fieldset" aria-describedby="rv-rating-caption"><legend>Overall rating <span aria-hidden="true">*</span></legend><div class="rv-rating-control" role="radiogroup" aria-label="Choose a rating from one to five stars">
+            {% for rating_value in range(1,6) %}<label class="rv-rating-option" for="rv-rating-{{ rating_value }}"><input class="rv-rating-input" type="radio" id="rv-rating-{{ rating_value }}" name="rating" value="{{ rating_value }}" required {% if form_values.get('rating') == rating_value|string %}checked{% endif %}><span class="rv-star-mark" aria-hidden="true">&#9733;</span><span class="sr-only">{{ rating_value }} star{{ '' if rating_value == 1 else 's' }}</span></label>{% endfor %}
+          </div><p class="rv-rating-caption" id="rv-rating-caption" aria-live="polite">Choose a star rating.</p></fieldset>
+          <label for="rv-title">Review title<input id="rv-title" name="title" maxlength="120" required value="{{ form_values.get('title','') }}" placeholder="Sum up your experience"><span class="rv-hint">Up to 120 characters.</span></label>
+          <label for="rv-product">Product (optional)<select id="rv-product" name="product_id"><option value="">General shopping experience</option>{% for product in products %}<option value="{{ product.id }}" {% if (form_values.get('product_id') == product.id|string) or (not form_values.get('product_id') and selected_product and selected_product.id == product.id) %}selected{% endif %}>{{ product.name }}</option>{% endfor %}</select><span class="rv-hint">Choose an item if your review is about a particular product.</span></label>
+          <label for="rv-text">Your review<textarea id="rv-text" name="text" maxlength="1000" required placeholder="What should other shoppers know?" aria-describedby="rv-char-count">{{ form_values.get('text','') }}</textarea><span class="rv-char-count" id="rv-char-count" aria-live="polite">0 / 1000 characters</span></label>
+          <p class="rv-form-note"><span>Only your display name, rating, review, date, and selected product may be shown publicly after approval. Do not include passwords, payment PINs, phone numbers, or order details.</span></p>
+          <button class="rv-btn rv-btn-red rv-form-submit" type="submit" id="rv-submit">Submit review for approval</button>
+        </form>
+        <aside class="rv-guides" aria-label="Review guidance">
+          <article class="rv-guide-card"><span class="rv-guide-kicker">Helpful feedback</span><h3>Make it useful</h3><ul><li>Describe what you actually experienced.</li><li>Include details that can help another shopper.</li><li>Keep feedback respectful and specific.</li></ul></article>
+          <article class="rv-guide-card"><span class="rv-guide-kicker">Privacy and moderation</span><h3>Your review is checked first</h3><p>New reviews stay private until approved. We do not publish your email, phone number, address, or order information.</p></article>
+          {% if selected_product %}<article class="rv-guide-card"><span class="rv-guide-kicker">Product review</span><h3>{{ selected_product.name }}</h3><p>This review will be associated with the selected product.</p></article>{% endif %}
+        </aside>
+      </div>
+    </div>
+  </section>
 
-            <div class="rv-form-layout">
+  <section class="rv-section rv-reviews-section" id="approved-reviews">
+    <div class="reviews-container">
+      <div class="rv-review-head"><div><span class="rv-eyebrow">Community feedback</span><h2>{% if selected_product %}Reviews for {{ selected_product.name }}{% else %}Approved customer reviews{% endif %}</h2><p>Only reviews approved by the FityStores team appear here.</p></div></div>
+      <div class="rv-controls">
+        <nav class="rv-filter-row" aria-label="Filter by rating">
+          <a class="rv-filter-chip {% if not rating_filter %}active{% endif %}" href="{{ url_for('public.reviews', product_id=selected_product.id if selected_product else None, sort=sort_by, page=1) }}">All ratings</a>
+          {% for star in range(5,0,-1) %}<a class="rv-filter-chip {% if rating_filter == star|string %}active{% endif %}" href="{{ url_for('public.reviews', product_id=selected_product.id if selected_product else None, rating_filter=star, sort=sort_by, page=1) }}">{{ star }} star{{ '' if star == 1 else 's' }} ({{ rating_distribution[star] }})</a>{% endfor %}
+        </nav>
+        <form class="rv-control-form" method="get" action="{{ url_for('public.reviews') }}">
+          <input type="hidden" name="rating_filter" value="{{ rating_filter }}">
+          <label>Product<select name="product_id"><option value="">All products and store reviews</option>{% for product in products %}<option value="{{ product.id }}" {% if selected_product and selected_product.id == product.id %}selected{% endif %}>{{ product.name }}</option>{% endfor %}</select></label>
+          <label>Sort by<select name="sort"><option value="recent" {% if sort_by == 'recent' %}selected{% endif %}>Most recent</option><option value="highest" {% if sort_by == 'highest' %}selected{% endif %}>Highest rated</option><option value="lowest" {% if sort_by == 'lowest' %}selected{% endif %}>Lowest rated</option></select></label>
+          <button class="rv-btn rv-btn-outline" type="submit">Apply filters</button>
+        </form>
+      </div>
 
-                <form class="rv-form-card" method="post">
-                    <input type="hidden"
-                           name="csrf_token"
-                           value="{{ csrf_token() }}">
+      {% if reviews %}<div class="rv-review-grid">
+        {% for review in reviews %}<article class="rv-review-card">
+          <div class="rv-card-top"><div class="rv-review-stars" aria-label="{{ review.rating }} out of 5 stars">{% for star in range(1,6) %}<span aria-hidden="true">{% if star <= review.rating %}&#9733;{% else %}<span style="color:#d6dbe0">&#9733;</span>{% endif %}</span>{% endfor %}</div><time class="rv-review-date" datetime="{{ review.created_at.isoformat() }}">{{ review.created_at.strftime('%d %b %Y') }}</time></div>
+          <h3 class="rv-review-title">{{ review.title or 'Customer review' }}</h3><p class="rv-review-text">{{ review.text }}</p>
+          <p class="rv-review-by">{{ review.display_name }}</p>
+          {% if review.id in verified_review_ids %}<span class="rv-verified"><span aria-hidden="true">&#10003;</span> Verified purchase</span>{% endif %}
+          {% if review.product %}{% set review_image=product_display_image(review.product) %}<a class="rv-review-product" href="{{ url_for('public.product_detail', slug=review.product.slug) }}">{% if review_image %}<img src="{{ product_image_url(review_image) }}" alt="{{ product_image_alt(review_image, review.product.name) }}" loading="lazy">{% endif %}<span>{{ review.product.name }}</span></a>{% endif %}
+        </article>{% endfor %}
+      </div>
+      {% elif approved_count == 0 and not rating_filter %}<div class="rv-empty"><h3>No approved reviews yet</h3><p>Be the first customer to share an honest experience. New submissions appear here after moderation.</p><a class="rv-btn rv-btn-red" href="#write-review" style="margin-top:14px">Write the first review</a></div>
+      {% else %}<div class="rv-empty"><h3>No reviews match these filters</h3><p>Try another rating or product, or clear the filters to see all approved reviews.</p><a class="rv-btn rv-btn-outline" href="{{ url_for('public.reviews', product_id=selected_product.id if selected_product else None) }}" style="margin-top:14px">Clear rating and sorting</a></div>{% endif %}
 
-                    <h3>Write a Customer Review</h3>
-
-                    <p class="rv-form-intro">
-                        Please keep your feedback respectful,
-                        relevant, and based on your experience.
-                    </p>
-
-                    <label for="rv-display-name">
-                        Your Display Name
-                        <input
-                            id="rv-display-name"
-                            type="text"
-                            name="display_name"
-                            maxlength="80"
-                            autocomplete="nickname"
-                            placeholder="Enter the name to display"
-                            required
-                        >
-                    </label>
-
-                    <label for="rv-rating">
-                        Your Rating
-                        <select id="rv-rating" name="rating" required>
-                            <option value="5">★★★★★ — Excellent (5/5)</option>
-                            <option value="4">★★★★☆ — Very good (4/5)</option>
-                            <option value="3">★★★☆☆ — Good (3/5)</option>
-                            <option value="2">★★☆☆☆ — Fair (2/5)</option>
-                            <option value="1">★☆☆☆☆ — Poor (1/5)</option>
-                        </select>
-                        <span class="rv-field-hint">
-                            Select the rating that best reflects your experience.
-                        </span>
-                    </label>
-
-                    <label for="rv-product">
-                        Product (Optional)
-                        <select id="rv-product" name="product_id">
-                            <option value="">General review</option>
-
-                            {% for product in products %}
-                            <option value="{{ product.id }}">
-                                {{ product.name }}
-                            </option>
-                            {% endfor %}
-                        </select>
-
-                        <span class="rv-field-hint">
-                            Select a product if your review relates
-                            to a specific item.
-                        </span>
-                    </label>
-
-                    <label for="rv-text">
-                        Your Review
-                        <textarea
-                            id="rv-text"
-                            name="text"
-                            maxlength="1000"
-                            placeholder="Share your experience with FityStores..."
-                            aria-describedby="rv-char-count"
-                        ></textarea>
-
-                        <span class="rv-char-count"
-                              id="rv-char-count"
-                              aria-live="polite">
-                            0 / 1000 characters
-                        </span>
-                    </label>
-
-                    <div class="rv-form-note">
-                        <span aria-hidden="true">✓</span>
-                        <span>
-                            Your review will not appear publicly
-                            until it has been approved. Please do
-                            not include passwords, payment PINs,
-                            or other private information.
-                        </span>
-                    </div>
-
-                    <button type="submit"
-                            class="rv-btn rv-btn-red">
-                        Submit Review for Approval
-                    </button>
-
-                </form>
-
-                <!-- GUIDANCE -->
-                <aside class="rv-guidelines">
-
-                    <article class="rv-guide-card">
-                        <div class="rv-guide-icon">★</div>
-                        <h3>What Makes a Helpful Review?</h3>
-                        <ul>
-                            <li>Describe your actual experience.</li>
-                            <li>Mention relevant product details.</li>
-                            <li>Keep your feedback clear and respectful.</li>
-                            <li>Share constructive suggestions where useful.</li>
-                        </ul>
-                    </article>
-
-                    <article class="rv-guide-card">
-                        <div class="rv-guide-icon">✓</div>
-                        <h3>How Moderation Works</h3>
-                        <p>
-                            Every submission is subject to moderation.
-                            Only approved reviews are displayed publicly.
-                            Submitting a review does not guarantee
-                            publication.
-                        </p>
-                    </article>
-
-                    <article class="rv-guide-card">
-                        <div class="rv-guide-icon">♥</div>
-                        <h3>Help Us Improve</h3>
-                        <p>
-                            Feedback can help the shop understand
-                            customer expectations, product questions,
-                            and opportunities to improve its service.
-                        </p>
-                    </article>
-
-                </aside>
-
-            </div>
-        </div>
-    </section>
-
-    <!-- APPROVED REVIEWS -->
-    <section class="rv-section rv-reviews-section"
-             id="approved-reviews">
-
-        <div class="reviews-container">
-
-            <div class="rv-review-heading-row">
-                <div class="rv-section-heading">
-                    <span class="rv-eyebrow">Community feedback</span>
-                    <h2>Customer Reviews</h2>
-                    <p>
-                        Read reviews that have been approved
-                        for public display.
-                    </p>
-                </div>
-
-                <span class="rv-approved-label">
-                    ✓ Moderated Reviews
-                </span>
-            </div>
-
-            {% if reviews %}
-
-            <div class="rv-review-grid">
-
-                {% for review in reviews %}
-
-                <article class="rv-review-card">
-
-                    <div class="rv-review-top">
-                        <div class="rv-avatar" aria-hidden="true">
-                            {{ (review.display_name or "C")[0]|upper }}
-                        </div>
-
-                        <div class="rv-review-name">
-                            <strong>{{ review.display_name }}</strong>
-                            <small>Customer review</small>
-                        </div>
-                    </div>
-
-                    <div class="rv-review-stars"
-                         aria-label="{{ review.rating }} out of 5 stars">
-                        {% for star in range(1, 6) %}
-                            {% if star <= review.rating %}
-                                <span>★</span>
-                            {% else %}
-                                <span style="color:#d8d8d8;">★</span>
-                            {% endif %}
-                        {% endfor %}
-                    </div>
-
-                    <p class="rv-review-text">
-                        {{ review.text or "A customer rating." }}
-                    </p>
-
-                    <div class="rv-product-tag">
-                        Rating: {{ review.rating }}/5
-                    </div>
-
-                </article>
-
-                {% endfor %}
-
-            </div>
-
-            {% else %}
-
-            <div class="rv-empty">
-                <div class="rv-empty-icon" aria-hidden="true">★</div>
-
-                <h3>Be the First to Share Your Experience</h3>
-
-                <p>
-                    There are no approved reviews to display yet.
-                    If you've shopped with FityStores, you can share
-                    your feedback using the form above.
-                </p>
-
-                <div style="margin-top:22px;">
-                    <a href="#write-review" class="rv-btn rv-btn-red">
-                        Write the First Review
-                    </a>
-                </div>
-            </div>
-
-            {% endif %}
-
-        </div>
-    </section>
-
-    <!-- FINAL CTA -->
-    <section class="rv-section">
-        <div class="reviews-container">
-            <div class="rv-final-cta">
-
-                <div>
-                    <span class="rv-eyebrow">FityStores</span>
-
-                    <h2>Ready to Find Your Fit?</h2>
-
-                    <p>
-                        Explore the collection and discover
-                        everyday essentials for your needs.
-                    </p>
-                </div>
-
-                <a href="/shop" class="rv-btn rv-btn-red">
-                    Explore the Shop
-                </a>
-
-            </div>
-        </div>
-    </section>
-
+      {% if pagination.pages > 1 %}<nav class="rv-pagination" aria-label="Review pages">{% if pagination.has_prev %}<a href="{{ url_for('public.reviews', product_id=selected_product.id if selected_product else None, rating_filter=rating_filter, sort=sort_by, page=pagination.prev_num) }}" aria-label="Previous page">Previous</a>{% endif %}{% for page_number in pagination.iter_pages(left_edge=1,right_edge=1,left_current=1,right_current=1) %}{% if page_number %}{% if page_number == pagination.page %}<span class="current" aria-current="page">{{ page_number }}</span>{% else %}<a href="{{ url_for('public.reviews', product_id=selected_product.id if selected_product else None, rating_filter=rating_filter, sort=sort_by, page=page_number) }}">{{ page_number }}</a>{% endif %}{% else %}<span aria-hidden="true">...</span>{% endif %}{% endfor %}{% if pagination.has_next %}<a href="{{ url_for('public.reviews', product_id=selected_product.id if selected_product else None, rating_filter=rating_filter, sort=sort_by, page=pagination.next_num) }}" aria-label="Next page">Next</a>{% endif %}</nav>{% endif %}
+    </div>
+  </section>
 </div>
-
 <script>
-(function () {
-    const textarea = document.getElementById("rv-text");
-    const counter = document.getElementById("rv-char-count");
-
-    if (!textarea || !counter) return;
-
-    function updateCharacterCount() {
-        counter.textContent =
-            textarea.value.length + " / 1000 characters";
-    }
-
-    textarea.addEventListener("input", updateCharacterCount);
-    updateCharacterCount();
+(function(){
+  const ratingNames={1:'Poor',2:'Fair',3:'Good',4:'Very good',5:'Excellent'};
+  const ratingField=document.querySelector('.rv-rating-fieldset');
+  const caption=document.getElementById('rv-rating-caption');
+  if(ratingField&&caption){
+    const options=Array.from(ratingField.querySelectorAll('.rv-rating-option'));
+    const radios=Array.from(ratingField.querySelectorAll('input[type="radio"]'));
+    function paint(value,selected){options.forEach(function(option){const radio=option.querySelector('input');const active=Number(radio.value)<=value;option.classList.toggle('preview',active&&!selected);option.classList.toggle('selected',active&&selected)});caption.textContent=value?ratingNames[value]+' ('+value+'/5)': 'Choose a star rating.'}
+    radios.forEach(function(radio){radio.addEventListener('change',function(){paint(Number(radio.value),true)});radio.addEventListener('focus',function(){paint(Number(radio.value),false)})});
+    options.forEach(function(option){option.addEventListener('pointerenter',function(){const radio=option.querySelector('input');paint(Number(radio.value),false)})});
+    ratingField.addEventListener('pointerleave',function(){const selected=radios.find(function(radio){return radio.checked});paint(selected?Number(selected.value):0,!!selected)});
+    const selected=radios.find(function(radio){return radio.checked});if(selected)paint(Number(selected.value),true);
+  }
+  const text=document.getElementById('rv-text');const count=document.getElementById('rv-char-count');
+  if(text&&count){const update=function(){count.textContent=text.value.length+' / 1000 characters'};text.addEventListener('input',update);update()}
+  const form=document.getElementById('review-form');const submit=document.getElementById('rv-submit');
+  if(form&&submit)form.addEventListener('submit',function(){submit.disabled=true;submit.textContent='Submitting review...'});
 })();
 </script>
-
 {% endblock %}

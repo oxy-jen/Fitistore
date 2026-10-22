@@ -29,6 +29,11 @@ class Category(TimestampMixin, db.Model):
     slug = db.Column(db.String(100), unique=True, nullable=False, index=True)
     products = db.relationship("Product", back_populates="category")
 
+class CartAddCount(db.Model):
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id", ondelete="CASCADE"), primary_key=True)
+    add_count = db.Column(db.Integer, nullable=False, default=0)
+
+
 class Product(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(140), nullable=False, index=True)
@@ -219,12 +224,15 @@ class OrderStatusHistory(TimestampMixin, db.Model):
 class Review(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     display_name = db.Column(db.String(80), nullable=False)
+    title = db.Column(db.String(120), nullable=False, default="")
     rating = db.Column(db.Integer, nullable=False)
     text = db.Column(db.Text, default="")
     product_id = db.Column(db.Integer, db.ForeignKey("product.id"))
+    customer_account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), index=True)
     status = db.Column(db.String(20), default="pending", nullable=False, index=True)
     ip_hash = db.Column(db.String(64))
     product = db.relationship("Product", back_populates="reviews")
+    customer_account = db.relationship("CustomerAccount")
     __table_args__ = (CheckConstraint("rating >= 1 AND rating <= 5", name="ck_review_rating_range"),)
 
 class ProductSuggestion(TimestampMixin, db.Model):
@@ -335,10 +343,12 @@ class RefundRequest(TimestampMixin, db.Model):
 
 class CustomerProfile(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), unique=True, index=True)
     phone = db.Column(db.String(40), unique=True, nullable=False, index=True)
     display_name = db.Column(db.String(120), default="")
     referral_code = db.Column(db.String(40), unique=True, nullable=False, index=True)
     referred_by_code = db.Column(db.String(40), default="", index=True)
+    account = db.relationship("CustomerAccount")
 
 class ReferralClick(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)

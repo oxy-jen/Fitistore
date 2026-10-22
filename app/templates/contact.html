@@ -559,7 +559,26 @@
         scroll-behavior: auto !important;
     }
 }
-</style>
+/* Refined contact page skin */
+.contact-hero{background:linear-gradient(112deg,#fff 0%,#fff 62%,#fff0f2 100%);color:#16181c;padding:clamp(38px,5vw,62px) 0;border-bottom:1px solid #eceef1}
+.contact-hero::after{border-color:rgba(227,38,54,.09)}
+.contact-hero .contact-eyebrow{color:var(--contact-red)}
+.contact-hero h1{font-size:clamp(36px,5.2vw,62px);line-height:1.04;letter-spacing:-.045em}
+.contact-hero h1 span{color:var(--contact-red)}
+.contact-hero-copy>p{color:#5f6874;line-height:1.65}
+.contact-hero-card{background:#fff;color:#181a1f;border:1px solid #e7e9ed;border-radius:18px;box-shadow:0 14px 38px rgba(24,30,42,.08)}
+.contact-hero-card-label{color:var(--contact-red);font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.contact-hero-card p{color:#5f6874;line-height:1.65}
+.contact-hero-card .contact-btn-white{background:#f6f7f9;color:#17191d!important;border:1px solid #e1e4e8}
+.contact-quick-item{transition:background .18s,color .18s}
+.contact-quick-item:hover{background:#fff7f8}
+.contact-info-card,.contact-help-item{border-radius:16px;box-shadow:0 6px 20px rgba(18,22,30,.04)}
+.contact-info-card:hover{border-color:#f1b4bc}
+.contact-payment-panel{box-shadow:0 8px 26px rgba(25,80,45,.05)}
+.contact-bottom-cta{background:linear-gradient(115deg,#17191d,#26282c);border:1px solid #2e3035}
+.contact-page .contact-eyebrow{line-height:1.4}
+.contact-quick-icon .icon{width:22px;height:22px}
+@media(max-width:600px){.contact-hero h1{font-size:clamp(34px,10vw,44px)}.contact-hero-card{max-width:none}.contact-section{padding:40px 0}}</style>
 
 <div class="contact-page">
 
@@ -608,10 +627,10 @@
                     Collection reference point
                 </div>
 
-                <h2>Othaya, Mathenge</h2>
+                <h2>{{ settings.public_location or "Collection point" }}</h2>
 
                 <p>
-                    Othaya Mathenge Technical Training Institute
+                    {{ settings.public_location or "Collection point confirmed with the seller" }}
                     is the main collection or meeting reference
                     point unless the seller confirms another spot.
                 </p>
@@ -630,7 +649,7 @@
         <div class="contact-container contact-quick-grid">
 
             <a href="#whatsapp-details" class="contact-quick-item">
-                <div class="contact-quick-icon">W</div>
+                <div class="contact-quick-icon"><svg class="icon" aria-hidden="true"><use href="#icon-message"></use></svg></div>
                 <div>
                     <strong>WhatsApp</strong>
                     <small>Ask about products and orders</small>
@@ -638,7 +657,7 @@
             </a>
 
             <a href="#call-details" class="contact-quick-item">
-                <div class="contact-quick-icon">C</div>
+                <div class="contact-quick-icon"><svg class="icon" aria-hidden="true"><use href="#icon-phone"></use></svg></div>
                 <div>
                     <strong>Call the Seller</strong>
                     <small>Confirm details before travelling</small>
@@ -646,7 +665,7 @@
             </a>
 
             <a href="#payment-details" class="contact-quick-item">
-                <div class="contact-quick-icon">M</div>
+                <div class="contact-quick-icon"><svg class="icon" aria-hidden="true"><use href="#icon-checkout"></use></svg></div>
                 <div>
                     <strong>M-Pesa Information</strong>
                     <small>Check payment instructions</small>
@@ -677,12 +696,12 @@
                          id="collection-details">
 
                     <div class="contact-card-top">
-                        <div class="contact-quick-icon">L</div>
+                        <div class="contact-quick-icon"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg></div>
                         <h3>Collection Location</h3>
                     </div>
 
                     <p class="contact-strong">
-                        Othaya Mathenge Technical Training Institute
+                        {{ settings.public_location or "Collection point confirmed with the seller" }}
                     </p>
 
                     <p>
@@ -703,7 +722,7 @@
                          id="whatsapp-details">
 
                     <div class="contact-card-top">
-                        <div class="contact-quick-icon">W</div>
+                        <div class="contact-quick-icon"><svg class="icon" aria-hidden="true"><use href="#icon-message"></use></svg></div>
                         <h3>WhatsApp</h3>
                     </div>
 
@@ -744,7 +763,7 @@
                          id="call-details">
 
                     <div class="contact-card-top">
-                        <div class="contact-quick-icon">C</div>
+                        <div class="contact-quick-icon"><svg class="icon" aria-hidden="true"><use href="#icon-phone"></use></svg></div>
                         <h3>Call the Seller</h3>
                     </div>
 
@@ -765,12 +784,20 @@
 
                 </article>
 
+                {% if settings.contact_email %}
+                <article class="contact-info-card" id="email-details">
+                    <div class="contact-card-top"><div class="contact-quick-icon"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg></div><h3>Email Support</h3></div>
+                    <p>Send order or product questions to the store email. Include your order reference when asking about an existing order.</p>
+                    <a class="contact-btn contact-btn-outline" href="mailto:{{ settings.contact_email|e }}">{{ settings.contact_email }}</a>
+                    <p class="contact-small">Email delivery time can vary. WhatsApp is best for quick availability checks.</p>
+                </article>
+                {% endif %}
                 <!-- PAYMENT -->
                 <article class="contact-info-card"
                          id="payment-details">
 
                     <div class="contact-card-top">
-                        <div class="contact-quick-icon">M</div>
+                        <div class="contact-quick-icon"><svg class="icon" aria-hidden="true"><use href="#icon-checkout"></use></svg></div>
                         <h3>M-Pesa Payment</h3>
                     </div>
 
@@ -794,7 +821,7 @@
                 <article class="contact-info-card">
 
                     <div class="contact-card-top">
-                        <div class="contact-quick-icon">P</div>
+                        <div class="contact-quick-icon"><svg class="icon" aria-hidden="true"><use href="#icon-checkout"></use></svg></div>
                         <h3>Collection Instructions</h3>
                     </div>
 
@@ -814,7 +841,7 @@
                 <article class="contact-info-card">
 
                     <div class="contact-card-top">
-                        <div class="contact-quick-icon">D</div>
+                        <div class="contact-quick-icon"><svg class="icon" aria-hidden="true"><use href="#icon-truck"></use></svg></div>
                         <h3>Nearby Delivery</h3>
                     </div>
 

@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash
 
 from config import Config
 from .extensions import db, login_manager, csrf
-from .models import AdminUser, Category, CustomerProfile, Order, OrderItem, Product, ProductImage, ReferralClick, ShopSettings
+from .models import AdminUser, CartAddCount, Category, CustomerProfile, Order, OrderItem, Product, ProductImage, ReferralClick, ShopSettings
 from .services.product_images import ImageStorageError, legacy_local_image_path, upload_image_bytes
 
 DEFAULT_CATEGORIES = [
@@ -190,6 +190,32 @@ def ensure_database_schema(app: Flask):
             ensure_columns()
         elif is_postgresql_database():
             ensure_referral_schema()
+            ensure_review_schema()
+            ensure_referral_account_schema()
+            CartAddCount.__table__.create(bind=db.engine, checkfirst=True)
+
+
+def ensure_referral_account_schema():
+    """Add account ownership for rewards profiles on PostgreSQL installs."""
+    from sqlalchemy import text
+    if db.engine.dialect.name != "postgresql":
+        return
+    with db.engine.begin() as connection:
+        connection.execute(text("ALTER TABLE customer_profile ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES customer_account(id)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_customer_profile_account_id ON customer_profile (account_id)"))
+
+def ensure_review_schema():
+    """Add review title and customer ownership fields on PostgreSQL installs."""
+    from sqlalchemy import text
+    if db.engine.dialect.name != "postgresql":
+        return
+    migration_path = Path(__file__).resolve().parent.parent / "migrations" / "20261022_review_titles_and_accounts.sql"
+    statements = migration_path.read_text(encoding="utf-8").split(";")
+    with db.engine.begin() as connection:
+        for statement in statements:
+            statement = statement.strip()
+            if statement:
+                connection.execute(text(statement))
 
 
 def ensure_referral_schema():
@@ -843,6 +869,20 @@ def ensure_columns():
             db.session.execute(text('ALTER TABLE refund_request ADD COLUMN admin_id INTEGER'))
         if "note" not in refund_columns:
             db.session.execute(text('ALTER TABLE refund_request ADD COLUMN note TEXT DEFAULT ""'))
+
+    if "customer_profile" in table_names:
+        profile_columns = {column["name"] for column in inspector.get_columns("customer_profile")}
+        if "account_id" not in profile_columns:
+            db.session.execute(text("ALTER TABLE customer_profile ADD COLUMN account_id INTEGER REFERENCES customer_account(id)"))
+        db.session.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_customer_profile_account_id ON customer_profile (account_id)"))
+
+    if "review" in table_names:
+        review_columns = {column["name"] for column in inspector.get_columns("review")}
+        if "title" not in review_columns:
+            db.session.execute(text('ALTER TABLE review ADD COLUMN title VARCHAR(120) DEFAULT "" NOT NULL'))
+        if "customer_account_id" not in review_columns:
+            db.session.execute(text('ALTER TABLE review ADD COLUMN customer_account_id INTEGER'))
+        db.session.execute(text('CREATE INDEX IF NOT EXISTS ix_review_customer_account_id ON review (customer_account_id)'))
 
     if "expense" in table_names:
         expense_columns = {column["name"] for column in inspector.get_columns("expense")}

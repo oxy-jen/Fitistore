@@ -1,12 +1,41 @@
 {% extends "base.html" %}{% block content %}
-<section class="shop-hero page-head"><p class="eyebrow">FityStores</p><h1>Shop collection</h1><p>Discover fresh everyday essentials, compare available items, and shop confidently with clear prices and quick seller support.</p></section>
-<form class="filters shop-filters" action="{{ url_for('public.shop') }}" id="shop-filters">
-  <input name="q" value="{{ q }}" placeholder="Search products..." aria-label="Search products">
-  <select name="category" aria-label="Category"><option value="">All categories</option>{% for c in categories %}<option value="{{ c.slug }}" {% if active_category and active_category.id == c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
-  <select name="sort" aria-label="Sort"><option value="newest" {% if sort=='newest' %}selected{% endif %}>Newest</option><option value="name" {% if sort=='name' %}selected{% endif %}>Product name</option><option value="price-low" {% if sort=='price-low' %}selected{% endif %}>Price low</option><option value="price-high" {% if sort=='price-high' %}selected{% endif %}>Price high</option></select>
-  <button class="btn primary"><svg class="icon"><use href="#icon-filter"></use></svg><span>Apply</span></button><a class="btn" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-refresh"></use></svg><span>Reset</span></a>
-</form>
-<div id="product-grid" class="product-grid" data-next-page="{{ page + 1 if has_next else '' }}" data-has-next="{{ 'true' if has_next else 'false' }}" data-api-url="{{ url_for('public.api_products') }}">{% for product in products %}{% include "partials/product_card.html" %}{% endfor %}</div>
-<div id="shop-empty" class="empty" {% if products %}hidden{% endif %}>No active products match this search.</div>
-<div class="load-panel"><p id="load-status" class="note small">{% if has_next %}More products will load as you scroll.{% else %}All matching products are loaded.{% endif %}</p><button id="load-more" class="btn" type="button" {% if not has_next %}hidden{% endif %}><svg class="icon"><use href="#icon-arrow"></use></svg><span>Load more</span></button></div>
+<div class="shop-page">
+  <section class="shop-banner" aria-labelledby="shop-banner-title">
+    <div class="shop-banner-copy">
+      <p class="eyebrow">BEI FITS · EVERYDAY ESSENTIALS</p>
+      <h1 id="shop-banner-title">Good finds. Fair prices.<br><span>Fits poa.</span></h1>
+      <p>Shop everyday essentials with clear prices<br class="desktop-break"> and quick WhatsApp support.</p>
+    </div>
+    <div class="shop-banner-products" aria-label="Featured everyday essentials">
+      <img class="banner-colorful-accessories" src="{{ url_for('static', filename='images/shop-hero/haibands2-removebg-preview.webp') }}" alt="Colorful flower hair accessories" width="320" height="320" loading="eager">
+      <img class="banner-bonnet" src="{{ url_for('static', filename='images/shop-hero/hair_bonnet-removebg-preview.webp') }}" alt="Satin hair bonnet" width="360" height="300" fetchpriority="high">
+      <img class="banner-shoes" src="{{ url_for('static', filename='images/shop-hero/shoe3.fitistores-removebg-preview.png') }}" alt="Casual sneakers" width="360" height="260" fetchpriority="high">
+      <img class="banner-bands" src="{{ url_for('static', filename='images/shop-hero/hair_bands-removebg-preview.webp') }}" alt="Hair accessories" width="240" height="200" loading="eager">
+    </div>
+  </section>
+
+  <nav class="shop-category-chips" aria-label="Shop categories">
+    <a class="shop-chip{% if not active_category %} active{% endif %}" href="{{ url_for('public.shop', q=q, sort=sort) }}"{% if not active_category %} aria-current="page"{% endif %}>All</a>
+    {% for c in categories %}<a class="shop-chip{% if active_category and active_category.id == c.id %} active{% endif %}" href="{{ url_for('public.shop', category=c.slug, q=q, sort=sort) }}"{% if active_category and active_category.id == c.id %} aria-current="page"{% endif %}>{{ c.name }}</a>{% endfor %}
+  </nav>
+
+  <form class="shop-toolbar" action="{{ url_for('public.shop') }}" id="shop-filters">
+    <label class="shop-search"><svg class="icon" aria-hidden="true"><use href="#icon-search"></use></svg><input name="q" value="{{ q }}" placeholder="Search products..." aria-label="Search products"></label>
+    <label class="shop-filter-select"><span class="sr-only">Filter by category</span><svg class="icon" aria-hidden="true"><use href="#icon-filter"></use></svg><select name="category" aria-label="Filter by category"><option value="">Filter</option>{% for c in categories %}<option value="{{ c.slug }}" {% if active_category and active_category.id == c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select></label>
+    <label class="shop-sort"><span class="sr-only">Sort products</span><select name="sort" aria-label="Sort products"><option value="newest" {% if sort=='newest' %}selected{% endif %}>Sort by: Newest</option><option value="name" {% if sort=='name' %}selected{% endif %}>Sort by: Name</option><option value="price-low" {% if sort=='price-low' %}selected{% endif %}>Sort by: Price low to high</option><option value="price-high" {% if sort=='price-high' %}selected{% endif %}>Sort by: Price high to low</option></select></label>
+    <button class="btn primary shop-apply" type="submit">Apply</button>
+  </form>
+
+  <div class="shop-results-heading"><h2>{% if active_category %}{{ active_category.name }}{% elif q %}Search results{% else %}Shop everyday essentials{% endif %}</h2><a href="{{ url_for('public.shop') }}">Clear filters</a></div>
+  <div id="product-grid" class="product-grid shop-product-grid" data-next-page="{{ page + 1 if has_next else '' }}" data-has-next="{{ 'true' if has_next else 'false' }}" data-api-url="{{ url_for('public.api_products') }}">{% for product in products %}{% include "partials/product_card.html" %}{% endfor %}</div>
+  <div id="shop-empty" class="empty shop-empty" {% if products %}hidden{% endif %}>No active products match this search.</div>
+  <div class="load-panel shop-load-panel"><p id="load-status" class="note small">{% if has_next %}More products will load as you scroll.{% else %}All matching products are loaded.{% endif %}</p><button id="load-more" class="btn" type="button" {% if not has_next %}hidden{% endif %}><svg class="icon"><use href="#icon-arrow"></use></svg><span>Load more</span></button></div>
+
+  <section class="shop-trust-strip" aria-label="Shopping information">
+    <article><svg class="icon" aria-hidden="true"><use href="#icon-checkout"></use></svg><div><strong>Clear prices</strong><span>See listed prices before you order.</span></div></article>
+    <article><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><div><strong>Payment arranged</strong><span>Confirm M-Pesa or cash details with us.</span></div></article>
+    <article><svg class="icon" aria-hidden="true"><use href="#icon-truck"></use></svg><div><strong>Collection & nearby delivery</strong><span>Ask us what works for your order.</span></div></article>
+    <article><svg class="icon" aria-hidden="true"><use href="#icon-message"></use></svg><div><strong>WhatsApp support</strong><span>Ask about sizes, stock, and details.</span></div></article>
+  </section>
+</div>
 {% endblock %}

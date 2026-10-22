@@ -525,7 +525,7 @@
 
 .tracking-steps li.completed .tracking-dot::after,
 .tracking-steps li.current .tracking-dot::after {
-    content: "âœ“";
+    content: "Ã¢Å“â€œ";
     color: #fff;
     font-size: 12px;
     font-weight: 850;
@@ -797,46 +797,98 @@
         scroll-behavior: auto !important;
     }
 }
+
+
+/* Tracking route animation */
+.tr-hero{position:relative;overflow:hidden;padding:26px 0 30px;background:linear-gradient(180deg,#fff 0%,#f7f7f8 100%);color:#151515;border-bottom:1px solid #e8e8eb}
+.tr-hero::after{content:"";position:absolute;top:-150px;right:-110px;width:270px;height:270px;border:36px solid rgba(227,38,54,.08);border-radius:50%;pointer-events:none}
+.tr-hero-inner{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:24px}
+.tr-hero .tr-eyebrow{color:var(--tr-red);font-size:.7rem;font-weight:850;letter-spacing:.16em}
+.tr-hero h1{margin:5px 0 4px;color:#151515;font-size:clamp(25px,3.2vw,38px);line-height:1.15;letter-spacing:-.045em}
+.tr-hero h1 span{color:var(--tr-red)}
+.tr-hero-copy>p{margin:0;color:#5e6470;font-size:14px;line-height:1.55}
+.tr-hero-inner>.tr-btn{flex:none;box-shadow:0 7px 18px rgba(227,38,54,.16)}
+.tr-route-banner{position:relative;isolation:isolate;height:210px;margin:22px auto 0;overflow:hidden;border:1px solid rgba(255,255,255,.14);border-radius:20px;background:linear-gradient(105deg,#191719,#252025 54%,#201719);box-shadow:0 14px 34px rgba(20,18,20,.16)}
+.tr-route-banner::before{content:"";position:absolute;z-index:-1;inset:auto 0 46px;height:2px;background:repeating-linear-gradient(90deg,rgba(255,255,255,.3) 0 12px,transparent 12px 24px)}
+.tr-route-glow{position:absolute;z-index:-1;inset:0;background:radial-gradient(ellipse at 52% 100%,rgba(227,38,54,.16),transparent 58%)}
+.tr-route-message{position:absolute;z-index:1;left:7%;right:7%;top:38px;margin:0;color:#fff;font-size:clamp(19px,2.5vw,29px);font-weight:800;line-height:1.3;letter-spacing:-.025em;white-space:normal;will-change:clip-path}
+.tr-bike-message{clip-path:inset(0 0 0 100%);animation:tr-bike-reveal 20s linear infinite}
+.tr-car-message{clip-path:inset(0 100% 0 0);animation:tr-car-reveal 20s linear infinite}
+.tr-route-stops{position:absolute;z-index:1;left:7%;right:7%;bottom:17px;display:flex;align-items:center;gap:12px;color:#c8c5ca;font-size:clamp(10px,1.1vw,12px);font-weight:750;letter-spacing:.035em}
+.tr-route-stops span{white-space:nowrap}.tr-route-stops i{height:1px;flex:1;background:rgba(255,255,255,.24)}
+.tr-delivery-bike{position:absolute;z-index:3;top:-70px;left:calc(100% - 65px);width:330px;height:330px;max-width:none;object-fit:contain;animation:tr-bike-travel 20s linear infinite;filter:drop-shadow(0 10px 8px rgba(0,0,0,.34));will-change:left,opacity}
+.tr-delivery-car{position:absolute;z-index:3;top:-45px;left:-440px;width:420px;height:255px;max-width:none;object-fit:contain;animation:tr-car-travel 20s linear infinite;filter:drop-shadow(0 8px 7px rgba(0,0,0,.22));will-change:left,opacity}
+.tr-route-banner:hover .tr-delivery-bike,.tr-route-banner:hover .tr-delivery-car,.tr-route-banner:hover .tr-route-message{animation-play-state:paused}
+.tr-trust-item{transition:transform .2s,box-shadow .2s}.tr-trust-item:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(20,20,20,.08)}
+.tr-trust-icon{transition:transform .2s,background .2s}.tr-trust-item:hover .tr-trust-icon{transform:translateY(-2px);background:#ffe4e7}.tr-lock-icon svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+@keyframes tr-bike-travel{0%{left:calc(100% - 65px);opacity:0}2%{opacity:1}40%{left:-240px;opacity:1}44%,100%{left:-240px;opacity:0}}
+@keyframes tr-car-travel{0%,47%{left:-440px;opacity:0}49%{opacity:1}88%{left:calc(100% - 48px);opacity:1}92%,100%{left:calc(100% - 48px);opacity:0}}
+@keyframes tr-bike-reveal{0%,2%{clip-path:inset(0 0 0 100%)}40%,49%{clip-path:inset(0)}88%,100%{clip-path:inset(0 0 0 100%)}}
+@keyframes tr-car-reveal{0%,2%{clip-path:inset(0)}40%,49%{clip-path:inset(0 100% 0 0)}88%,100%{clip-path:inset(0)}}
+@media(max-width:900px){.tr-route-banner{height:190px}.tr-delivery-bike{top:-65px;width:300px;height:300px}.tr-delivery-car{top:-28px;width:360px;height:220px}}
+@media(max-width:720px){.tr-hero{padding:20px 0 24px}.tr-hero-inner{align-items:flex-start;gap:14px}.tr-hero h1{font-size:clamp(23px,6vw,31px)}.tr-hero-copy>p{max-width:460px;font-size:13px}.tr-hero-inner>.tr-btn{padding:10px 13px;font-size:12px}.tr-route-banner{height:176px;margin-top:17px;border-radius:16px}.tr-route-message{top:25px;left:6%;right:6%;font-size:clamp(16px,4.8vw,22px)}.tr-route-stops{left:6%;right:6%;bottom:13px;gap:7px;font-size:9px}.tr-delivery-bike{top:-57px;width:260px;height:260px}.tr-delivery-car{top:0;width:300px;height:183px}}
+@media(max-width:420px){.tr-hero-inner{display:block}.tr-hero-inner>.tr-btn{display:inline-flex;margin-top:12px}.tr-route-stops{font-size:8px;gap:5px}}
+@media(prefers-reduced-motion:reduce){.tr-delivery-bike,.tr-delivery-car,.tr-route-message{animation:none!important}.tr-delivery-bike{left:calc(100% - 220px);opacity:1}.tr-delivery-car,.tr-car-message{opacity:0;clip-path:inset(0 100% 0 0)}.tr-bike-message{clip-path:none}}
+.tr-trust-strip{background:#fff}
+.tr-trust-grid{padding:5px 0}
+.tr-track-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,330px);gap:24px;align-items:start}
+.tr-track-main{min-width:0}
+.tr-track-main .tr-section-heading{margin-bottom:16px}
+.tr-track-main .tr-section-heading .tr-eyebrow{margin-bottom:7px}
+.tr-track-main .tr-section-heading h2{margin-bottom:6px;font-size:clamp(22px,3vw,30px)}
+.tr-track-main .tr-section-heading p{line-height:1.6}
+.tr-search-card{padding:22px;border-radius:14px;box-shadow:0 8px 28px rgba(17,17,17,.045)}
+.tr-search-heading{margin-bottom:16px}
+.tr-search-card label{margin-bottom:14px}
+.tr-search-actions{gap:9px}
+.tr-privacy-note{margin-top:14px}
+.tr-order-card{margin-top:18px}
+.tr-order-header{padding:22px 24px}
+.tr-tracking-heading{margin-bottom:16px}
+.tracking-layout{grid-template-columns:minmax(0,1fr);gap:22px;padding:22px 24px}
+.tracking-details{padding:20px;background:#fbfbfc}
+.tr-track-sidebar{position:sticky;top:96px;display:grid;gap:15px;min-width:0}
+.tr-side-card{padding:21px;border:1px solid var(--tr-border);border-radius:14px;background:#fff;box-shadow:0 8px 26px rgba(17,17,17,.045)}
+.tr-support-card{background:linear-gradient(145deg,#fff 0%,#fff5f6 100%)}
+.tr-side-card .tr-eyebrow{margin-bottom:7px;font-size:10px;letter-spacing:1.3px}
+.tr-side-card h2{margin:0 0 9px;font-size:19px;letter-spacing:-.02em}
+.tr-side-card p{margin:0 0 15px;color:var(--tr-muted);font-size:13px;line-height:1.65}
+.tr-side-action{display:flex;align-items:center;justify-content:center;min-height:43px;margin-top:9px;padding:10px 12px;border:1px solid #d9dde4;border-radius:9px;background:#fff;color:#191919;font-size:13px;font-weight:750;text-align:center;transition:transform .18s,border-color .18s}
+.tr-side-action:hover{transform:translateY(-1px);border-color:var(--tr-red)}
+.tr-side-action.tr-whatsapp-action{border-color:#169c59;color:#078243}
+.tr-quick-card h2{margin-bottom:12px}
+.tr-quick-card>a{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;border-top:1px solid #eceef1;color:#242424;font-size:13px;font-weight:650}
+.tr-quick-card>a b{font-size:21px;font-weight:400;color:#727985}
+.tr-data-note{margin:0;padding:13px 15px;border-radius:10px;background:#f2f4f7;color:#586171;font-size:11px;line-height:1.65}
+.tr-bottom-cta{margin-top:10px}
+@media(max-width:900px){.tr-track-grid{grid-template-columns:minmax(0,1fr) 270px;gap:16px}.tr-track-sidebar{top:86px}.tr-order-header{padding:20px}.tracking-layout{padding:20px}}
+@media(max-width:720px){.tr-track-grid{grid-template-columns:1fr;gap:18px}.tr-track-sidebar{position:static;grid-template-columns:repeat(2,minmax(0,1fr))}.tr-data-note{grid-column:1/-1}.tr-search-card{padding:18px}.tr-order-header{padding:18px}.tracking-layout{padding:18px}.tr-bottom-cta{margin-top:0}}
+@media(max-width:500px){.tr-track-sidebar{grid-template-columns:1fr}.tr-data-note{grid-column:auto}.tr-track-main .tr-section-heading h2{font-size:24px}.tr-order-header{gap:14px}.tr-status-pill{max-width:100%}}
+
+
 </style>
 
 <div class="track-page">
 
-    <!-- HERO -->
+    <!-- COMPACT TRACKING HEADER AND DELIVERY LOOP -->
     <section class="tr-hero">
         <div class="track-container tr-hero-inner">
-
             <div class="tr-hero-copy">
-                <span class="tr-eyebrow">Your order, your updates</span>
-
-                <h1>
-                    Track Your<br>
-                    <span>FityStores Order.</span>
-                </h1>
-
-                <p>
-                    Stay informed about your purchase, from order
-                    processing to collection or delivery. Enter your
-                    order reference and private tracking code to view
-                    the latest available information.
-                </p>
-
-                <a href="#track-search" class="tr-btn tr-btn-red">
-                    Track My Order
-                </a>
+                <span class="tr-eyebrow">ORDER TRACKING</span>
+                <h1>Track your <span>FityStores order.</span></h1>
+                <p>Enter your order reference and private tracking code for the latest confirmed updates.</p>
             </div>
-
-            <aside class="tr-hero-card">
-                <div class="tr-hero-icon" aria-hidden="true">âœ“</div>
-
-                <h2>Your Order at a Glance</h2>
-
-                <p>
-                    Check your order status, payment status, items,
-                    total, and collection or delivery instructions
-                    in one place.
-                </p>
-            </aside>
-
+            <a href="#track-search" class="tr-btn tr-btn-red">Track an order</a>
+        </div>
+        <div class="track-container tr-route-banner" aria-label="An animated delivery bike reveals an order update; a delivery truck clears it and reveals a thank-you message">
+            <div class="tr-route-glow" aria-hidden="true"></div>
+            <p class="tr-route-message tr-bike-message" aria-live="off">{{ ('Status: ' ~ order.status) if order else 'Enter your reference and private code to view order updates.' }}</p>
+            <p class="tr-route-message tr-car-message" aria-live="off">{{ ('Order ' ~ order.reference) if order else 'Seller-confirmed updates, clearly shown.' }}</p>
+            <div class="tr-route-stops" aria-hidden="true">
+                <span>Order received</span><i></i><span>Being prepared</span><i></i><span>Collection or delivery</span>
+            </div>
+            <img class="tr-delivery-bike" src="{{ url_for('static', filename='images/shop-hero/delivery_bike-removebg-preview.png') }}" alt="" width="330" height="330" fetchpriority="high">
+            <img class="tr-delivery-car" src="{{ url_for('static', filename='images/shop-hero/car_delivery-removebg-preview.png') }}" alt="" width="420" height="255" fetchpriority="high">
         </div>
     </section>
 
@@ -848,7 +900,7 @@
                 <div class="tr-trust-icon">01</div>
                 <div>
                     <strong>Private Tracking</strong>
-                    <small>Two details help retrieve your order.</small>
+                    <small>Your reference and private code protect your details.</small>
                 </div>
             </div>
 
@@ -856,7 +908,7 @@
                 <div class="tr-trust-icon">02</div>
                 <div>
                     <strong>Order Progress</strong>
-                    <small>View available tracking milestones.</small>
+                    <small>See updates recorded by the FityStores team.</small>
                 </div>
             </div>
 
@@ -864,7 +916,7 @@
                 <div class="tr-trust-icon">03</div>
                 <div>
                     <strong>Collection & Delivery</strong>
-                    <small>Review the instructions for your order.</small>
+                    <small>See the order-specific fulfilment information.</small>
                 </div>
             </div>
 
@@ -873,14 +925,13 @@
 
     <!-- TRACKING SEARCH -->
     <section class="tr-section" id="track-search">
-        <div class="track-container">
+        <div class="track-container tr-track-grid">
+            <div class="tr-track-main">
 
             <div class="tr-section-heading">
-                <span class="tr-eyebrow">Order lookup</span>
-                <h2>Where Is Your Order?</h2>
-                <p>
-                    Enter your order reference and private tracking code to see the latest updates.
-                </p>
+                <span class="tr-eyebrow">Secure order lookup</span>
+                <h2>Enter your order details</h2>
+                <p>We will show the status and order information saved with your reference and private tracking code.</p>
             </div>
 
             <form class="tr-search-card"
@@ -892,7 +943,7 @@
                        value="{{ csrf_token() }}">
 
                 <div class="tr-search-heading">
-                    <div class="tr-trust-icon" aria-hidden="true">âŒ•</div>
+                    <div class="tr-trust-icon" aria-hidden="true">01</div>
                     <div>
                         <h2>Find Your Order</h2>
                         <p>Enter the two details from your order confirmation.</p>
@@ -933,7 +984,6 @@
                             maxlength="256"
                             autocomplete="off"
                             spellcheck="false"
-                            value="{{ order.tracking_token if order else '' }}"
                             placeholder="Enter your tracking code"
                         >
 
@@ -946,7 +996,7 @@
 
                 <div class="tr-search-actions">
                     <button type="submit" class="tr-btn tr-btn-red">
-                        Track Order â†’
+                        Track Order
                     </button>
 
                     <button type="reset"
@@ -985,7 +1035,7 @@
 
                         <p>
                             Placed
-                            {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}
+                            {{ order.created_at.strftime('%d %b %Y, %H:%M') }}
                             <br>
                             Fulfilment: {{ order.fulfilment_method }}
                         </p>
@@ -1040,7 +1090,7 @@
                                 <div class="tracking-step-copy">
 
                                     <span>
-                                        {{ step.time.strftime('%H:%M') if step.time else 'Pending' }}
+                                        {{ step.time.strftime('%d %b %Y, %H:%M') if step.time else 'Pending' }}
                                     </span>
 
                                     <strong>{{ step.label }}</strong>
@@ -1138,52 +1188,22 @@
 
             {% endif %}
 
-        </div>
-    </section>
-
-    <!-- TRACKING HELP -->
-    <section class="tr-section" style="padding-top:0;">
-        <div class="track-container">
-
-            <div class="tr-section-heading">
-                <span class="tr-eyebrow">Need a hand?</span>
-                <h2>Tracking Help</h2>
-                <p>
-                    Here are a few things to check if you need
-                    help accessing your order information.
-                </p>
             </div>
-
-            <div class="tr-help-grid">
-
-                <article class="tr-help-card">
-                    <h3>Can't Find Your Reference?</h3>
-                    <p>
-                        Check the order confirmation you received
-                        at checkout and copy the reference exactly.
-                    </p>
-                </article>
-
-                <article class="tr-help-card">
-                    <h3>Tracking Code Not Working?</h3>
-                    <p>
-                        Make sure you use the private tracking code
-                        provided with your order, not your product
-                        name or payment reference.
-                    </p>
-                </article>
-
-                <article class="tr-help-card">
-                    <h3>Status Hasn't Changed?</h3>
-                    <p>
-                        Some order stages require confirmation by
-                        the seller. Check the displayed status and
-                        contact the seller if you need clarification.
-                    </p>
-                </article>
-
-            </div>
-
+            <aside class="tr-track-sidebar" aria-label="Order tracking support">
+                <section class="tr-side-card tr-support-card">
+                    <span class="tr-eyebrow">Need help?</span>
+                    <h2>We are here to help</h2>
+                    <p>Ask us about your order status, payment, or collection and delivery details.</p>
+                    <a class="tr-side-action tr-whatsapp-action" href="{{ whatsapp_text_link(settings, 'Hi ' ~ settings.shop_name ~ ', I need help tracking an order.') }}" target="_blank" rel="noopener">Chat on WhatsApp</a>
+                    <a class="tr-side-action" href="tel:{{ local_contact_number }}">Call {{ local_contact_number }}</a>
+                </section>
+                <section class="tr-side-card tr-quick-card">
+                    <h2>Quick actions</h2>
+                    <a href="#track-search"><span>Track another order</span><b aria-hidden="true">&rsaquo;</b></a>
+                    <a href="{{ url_for('public.shop') }}"><span>Browse the shop</span><b aria-hidden="true">&rsaquo;</b></a>
+                </section>
+                <p class="tr-data-note">Order details and progress shown here come from the information saved for your order. Status changes appear after they are recorded by the store.</p>
+            </aside>
         </div>
     </section>
 
@@ -1234,6 +1254,39 @@
                 token.value = '';
             }, 0);
         });
+    }
+
+    const routeBanner = document.querySelector('.tr-route-banner');
+    const routeBikeMessage = document.querySelector('.tr-bike-message');
+    const routeCarMessage = document.querySelector('.tr-car-message');
+    const bikeUpdates = {{ ([
+        'Status: ' ~ order.status,
+        'Payment: ' ~ order.payment_status,
+        'Fulfilment: ' ~ order.fulfilment_method
+    ] if order else [
+        'Enter your reference and private code to view order updates.',
+        'Order progress appears after the store records an update.',
+        'Your private code keeps your order details protected.'
+    ]) | tojson }};
+    const carMessages = {{ ([
+        'Order ' ~ order.reference,
+        'Placed ' ~ order.created_at.strftime('%d %b %Y'),
+        'Total: ' ~ (money(order.total_cents, settings.currency) if order.total_cents is not none else 'price to confirm')
+    ] if order else [
+        'Seller-confirmed updates, clearly shown.',
+        'Secure order lookup, in one place.',
+        'Collection and delivery details when available.'
+    ]) | tojson }};
+
+    if (routeBanner && routeBikeMessage && routeCarMessage) {
+        let lap = 0;
+        routeBanner.querySelector('.tr-delivery-car').addEventListener(
+            'animationiteration', function () {
+                lap += 1;
+                routeBikeMessage.textContent = bikeUpdates[lap % bikeUpdates.length];
+                routeCarMessage.textContent = carMessages[lap % carMessages.length];
+            }
+        );
     }
 
     const result = document.getElementById(
