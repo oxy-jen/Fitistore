@@ -199,6 +199,12 @@ def deliver_email(record: EmailMessage, html_body: str, text_body: str) -> bool:
 
 
 def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str = "", button_text: str = "", unsubscribe_url: str = "") -> tuple[str, str]:
+    paragraphs = [
+        block.strip()
+        for paragraph in paragraphs
+        for block in paragraph.replace("\r\n", "\n").split("\n\n")
+        if block.strip()
+    ]
     preview_text = (paragraphs[0] if paragraphs else heading).strip()[:180]
     html_body = render_template("emails/base.html", heading=heading, paragraphs=paragraphs, preheader=preview_text, button_url=button_url, button_text=button_text, unsubscribe_url=unsubscribe_url)
     lines = [heading, "", *paragraphs]

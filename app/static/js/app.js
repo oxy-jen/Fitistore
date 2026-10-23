@@ -105,13 +105,19 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(!copied)throw new Error('Copy command unavailable');
   }
   document.addEventListener('click',async event=>{
-    const action=event.target.closest('[data-share-native],[data-share-copy],[data-share-tiktok]');
+    const action=event.target.closest('[data-share-native],[data-share-copy],[data-share-tiktok],[data-share-facebook]');
     if(!action)return;
     const share=action.closest('[data-product-share]');
     if(!share)return;
     const url=share.dataset.shareUrl||window.location.href;
     const status=share.querySelector('[data-share-status]');
     const announce=message=>{if(status)status.textContent=message};
+    if(action.hasAttribute('data-share-facebook')){
+      const facebookUrl='https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(url);
+      window.open(facebookUrl,'_blank','noopener,noreferrer');
+      announce('Facebook share opened with the product link and preview.');
+      return;
+    }
     if(action.hasAttribute('data-share-copy')){
       try{await copyShareUrl(url);announce('Product link copied.')}
       catch(error){announce('Copy was unavailable. You can copy the product address from your browser.')}

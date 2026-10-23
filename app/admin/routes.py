@@ -1102,6 +1102,7 @@ DATA_CLEANUP_CATEGORIES = {
     "finance_inventory": {"label": "Expenses and inventory movements", "tables": ("expense", "inventory_movement")},
     "email": {"label": "Email campaigns and message logs", "tables": ("email_campaign_recipient", "email_message", "email_campaign")},
     "audit": {"label": "Previous audit history and temporary login limits", "tables": ("financial_audit_event", "auth_rate_limit")},
+    "products": {"label": "Product catalog, variants, and uploaded images", "tables": ("cart_add_count", "product")},
 }
 
 
@@ -1180,9 +1181,31 @@ def _collect_payment_proof_files(records):
     return files
 
 
+def _collect_product_image_files(records):
+    """Collect local product images for the downloadable database archive."""
+    folder = Path(current_app.config["UPLOAD_FOLDER"]).resolve()
+    files = []
+    for row in records.get("product_image", []):
+        filename = row.get("filename")
+        if not filename or filename.startswith("sample-") or row.get("cloudinary_public_id") or row.get("storage_backend") == "cloudinary":
+            continue
+        if Path(filename).name != filename:
+            raise ValueError("Unsafe product image filename in catalog data")
+        path = (folder / filename).resolve()
+        if path.parent != folder:
+            raise ValueError("Product image path escapes its configured folder")
+        if path.is_file():
+            data = path.read_bytes()
+            files.append({"filename": filename, "sha256": hashlib.sha256(data).hexdigest(), "data": data})
+        else:
+            files.append({"filename": filename, "sha256": None, "data": None})
+    return files
+
+
 def _admin_export_archive(records, exported_at):
     database = _admin_export_bytes(records, exported_at)
     proof_files = _collect_payment_proof_files(records)
+    product_images = _collect_product_image_files(records)
     manifest = {
         "format": "fitystores-data-archive-v1",
         "exported_at": exported_at,
@@ -1190,6 +1213,10 @@ def _admin_export_archive(records, exported_at):
         "payment_proofs": [
             {"filename": item["filename"], "sha256": item["sha256"], "included": item["data"] is not None}
             for item in proof_files
+        ],
+        "product_images": [
+            {"filename": item["filename"], "sha256": item["sha256"], "included": item["data"] is not None}
+            for item in product_images
         ],
     }
     archive = io.BytesIO()
@@ -1199,6 +1226,9 @@ def _admin_export_archive(records, exported_at):
         for item in proof_files:
             if item["data"] is not None:
                 bundle.writestr(f"payment_proofs/{item['filename']}", item["data"])
+        for item in product_images:
+            if item["data"] is not None:
+                bundle.writestr(f"product_images/{item['filename']}", item["data"])
     return archive.getvalue()
 
 
@@ -1230,6 +1260,7 @@ def _valid_admin_data_export():
             "exported_at": payload.get("exported_at"),
             "records": payload.get("records"),
             "payment_proofs": manifest.get("payment_proofs", []),
+            "product_images": manifest.get("product_images", []),
         }
     except (OSError, ValueError, TypeError, KeyError, zipfile.BadZipFile):
         return None
@@ -1323,30 +1354,32 @@ def clear_admin_data():
         flash(f"Cleanup stopped: confirm the downloaded export and type {DATA_CLEAR_CONFIRMATION} exactly.", "error")
         return redirect(url_for("admin.data_management"))
     selected_categories = set(request.form.getlist("categories"))
-    if not selected_categories or not selected_categories.issubset(DATA_CLEANUP_CATEGORIES):
-        flash("Cleanup stopped: select at least one valid data category.", "error")
+    if len(selected_categories) != 1 or not selected_categories.issubset(DATA_CLEANUP_CATEGORIES):
+        flash("Cleanup stopped: select exactly one valid data section. Sections must be cleared separately.", "error")
         return redirect(url_for("admin.data_management"))
     selected_tables = set().union(*(set(DATA_CLEANUP_CATEGORIES[key]["tables"]) for key in selected_categories))
 
     from app.models import (
-        AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink,
+        AuthRateLimit, CartAddCount, CustomerAccount, CustomerConsentEvent, CustomerOrderLink,
         CustomerProfile, CustomerToken, EmailCampaign, EmailCampaignRecipient,
         EmailMessage, Expense, FinancialAuditEvent, InventoryMovement,
         LoyaltyTransaction, Order, OrderItem, OrderStatusHistory, PaymentAttempt,
-        PaymentTransaction, ProductEnquiry, ProductSuggestion, Referral,
+        PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, Referral,
         ReferralClick, RefundRequest, RestockAlert, Review,
     )
     try:
         current_records = _collect_admin_data_records()
         current_proofs = _collect_payment_proof_files(current_records)
+        current_product_images = _collect_product_image_files(current_records)
         proof_state = [{"filename": item["filename"], "sha256": item["sha256"], "included": item["data"] is not None} for item in current_proofs]
-        if current_records != export["records"] or proof_state != export["payment_proofs"]:
+        image_state = [{"filename": item["filename"], "sha256": item["sha256"], "included": item["data"] is not None} for item in current_product_images]
+        if current_records != export["records"] or proof_state != export["payment_proofs"] or image_state != export.get("product_images", []):
             db.session.rollback()
             flash("Cleanup stopped: database records or payment proof files changed after export. Download a fresh export and review it before retrying.", "error")
             return redirect(url_for("admin.data_management"))
 
         delete_models = [
-            EmailCampaignRecipient, EmailMessage, CustomerToken, CustomerConsentEvent,
+            CartAddCount, EmailCampaignRecipient, EmailMessage, CustomerToken, CustomerConsentEvent,
             CustomerOrderLink, ReferralClick, RefundRequest, PaymentTransaction,
             PaymentAttempt, OrderStatusHistory, OrderItem, Referral,
             LoyaltyTransaction, InventoryMovement, Review, ProductEnquiry,
@@ -1355,17 +1388,48 @@ def clear_admin_data():
         ]
         order_proof_filenames = {row.get("payment_proof_filename") for row in export["records"].get("order", []) if row.get("payment_proof_filename")} if "orders" in selected_categories else set()
         deleted = {}
+        updated = {}
         for model in delete_models:
             if model.__tablename__ not in selected_tables:
                 continue
             query = db.session.query(model)
             deleted[model.__tablename__] = query.count()
             query.delete(synchronize_session=False)
+
+        if "products" in selected_categories:
+            product_ids = [row["id"] for row in export["records"].get("product", [])]
+            variant_ids = [row["id"] for row in export["records"].get("product_variant", [])]
+            if product_ids:
+                order_items = OrderItem.query.filter(OrderItem.product_id.in_(product_ids))
+                updated["order_item_product_links_detached"] = order_items.update(
+                    {OrderItem.product_id: None, OrderItem.variant_id: None}, synchronize_session=False
+                )
+                if variant_ids:
+                    updated["order_item_variant_links_detached"] = OrderItem.query.filter(OrderItem.variant_id.in_(variant_ids)).update(
+                        {OrderItem.variant_id: None}, synchronize_session=False
+                    )
+                updated["review_product_links_detached"] = Review.query.filter(Review.product_id.in_(product_ids)).update(
+                    {Review.product_id: None}, synchronize_session=False
+                )
+                updated["enquiry_product_links_detached"] = ProductEnquiry.query.filter(ProductEnquiry.product_id.in_(product_ids)).update(
+                    {ProductEnquiry.product_id: None}, synchronize_session=False
+                )
+                deleted["inventory_movement"] = InventoryMovement.query.filter(InventoryMovement.product_id.in_(product_ids)).count()
+                InventoryMovement.query.filter(InventoryMovement.product_id.in_(product_ids)).delete(synchronize_session=False)
+                deleted["restock_alert"] = RestockAlert.query.filter(RestockAlert.product_id.in_(product_ids)).count()
+                RestockAlert.query.filter(RestockAlert.product_id.in_(product_ids)).delete(synchronize_session=False)
+                deleted["product_variant"] = ProductVariant.query.filter(ProductVariant.product_id.in_(product_ids)).count()
+                ProductVariant.query.filter(ProductVariant.product_id.in_(product_ids)).delete(synchronize_session=False)
+                deleted["product_image"] = ProductImage.query.filter(ProductImage.product_id.in_(product_ids)).count()
+                ProductImage.query.filter(ProductImage.product_id.in_(product_ids)).delete(synchronize_session=False)
+                deleted["product"] = Product.query.filter(Product.id.in_(product_ids)).count()
+                Product.query.filter(Product.id.in_(product_ids)).delete(synchronize_session=False)
+
         db.session.add(FinancialAuditEvent(
             admin_id=current_user.id,
             event_type="operational_data_cleared",
             entity_type="DatabaseExport",
-            note=json.dumps({"export_id": export["id"], "deleted_counts": deleted}, sort_keys=True),
+            note=json.dumps({"export_id": export["id"], "deleted_counts": deleted, "updated_links": updated}, sort_keys=True),
         ))
         db.session.commit()
     except Exception:
@@ -1390,11 +1454,35 @@ def clear_admin_data():
         except OSError:
             failed_proof_deletes += 1
             current_app.logger.exception("Could not remove archived payment proof %s", item["filename"])
+    failed_image_deletes = 0
+    if "products" in selected_categories:
+        upload_folder = Path(current_app.config["UPLOAD_FOLDER"]).resolve()
+        for item in current_product_images:
+            if item["data"] is None:
+                continue
+            image_path = (upload_folder / item["filename"]).resolve()
+            if image_path.parent != upload_folder:
+                failed_image_deletes += 1
+                continue
+            try:
+                image_path.unlink(missing_ok=True)
+            except OSError:
+                failed_image_deletes += 1
+                current_app.logger.exception("Could not remove archived product image %s", item["filename"])
     session.pop("admin_data_export", None)
+    try:
+        (_admin_data_export_dir() / f"{export['id']}.zip").unlink(missing_ok=True)
+    except OSError:
+        current_app.logger.warning("Could not remove consumed data export %s", export["id"])
     labels = ", ".join(DATA_CLEANUP_CATEGORIES[key]["label"] for key in DATA_CLEANUP_CATEGORIES if key in selected_categories)
-    message = f"Removed {sum(deleted.values())} record(s) from {labels} after matching the verified export. Catalog, admin accounts, shop settings, and a cleanup audit entry were preserved."
+    message = f"Removed {sum(deleted.values())} record(s) from {labels} after matching the verified export. Admin accounts, category definitions, shop settings, and a cleanup audit entry were preserved."
+    warnings = []
     if failed_proof_deletes:
-        flash(message + f" {failed_proof_deletes} archived payment proof file(s) could not be removed from the server.", "warning")
+        warnings.append(f"{failed_proof_deletes} archived payment proof file(s) could not be removed from the server")
+    if failed_image_deletes:
+        warnings.append(f"{failed_image_deletes} archived local product image(s) could not be removed from the server")
+    if warnings:
+        flash(message + ". Cleanup note: " + "; ".join(warnings) + ".", "warning")
     else:
         flash(message, "success")
     return redirect(url_for("admin.data_management"))
