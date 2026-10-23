@@ -62,34 +62,34 @@ def _fit_text(draw, text, font, max_width):
 
 
 def render_product_share_card(name: str, category: str, price: str, image_path: Path | None, image_url: str) -> bytes:
-    canvas = Image.new("RGB", (WIDTH, HEIGHT), PALE)
+    # Facebook link previews use this landscape card. Give the product photo
+    # most of the canvas so it remains recognizable at feed preview size.
+    canvas = Image.new("RGB", (WIDTH, HEIGHT), WHITE)
     draw = ImageDraw.Draw(canvas)
-    draw.rectangle((0, 0, WIDTH, 24), fill=RED)
-    draw.rounded_rectangle((52, 66, 1148, 570), radius=32, fill=WHITE)
-    draw.rounded_rectangle((52, 66, 582, 570), radius=32, fill=DARK)
-    draw.rectangle((550, 66, 582, 570), fill=DARK)
-    draw.rounded_rectangle((80, 96, 554, 540), radius=22, fill=WHITE)
+    draw.rectangle((0, 0, WIDTH, 16), fill=RED)
+    draw.rounded_rectangle((34, 42, 1166, 588), radius=28, fill=PALE)
 
+    photo_box = (52, 60, 748, 570)
+    draw.rounded_rectangle(photo_box, radius=22, fill=WHITE)
     source = _read_source_image(image_path, image_url)
     if source:
-        source.thumbnail((430, 380), Image.Resampling.LANCZOS)
-        x = 317 - source.width // 2
-        y = 318 - source.height // 2
-        canvas.paste(source, (x, y), source)
+        fitted = ImageOps.contain(source, (photo_box[2] - photo_box[0] - 28, photo_box[3] - photo_box[1] - 28), Image.Resampling.LANCZOS)
+        x = photo_box[0] + (photo_box[2] - photo_box[0] - fitted.width) // 2
+        y = photo_box[1] + (photo_box[3] - photo_box[1] - fitted.height) // 2
+        canvas.paste(fitted, (x, y), fitted if fitted.mode == "RGBA" else None)
     else:
-        draw.rounded_rectangle((146, 196, 488, 438), radius=24, fill=PALE)
-        draw.text((184, 292), "FityStores", font=_font(42, True), fill=RED)
+        draw.text((220, 285), "FityStores", font=_font(48, True), fill=RED)
 
-    draw.rounded_rectangle((80, 464, 228, 510), radius=18, fill=RED)
-    draw.text((101, 475), "SHOP ONLINE", font=_font(18, True), fill=WHITE)
-    draw.text((632, 122), "FITYSTORES", font=_font(25, True), fill=RED)
-    draw.text((632, 170), _fit_text(draw, category.upper(), _font(17, True), 450), font=_font(17, True), fill="#737373")
-    draw.multiline_text((628, 216), _fit_text(draw, name, _font(43, True), 452), font=_font(43, True), fill=DARK, spacing=8)
-    draw.rounded_rectangle((628, 360, 1098, 456), radius=20, fill=PALE)
-    draw.text((656, 373), "PRICE", font=_font(16, True), fill="#737373")
-    draw.text((656, 398), _fit_text(draw, price, _font(35, True), 418), font=_font(35, True), fill=RED)
-    draw.line((632, 492, 1098, 492), fill="#E5E5E5", width=2)
-    draw.text((632, 514), "Shop with confidence at fitystore.top", font=_font(18, True), fill=DARK)
+    draw.rounded_rectangle((778, 60, 1148, 570), radius=22, fill=WHITE)
+    draw.text((812, 96), "FITYSTORES", font=_font(22, True), fill=RED)
+    draw.text((812, 145), _fit_text(draw, category.upper(), _font(16, True), 300), font=_font(16, True), fill="#737373")
+    draw.multiline_text((808, 188), _fit_text(draw, name, _font(34, True), 300), font=_font(34, True), fill=DARK, spacing=7)
+    draw.rounded_rectangle((808, 336, 1118, 426), radius=18, fill=PALE)
+    draw.text((830, 350), "PRICE", font=_font(14, True), fill="#737373")
+    draw.text((830, 375), _fit_text(draw, price, _font(28, True), 270), font=_font(28, True), fill=RED)
+    draw.line((812, 454, 1118, 454), fill="#E5E5E5", width=2)
+    draw.text((812, 480), "View product and order online", font=_font(16, True), fill=DARK)
+    draw.text((812, 510), "fitystore.top", font=_font(15), fill="#737373")
 
     output = BytesIO()
     canvas.save(output, format="PNG", optimize=True)
@@ -114,7 +114,7 @@ def cached_product_share_card(
         except OSError:
             image_stat = None
     key_material = json.dumps(
-        [name, category, price, image_url, str(image_path or ""), image_stat, revision],
+        ["large-product-preview-v2", name, category, price, image_url, str(image_path or ""), image_stat, revision],
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")

@@ -870,6 +870,11 @@ def ensure_columns():
         if "note" not in refund_columns:
             db.session.execute(text('ALTER TABLE refund_request ADD COLUMN note TEXT DEFAULT ""'))
 
+    if "customer_account" in table_names:
+        account_columns = {column["name"] for column in inspector.get_columns("customer_account")}
+        if "two_factor_enabled" not in account_columns:
+            db.session.execute(text('ALTER TABLE customer_account ADD COLUMN two_factor_enabled BOOLEAN DEFAULT 0 NOT NULL'))
+
     if "customer_profile" in table_names:
         profile_columns = {column["name"] for column in inspector.get_columns("customer_profile")}
         if "account_id" not in profile_columns:
