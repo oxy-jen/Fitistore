@@ -115,11 +115,11 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(action.hasAttribute('data-share-facebook')){
       const facebookUrl='https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(url);
       const imageUrl=share.dataset.shareImage||'',title=share.dataset.shareTitle||'FityStores';
-      const caption=((share.dataset.shareText||title)+'\\n'+url).trim();
+      const caption=((share.dataset.shareText||title)+' '+url).trim();
       let canShareImage=false;
       try{const probe=new File(['image'],'fitystores-share.png',{type:'image/png'});canShareImage=typeof navigator.share==='function'&&(!navigator.canShare||navigator.canShare({files:[probe]}))}catch(error){}
       if(canShareImage&&imageUrl){
-        try{const response=await fetch(imageUrl,{credentials:'same-origin'});if(!response.ok)throw new Error('image');const blob=await response.blob();const file=new File([blob],'fitystores-share.png',{type:blob.type||'image/png'});await navigator.share({files:[file],title,text:caption});announce('Choose Facebook to share the full image and clickable link.')}
+        try{const response=await fetch(imageUrl,{credentials:'same-origin'});if(!response.ok)throw new Error('image');const blob=await response.blob();const file=new File([blob],'fitystores-share.png',{type:blob.type||'image/png'});await navigator.share({files:[file],title,text:caption,url});announce('Choose Facebook to share the full image and clickable link.')}
         catch(error){if(error.name==='AbortError')return;window.open(facebookUrl,'_blank','noopener,noreferrer');announce('Facebook opened with the page link.')}
       }else{
         window.open(facebookUrl,'_blank','noopener,noreferrer');
