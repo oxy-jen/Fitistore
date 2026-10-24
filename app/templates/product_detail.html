@@ -38,7 +38,7 @@
       {% endif %}
     </div>
     <p class="product-review-link"><a class="btn" href="{{ url_for('public.reviews', product_id=product.id) }}#write-review">Review this product</a></p>
-    <div class="product-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ product_image_url(main_image) }}">
+    <div class="product-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ url_for('public.product_social_card', slug=product.slug) }}">
       <button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share product</button><button class="btn" type="button" data-share-facebook aria-label="Share {{ product.name }} on Facebook">Share on Facebook</button>
       <button class="btn" type="button" data-share-copy>Copy link</button>
       <a class="btn" href="{{ whatsapp_share_url }}" target="_blank" rel="noopener">WhatsApp a friend</a>

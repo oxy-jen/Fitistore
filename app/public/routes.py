@@ -532,6 +532,23 @@ def product_detail(slug):
     card_url = "https://fitystore.top" + url_for("public.product_share_card", slug=product.slug)
     return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=card_url, og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=product.name + " at FityStores ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â " + share_price, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related)
 
+@public_bp.route("/share/product/<slug>/social.png")
+def product_social_card(slug):
+    from app.services.share_cards import render_social_post_image
+    from app.services.product_images import legacy_local_image_path
+    from app.services.formatting import money
+    product=product_list_options(Product.query.filter_by(slug=slug,active=True)).first_or_404()
+    image=product_display_image(product);image_url=product_image_url(image) if image else ""
+    image_path=legacy_local_image_path(image) if image and not getattr(image,"cloudinary_public_id","") else None
+    if not image_path and image_url.startswith("/static/"):
+        candidate=(Path(current_app.static_folder)/image_url.removeprefix("/static/")).resolve()
+        if Path(current_app.static_folder).resolve() in candidate.parents and candidate.is_file():image_path=candidate
+    desc=" ".join(re.sub(r"<[^>]+>"," ",product.description or "").split())[:150]
+    price=money(product.price_cents,current_settings().currency) if product.price_cents is not None else ""
+    card=render_social_post_image(product.name,desc,image_path,image_url,price,"VIEW PRODUCT")
+    return Response(card,mimetype="image/png",headers={"Cache-Control":"public, max-age=3600","Content-Length":str(len(card))})
+
+
 @public_bp.route("/share/product/<slug>.png")
 def product_share_card(slug):
     product = product_list_options(Product.query.filter_by(slug=slug, active=True)).first_or_404()
