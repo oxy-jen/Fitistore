@@ -18,7 +18,7 @@ from sqlalchemy import func, or_, update
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 from app.extensions import db
-from app.models import AdminUser, CustomerAccount, Category, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, Order, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailMessage
+from app.models import AdminUser, CustomerAccount, Category, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, Order, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailMessage, MarketingAutomationSettings, MarketingCampaignRun
 from app.services.formatting import parse_money
 from app.services.inventory import InventoryError, adjust_stock, adjust_variant_stock, low_stock_products
 from app.services.orders import FULFILMENT_STATUSES, PAYMENT_STATUSES, award_loyalty_for_order, refundable_cents, sales_summary, update_order_status
@@ -44,6 +44,81 @@ def email_center():
     messages = EmailMessage.query.order_by(EmailMessage.created_at.desc()).limit(30).all()
     configured, note = mail_configuration_status()
     return render_template("admin/email.html", title="Customer email", subscribers=subscribers, accounts=accounts, campaigns=campaigns, messages=messages, search=search, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""))
+
+
+@admin_bp.route("/email/automation", methods=["GET", "POST"])
+@login_required
+def email_automation():
+    from app.services.customer_mail import mail_configuration_status
+    settings=MarketingAutomationSettings.query.get(1)
+    if not settings:
+        settings=MarketingAutomationSettings(id=1)
+        db.session.add(settings);db.session.commit()
+    if request.method=="POST":
+        action=request.form.get("action","save")
+        if action=="test":
+            from types import SimpleNamespace
+            from app.services.marketing_automation import _choose_products, _render_products_email
+            from app.services.customer_mail import mail_configuration_status, queue_email
+            test_address=(current_app.config.get("MAIL_TEST_ADDRESS") or "").strip()
+            configured,note=mail_configuration_status()
+            recent_tests=FinancialAuditEvent.query.filter_by(admin_id=current_user.id,event_type="marketing_automation_test").filter(FinancialAuditEvent.created_at>=datetime.utcnow()-timedelta(hours=1)).count()
+            kind=request.form.get("campaign_type","daily_goodies")
+            if not test_address or not configured:
+                flash("Test not sent: configure MAIL_TEST_ADDRESS and a verified provider. "+note,"error")
+            elif recent_tests>=3:
+                flash("Test send limit reached. Try again later.","warning")
+            elif kind not in {"daily_goodies","weekly_picks","offers","reviews"}:
+                flash("Choose a valid preview type.","error")
+            else:
+                products,intro=_choose_products(kind)
+                subject={"daily_goodies":"Fity Goodies test","weekly_picks":"Weekly picks test","offers":"Offers test","reviews":"Review highlights test"}[kind]
+                preview_account=SimpleNamespace(display_name="Admin preview",email=test_address)
+                html,text=_render_products_email(preview_account,subject,subject,intro,products,"")
+                row=queue_email(test_address,subject,"marketing_test","automation-test:"+uuid4().hex,html_body=html,text_body=text)
+                db.session.add(FinancialAuditEvent(admin=current_user,event_type="marketing_automation_test",entity_type="EmailMessage",entity_id=row.id,note="Admin test type="+kind+" status="+row.status))
+                db.session.commit()
+                flash("Test status: "+row.status+". Provider acceptance does not guarantee inbox delivery.","success" if row.status=="sent" else "warning")
+            return redirect(url_for("admin.email_automation"))
+        if action=="save":
+            settings.enabled=request.form.get("enabled")=="yes"
+            settings.daily_goodies_enabled=request.form.get("daily_goodies_enabled")=="yes"
+            settings.weekly_picks_enabled=request.form.get("weekly_picks_enabled")=="yes"
+            settings.abandoned_cart_enabled=request.form.get("abandoned_cart_enabled")=="yes"
+            try:
+                settings.daily_goodies_hour=max(0,min(23,int(request.form.get("daily_goodies_hour","9"))))
+                settings.weekly_picks_hour=max(0,min(23,int(request.form.get("weekly_picks_hour","10"))))
+                settings.weekly_picks_weekday=max(0,min(6,int(request.form.get("weekly_picks_weekday","0"))))
+                settings.abandoned_cart_minutes=max(120,min(1440,int(request.form.get("abandoned_cart_minutes","180"))))
+            except (TypeError,ValueError):
+                flash("Enter valid schedule values. Abandonment delay must be 2 to 24 hours.","error")
+                return redirect(url_for("admin.email_automation"))
+            zone=request.form.get("timezone_name","Africa/Nairobi").strip()
+            settings.timezone_name=zone if zone in {"Africa/Nairobi","UTC"} else "Africa/Nairobi"
+            db.session.commit()
+            db.session.add(FinancialAuditEvent(admin=current_user,event_type="marketing_automation_settings_updated",entity_type="MarketingAutomationSettings",entity_id=settings.id,note="Campaign schedules changed"))
+            db.session.commit()
+            flash("Marketing automation settings saved. Campaigns only run when enabled and the separate scheduler invokes the job.","success")
+        return redirect(url_for("admin.email_automation"))
+    configured,note=mail_configuration_status()
+    runs=MarketingCampaignRun.query.order_by(MarketingCampaignRun.scheduled_for.desc()).limit(30).all()
+    from app.services.marketing_automation import next_scheduled_runs
+    next_runs=next_scheduled_runs(settings)
+    return render_template("admin/email_automation.html",title="Email automation",settings=settings,mail_configured=configured,mail_note=note,runs=runs,next_runs=next_runs,test_address=current_app.config.get('MAIL_TEST_ADDRESS',''))
+
+
+@admin_bp.get("/email/automation/preview/<campaign_type>")
+@login_required
+def email_automation_preview(campaign_type):
+    from types import SimpleNamespace
+    from app.services.marketing_automation import _choose_products, _render_products_email
+    allowed={"daily_goodies":"Your Fity Goodies","weekly_picks":"This week's popular picks","offers":"Current offers","reviews":"Customer review highlights"}
+    if campaign_type not in allowed:return Response("Not found",status=404)
+    products,intro=_choose_products(campaign_type)
+    account=CustomerAccount.query.filter_by(active=True,marketing_status="subscribed").first()
+    if not account:account=SimpleNamespace(display_name="FityStores Customer",email="preview@example.invalid")
+    html,_text=_render_products_email(account,allowed[campaign_type],allowed[campaign_type],intro,products,"https://fitystore.top/unsubscribe-preview")
+    return Response(html,mimetype="text/html")
 
 
 @admin_bp.route("/email/campaigns", methods=["GET", "POST"])

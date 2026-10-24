@@ -1,5 +1,7 @@
 import hashlib
+import hmac
 import json
+from secrets import token_urlsafe
 import re
 from urllib.parse import quote
 from datetime import datetime, timedelta
@@ -10,7 +12,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
-from app.models import CartAddCount, Category, CustomerAccount, CustomerOrderLink, CustomerProfile, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
+from app.models import CartAddCount, Category, CustomerAccount, CustomerCart, CustomerOrderLink, CustomerProfile, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
@@ -200,7 +202,8 @@ def home():
     }
     share_product = share_product_queries.get(requested_share, share_product_queries["home"]).first()
     home_og_image = url_for("public.home_share_card", section=requested_share, _external=True)
-    home_canonical = request.base_url if requested_share == "home" and "share" not in request.args else request.url
+    public_origin = (current_app.config.get("PUBLIC_BASE_URL") or "https://fitystore.top").rstrip("/")
+    home_canonical = public_origin + "/" if requested_share == "home" and "share" not in request.args else public_origin + url_for("public.home", share=requested_share)
     home_share_urls = {
         key: url_for("public.home", share=key, _anchor={"featured": "featured-picks", "popular": "most-added", "categories": "category-showcase", "offers": "discounted-goods", "mamba": "mamba-collection", "upcoming": "upcoming-strip"}.get(key, ""), _external=True)
         for key in home_share_specs if key != "home"
@@ -647,6 +650,47 @@ def api_record_cart_add():
     return jsonify({"ok": True})
 
 
+@public_bp.post("/api/cart/snapshot")
+def api_sync_customer_cart():
+    account=current_user._get_current_object()
+    if not isinstance(account,CustomerAccount) or not account.active or not account.email_verified_at:
+        return jsonify({"ok":False,"reason":"sign_in_required"}),401
+    payload=request.get_json(silent=True) or {}
+    now=datetime.utcnow()
+    cart=CustomerCart.query.filter_by(account_id=account.id).first()
+    if not cart:
+        cart=CustomerCart(account_id=account.id,items_json="[]",episode_key=token_urlsafe(24))
+        db.session.add(cart)
+    action=payload.get("action","update")
+    if action=="checkout":
+        cart.checkout_until=now+timedelta(minutes=30)
+        db.session.commit()
+        return jsonify({"ok":True})
+    if action=="clear":
+        cart.items_json="[]";cart.checkout_until=None;cart.reminder_sent_at=None
+        cart.episode_key=token_urlsafe(24);cart.updated_at=now
+        db.session.commit()
+        return jsonify({"ok":True})
+    normalized=[]
+    for item in (payload.get("items") or [])[:40]:
+        try:
+            product_id=int(item.get("product_id") or item.get("id"))
+            quantity=max(1,min(99,int(item.get("quantity",1))))
+            variant_id=int(item.get("variant_id")) if item.get("variant_id") else None
+        except (AttributeError,TypeError,ValueError):
+            continue
+        if not Product.query.filter_by(id=product_id,active=True).first():continue
+        if variant_id and not ProductVariant.query.filter_by(id=variant_id,product_id=product_id,active=True).first():continue
+        if item.get("selected") is False:continue
+        normalized.append({"product_id":product_id,"variant_id":variant_id,"quantity":quantity})
+    encoded=json.dumps(normalized,separators=(",",":"),sort_keys=True)
+    if encoded!=cart.items_json:
+        cart.items_json=encoded;cart.updated_at=now;cart.reminder_sent_at=None;cart.episode_key=token_urlsafe(24)
+    cart.checkout_until=None
+    db.session.commit()
+    return jsonify({"ok":True})
+
+
 @csrf.exempt
 @public_bp.post("/api/cart/validate")
 def api_validate_cart():
@@ -712,6 +756,14 @@ def checkout():
         if not order:
             flash("Your cart could not be checked out. Please review the items and stock levels.", "error")
             return redirect(url_for("public.cart"))
+        if isinstance(current_user._get_current_object(), CustomerAccount):
+            saved_cart = CustomerCart.query.filter_by(account_id=current_user.id).first()
+            if saved_cart:
+                saved_cart.items_json = "[]"
+                saved_cart.checkout_until = None
+                saved_cart.reminder_sent_at = None
+                saved_cart.episode_key = token_urlsafe(24)
+                db.session.commit()
         if order.referral_code:
             session["referral_code"] = order.referral_code
         if isinstance(current_user._get_current_object(), CustomerAccount) and current_user.email_verified_at:
@@ -723,6 +775,26 @@ def checkout():
         link = whatsapp_link(order, settings)
         return render_template("checkout_ready.html", title="Open WhatsApp", order=order, validation=validation, whatsapp_url=link)
     return render_template("checkout.html", title="Checkout", whatsapp_ready=bool(settings.whatsapp_number))
+
+@csrf.exempt
+@public_bp.post("/webhooks/brevo/email-events")
+def brevo_email_events():
+    configured=(current_app.config.get("BREVO_WEBHOOK_TOKEN") or "").strip()
+    supplied=(request.headers.get("X-Fity-Brevo-Token") or "").strip()
+    if not configured or not hmac.compare_digest(configured,supplied):return jsonify({"ok":False}),403
+    payload=request.get_json(silent=True) or {};events=payload if isinstance(payload,list) else [payload];changed=0
+    for event in events[:100]:
+        if not isinstance(event,dict):continue
+        event_name=str(event.get("event") or event.get("type") or "").strip().lower()
+        if event_name not in {"hardbounce","hard_bounce","spam","complaint","invalid"}:continue
+        address=str(event.get("email") or event.get("recipient") or "").strip().lower()[:254]
+        if not address:continue
+        account=CustomerAccount.query.filter(db.func.lower(CustomerAccount.email)==address).first()
+        if not account or account.marketing_status=="suppressed":continue
+        account.marketing_status="suppressed";account.marketing_withdrawn_at=datetime.utcnow()
+        db.session.add(CustomerConsentEvent(account_id=account.id,event="suppressed",method="brevo_webhook",wording_version="2026-10"));changed+=1
+    db.session.commit();return jsonify({"ok":True,"suppressed":changed})
+
 
 @public_bp.route("/contact")
 def contact():

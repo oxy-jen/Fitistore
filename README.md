@@ -274,3 +274,30 @@ The integration stays unavailable until `GOOGLE_CLIENT_ID` and the `google-auth`
 7. Only after sender verification, configure `MAIL_TEST_ADDRESS`, send one test message from the admin centre, and inspect its status. Preview a campaign and type `SEND` only when the eligible subscriber count and content are correct.
 
 Use HTTPS in production and set `SESSION_COOKIE_SECURE=1`. Registration, login, verification, password reset and Google sign-in are rate-limited per IP/action; session cookies remain HTTP-only and SameSite Lax. Password reset/verification raw tokens are only included in the generated email and are stored in the database as SHA-256 hashes. The email outbox stores recipient, subject, event, status and failure summary, not token links or message bodies. Review privacy wording and any retention schedule with the business owner; this implementation is not a legal compliance certification.
+
+
+## Scheduled marketing automation
+
+Marketing automation is opt-in at both levels: customers explicitly request and confirm promotional email, and the owner enables schedules in Admin > Customer email > Email automation. Account terms remain separate from marketing consent. Essential verification, security, and order messages continue independently.
+
+The existing migrate-customer-email-schema command now also creates the signed-in cart snapshot and automation run/settings tables and additively adds the outbox retry counter. Run it once after deploying this version, against the same database used by the web service:
+
+    python -m flask --app wsgi:app migrate-customer-email-schema
+
+The automation command runs independently of web traffic:
+
+    python -m flask --app wsgi:app run-marketing-automation
+
+Create a separate Render Cron Job using the same repository, branch, environment variables, and persistent DATABASE_URL as the web service. Set its command to the line above and schedule it every 15 minutes (*/15 * * * *). Schedule times in the admin screen use Africa/Nairobi by default; the cron process checks due times using that timezone. Do not start it from Gunicorn workers. A Render Cron Job is a separately provisioned service; confirm the current Render plan and cost before enabling it. Without an independent scheduler, recurring emails and abandoned-cart reminders will not run automatically.
+
+The migration only adds new tables/columns and does not erase existing store data. Run it before enabling automation. All automation schedules default to paused. Admin previews render current catalog content; test sends go only to MAIL_TEST_ADDRESS and are limited to three per admin per hour. A sent status means provider acceptance, not confirmed inbox placement.
+
+Only verified, subscribed customer accounts are eligible. Cart reminders only cover authenticated accounts whose cart snapshot is past the configured inactivity window; checkout activity suppresses the reminder for 30 minutes, and an order request resolves the episode. Guest carts are never emailed. Product prices and availability are revalidated before each reminder. One reminder is sent per episode by default, and the frequency limit is at most one marketing message per account per rolling 24 hours.
+
+Current offers require a stored previous price higher than the current price; this schema has no separate offer start/end dates. Weekly ranking uses Completed and Paid orders from the last 90 days, with the existing lifetime recorded cart-add aggregate as a secondary signal because that legacy counter has no event timestamps. If activity is insufficient, the campaign calls items fresh picks instead of claiming popularity. Only published reviews are eligible for highlights.
+
+For Brevo bounce/complaint suppression, set BREVO_WEBHOOK_TOKEN to a long random secret and configure Brevo to POST events to /webhooks/brevo/email-events with the same value in X-Fity-Brevo-Token. Hard bounces, spam complaints, and invalid-address events suppress matching accounts. An unset token makes the endpoint reject calls. Verify the provider payload and event names before relying on this feed; admins can still suppress addresses manually.
+
+Brevo needs a verified sender and authenticated domain. Set MAIL_PROVIDER=brevo, BREVO_API_KEY, MAIL_FROM_ADDRESS, and MAIL_FROM_VERIFIED=1 only after sender/domain verification. Set MAIL_TEST_ADDRESS before using the automated test form. Store credentials only in Render environment settings or an untracked local .env file; never put credentials in .env.example.
+
+This feature does not certify legal compliance or inbox delivery. Kenya's Data Protection Act and General Regulations require specific prior consent for direct marketing and a clear, low-effort opt-out. Review the privacy notice, ODPC registration obligations, data retention, and vendor/data-transfer arrangements with qualified counsel before launch.
