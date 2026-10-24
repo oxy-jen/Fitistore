@@ -1096,13 +1096,13 @@ DATA_EXPORT_MAX_AGE_SECONDS = 24 * 60 * 60
 DATA_CLEAR_CONFIRMATION = "CLEAR OPERATIONAL DATA"
 DATA_CLEANUP_CATEGORIES = {
     "orders": {"label": "Orders and payment records", "tables": ("customer_order_link", "refund_request", "payment_transaction", "payment_attempt", "order_status_history", "order_item", "order")},
-    "customers": {"label": "Customer accounts and verification data", "tables": ("customer_token", "customer_consent_event", "customer_order_link", "email_campaign_recipient", "email_message", "customer_account", "customer_profile")},
+    "customers": {"label": "Customer accounts and verification data", "tables": ("customer_token", "customer_consent_event", "customer_order_link", "email_campaign_recipient", "email_message", "referral_click", "customer_account", "customer_profile")},
     "customer_activity": {"label": "Reviews, enquiries, suggestions, and restock alerts", "tables": ("review", "product_enquiry", "product_suggestion", "restock_alert")},
     "referrals_loyalty": {"label": "Referrals and loyalty history", "tables": ("referral_click", "referral", "loyalty_transaction")},
     "finance_inventory": {"label": "Expenses and inventory movements", "tables": ("expense", "inventory_movement")},
     "email": {"label": "Email campaigns and message logs", "tables": ("email_campaign_recipient", "email_message", "email_campaign")},
     "audit": {"label": "Previous audit history and temporary login limits", "tables": ("financial_audit_event", "auth_rate_limit")},
-    "products": {"label": "Product catalog, variants, and uploaded images", "tables": ("cart_add_count", "product")},
+    "products": {"label": "Product catalog, variants, and uploaded images", "tables": ("cart_add_count", "inventory_movement", "restock_alert", "product_variant", "product_image", "product")},
 }
 
 
@@ -1384,11 +1384,29 @@ def clear_admin_data():
             PaymentAttempt, OrderStatusHistory, OrderItem, Referral,
             LoyaltyTransaction, InventoryMovement, Review, ProductEnquiry,
             ProductSuggestion, RestockAlert, Expense, FinancialAuditEvent,
-            EmailCampaign, Order, CustomerAccount, CustomerProfile, AuthRateLimit,
+            EmailCampaign, Order, CustomerProfile, CustomerAccount, AuthRateLimit,
         ]
         order_proof_filenames = {row.get("payment_proof_filename") for row in export["records"].get("order", []) if row.get("payment_proof_filename")} if "orders" in selected_categories else set()
         deleted = {}
         updated = {}
+        if "orders" in selected_categories:
+            order_ids = [row["id"] for row in export["records"].get("order", [])]
+            if order_ids:
+                updated["email_message_order_links_detached"] = EmailMessage.query.filter(EmailMessage.order_id.in_(order_ids)).update(
+                    {EmailMessage.order_id: None}, synchronize_session=False
+                )
+                updated["referral_order_links_detached"] = Referral.query.filter(Referral.qualifying_order_id.in_(order_ids)).update(
+                    {Referral.qualifying_order_id: None}, synchronize_session=False
+                )
+                updated["loyalty_order_links_detached"] = LoyaltyTransaction.query.filter(LoyaltyTransaction.order_id.in_(order_ids)).update(
+                    {LoyaltyTransaction.order_id: None}, synchronize_session=False
+                )
+        if "customers" in selected_categories:
+            account_ids = [row["id"] for row in export["records"].get("customer_account", [])]
+            if account_ids:
+                updated["review_customer_links_detached"] = Review.query.filter(Review.customer_account_id.in_(account_ids)).update(
+                    {Review.customer_account_id: None}, synchronize_session=False
+                )
         for model in delete_models:
             if model.__tablename__ not in selected_tables:
                 continue
@@ -1414,10 +1432,12 @@ def clear_admin_data():
                 updated["enquiry_product_links_detached"] = ProductEnquiry.query.filter(ProductEnquiry.product_id.in_(product_ids)).update(
                     {ProductEnquiry.product_id: None}, synchronize_session=False
                 )
-                deleted["inventory_movement"] = InventoryMovement.query.filter(InventoryMovement.product_id.in_(product_ids)).count()
-                InventoryMovement.query.filter(InventoryMovement.product_id.in_(product_ids)).delete(synchronize_session=False)
-                deleted["restock_alert"] = RestockAlert.query.filter(RestockAlert.product_id.in_(product_ids)).count()
-                RestockAlert.query.filter(RestockAlert.product_id.in_(product_ids)).delete(synchronize_session=False)
+                if "inventory_movement" not in deleted:
+                    deleted["inventory_movement"] = InventoryMovement.query.filter(InventoryMovement.product_id.in_(product_ids)).count()
+                    InventoryMovement.query.filter(InventoryMovement.product_id.in_(product_ids)).delete(synchronize_session=False)
+                if "restock_alert" not in deleted:
+                    deleted["restock_alert"] = RestockAlert.query.filter(RestockAlert.product_id.in_(product_ids)).count()
+                    RestockAlert.query.filter(RestockAlert.product_id.in_(product_ids)).delete(synchronize_session=False)
                 deleted["product_variant"] = ProductVariant.query.filter(ProductVariant.product_id.in_(product_ids)).count()
                 ProductVariant.query.filter(ProductVariant.product_id.in_(product_ids)).delete(synchronize_session=False)
                 deleted["product_image"] = ProductImage.query.filter(ProductImage.product_id.in_(product_ids)).count()
@@ -1432,10 +1452,10 @@ def clear_admin_data():
             note=json.dumps({"export_id": export["id"], "deleted_counts": deleted, "updated_links": updated}, sort_keys=True),
         ))
         db.session.commit()
-    except Exception:
+    except Exception as exc:
         db.session.rollback()
         current_app.logger.exception("Admin operational data cleanup failed; transaction rolled back")
-        flash("Cleanup failed and was rolled back. No records were cleared.", "error")
+        flash(f"Cleanup failed ({type(exc).__name__}) and was rolled back. No records were cleared; check the server log for details.", "error")
         return redirect(url_for("admin.data_management"))
 
     proof_folder = Path(current_app.config["PAYMENT_PROOF_FOLDER"]).resolve()

@@ -168,15 +168,88 @@ def home():
             used_product_ids.update(product.id for product in products)
 
     mamba_category_names = ["Boxers", "Shoes", "Vests", "Ankle socks", "Socks"]
+    # Mamba is a curated cross-category collection, so items may also appear
+    # in the earlier featured, arrival, and department sections.
     mamba_query = Product.query.join(Category).filter(
         Product.active.is_(True),
         Category.name.in_(mamba_category_names),
-        Product.id.notin_(used_product_ids),
     )
     mamba_products = product_list_options(mamba_query).order_by(Category.name.asc(), Product.updated_at.desc(), Product.id.desc()).all()
     mamba_category_ids = {product.category_id for product in mamba_products}
     mamba_categories = [category for category in categories if category.id in mamba_category_ids]
-    return render_template("home.html", title="FityStores essentials", seo_title="FityStores | Shop everyday essentials", seo_description="Browse available products, check listed prices and stock, and contact FityStores to confirm collection or delivery.", fresh_arrivals=fresh_arrivals, featured=featured, top_added=top_added, discounted=discounted, category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories, suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE)
+    home_share_specs = {
+        "home": ("Everyday essentials. Fits poa.", "Shop everyday essentials with clear prices and quick WhatsApp support.", "SHOP NOW"),
+        "featured": ("Fresh picks, fair prices.", "Explore featured FityStores products selected for everyday wear.", "VIEW PICKS"),
+        "popular": ("Shopper favourites.", "See the products shoppers are adding to their carts right now.", "SHOP FAVOURITES"),
+        "categories": ("Find your everyday fit.", "Explore shoes, socks, hair accessories, and men's essentials.", "BROWSE CATEGORIES"),
+        "offers": ("Good finds at reduced prices.", "Browse current FityStores offers and product details.", "VIEW OFFERS"),
+        "mamba": ("Your style. Your choice.", "Explore the Mamba collection and available men's essentials.", "EXPLORE MAMBA"),
+        "upcoming": ("See what's coming next.", "Browse upcoming merchandise and tell us what you would like stocked.", "SEE WHAT'S NEXT"),
+    }
+    requested_share = request.args.get("share", "home")
+    if requested_share not in home_share_specs:
+        requested_share = "home"
+    section_title, section_description, _section_button = home_share_specs[requested_share]
+    share_product_queries = {
+        "home": product_list_options(Product.query.filter_by(active=True)).order_by(Product.created_at.desc(), Product.id.desc()),
+        "featured": product_list_options(Product.query.filter_by(active=True, featured=True)).order_by(Product.updated_at.desc(), Product.id.desc()),
+        "popular": product_list_options(Product.query.join(CartAddCount, CartAddCount.product_id == Product.id).filter(Product.active.is_(True)).order_by(CartAddCount.add_count.desc(), Product.name.asc())),
+        "categories": product_list_options(Product.query.filter_by(active=True)).order_by(Product.category_id, Product.updated_at.desc(), Product.id.desc()),
+        "offers": product_list_options(Product.query.filter(Product.active.is_(True), Product.previous_price_cents.isnot(None), Product.price_cents.isnot(None), Product.previous_price_cents > Product.price_cents)).order_by(Product.updated_at.desc(), Product.id.desc()),
+        "mamba": product_list_options(Product.query.join(Category).filter(Product.active.is_(True), Category.name.in_(mamba_category_names))).order_by(Product.updated_at.desc(), Product.id.desc()),
+    }
+    share_product = share_product_queries.get(requested_share, share_product_queries["home"]).first()
+    home_og_image = url_for("public.home_share_card", section=requested_share, _external=True)
+    home_canonical = request.base_url if requested_share == "home" and "share" not in request.args else request.url
+    home_share_urls = {
+        key: url_for("public.home", share=key, _anchor={"featured": "featured-picks", "popular": "most-added", "categories": "category-showcase", "offers": "discounted-goods", "mamba": "mamba-collection", "upcoming": "upcoming-strip"}.get(key, ""), _external=True)
+        for key in home_share_specs if key != "home"
+    }
+    return render_template(
+        "home.html", title="FityStores essentials", seo_title=section_title + " | FityStores",
+        seo_description=section_description, canonical_url=home_canonical, og_image=home_og_image,
+        og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=section_title + " at FityStores",
+        fresh_arrivals=fresh_arrivals, featured=featured, top_added=top_added, discounted=discounted,
+        category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories,
+        suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE,
+        home_share_urls=home_share_urls, requested_share=requested_share,
+    )
+
+
+@public_bp.route("/share/home/<section>.png")
+def home_share_card(section):
+    from app.services.share_cards import render_promo_share_card
+    from app.services.product_images import legacy_local_image_path
+    from app.models import CartAddCount
+
+    specs = {
+        "home": ("Everyday essentials. Fits poa.", "Shop everyday essentials with clear prices and quick WhatsApp support.", "SHOP NOW"),
+        "featured": ("Fresh picks, fair prices.", "Explore featured FityStores products selected for everyday wear.", "VIEW PICKS"),
+        "popular": ("Shopper favourites.", "See the products shoppers are adding to their carts right now.", "SHOP FAVOURITES"),
+        "categories": ("Find your everyday fit.", "Explore shoes, socks, hair accessories, and men's essentials.", "BROWSE CATEGORIES"),
+        "offers": ("Good finds at reduced prices.", "Browse current FityStores offers and product details.", "VIEW OFFERS"),
+        "mamba": ("Your style. Your choice.", "Explore the Mamba collection and available men's essentials.", "EXPLORE MAMBA"),
+        "upcoming": ("See what's coming next.", "Browse upcoming merchandise and tell us what you would like stocked.", "SEE WHAT'S NEXT"),
+    }
+    if section not in specs:
+        return jsonify({"error": "Not found"}), 404
+    queries = {
+        "home": product_list_options(Product.query.filter_by(active=True)).order_by(Product.created_at.desc(), Product.id.desc()),
+        "featured": product_list_options(Product.query.filter_by(active=True, featured=True)).order_by(Product.updated_at.desc(), Product.id.desc()),
+        "popular": product_list_options(Product.query.join(CartAddCount, CartAddCount.product_id == Product.id).filter(Product.active.is_(True)).order_by(CartAddCount.add_count.desc(), Product.name.asc())),
+        "categories": product_list_options(Product.query.filter_by(active=True)).order_by(Product.category_id, Product.updated_at.desc(), Product.id.desc()),
+        "offers": product_list_options(Product.query.filter(Product.active.is_(True), Product.previous_price_cents.isnot(None), Product.price_cents.isnot(None), Product.previous_price_cents > Product.price_cents)).order_by(Product.updated_at.desc(), Product.id.desc()),
+        "mamba": product_list_options(Product.query.join(Category).filter(Product.active.is_(True), Category.name.in_(["Boxers", "Shoes", "Vests", "Ankle socks", "Socks"]))).order_by(Product.updated_at.desc(), Product.id.desc()),
+    }
+    product = queries.get(section, queries["home"]).first()
+    image = product_display_image(product) if product else None
+    image_path = legacy_local_image_path(image) if image else None
+    image_url = product_image_url(image) if image else ""
+    if not image_path and not image_url:
+        image_path = Path(current_app.static_folder) / "images" / "shop-hero" / "hair_bonnet-removebg-preview.webp"
+    title_text, description, button_text = specs[section]
+    image_bytes = render_promo_share_card(title_text, description, image_path, image_url, button_text)
+    return Response(image_bytes, mimetype="image/png", headers={"Cache-Control": "public, max-age=3600", "Content-Length": str(len(image_bytes))})
 
 
 @public_bp.route("/referrals", methods=["GET", "POST"])

@@ -88,9 +88,63 @@ def render_product_share_card(name: str, category: str, price: str, image_path: 
     draw.text((830, 350), "PRICE", font=_font(14, True), fill="#737373")
     draw.text((830, 375), _fit_text(draw, price, _font(28, True), 270), font=_font(28, True), fill=RED)
     draw.line((812, 454, 1118, 454), fill="#E5E5E5", width=2)
-    draw.text((812, 480), "View product and order online", font=_font(16, True), fill=DARK)
-    draw.text((812, 510), "fitystore.top", font=_font(15), fill="#737373")
+    draw.rounded_rectangle((812, 472, 1072, 520), radius=14, fill=RED)
+    draw.text((838, 484), "SHOP NOW", font=_font(18, True), fill=WHITE)
+    draw.text((812, 535), "fitystore.top", font=_font(15), fill="#737373")
 
+    output = BytesIO()
+    canvas.save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
+def render_promo_share_card(title: str, description: str, image_path: Path | None, image_url: str = "", button_text: str = "LEARN MORE") -> bytes:
+    """Render an ad-style Open Graph card for a public page or homepage section."""
+    canvas = Image.new("RGB", (WIDTH, HEIGHT), WHITE)
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle((0, 0, WIDTH, 16), fill=RED)
+    draw.rounded_rectangle((34, 42, 1166, 588), radius=28, fill=PALE)
+    photo_box = (52, 60, 748, 570)
+    draw.rounded_rectangle(photo_box, radius=22, fill=WHITE)
+    source = _read_source_image(image_path, image_url)
+    if source:
+        fitted = ImageOps.contain(source, (668, 482), Image.Resampling.LANCZOS)
+        x = photo_box[0] + (photo_box[2] - photo_box[0] - fitted.width) // 2
+        y = photo_box[1] + (photo_box[3] - photo_box[1] - fitted.height) // 2
+        canvas.paste(fitted, (x, y), fitted if fitted.mode == "RGBA" else None)
+    else:
+        draw.text((220, 285), "FityStores", font=_font(48, True), fill=RED)
+    draw.rounded_rectangle((778, 60, 1148, 570), radius=22, fill=DARK)
+    draw.text((812, 92), "BEI FITS  |  FITYSTORES", font=_font(18, True), fill=WHITE)
+    title_font = _font(34, True)
+    title_lines = []
+    words = " ".join((title or "Shop FityStores").split()).split()
+    line = ""
+    for word in words:
+        candidate = (line + " " + word).strip()
+        if draw.textbbox((0, 0), candidate, font=title_font)[2] > 300 and line:
+            title_lines.append(line)
+            line = word
+        else:
+            line = candidate
+    if line:
+        title_lines.append(line)
+    draw.multiline_text((808, 158), "\\n".join(title_lines[:3]), font=title_font, fill=WHITE, spacing=8)
+    desc_font = _font(19)
+    words = " ".join((description or "Everyday essentials, clear prices, and friendly support.").split()).split()
+    lines, line = [], ""
+    for word in words:
+        candidate = (line + " " + word).strip()
+        if draw.textbbox((0, 0), candidate, font=desc_font)[2] > 300 and line:
+            lines.append(line)
+            line = word
+        else:
+            line = candidate
+    if line:
+        lines.append(line)
+    draw.multiline_text((812, 310), "\\n".join(lines[:4]), font=desc_font, fill="#EEEEEE", spacing=8)
+    draw.rounded_rectangle((812, 455, 1088, 510), radius=16, fill=RED)
+    draw.text((835, 470), _fit_text(draw, button_text, _font(19, True), 230), font=_font(19, True), fill=WHITE)
+    draw.text((812, 530), "fitystore.top", font=_font(15), fill="#D7D7D7")
     output = BytesIO()
     canvas.save(output, format="PNG", optimize=True)
     return output.getvalue()

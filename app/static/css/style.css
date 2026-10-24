@@ -636,3 +636,11 @@ body:has(.about-page) .site-header .nav a[href*="about"]{color:#dc2626;border-bo
 /* Center the main bonnet in the About hero and frame it with the matching accessories. */
 .about-page .about-hero::before{background:linear-gradient(90deg,#f4f5f7 0%,#f4f5f7 34%,rgba(244,245,247,.94) 46%,rgba(244,245,247,.08) 72%),url('/static/images/shop-hero/hb-removebg-preview.png') 76% 52%/27% auto no-repeat,url('/static/images/shop-hero/shoe3.fitistores-removebg-preview.png') 55% 25%/29% auto no-repeat,url('/static/images/shop-hero/hair_bonnet-removebg-preview.webp') 97% 23%/21% auto no-repeat,url('/static/images/shop-hero/haibands2-removebg-preview.webp') 55% 84%/25% auto no-repeat,url('/static/images/shop-hero/hair_bands-removebg-preview.webp') 97% 84%/22% auto no-repeat}
 @media(max-width:600px){.about-page .about-hero::before{inset:0 0 auto;height:230px;opacity:1;background:linear-gradient(180deg,rgba(244,245,247,0) 66%,#f4f5f7 100%),url('/static/images/shop-hero/hb-removebg-preview.png') 50% 48%/34% auto no-repeat,url('/static/images/shop-hero/shoe3.fitistores-removebg-preview.png') 15% 55%/28% auto no-repeat,url('/static/images/shop-hero/hair_bonnet-removebg-preview.webp') 86% 20%/22% auto no-repeat,url('/static/images/shop-hero/haibands2-removebg-preview.webp') 14% 7%/22% auto no-repeat,url('/static/images/shop-hero/hair_bands-removebg-preview.webp') 89% 75%/23% auto no-repeat}.about-page .about-hero-content{padding:230px 0 2.5rem}}
+
+.home-social-share{display:inline-flex;align-items:center;flex-shrink:0}
+.home-social-share .btn{padding:.55rem .8rem;font-size:.86rem;white-space:nowrap}
+@media(max-width:720px){
+  .home-social-share{grid-row:2}
+  .section-title{flex-wrap:wrap;gap:.55rem}
+  .section-title>div{flex-basis:100%}
+}
