@@ -199,7 +199,7 @@ def home():
         "mamba": product_list_options(Product.query.join(Category).filter(Product.active.is_(True), Category.name.in_(mamba_category_names))).order_by(Product.updated_at.desc(), Product.id.desc()),
     }
     share_product = share_product_queries.get(requested_share, share_product_queries["home"]).first()
-    home_og_image = url_for("public.home_share_card", section=requested_share, _external=True)
+    home_og_image = url_for("public.home_social_card", section=requested_share, _external=True)
     home_canonical = request.base_url if requested_share == "home" and "share" not in request.args else request.url
     home_share_urls = {
         key: url_for("public.home", share=key, _anchor={"featured": "featured-picks", "popular": "most-added", "categories": "category-showcase", "offers": "discounted-goods", "mamba": "mamba-collection", "upcoming": "upcoming-strip"}.get(key, ""), _external=True)
@@ -208,12 +208,47 @@ def home():
     return render_template(
         "home.html", title="FityStores essentials", seo_title=section_title + " | FityStores",
         seo_description=section_description, canonical_url=home_canonical, og_image=home_og_image,
-        og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=section_title + " at FityStores",
+        og_image_width=1080, og_image_height=1350, og_image_type="image/png", og_image_alt=section_title + " at FityStores",
         fresh_arrivals=fresh_arrivals, featured=featured, top_added=top_added, discounted=discounted,
         category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories,
         suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE,
         home_share_urls=home_share_urls, requested_share=requested_share,
     )
+
+
+@public_bp.route("/share/home/<section>/social.png")
+def home_social_card(section):
+    from app.services.share_cards import render_social_post_image
+    from app.services.product_images import legacy_local_image_path
+    from app.services.formatting import money
+    from app.models import CartAddCount
+    specs={
+      "home":("Everyday essentials. Fits poa.","Shop everyday essentials with clear prices and quick WhatsApp support.","SHOP NOW"),
+      "featured":("Fresh picks, fair prices.","Explore featured FityStores products selected for everyday wear.","VIEW PICKS"),
+      "popular":("Shopper favourites.","See products shoppers are adding to their carts right now.","SHOP FAVOURITES"),
+      "categories":("Find your everyday fit.","Explore shoes, socks, hair accessories, and men's essentials.","BROWSE CATEGORIES"),
+      "offers":("Good finds at reduced prices.","Browse current FityStores offers and product details.","VIEW OFFERS"),
+      "mamba":("Your style. Your choice.","Explore the Mamba collection and men's everyday essentials.","EXPLORE MAMBA"),
+      "upcoming":("See what's coming next.","Browse upcoming merchandise and tell us what you would like stocked.","SEE WHAT'S NEXT"),
+    }
+    if section not in specs:return jsonify({"error":"Not found"}),404
+    q=Product.query.filter_by(active=True)
+    if section=="featured":q=q.filter(Product.featured.is_(True))
+    elif section=="popular":q=q.join(CartAddCount,CartAddCount.product_id==Product.id).order_by(CartAddCount.add_count.desc())
+    elif section=="offers":q=q.filter(Product.previous_price_cents.isnot(None),Product.price_cents.isnot(None),Product.previous_price_cents>Product.price_cents)
+    elif section=="mamba":q=q.join(Category).filter(Category.name.in_(["Boxers","Shoes","Vests","Ankle socks","Socks"]))
+    product=product_list_options(q).order_by(Product.updated_at.desc(),Product.id.desc()).first()
+    image=product_display_image(product) if product else None
+    image_url=product_image_url(image) if image else ""
+    image_path=legacy_local_image_path(image) if image and not getattr(image,"cloudinary_public_id","") else None
+    if not image_path and image_url.startswith("/static/"):
+        candidate=(Path(current_app.static_folder)/image_url.removeprefix("/static/")).resolve()
+        if Path(current_app.static_folder).resolve() in candidate.parents and candidate.is_file():image_path=candidate
+    if not image_path and not image_url:image_path=Path(current_app.static_folder)/"images"/"shop-hero"/"hair_bonnet-removebg-preview.webp"
+    title,description,button=specs[section]
+    price=money(product.price_cents,current_settings().currency) if product and product.price_cents is not None else ""
+    card=render_social_post_image(title,description,image_path,image_url,price,button)
+    return Response(card,mimetype="image/png",headers={"Cache-Control":"public, max-age=3600","Content-Length":str(len(card))})
 
 
 @public_bp.route("/share/home/<section>.png")
@@ -529,8 +564,8 @@ def product_detail(slug):
     share_message = f"Check out {product.name} at FityStores! {share_price}. View it here: {share_url}"
     seo_description = (product_description + " " + share_price + ".")[:300]
     whatsapp_share_url = "https://wa.me/?text=" + quote(share_message)
-    card_url = "https://fitystore.top" + url_for("public.product_share_card", slug=product.slug)
-    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=card_url, og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=product.name + " at FityStores ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â " + share_price, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related)
+    card_url = "https://fitystore.top" + url_for("public.product_social_card", slug=product.slug)
+    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=card_url, og_image_width=1080, og_image_height=1350, og_image_type="image/png", og_image_alt=product.name + " at FityStores ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â " + share_price, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related)
 
 @public_bp.route("/share/product/<slug>/social.png")
 def product_social_card(slug):

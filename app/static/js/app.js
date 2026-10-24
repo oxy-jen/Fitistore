@@ -114,18 +114,8 @@ document.addEventListener('DOMContentLoaded',()=>{
     const announce=message=>{if(status)status.textContent=message};
     if(action.hasAttribute('data-share-facebook')){
       const facebookUrl='https://www.facebook.com/sharer/sharer.php?u='+encodeURIComponent(url);
-      const imageUrl=share.dataset.shareImage||'',title=share.dataset.shareTitle||'FityStores';
-      const caption=((share.dataset.shareText||title)+' '+url).trim();
-      let canShareImage=false;
-      try{const probe=new File(['image'],'fitystores-share.png',{type:'image/png'});canShareImage=typeof navigator.share==='function'&&(!navigator.canShare||navigator.canShare({files:[probe]}))}catch(error){}
-      if(canShareImage&&imageUrl){
-        try{const response=await fetch(imageUrl,{credentials:'same-origin'});if(!response.ok)throw new Error('image');const blob=await response.blob();const file=new File([blob],'fitystores-share.png',{type:blob.type||'image/png'});await navigator.share({files:[file],title,text:caption,url});announce('Choose Facebook to share the full image and clickable link.')}
-        catch(error){if(error.name==='AbortError')return;window.open(facebookUrl,'_blank','noopener,noreferrer');announce('Facebook opened with the page link.')}
-      }else{
-        window.open(facebookUrl,'_blank','noopener,noreferrer');
-        if(imageUrl){try{const response=await fetch(imageUrl,{credentials:'same-origin'});if(!response.ok)throw new Error('image');const blob=await response.blob();const objectUrl=URL.createObjectURL(blob);const link=document.createElement('a');link.href=objectUrl;link.download='fitystores-share.png';link.click();setTimeout(()=>URL.revokeObjectURL(objectUrl),60000);announce('Image downloaded. Add it to the Facebook post and include the page link.')}catch(error){announce('Facebook opened with the clickable page link.')}}
-        else announce('Facebook share opened with the clickable page link.');
-      }
+      window.open(facebookUrl,'_blank','noopener,noreferrer');
+      announce('Facebook opened with a large clickable image preview. Tapping the preview opens this page.');
       return;
     }
     if(action.hasAttribute('data-share-copy')){
