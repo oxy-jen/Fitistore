@@ -483,6 +483,7 @@ class EmailMessage(TimestampMixin, db.Model):
     idempotency_key = db.Column(db.String(160), unique=True, nullable=False)
     status = db.Column(db.String(24), default="queued", nullable=False, index=True)
     failure_reason = db.Column(db.String(255), default="")
+    retry_count = db.Column(db.Integer, nullable=False, default=0)
     sent_at = db.Column(db.DateTime)
 
 
@@ -508,3 +509,53 @@ class EmailCampaignRecipient(db.Model):
     campaign = db.relationship("EmailCampaign")
     account = db.relationship("CustomerAccount")
     __table_args__ = (UniqueConstraint("campaign_id", "account_id", name="uq_campaign_recipient_account"),)
+
+
+class CustomerCart(TimestampMixin, db.Model):
+    """Minimal authenticated cart snapshot used for safe abandonment reminders."""
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), nullable=False, unique=True, index=True)
+    items_json = db.Column(db.Text, nullable=False, default="[]")
+    checkout_until = db.Column(db.DateTime, index=True)
+    reminder_sent_at = db.Column(db.DateTime)
+    episode_key = db.Column(db.String(64), nullable=False, default="")
+    account = db.relationship("CustomerAccount")
+
+
+class MarketingAutomationSettings(TimestampMixin, db.Model):
+    """Singleton configuration for low-volume scheduled marketing jobs."""
+    id = db.Column(db.Integer, primary_key=True, default=1)
+    enabled = db.Column(db.Boolean, nullable=False, default=False)
+    daily_goodies_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    daily_goodies_hour = db.Column(db.Integer, nullable=False, default=9)
+    weekly_picks_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    weekly_picks_weekday = db.Column(db.Integer, nullable=False, default=0)
+    weekly_picks_hour = db.Column(db.Integer, nullable=False, default=10)
+    abandoned_cart_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    abandoned_cart_minutes = db.Column(db.Integer, nullable=False, default=180)
+    timezone_name = db.Column(db.String(64), nullable=False, default="Africa/Nairobi")
+
+
+class MarketingCampaignRun(TimestampMixin, db.Model):
+    """Persistent idempotency and outcome record for scheduled automation."""
+    id = db.Column(db.Integer, primary_key=True)
+    campaign_key = db.Column(db.String(80), nullable=False, unique=True, index=True)
+    campaign_type = db.Column(db.String(32), nullable=False, index=True)
+    scheduled_for = db.Column(db.DateTime, nullable=False, index=True)
+    started_at = db.Column(db.DateTime)
+    finished_at = db.Column(db.DateTime)
+    status = db.Column(db.String(24), nullable=False, default="queued", index=True)
+    eligible_count = db.Column(db.Integer, nullable=False, default=0)
+    accepted_count = db.Column(db.Integer, nullable=False, default=0)
+    failed_count = db.Column(db.Integer, nullable=False, default=0)
+    suppressed_count = db.Column(db.Integer, nullable=False, default=0)
+    failure_summary = db.Column(db.String(255), nullable=False, default="")
+
+
+class MarketingProductExposure(TimestampMixin, db.Model):
+    """Small per-customer history used to rotate product recommendations."""
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), nullable=False, index=True)
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id"), nullable=False, index=True)
+    last_sent_at = db.Column(db.DateTime, nullable=False, index=True)
+    __table_args__ = (UniqueConstraint("account_id", "product_id", name="uq_marketing_exposure_account_product"),)

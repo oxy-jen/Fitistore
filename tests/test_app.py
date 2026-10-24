@@ -6,7 +6,7 @@ import app as app_module
 from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, AuthRateLimit, Category, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailMessage, Order, OrderItem, Product, ProductImage, ProductSuggestion, Review, ShopSettings
+from app.models import AdminUser, AuthRateLimit, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailMessage, Order, OrderItem, Product, ProductImage, ProductSuggestion, Review, ShopSettings
 from config import TestConfig
 
 @pytest.fixture()
@@ -1039,6 +1039,7 @@ def test_customer_email_migration_creates_schema_on_fresh_sqlite_database(tmp_pa
             "admin_user", "order", "customer_account", "customer_token",
             "customer_consent_event", "customer_order_link", "auth_rate_limit",
             "email_message", "email_campaign", "email_campaign_recipient",
+            "customer_cart", "marketing_automation_settings", "marketing_campaign_run", "marketing_product_exposure",
         }
         assert set(inspect(db.engine).get_table_names()) == expected
 
@@ -1073,6 +1074,7 @@ def test_customer_email_postgresql_migration_keeps_locked_idempotent_sql(monkeyp
                 "customer_account", "customer_token", "customer_consent_event",
                 "customer_order_link", "auth_rate_limit", "email_message",
                 "email_campaign", "email_campaign_recipient",
+                "customer_cart", "marketing_automation_settings", "marketing_campaign_run", "marketing_product_exposure",
             })
 
         def get_columns(self, table_name):
@@ -1550,3 +1552,64 @@ def test_brevo_missing_api_key_is_not_configured(app, monkeypatch, app_context):
     assert result.status == "not_configured"
     assert "BREVO_API_KEY is required" in result.failure_reason
     assert calls == []
+
+
+def test_customer_cart_snapshot_requires_verified_account_and_tracks_episode(client, app, app_context):
+    from datetime import datetime
+    guest=app.test_client()
+    assert guest.post("/api/cart/snapshot",json={"items":[{"product_id":1,"quantity":1}]}).status_code==401
+    account=CustomerAccount(email="cart-owner@example.com",display_name="Cart Owner",password_hash=generate_password_hash("a-strong-test-password-123"),email_verified_at=datetime.utcnow(),marketing_status="subscribed",marketing_consent_at=datetime.utcnow())
+    db.session.add(account);db.session.commit()
+    assert client.post("/account/login",data={"email":account.email,"password":"a-strong-test-password-123"}).status_code==302
+    response=client.post("/api/cart/snapshot",json={"items":[{"product_id":1,"quantity":2}]})
+    assert response.status_code==200 and response.get_json()["ok"]
+    cart=CustomerCart.query.filter_by(account_id=account.id).one()
+    assert '"quantity":2' in cart.items_json
+    first_episode=cart.episode_key
+    assert client.post("/api/cart/snapshot",json={"action":"checkout"}).status_code==200
+    db.session.refresh(cart)
+    assert cart.checkout_until is not None
+    assert client.post("/api/cart/snapshot",json={"action":"clear"}).status_code==200
+    db.session.refresh(cart)
+    assert cart.items_json=="[]" and cart.episode_key!=first_episode
+
+
+def test_marketing_outbox_suppresses_without_current_consent(app, app_context):
+    from app.services.customer_mail import queue_email
+    account=CustomerAccount(email="not-consented@example.com",display_name="No Consent",email_verified_at=datetime.utcnow(),marketing_status="none")
+    db.session.add(account);db.session.commit()
+    row=queue_email(account.email,"A promotion","marketing_daily_goodies","test-marketing-suppression",account_id=account.id,html_body="<p>Sale</p>",text_body="Sale")
+    assert row.status=="suppressed"
+    assert row.sent_at is None
+
+
+def test_scheduled_automation_is_paused_by_default(app, app_context):
+    from app.models import MarketingAutomationSettings
+    from app.services.marketing_automation import run_marketing_automation
+    assert MarketingAutomationSettings.query.get(1) is None
+    assert run_marketing_automation()["status"]=="paused"
+
+
+def test_marketing_email_renders_absolute_product_image_and_link(app, app_context):
+    from app.services.marketing_automation import _render_products_email
+    account=CustomerAccount(email="preview@example.com",display_name="Test Shopper")
+    product=Product.query.filter_by(slug="plain-socks").one()
+    html,text=_render_products_email(account,"Today's picks","Fity Goodies","Fresh picks", [product], "https://fitystore.top/account/unsubscribe/test")
+    assert "https://fitystore.top/product/plain-socks" in html
+    assert "https://fitystore.top/static/images/mainLogo-160.png" in html
+    assert "Plain Socks" in html and "Plain Socks" in text
+    assert "unsubscribe/test" in html
+
+
+def test_weekly_popular_ranking_uses_only_paid_completed_sales(app, app_context):
+    from app.services.marketing_automation import _ranked_products
+    product=Product.query.filter_by(slug="plain-socks").one()
+    pending=Order(reference="PENDING-SALE",fulfilment_method="Collection",status="Order received",payment_status="Awaiting payment")
+    completed=Order(reference="COMPLETED-SALE",fulfilment_method="Collection",status="Completed",payment_status="Paid")
+    db.session.add_all([pending,completed]);db.session.flush()
+    db.session.add_all([
+        OrderItem(order_id=pending.id,product_id=product.id,product_name=product.name,quantity=99,price_cents=product.price_cents,subtotal_cents=product.price_cents*99),
+        OrderItem(order_id=completed.id,product_id=product.id,product_name=product.name,quantity=1,price_cents=product.price_cents,subtotal_cents=product.price_cents),
+    ])
+    db.session.commit()
+    assert _ranked_products(5)[0].id==product.id

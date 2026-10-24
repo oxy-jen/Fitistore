@@ -284,11 +284,12 @@ def register():
             flash("If this address can be registered, we will send the next steps to it.", "info")
             return redirect(url_for("customer.login"))
         if request.form.get("marketing_opt_in") == "yes":
-            # The optional, explicit signup checkbox records consent immediately.
-            # Marketing opt-in is independent of the account terms and email verification.
-            _record_consent(account, "confirmed", "registration_explicit_opt_in")
+            # Explicit opt-in is independent of account terms and is confirmed by email.
+            _record_consent(account, "requested", "registration_explicit_opt_in")
         db.session.commit()
         result = _issue_and_send(account, "verify_email")
+        if account.marketing_status == "pending":
+            _issue_and_send(account, "marketing_confirm")
         flash(
             "Your FityStores account was created. " + _delivery_message(result),
             "success" if result and result.status == "sent" else "warning",

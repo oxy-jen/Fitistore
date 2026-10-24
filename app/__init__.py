@@ -279,6 +279,13 @@ def register_cli(app: Flask):
         click.echo("FityStores database is ready.")
 
 
+    @app.cli.command("run-marketing-automation")
+    def run_marketing_automation_command():
+        """Run due marketing and abandoned-cart jobs (invoke from a separate scheduler)."""
+        from app.services.marketing_automation import run_marketing_automation
+        result = run_marketing_automation()
+        click.echo(json.dumps(result, sort_keys=True))
+
     @app.cli.command("migrate-customer-email-schema")
     def migrate_customer_email_schema():
         """Create only the additive account/email tables for the active database."""
@@ -299,6 +306,10 @@ def register_cli(app: Flask):
             EmailCampaign,
             EmailCampaignRecipient,
             EmailMessage,
+            CustomerCart,
+            MarketingAutomationSettings,
+            MarketingCampaignRun,
+            MarketingProductExposure,
         )
         tables = [
             CustomerAccount.__table__,
@@ -309,6 +320,10 @@ def register_cli(app: Flask):
             EmailCampaign.__table__,
             EmailMessage.__table__,
             EmailCampaignRecipient.__table__,
+            CustomerCart.__table__,
+            MarketingAutomationSettings.__table__,
+            MarketingCampaignRun.__table__,
+            MarketingProductExposure.__table__,
         ]
         table_names = {table.name for table in tables}
 
@@ -388,6 +403,9 @@ def register_cli(app: Flask):
                         account_columns = {column["name"] for column in inspect(connection).get_columns("customer_account")}
                         if "two_factor_enabled" not in account_columns:
                             connection.exec_driver_sql("ALTER TABLE customer_account ADD COLUMN two_factor_enabled BOOLEAN NOT NULL DEFAULT 0")
+                        email_columns = {column["name"] for column in inspect(connection).get_columns("email_message")}
+                        if "retry_count" not in email_columns:
+                            connection.exec_driver_sql("ALTER TABLE email_message ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
                         validate_columns(connection)
                         transaction.commit()
                     except Exception:
@@ -403,6 +421,9 @@ def register_cli(app: Flask):
                         statement = statement.strip()
                         if statement:
                             connection.execute(text(statement))
+                    email_columns = {column["name"] for column in inspect(connection).get_columns("email_message")}
+                    if "retry_count" not in email_columns:
+                        connection.execute(text("ALTER TABLE email_message ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"))
                     validate_columns(connection)
 
             after = set(inspect(db.engine).get_table_names())

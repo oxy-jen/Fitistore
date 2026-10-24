@@ -5,14 +5,14 @@ import logging
 import smtplib
 import ssl
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.message import EmailMessage as MimeMessage
 from email.utils import formataddr, parseaddr
 
 from flask import current_app, render_template
 
 from app.extensions import db
-from app.models import EmailMessage
+from app.models import CustomerAccount, EmailMessage
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +139,41 @@ def _send_brevo(recipient: str, subject: str, html_body: str, text_body: str) ->
 
 def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *, account_id=None, order_id=None, campaign_id=None, html_body: str, text_body: str) -> EmailMessage:
     record = EmailMessage.query.filter_by(idempotency_key=idempotency_key).first()
+    marketing = kind == "marketing_campaign" or kind.startswith("marketing_")
+    if marketing and account_id:
+        account = db.session.get(CustomerAccount, account_id)
+        allowed = bool(account and account.active and account.email_verified_at and account.marketing_status == "subscribed")
+        if allowed and (not record or record.status != "sent"):
+            recent = EmailMessage.query.filter(
+                EmailMessage.account_id == account.id,
+                EmailMessage.kind.in_(("marketing_campaign", "marketing_daily_goodies", "marketing_weekly_picks", "marketing_abandoned_cart", "marketing_review_highlight")),
+                EmailMessage.status == "sent",
+                EmailMessage.sent_at >= datetime.utcnow() - timedelta(hours=24),
+            ).first()
+            if recent:
+                allowed = False
+        if not allowed:
+            if record and record.status not in {"sent", "sending"}:
+                record.status = "suppressed"
+                record.failure_reason = "Recipient is no longer eligible for marketing email."
+                db.session.commit()
+                return record
+            if not record:
+                record = EmailMessage(recipient=recipient[:254],subject=subject[:200],kind=kind[:32],idempotency_key=idempotency_key[:160],account_id=account_id,order_id=order_id,campaign_id=campaign_id,status="suppressed",failure_reason="Recipient is no longer eligible for marketing email.")
+                db.session.add(record);db.session.commit()
+            return record
     if record:
+        if record.status == "not_configured":
+            configured, _reason = mail_configuration_status()
+            if configured:
+                record.status = "queued";record.failure_reason = "";db.session.commit()
+                deliver_email(record, html_body, text_body)
+            return record
+        retryable = ("HTTP 429" in record.failure_reason or any(f"HTTP {code}" in record.failure_reason for code in (500,502,503,504)) or any(f"SMTP error {code}" in record.failure_reason for code in (400,421,450,451,452)))
+        retry_delay = timedelta(minutes=min(240, 15 * (2 ** max(0, record.retry_count))))
+        if record.status == "failed" and retryable and record.retry_count < 3 and record.updated_at <= datetime.utcnow() - retry_delay:
+            record.status = "queued";record.failure_reason = "";record.retry_count += 1;db.session.commit()
+            deliver_email(record, html_body, text_body)
         return record
     record = EmailMessage(
         recipient=recipient[:254], subject=subject[:200], kind=kind[:32],

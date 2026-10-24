@@ -10,6 +10,8 @@
   <title>{{ page_title }}</title>
   <meta name="description" content="{{ page_description }}">
   <meta name="csrf-token" content="{{ csrf_token() }}">
+  <meta name="customer-cart-sync" content="{{ '1' if current_user.is_authenticated and not current_user.is_admin and current_user.email_verified_at else '0' }}">
+  <meta name="customer-cart-sync" content="{{ '1' if current_user.is_authenticated and not current_user.is_admin and current_user.email_verified_at else '0' }}">
   {% if private_page %}<meta name="robots" content="noindex,follow">{% else %}<link rel="canonical" href="{{ canonical }}">{% endif %}
   <meta property="og:type" content="{{ og_type or 'website' }}">
   {% if not private_page %}<meta property="og:url" content="{{ canonical }}">{% endif %}

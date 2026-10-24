@@ -23,6 +23,7 @@ class Config:
     MAIL_PROVIDER = os.environ.get("MAIL_PROVIDER", "")
     RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
     BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")
+    BREVO_WEBHOOK_TOKEN = os.environ.get("BREVO_WEBHOOK_TOKEN", "")
     MAIL_FROM_ADDRESS = os.environ.get("MAIL_FROM_ADDRESS", "")
     MAIL_FROM_NAME = os.environ.get("MAIL_FROM_NAME", "FityStores")
     MAIL_REPLY_TO = os.environ.get("MAIL_REPLY_TO", "")
