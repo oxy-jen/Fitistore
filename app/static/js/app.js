@@ -107,7 +107,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.addEventListener('click',async event=>{
     const action=event.target.closest('[data-share-native],[data-share-copy],[data-share-tiktok],[data-share-facebook]');
     if(!action)return;
-    const share=action.closest('[data-product-share]');
+    const share=action.closest('[data-product-share],[data-social-share]');
     if(!share)return;
     const url=share.dataset.shareUrl||window.location.href;
     const status=share.querySelector('[data-share-status]');
