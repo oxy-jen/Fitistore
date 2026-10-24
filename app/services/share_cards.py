@@ -150,6 +150,40 @@ def render_promo_share_card(title: str, description: str, image_path: Path | Non
     return output.getvalue()
 
 
+def render_social_post_image(title: str, description: str, image_path: Path | None, image_url: str = "", price: str = "", button_text: str = "SHOP NOW") -> bytes:
+    """Create a portrait share image with readable details."""
+    width,height=1080,1350
+    canvas=Image.new("RGB",(width,height),WHITE);draw=ImageDraw.Draw(canvas)
+    draw.rectangle((0,0,width,18),fill=RED);draw.text((58,44),"BEI FITS  |  FITYSTORES",font=_font(24,True),fill=DARK)
+    draw.rounded_rectangle((38,96,1042,836),radius=30,fill="#F2F2F2")
+    source=_read_source_image(image_path,image_url)
+    if source:
+        if source.mode=="RGBA" and source.getchannel("A").getbbox():source=source.crop(source.getchannel("A").getbbox())
+        fitted=ImageOps.contain(source,(950,700),Image.Resampling.LANCZOS)
+        x,y=(width-fitted.width)//2,112+(700-fitted.height)//2
+        canvas.paste(fitted,(x,y),fitted if fitted.mode=="RGBA" else None)
+    else:draw.text((355,420),"FityStores",font=_font(56,True),fill=RED)
+    draw.rounded_rectangle((38,858,1042,1312),radius=28,fill=WHITE,outline="#E4E6EA",width=2)
+    draw.text((76,886),"EVERYDAY ESSENTIALS  |  FITS POA",font=_font(20,True),fill=RED)
+    def wrap(text,font,limit,max_lines):
+        result=[];line=""
+        for word in " ".join((text or "").split()).split():
+            trial=(line+" "+word).strip()
+            if draw.textbbox((0,0),trial,font=font)[2]>limit and line:result.append(line);line=word
+            else:line=trial
+        if line:result.append(line)
+        return "\n".join(result[:max_lines])
+    title_font=_font(46,True);title_lines=wrap(title or "Shop FityStores",title_font,900,2)
+    draw.multiline_text((76,932),title_lines,font=title_font,fill=DARK,spacing=4)
+    desc_y=1048 if "\n" in title_lines else 1005
+    desc_font=_font(25);draw.multiline_text((76,desc_y),wrap(description or "Everyday essentials at FityStores.",desc_font,900,2),font=desc_font,fill="#4E5663",spacing=7)
+    if price:draw.text((76,1166),price,font=_font(34,True),fill=RED)
+    draw.rounded_rectangle((680,1162,1002,1228),radius=20,fill=RED)
+    bf=_font(22,True);draw.text((710,1181),_fit_text(draw,button_text,bf,270),font=bf,fill=WHITE)
+    draw.text((76,1270),"Open the post link to view details and availability",font=_font(17),fill="#697386")
+    out=BytesIO();canvas.save(out,format="PNG",optimize=True);return out.getvalue()
+
+
 def cached_product_share_card(
     name: str,
     category: str,
