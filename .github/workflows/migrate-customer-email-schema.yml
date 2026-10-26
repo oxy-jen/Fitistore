@@ -1,0 +1,88 @@
+name: Migrate customer email schema
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type MIGRATE CUSTOMER EMAIL SCHEMA after verifying a restorable backup.
+        required: true
+        type: string
+      backup_confirmation:
+        description: Type I HAVE A VERIFIED RESTORABLE BACKUP.
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: migrate-customer-email-schema
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: ${{ github.ref == 'refs/heads/responsive-all-pages' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the selected protected branch
+        uses: actions/checkout@v4
+        with:
+          ref: responsive-all-pages
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install application requirements
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Check confirmation before accessing database secret
+        env:
+          CONFIRMATION_INPUT: ${{ inputs.confirmation }}
+          BACKUP_CONFIRMATION_INPUT: ${{ inputs.backup_confirmation }}
+        run: python scripts/customer_email_schema_guard.py confirm
+      - name: Validate connection settings without connecting
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+          DATABASE_CA_CERT: ${{ secrets.RENDER_DATABASE_CA_CERT }}
+          EXPECTED_DATABASE_NAME: ${{ vars.RENDER_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py settings
+      - name: Read-only schema preflight
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+          DATABASE_CA_CERT: ${{ secrets.RENDER_DATABASE_CA_CERT }}
+          EXPECTED_DATABASE_NAME: ${{ vars.RENDER_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py preflight
+      - name: Prepare verified TLS for the Flask migration command
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+          DATABASE_CA_CERT: ${{ secrets.RENDER_DATABASE_CA_CERT }}
+          EXPECTED_DATABASE_NAME: ${{ vars.RENDER_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py tls-env
+      - name: Apply the scoped customer email migration
+        env:
+          FLASK_APP: wsgi:app
+        shell: bash
+        run: |
+          if python -m flask --app wsgi:app migrate-customer-email-schema >/dev/null 2>&1; then
+            echo "Customer email migration command completed." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::Migration failed; diagnostic output was suppressed to prevent sensitive connection details from entering logs."
+            echo "Migration command failed; diagnostic output suppressed." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - name: Strict post-migration schema validation
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+          DATABASE_CA_CERT: ${{ secrets.RENDER_DATABASE_CA_CERT }}
+          EXPECTED_DATABASE_NAME: ${{ vars.RENDER_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py postcheck
