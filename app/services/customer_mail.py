@@ -109,7 +109,7 @@ def _send_resend(recipient: str, subject: str, html_body: str, text_body: str) -
             raise RuntimeError(f"Resend API returned HTTP {response.status}.")
 
 
-def _send_brevo(recipient: str, subject: str, html_body: str, text_body: str) -> None:
+def _send_brevo(recipient: str, subject: str, html_body: str, text_body: str) -> str | None:
     cfg = current_app.config
     payload = {
         "sender": {
@@ -135,6 +135,12 @@ def _send_brevo(recipient: str, subject: str, html_body: str, text_body: str) ->
     with urllib.request.urlopen(request, timeout=15) as response:
         if not 200 <= response.status < 300:
             raise RuntimeError(f"Brevo API returned HTTP {response.status}.")
+        try:
+            result = json.loads(response.read().decode("utf-8"))
+        except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        message_id = result.get("messageId") if isinstance(result, dict) else None
+        return str(message_id)[:255] if message_id else None
 
 
 def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *, account_id=None, order_id=None, campaign_id=None, html_body: str, text_body: str) -> EmailMessage:
@@ -147,7 +153,7 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
             recent = EmailMessage.query.filter(
                 EmailMessage.account_id == account.id,
                 EmailMessage.kind.in_(("marketing_campaign", "marketing_daily_goodies", "marketing_weekly_picks", "marketing_abandoned_cart", "marketing_review_highlight")),
-                EmailMessage.status == "sent",
+                EmailMessage.status.in_(("sent", "delivered", "bounced", "complained")),
                 EmailMessage.sent_at >= datetime.utcnow() - timedelta(hours=24),
             ).first()
             if recent:
@@ -203,7 +209,7 @@ def deliver_email(record: EmailMessage, html_body: str, text_body: str) -> bool:
         if provider == "resend":
             _send_resend(record.recipient, record.subject, html_body, text_body)
         elif provider == "brevo":
-            _send_brevo(record.recipient, record.subject, html_body, text_body)
+            record.provider_message_id = _send_brevo(record.recipient, record.subject, html_body, text_body)
         else:
             _send_smtp(record.recipient, record.subject, html_body, text_body)
     except Exception as exc:

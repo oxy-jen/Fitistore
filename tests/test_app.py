@@ -980,7 +980,8 @@ def _isolated_legacy_sqlite_app(tmp_path, monkeypatch):
     feature_tables = {
         "customer_account", "customer_token", "customer_consent_event",
         "customer_order_link", "auth_rate_limit", "email_message",
-        "email_campaign", "email_campaign_recipient",
+        "email_campaign", "email_campaign_recipient", "customer_cart",
+        "marketing_automation_settings", "marketing_campaign_run", "marketing_product_exposure",
     }
     with isolated_app.app_context():
         legacy_tables = [table for table in db.metadata.sorted_tables if table.name not in feature_tables]
@@ -1029,19 +1030,70 @@ def test_customer_email_migration_creates_schema_on_fresh_sqlite_database(tmp_pa
     with isolated_app.app_context():
         from sqlalchemy import inspect
         assert inspect(db.engine).get_table_names() == []
-        db.metadata.create_all(bind=db.engine, tables=[AdminUser.__table__, Order.__table__])
+        db.metadata.create_all(bind=db.engine, tables=[AdminUser.__table__, Order.__table__, Category.__table__, Product.__table__])
     result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
     assert result.exit_code == 0, result.output
     assert "Created tables:" in result.output
     with isolated_app.app_context():
         from sqlalchemy import inspect
         expected = {
-            "admin_user", "order", "customer_account", "customer_token",
+            "admin_user", "order", "category", "product", "customer_account", "customer_token",
             "customer_consent_event", "customer_order_link", "auth_rate_limit",
             "email_message", "email_campaign", "email_campaign_recipient",
             "customer_cart", "marketing_automation_settings", "marketing_campaign_run", "marketing_product_exposure",
         }
         assert set(inspect(db.engine).get_table_names()) == expected
+
+
+def test_customer_email_schema_preflight_is_read_only_and_recommends_migration(tmp_path, monkeypatch):
+    isolated_app, feature_tables, expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    with isolated_app.app_context():
+        from sqlalchemy import inspect
+        before_tables = set(inspect(db.engine).get_table_names())
+        before_product_count = Product.query.count()
+        before_admin_hash = AdminUser.query.one().password_hash
+    result = isolated_app.test_cli_runner().invoke(args=["check-customer-email-schema"])
+    assert result.exit_code == 0, result.output
+    assert "Database dialect: sqlite" in result.output
+    assert "Schema status: not yet migrated" in result.output
+    assert "customer_account: missing table" in result.output
+    assert "migrate-customer-email-schema" in result.output
+    with isolated_app.app_context():
+        from sqlalchemy import inspect
+        assert set(inspect(db.engine).get_table_names()) == before_tables
+        assert not (feature_tables & before_tables)
+        assert Product.query.count() == before_product_count
+        assert AdminUser.query.one().password_hash == before_admin_hash
+
+
+def test_customer_email_schema_preflight_reports_incomplete_table_without_changes(tmp_path, monkeypatch):
+    isolated_app, feature_tables, _expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    with isolated_app.app_context():
+        from sqlalchemy import inspect, text
+        db.session.execute(text("CREATE TABLE customer_account (id INTEGER PRIMARY KEY, email VARCHAR(254))"))
+        db.session.execute(text("INSERT INTO customer_account (id, email) VALUES (1, 'preserve@example.test')"))
+        db.session.commit()
+        before_tables = set(inspect(db.engine).get_table_names())
+        result = isolated_app.test_cli_runner().invoke(args=["check-customer-email-schema"])
+        assert result.exit_code == 0, result.output
+        assert "Schema status: incomplete" in result.output
+        assert "customer_account: missing columns:" in result.output
+        assert "marketing_product_exposure: missing table" in result.output
+        assert set(inspect(db.engine).get_table_names()) == before_tables
+        assert (set(inspect(db.engine).get_table_names()) & feature_tables) == {"customer_account"}
+        assert db.session.execute(text("SELECT email FROM customer_account WHERE id=1")).scalar_one() == "preserve@example.test"
+
+
+def test_app_factory_does_not_apply_schema_changes_implicitly(tmp_path):
+    config = type(
+        "ReadOnlyStartupConfig",
+        (TestConfig,),
+        {"SQLALCHEMY_DATABASE_URI": f"sqlite:///{tmp_path / 'no-startup-ddl.sqlite3'}"},
+    )
+    isolated_app = create_app(config)
+    with isolated_app.app_context():
+        from sqlalchemy import inspect
+        assert inspect(db.engine).get_table_names() == []
 
 
 def test_customer_email_postgresql_migration_keeps_locked_idempotent_sql(monkeypatch, app):
@@ -1067,7 +1119,7 @@ def test_customer_email_postgresql_migration_keeps_locked_idempotent_sql(monkeyp
 
         def get_table_names(self):
             self.calls += 1
-            base = {"admin_user", "order"}
+            base = {"admin_user", "order", "product"}
             if self.calls == 1:
                 return sorted(base)
             return sorted(base | {
@@ -1085,6 +1137,9 @@ def test_customer_email_postgresql_migration_keeps_locked_idempotent_sql(monkeyp
 
         def get_unique_constraints(self, table_name):
             return [{"column_names": [column.name for column in constraint.columns]} for constraint in db.metadata.tables[table_name].constraints if constraint.__class__.__name__ == "UniqueConstraint"]
+
+        def get_pk_constraint(self, table_name):
+            return {"constrained_columns": [column.name for column in db.metadata.tables[table_name].primary_key.columns]}
 
         def get_foreign_keys(self, table_name):
             return [
@@ -1442,6 +1497,8 @@ def test_brevo_success_posts_expected_payload_over_https(app, monkeypatch, app_c
 
     class Response:
         status = 201
+        def read(self):
+            return b'{"messageId":"brevo-message-id"}'
         def __enter__(self):
             return self
         def __exit__(self, *_args):
@@ -1461,6 +1518,7 @@ def test_brevo_success_posts_expected_payload_over_https(app, monkeypatch, app_c
     request = captured["request"]
     payload = json.loads(request.data.decode("utf-8"))
     assert result.status == "sent"
+    assert result.provider_message_id == "brevo-message-id"
     assert request.full_url == "https://api.brevo.com/v3/smtp/email"
     assert request.method == "POST"
     assert request.get_header("Api-key") == "test-brevo-key"
@@ -1552,6 +1610,54 @@ def test_brevo_missing_api_key_is_not_configured(app, monkeypatch, app_context):
     assert result.status == "not_configured"
     assert "BREVO_API_KEY is required" in result.failure_reason
     assert calls == []
+
+
+def test_brevo_webhook_requires_secret_tracks_delivery_and_deduplicates_bounce(client, app, app_context):
+    from app.models import CustomerConsentEvent
+    account = CustomerAccount(
+        email="webhook-owner@example.com", display_name="Webhook owner",
+        email_verified_at=datetime.utcnow(), marketing_status="subscribed",
+        marketing_consent_at=datetime.utcnow(),
+    )
+    db.session.add(account)
+    db.session.flush()
+    bounced = EmailMessage(
+        recipient=account.email, account_id=account.id, kind="marketing_weekly_picks",
+        subject="Picks", idempotency_key="webhook-bounce", status="sent",
+        provider_message_id="brevo-bounce-id", sent_at=datetime.utcnow(),
+    )
+    delivered = EmailMessage(
+        recipient=account.email, account_id=account.id, kind="marketing_daily_goodies",
+        subject="Goodies", idempotency_key="webhook-delivery", status="sent",
+        provider_message_id="brevo-delivery-id", sent_at=datetime.utcnow(),
+    )
+    db.session.add_all([bounced, delivered])
+    db.session.commit()
+    app.config["BREVO_WEBHOOK_TOKEN"] = "test-shared-hook-token"
+    body = {"event": "hardBounce", "email": account.email, "message-id": "brevo-bounce-id"}
+    denied = client.post("/webhooks/brevo/email-events", json=body, headers={"X-Fity-Brevo-Token": "wrong"})
+    assert denied.status_code == 403
+    assert db.session.get(CustomerAccount, account.id).marketing_status == "subscribed"
+    headers = {"X-Fity-Brevo-Token": "test-shared-hook-token"}
+    first = client.post("/webhooks/brevo/email-events", json=body, headers=headers)
+    second = client.post("/webhooks/brevo/email-events", json=body, headers=headers)
+    assert first.status_code == second.status_code == 200
+    assert first.get_json()["suppressed"] == 1
+    assert second.get_json()["suppressed"] == 0
+    db.session.refresh(bounced)
+    assert bounced.status == "bounced"
+    assert db.session.get(CustomerAccount, account.id).marketing_status == "suppressed"
+    assert CustomerConsentEvent.query.filter_by(account_id=account.id, method="brevo_webhook").count() == 1
+    delivered_response = client.post(
+        "/webhooks/brevo/email-events",
+        json={"event": "delivered", "email": account.email, "message-id": "brevo-delivery-id"},
+        headers=headers,
+    )
+    assert delivered_response.status_code == 200
+    db.session.refresh(delivered)
+    assert delivered.status == "delivered"
+    from app.services.marketing_automation import _recently_marketed
+    assert _recently_marketed(account.id, datetime.utcnow())
 
 
 def test_customer_cart_snapshot_requires_verified_account_and_tracks_episode(client, app, app_context):

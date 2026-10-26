@@ -859,7 +859,6 @@ def cloudinary_images():
 
         if action == "single":
             try:
-                ensure_cloudinary_image_columns()
                 image = ProductImage.query.get_or_404(int(request.form.get("image_id") or 0))
                 image.cloudinary_public_id = cloudinary_public_id_from_input(request.form.get("cloudinary_value"))
                 image.storage_backend = "cloudinary"
@@ -884,7 +883,6 @@ def cloudinary_images():
                 flash("Mapping file is too large.", "error")
                 return redirect(url_for("admin.cloudinary_images"))
             try:
-                ensure_cloudinary_image_columns()
                 text = data.decode("utf-8-sig")
                 mapping_rows = list(csv.DictReader(io.StringIO(text)))
                 apply_changes = request.form.get("apply") == "1"
@@ -911,9 +909,8 @@ def cloudinary_images():
 @admin_bp.route("/cloudinary-images/export.csv")
 @login_required
 def cloudinary_images_export():
-    from app import ensure_cloudinary_image_columns, product_image_inventory_rows
+    from app import product_image_inventory_rows
 
-    ensure_cloudinary_image_columns()
     rows = product_image_inventory_rows()
     fieldnames = ["product_id", "product_slug", "product_sku", "product_name", "image_id", "filename", "sort_order", "is_primary", "storage_backend", "cloudinary_public_id"]
     output = io.StringIO()

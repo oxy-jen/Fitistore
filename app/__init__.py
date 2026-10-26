@@ -158,7 +158,6 @@ def create_app(config_object=Config):
 
     register_cli(app)
     register_errors(app)
-    ensure_database_schema(app)
     return app
 
 def database_dialect_name() -> str:
@@ -173,26 +172,117 @@ def is_postgresql_database() -> bool:
     return database_dialect_name() in {"postgresql", "postgres"}
 
 
+
+def customer_email_schema_tables():
+    from .models import (
+        AuthRateLimit, CustomerAccount, CustomerCart, CustomerConsentEvent,
+        CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient,
+        EmailMessage, MarketingAutomationSettings, MarketingCampaignRun,
+        MarketingProductExposure,
+    )
+    return [
+        CustomerAccount.__table__, CustomerToken.__table__,
+        CustomerConsentEvent.__table__, CustomerOrderLink.__table__,
+        AuthRateLimit.__table__, EmailCampaign.__table__, EmailMessage.__table__,
+        EmailCampaignRecipient.__table__, CustomerCart.__table__,
+        MarketingAutomationSettings.__table__, MarketingCampaignRun.__table__,
+        MarketingProductExposure.__table__,
+    ]
+
+
+def inspect_customer_email_schema(connection):
+    from sqlalchemy import inspect
+    inspector = inspect(connection)
+    existing_tables = set(inspector.get_table_names())
+    table_reports = []
+    for table in customer_email_schema_tables():
+        name = table.name
+        if name not in existing_tables:
+            table_reports.append({
+                "name": name, "exists": False, "missing_columns": [],
+                "missing_indexes": [], "missing_unique": [],
+                "missing_foreign_keys": [], "missing_primary_key": [],
+            })
+            continue
+        columns = {column["name"] for column in inspector.get_columns(name)}
+        indexes = {index["name"] for index in inspector.get_indexes(name)}
+        missing_columns = sorted({column.name for column in table.columns} - columns)
+        missing_indexes = sorted(index.name for index in table.indexes if index.name not in indexes)
+        expected_unique = {
+            tuple(column.name for column in constraint.columns)
+            for constraint in table.constraints
+            if constraint.__class__.__name__ == "UniqueConstraint"
+        }
+        actual_unique = {
+            tuple(constraint.get("column_names") or ())
+            for constraint in inspector.get_unique_constraints(name)
+        }
+        actual_unique.update(
+            tuple(index.get("column_names") or ())
+            for index in inspector.get_indexes(name) if index.get("unique")
+        )
+        missing_unique = sorted(",".join(cols) for cols in expected_unique - actual_unique)
+        expected_fk = {
+            (foreign_key.parent.name, foreign_key.column.table.name, foreign_key.column.name)
+            for foreign_key in table.foreign_keys
+        }
+        actual_fk = {
+            (column, foreign_key.get("referred_table"), referred_column)
+            for foreign_key in inspector.get_foreign_keys(name)
+            for column, referred_column in zip(
+                foreign_key.get("constrained_columns") or (),
+                foreign_key.get("referred_columns") or (),
+            )
+        }
+        missing_fk = sorted(
+            f"{column}->{target_table}.{target_column}"
+            for column, target_table, target_column in expected_fk - actual_fk
+        )
+        expected_pk = tuple(column.name for column in table.primary_key.columns)
+        actual_pk = tuple(inspector.get_pk_constraint(name).get("constrained_columns") or ())
+        missing_pk = [] if not expected_pk or expected_pk == actual_pk else [",".join(expected_pk)]
+        table_reports.append({
+            "name": name, "exists": True, "missing_columns": missing_columns,
+            "missing_indexes": missing_indexes, "missing_unique": missing_unique,
+            "missing_foreign_keys": missing_fk, "missing_primary_key": missing_pk,
+        })
+    present = any(row["exists"] for row in table_reports)
+    complete = all(
+        row["exists"] and not any(row[key] for key in (
+            "missing_columns", "missing_indexes", "missing_unique",
+            "missing_foreign_keys", "missing_primary_key",
+        ))
+        for row in table_reports
+    )
+    base_missing = sorted({"admin_user", "order", "product"} - existing_tables)
+    overall = "complete" if complete and not base_missing else (
+        "not yet migrated" if not present else "incomplete"
+    )
+    return {"status": overall, "tables": table_reports, "base_missing": base_missing}
+
+
+def customer_email_schema_report_lines(report):
+    lines = []
+    for row in report["tables"]:
+        if not row["exists"]:
+            lines.append(f"{row['name']}: missing table")
+            continue
+        problems = []
+        for key, label in (
+            ("missing_columns", "columns"), ("missing_indexes", "indexes"),
+            ("missing_unique", "unique constraints"),
+            ("missing_foreign_keys", "foreign keys"),
+            ("missing_primary_key", "primary key"),
+        ):
+            if row[key]:
+                problems.append(f"missing {label}: {', '.join(row[key])}")
+        lines.append(f"{row['name']}: " + ("complete" if not problems else "; ".join(problems)))
+    return lines
+
+
 def ensure_database_schema(app: Flask):
-    """Apply local SQLite setup and the small idempotent referral migration on PostgreSQL."""
-    with app.app_context():
-        if is_sqlite_database():
-            # The targeted migration must not also run legacy ensure_columns(), which
-            # can backfill unrelated order fields while Flask imports the CLI app.
-            import os
-            import sys
-            if (
-                os.environ.get("FLASK_RUN_FROM_CLI", "").lower() == "true"
-                and "migrate-customer-email-schema" in sys.argv
-            ):
-                return
-            db.create_all()
-            ensure_columns()
-        elif is_postgresql_database():
-            ensure_referral_schema()
-            ensure_review_schema()
-            ensure_referral_account_schema()
-            CartAddCount.__table__.create(bind=db.engine, checkfirst=True)
+    """Deprecated no-op; schema changes must use an explicit, scoped CLI command."""
+    return None
 
 
 def ensure_referral_account_schema():
@@ -244,8 +334,15 @@ def ensure_cloudinary_image_columns():
         db.session.execute(text("ALTER TABLE product_image ADD COLUMN IF NOT EXISTS cloudinary_public_id VARCHAR(255)"))
         db.session.commit()
     elif is_sqlite_database():
-        db.create_all()
-        ensure_columns()
+        from sqlalchemy import inspect, text
+        if "product_image" not in inspect(db.engine).get_table_names():
+            raise click.ClickException("product_image table is missing; initialize the local store schema first.")
+        with db.engine.begin() as connection:
+            columns = {column["name"] for column in inspect(connection).get_columns("product_image")}
+            if "storage_backend" not in columns:
+                connection.execute(text("ALTER TABLE product_image ADD COLUMN storage_backend VARCHAR(20) NOT NULL DEFAULT 'local'"))
+            if "cloudinary_public_id" not in columns:
+                connection.execute(text("ALTER TABLE product_image ADD COLUMN cloudinary_public_id VARCHAR(255)"))
     else:
         raise click.ClickException(f"Unsupported database dialect for Cloudinary schema migration: {database_dialect_name()}")
 def register_cli(app: Flask):
@@ -286,6 +383,24 @@ def register_cli(app: Flask):
         result = run_marketing_automation()
         click.echo(json.dumps(result, sort_keys=True))
 
+    @app.cli.command("check-customer-email-schema")
+    def check_customer_email_schema():
+        """Read the active database schema without creating or changing anything."""
+        with db.engine.connect() as connection:
+            report = inspect_customer_email_schema(connection)
+        click.echo("Database dialect: " + database_dialect_name())
+        for line in customer_email_schema_report_lines(report):
+            click.echo(line)
+        if report["base_missing"]:
+            click.echo("Base store tables missing: " + ", ".join(report["base_missing"]))
+        click.echo("Schema status: " + report["status"])
+        if report["status"] == "complete":
+            click.echo("Next step: no customer/email schema migration is needed.")
+        else:
+            click.echo("After confirming the target database and making a backup, the migration command is:")
+            click.echo("python -m flask --app wsgi:app migrate-customer-email-schema")
+
+
     @app.cli.command("migrate-customer-email-schema")
     def migrate_customer_email_schema():
         """Create only the additive account/email tables for the active database."""
@@ -297,92 +412,31 @@ def register_cli(app: Flask):
                 f"Unsupported database dialect for customer/email schema migration: {dialect}."
             )
 
-        from .models import (
-            AuthRateLimit,
-            CustomerAccount,
-            CustomerConsentEvent,
-            CustomerOrderLink,
-            CustomerToken,
-            EmailCampaign,
-            EmailCampaignRecipient,
-            EmailMessage,
-            CustomerCart,
-            MarketingAutomationSettings,
-            MarketingCampaignRun,
-            MarketingProductExposure,
-        )
-        tables = [
-            CustomerAccount.__table__,
-            CustomerToken.__table__,
-            CustomerConsentEvent.__table__,
-            CustomerOrderLink.__table__,
-            AuthRateLimit.__table__,
-            EmailCampaign.__table__,
-            EmailMessage.__table__,
-            EmailCampaignRecipient.__table__,
-            CustomerCart.__table__,
-            MarketingAutomationSettings.__table__,
-            MarketingCampaignRun.__table__,
-            MarketingProductExposure.__table__,
-        ]
+        tables = customer_email_schema_tables()
         table_names = {table.name for table in tables}
 
         def validate_columns(connection):
-            inspector = inspect(connection)
+            report = inspect_customer_email_schema(connection)
             incomplete = []
-            for table in tables:
-                if table.name not in set(inspector.get_table_names()):
-                    incomplete.append(table.name + " (table missing)")
+            for row in report["tables"]:
+                if not row["exists"]:
+                    incomplete.append(row["name"] + " (table missing)")
                     continue
-                actual_columns = {column["name"] for column in inspector.get_columns(table.name)}
-                missing_columns = sorted({column.name for column in table.columns} - actual_columns)
-                if missing_columns:
-                    incomplete.append(table.name + " (missing columns: " + ", ".join(missing_columns) + ")")
-                    continue
-
-                actual_indexes = {index["name"] for index in inspector.get_indexes(table.name)}
-                missing_indexes = sorted(index.name for index in table.indexes if index.name not in actual_indexes)
-                if missing_indexes:
-                    incomplete.append(table.name + " (missing indexes: " + ", ".join(missing_indexes) + ")")
-
-                expected_unique = {
-                    tuple(column.name for column in constraint.columns)
-                    for constraint in table.constraints
-                    if constraint.__class__.__name__ == "UniqueConstraint"
-                }
-                actual_unique = {
-                    tuple(constraint.get("column_names") or ())
-                    for constraint in inspector.get_unique_constraints(table.name)
-                }
-                actual_unique.update(
-                    tuple(index.get("column_names") or ())
-                    for index in inspector.get_indexes(table.name)
-                    if index.get("unique")
-                )
-                if expected_unique - actual_unique:
-                    missing_unique = sorted(",".join(columns) for columns in expected_unique - actual_unique)
-                    incomplete.append(table.name + " (missing unique constraints: " + ", ".join(missing_unique) + ")")
-
-                expected_foreign_keys = {
-                    (foreign_key.parent.name, foreign_key.column.table.name, foreign_key.column.name)
-                    for foreign_key in table.foreign_keys
-                }
-                actual_foreign_keys = {
-                    (column, foreign_key.get("referred_table"), referred_column)
-                    for foreign_key in inspector.get_foreign_keys(table.name)
-                    for column, referred_column in zip(
-                        foreign_key.get("constrained_columns") or (),
-                        foreign_key.get("referred_columns") or (),
-                    )
-                }
-                if expected_foreign_keys - actual_foreign_keys:
-                    incomplete.append(table.name + " (missing foreign key constraints)")
+                for key, label in (
+                    ("missing_columns", "columns"),
+                    ("missing_indexes", "indexes"),
+                    ("missing_unique", "unique constraints"),
+                    ("missing_foreign_keys", "foreign keys"),
+                    ("missing_primary_key", "primary key"),
+                ):
+                    if row[key]:
+                        incomplete.append(row["name"] + " (missing " + label + ": " + ", ".join(row[key]) + ")")
             if incomplete:
                 raise click.ClickException("Existing customer/email table is incomplete: " + "; ".join(incomplete) + ". No changes from this migration were committed.")
 
         try:
             before = set(inspect(db.engine).get_table_names())
-            missing_parents = {"admin_user", "order"} - before
+            missing_parents = {"admin_user", "order", "product"} - before
             if missing_parents:
                 names = ", ".join(sorted(missing_parents))
                 raise click.ClickException(
@@ -406,6 +460,9 @@ def register_cli(app: Flask):
                         email_columns = {column["name"] for column in inspect(connection).get_columns("email_message")}
                         if "retry_count" not in email_columns:
                             connection.exec_driver_sql("ALTER TABLE email_message ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
+                        if "provider_message_id" not in email_columns:
+                            connection.exec_driver_sql("ALTER TABLE email_message ADD COLUMN provider_message_id VARCHAR(255)")
+                        connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_email_message_provider_message_id ON email_message (provider_message_id)")
                         validate_columns(connection)
                         transaction.commit()
                     except Exception:
@@ -442,6 +499,43 @@ def register_cli(app: Flask):
         click.echo("Created tables: " + (", ".join(created) if created else "none"))
         click.echo("Already existing tables: " + (", ".join(existed) if existed else "none"))
         click.echo("No existing store records were changed.")
+    @app.cli.command("migrate-postgresql-feature-schema")
+    def migrate_postgresql_feature_schema():
+        """Apply the existing referral/review/cart-counter DDL explicitly on PostgreSQL."""
+        if not is_postgresql_database():
+            raise click.ClickException("This migration is for PostgreSQL only.")
+        from sqlalchemy import inspect, text
+        required = {"order", "shop_settings", "product", "review", "customer_account"}
+        try:
+            with db.engine.begin() as connection:
+                connection.execute(text("SELECT pg_advisory_xact_lock(724930118)"))
+                missing = required - set(inspect(connection).get_table_names())
+                if missing:
+                    raise click.ClickException(
+                        "Base tables required by the referral/review migration are missing: "
+                        + ", ".join(sorted(missing))
+                        + ". Run the base and customer/email migrations first."
+                    )
+                migration_paths = (
+                    Path(__file__).resolve().parent.parent / "migrations" / "20261015_referrals_postgresql.sql",
+                    Path(__file__).resolve().parent.parent / "migrations" / "20261022_review_titles_and_accounts.sql",
+                    Path(__file__).resolve().parent.parent / "migrations" / "20261022_referral_account_ownership.sql",
+                )
+                for migration_path in migration_paths:
+                    for statement in migration_path.read_text(encoding="utf-8").split(";"):
+                        statement = statement.strip()
+                        if statement:
+                            connection.execute(text(statement))
+                CartAddCount.__table__.create(bind=connection, checkfirst=True)
+        except click.ClickException:
+            raise
+        except Exception as exc:
+            raise click.ClickException(
+                f"PostgreSQL feature schema migration failed ({type(exc).__name__}); "
+                "the transaction was rolled back."
+            ) from None
+        click.echo("PostgreSQL referral, review, and cart-counter schema is ready.")
+
     @app.cli.command("migrate-cloudinary-schema")
     def migrate_cloudinary_schema():
         """Add the Cloudinary product image columns with safe, idempotent database-specific DDL."""

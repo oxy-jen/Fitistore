@@ -44,6 +44,8 @@ CREATE INDEX IF NOT EXISTS ix_email_campaign_recipient_campaign_id ON email_camp
 CREATE INDEX IF NOT EXISTS ix_email_campaign_recipient_account_id ON email_campaign_recipient(account_id);
 CREATE INDEX IF NOT EXISTS ix_email_campaign_recipient_status ON email_campaign_recipient(status);
 ALTER TABLE email_message ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE email_message ADD COLUMN IF NOT EXISTS provider_message_id VARCHAR(255);
+CREATE INDEX IF NOT EXISTS ix_email_message_provider_message_id ON email_message(provider_message_id);
 
 CREATE TABLE IF NOT EXISTS customer_cart (
  id SERIAL PRIMARY KEY,

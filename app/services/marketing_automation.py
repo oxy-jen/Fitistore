@@ -189,7 +189,7 @@ def _recently_marketed(account_id, now):
     return EmailMessage.query.filter(
         EmailMessage.account_id == account_id,
         EmailMessage.kind.in_(MARKETING_KINDS + ("marketing_campaign",)),
-        EmailMessage.status == "sent",
+        EmailMessage.status.in_(("sent", "delivered", "bounced", "complained")),
         EmailMessage.sent_at >= now - timedelta(hours=24),
     ).first() is not None
 
