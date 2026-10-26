@@ -15,11 +15,15 @@ from scripts.customer_email_schema_guard import (
     ColumnSpec,
     GuardError,
     classify_tables,
+    _connect,
+    _engine_url,
+    export_verified_migration_environment,
     migration_column_manifest,
     migration_column_defaults,
     migration_constraint_manifest,
     migration_index_manifest,
     require_confirmation,
+    required_settings,
     validate_dispatch_request,
     validate_column_snapshot,
     validate_fk_options,
@@ -78,7 +82,9 @@ def test_workflow_restricts_manual_trigger_and_target_branch():
     assert "PREFLIGHT_CONFIRMATION_INPUT: ${{ inputs.preflight_confirmation }}" in preflight_job
     assert "CONFIRMATION_INPUT: ${{ inputs.confirmation }}" in migrate_job
     assert "BACKUP_CONFIRMATION_INPUT: ${{ inputs.backup_confirmation }}" in migrate_job
-    assert "if: always()" in migrate_job and "cleanup-ca" in migrate_job
+    assert "RUNNER_TEMP" not in migrate_job
+    assert "RENDER_DATABASE_CA_CERT" not in workflow
+    assert "cleanup-ca" not in workflow
     command_step = migrate_job.split("- name: Apply the scoped customer email migration", 1)[1].split("- name:", 1)[0]
     assert "python -m flask --app wsgi:app migrate-customer-email-schema >/dev/null 2>&1" in command_step
     assert 'status=$?' in command_step and 'exit "$status"' in command_step
@@ -126,6 +132,97 @@ def test_preflight_only_never_has_an_executable_migration_path(preflight_succeed
 def test_wrong_database_identity_is_rejected_without_disclosing_identity():
     with pytest.raises(GuardError, match="does not match"):
         validate_identity("other_db", "public", "expected_db", "public")
+
+
+def _database_settings(**overrides):
+    settings = {
+        "DATABASE_URL": "postgresql://guard_user:unit-test-password@db.example.invalid:5432/store_db?sslmode=disable&sslrootcert=%2Ftmp%2Fwrong.pem",
+        "EXPECTED_DATABASE_NAME": "store_db",
+        "EXPECTED_DATABASE_SCHEMA": "public",
+        "EXPECTED_DATABASE_HOST": "db.example.invalid",
+    }
+    settings.update(overrides)
+    return settings
+
+
+def test_required_settings_needs_no_ca_secret_and_checks_expected_identity():
+    settings = required_settings(_database_settings())
+    assert settings == (
+        _database_settings()["DATABASE_URL"], "store_db", "public", "db.example.invalid"
+    )
+    with pytest.raises(GuardError, match="database name"):
+        required_settings(_database_settings(EXPECTED_DATABASE_NAME="wrong_db"))
+    with pytest.raises(GuardError, match="database host"):
+        required_settings(_database_settings(EXPECTED_DATABASE_HOST="wrong.example.invalid"))
+
+
+def test_engine_url_overrides_weaker_tls_query_settings():
+    url = _engine_url(_database_settings()["DATABASE_URL"])
+    assert "sslmode=verify-full" in url
+    assert "sslrootcert=system" in url
+    assert "sslmode=disable" not in url
+    assert "/tmp/wrong.pem" not in url
+
+
+def test_tls_environment_generation_uses_system_ca_without_creating_pem(tmp_path, monkeypatch, capsys):
+    settings = _database_settings()
+    for key, value in settings.items():
+        monkeypatch.setenv(key, value)
+    github_env = tmp_path / "github-env"
+    github_env.write_text("", encoding="utf-8")
+    monkeypatch.setenv("GITHUB_ENV", str(github_env))
+    monkeypatch.delenv("DATABASE_CA_CERT", raising=False)
+
+    export_verified_migration_environment()
+
+    contents = github_env.read_text(encoding="utf-8")
+    assert "sslmode=verify-full" in contents
+    assert "sslrootcert=system" in contents
+    assert "PGSSLMODE=verify-full" in contents
+    assert "PGSSLROOTCERT=system" in contents
+    assert "unit-test-password" not in capsys.readouterr().out
+    assert not list(tmp_path.glob("*.pem"))
+
+
+def test_read_only_connect_uses_system_ca_and_verify_full(monkeypatch):
+    import sqlalchemy
+
+    calls = {}
+
+    class FakeDialect:
+        name = "postgresql"
+
+    class FakeConnection:
+        dialect = FakeDialect()
+
+        def exec_driver_sql(self, sql):
+            assert sql == "SELECT current_database(), current_schema()"
+            return type("Result", (), {"one": lambda self: ("store_db", "public")})()
+
+    class FakeEngine:
+        def connect(self):
+            return FakeConnection()
+
+        def dispose(self):
+            pass
+
+    def fake_create_engine(url, **kwargs):
+        calls["url"] = url
+        calls.update(kwargs)
+        return FakeEngine()
+
+    monkeypatch.setattr(sqlalchemy, "create_engine", fake_create_engine)
+    monkeypatch.setattr("scripts.customer_email_schema_guard.required_settings", lambda: (
+        _database_settings()["DATABASE_URL"], "store_db", "public", "db.example.invalid"
+    ))
+
+    connection = _connect()
+    assert calls["connect_args"] == {
+        "sslmode": "verify-full", "sslrootcert": "system",
+        "options": "-c default_transaction_read_only=on",
+    }
+    assert "sslmode=verify-full" in calls["url"]
+    assert "sslrootcert=system" in calls["url"]
 
 
 def test_missing_parent_table_stops_preflight():

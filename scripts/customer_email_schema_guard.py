@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 import sys
-import tempfile
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -333,16 +332,15 @@ def validate_dispatch_request(operation: str | None, preflight_value: str | None
     raise GuardError("Unsupported operation; no database connection was opened.")
 
 
-def required_settings(environ=os.environ) -> tuple[str, str, str, str, str]:
+def required_settings(environ=os.environ) -> tuple[str, str, str, str]:
     from psycopg.conninfo import conninfo_to_dict
     url = environ.get("DATABASE_URL", "")
-    cert = environ.get("DATABASE_CA_CERT", "")
     database = environ.get("EXPECTED_DATABASE_NAME", "")
     schema = environ.get("EXPECTED_DATABASE_SCHEMA", "")
     expected_host = environ.get("EXPECTED_DATABASE_HOST", "")
-    if not url or not cert or not database or not schema or not expected_host:
+    if not url or not database or not schema or not expected_host:
         raise GuardError(
-            "Missing required protected settings: database URL, CA certificate, expected database name, schema, and host."
+            "Missing required protected settings: database URL, expected database name, schema, and host."
         )
     if not url.startswith(("postgresql://", "postgres://")):
         raise GuardError("Only PostgreSQL connection URLs are accepted.")
@@ -354,8 +352,8 @@ def required_settings(environ=os.environ) -> tuple[str, str, str, str, str]:
         raise GuardError("Configured database URL does not match the expected database name.")
     if values.get("host", "").lower() != expected_host.lower():
         raise GuardError("Configured database URL does not match the expected database host.")
-    # Ignore URL TLS flags here; psycopg connect_args below unconditionally forces verify-full.
-    return url, cert, database, schema, expected_host
+    # TLS URL values are always overwritten below; never rely on caller-provided settings.
+    return url, database, schema, expected_host
 
 
 def classify_tables(existing: set[str]) -> str:
@@ -379,9 +377,11 @@ def _engine_url(url: str) -> str:
         parsed = make_url(url)
     except Exception:
         raise GuardError("Database URL could not be prepared for verified TLS; details suppressed.") from None
+    query = {k: v for k, v in parsed.query.items() if k.lower() not in {"sslmode", "sslrootcert"}}
+    query.update({"sslmode": "verify-full", "sslrootcert": "system"})
     parsed = parsed.set(
         drivername="postgresql+psycopg",
-        query={k: v for k, v in parsed.query.items() if k.lower() not in {"sslmode", "sslrootcert"}},
+        query=query,
     )
     return parsed.render_as_string(hide_password=False)
 
@@ -545,20 +545,16 @@ def write_summary(lines: list[str]) -> None:
         summary.write("\n".join(f"- {line}" for line in lines) + "\n")
 
 
-def _connect() -> tuple[object, tempfile.TemporaryDirectory]:
+def _connect() -> object:
     from sqlalchemy import create_engine
-    url, cert, expected_database, expected_schema, _expected_host = required_settings()
-    tempdir = tempfile.TemporaryDirectory(prefix="fity-pg-ca-")
-    cert_path = Path(tempdir.name) / "ca.pem"
+    url, expected_database, expected_schema, _expected_host = required_settings()
     engine = None
     try:
-        cert_path.write_text(cert, encoding="utf-8")
-        os.chmod(cert_path, 0o600)
         engine = create_engine(
             _engine_url(url),
             connect_args={
                 "sslmode": "verify-full",
-                "sslrootcert": str(cert_path),
+                "sslrootcert": "system",
                 "options": "-c default_transaction_read_only=on",
             },
             hide_parameters=True,
@@ -567,11 +563,10 @@ def _connect() -> tuple[object, tempfile.TemporaryDirectory]:
         connection = engine.connect()
         row = connection.exec_driver_sql("SELECT current_database(), current_schema()").one()
         validate_identity(row[0], row[1], expected_database, expected_schema)
-        return connection, tempdir
+        return connection
     except Exception:
         if engine is not None:
             engine.dispose()
-        tempdir.cleanup()
         raise
 
 
@@ -579,43 +574,27 @@ def export_verified_migration_environment() -> None:
     """Write a strict-TLS URL to GitHub's private per-job environment file."""
     from sqlalchemy.engine import make_url
 
-    url, cert, _database, _schema, _host = required_settings()
-    runner_temp = Path(os.environ.get("RUNNER_TEMP", ""))
+    url, _database, _schema, _host = required_settings()
     github_env = Path(os.environ.get("GITHUB_ENV", ""))
-    if not runner_temp.is_dir() or not github_env.is_file():
+    if not github_env.is_file():
         raise GuardError("GitHub runner environment files are unavailable.")
-    cert_path = runner_temp / "fity-postgres-ca.pem"
     try:
-        cert_path.write_text(cert, encoding="utf-8")
-        os.chmod(cert_path, 0o600)
         parsed = make_url(url)
         query = {key: value for key, value in parsed.query.items() if key.lower() not in {"sslmode", "sslrootcert"}}
-        query.update({"sslmode": "verify-full", "sslrootcert": str(cert_path)})
+        query.update({"sslmode": "verify-full", "sslrootcert": "system"})
         verified_url = parsed.set(drivername="postgresql+psycopg", query=query).render_as_string(hide_password=False)
         if "\n" in verified_url or "\r" in verified_url:
             raise GuardError("Database URL format is invalid; details suppressed.")
         with github_env.open("a", encoding="utf-8", newline="\n") as output:
             output.write(f"DATABASE_URL={verified_url}\n")
             output.write("PGSSLMODE=verify-full\n")
-            output.write(f"PGSSLROOTCERT={cert_path}\n")
+            output.write("PGSSLROOTCERT=system\n")
     except GuardError:
-        cert_path.unlink(missing_ok=True)
         raise
     except Exception:
-        cert_path.unlink(missing_ok=True)
         raise GuardError("Verified TLS environment could not be prepared; details suppressed.") from None
     print("Migration environment prepared with verified TLS; no connection opened.")
     write_summary(["Migration environment prepared with verify-full TLS."])
-
-
-def cleanup_runner_ca() -> None:
-    runner_temp = Path(os.environ.get("RUNNER_TEMP", "")).resolve()
-    if not runner_temp.is_dir():
-        return
-    cert_path = runner_temp / "fity-postgres-ca.pem"
-    if cert_path.is_symlink() or cert_path.is_file():
-        cert_path.unlink(missing_ok=True)
-    write_summary(["Temporary CA certificate cleanup completed."])
 
 
 def run(mode: str) -> None:
@@ -638,9 +617,8 @@ def run(mode: str) -> None:
         write_summary([f"{os.environ.get('OPERATION')} operation confirmation passed.", "No database connection opened."])
         return
     connection = None
-    tempdir = None
     try:
-        connection, tempdir = _connect()
+        connection = _connect()
         schema = os.environ["EXPECTED_DATABASE_SCHEMA"]
         notes = validate_schema(connection, schema, allow_approved_missing=(mode == "preflight"))
         if mode == "postcheck" and any(note.startswith("approved missing") for note in notes):
@@ -660,14 +638,12 @@ def run(mode: str) -> None:
             connection.close()
             if engine is not None:
                 engine.dispose()
-        if tempdir is not None:
-            tempdir.cleanup()
 
 
 if __name__ == "__main__":
     try:
-        if len(sys.argv) != 2 or sys.argv[1] not in {"confirm", "dispatch-check", "settings", "preflight", "postcheck", "tls-env", "cleanup-ca"}:
-            raise GuardError("Usage: customer_email_schema_guard.py confirm|dispatch-check|settings|preflight|postcheck|tls-env|cleanup-ca")
+        if len(sys.argv) != 2 or sys.argv[1] not in {"confirm", "dispatch-check", "settings", "preflight", "postcheck", "tls-env"}:
+            raise GuardError("Usage: customer_email_schema_guard.py confirm|dispatch-check|settings|preflight|postcheck|tls-env")
         if sys.argv[1] == "settings":
             required_settings()
             print("Connection settings are present; TLS policy is verify-full. No database connection opened.")
@@ -675,8 +651,6 @@ if __name__ == "__main__":
         else:
             if sys.argv[1] == "tls-env":
                 export_verified_migration_environment()
-            elif sys.argv[1] == "cleanup-ca":
-                cleanup_runner_ca()
             else:
                 run(sys.argv[1])
     except GuardError as exc:
