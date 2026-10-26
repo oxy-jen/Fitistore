@@ -212,15 +212,26 @@ The existing `AdminUser` table and admin authentication remain separate. Custome
 
 ### Database setup
 
-SQLite local development creates tables through the existing `db.create_all()` startup path. The `migrate-customer-email-schema` command also supports SQLite and creates only the eight customer/account email tables from SQLAlchemy model metadata; for that specific CLI command, app startup skips the broader `ensure_columns()` helper so unrelated order/product columns and tracking tokens are not touched. It verifies required columns, indexes, uniqueness constraints and foreign keys. The SQLite path uses a transaction and reports which tables were created or already existed. An incomplete pre-existing feature table causes a clear error and rollback rather than a destructive repair. A fresh local store must first be initialized with `init-db`; do not run `init-db` against a database with live store records because it can seed starter data.
+Creating the Flask app does not create or alter database tables. For a new local SQLite store, run `python -m flask --app wsgi:app init-db` explicitly; this command can seed starter data and is for a fresh local store only. The customer/email migration creates only the twelve customer/account email tables and adds the required account, outbox, and retry fields. Before changing an existing database, inspect it with `python -m flask --app wsgi:app check-customer-email-schema`. This command reads schema metadata and reports missing tables, columns, indexes, uniqueness constraints, and foreign keys without changing the database. The migration checks required base tables and validates the resulting schema; SQLite uses a transaction, while PostgreSQL uses an advisory lock and transaction. An incomplete existing feature table causes an error rather than a destructive repair.
 
-For an existing PostgreSQL deployment, back up the database and review `migrations/20261017_customer_accounts_email.sql`, then apply the additive migration explicitly:
+For PostgreSQL, first confirm the active `DATABASE_URL` points to the intended database, take and verify a restorable backup, and review the migration SQL. Then apply the additive migration explicitly:
 
 ```powershell
 python -m flask --app wsgi:app migrate-customer-email-schema
 ```
 
-The migration adds customer identity, token, consent, order-link, rate-limit, campaign, and email-message tables. It does not change or delete existing order, product, inventory, payment, image, or admin records. Run it before enabling customer account/email routes on PostgreSQL. The migration is idempotent.
+The migration adds customer identity, token, consent, order-link, rate-limit, campaign, and email-message tables. It does not change or delete existing order, product, inventory, payment, image, or admin records. Run it before enabling customer account/email routes on PostgreSQL. The migration is idempotent. Referral, review, and cart-counter database changes are separate and use `migrate-postgresql-feature-schema`; Cloudinary image columns use `migrate-cloudinary-schema`.
+
+#### Production database safety
+
+Do not run a migration until you have confirmed the destination database and verified a backup. Never paste a database URL or password into a ticket, terminal transcript, or source file. For a Render PostgreSQL database, run `pg_dump` from a trusted computer using the database's external host, port, database name, and username; allow `pg_dump` to prompt for the password. Save the custom-format backup outside the repository and verify it with `pg_restore --list` before proceeding:
+
+```powershell
+pg_dump --host YOUR_RENDER_EXTERNAL_HOST --port YOUR_RENDER_PORT --username YOUR_DATABASE_USER --dbname fity --format=custom --file fity-before-schema-change.dump
+pg_restore --list fity-before-schema-change.dump
+```
+
+The Render Free PostgreSQL database used by this project is scheduled to expire on November 12, 2026. Treat that date as a data-retention deadline: make and verify an independent backup and arrange an approved database migration before expiry. Do not use `init-db` on a production database. Run the read-only preflight against the target first, take the backup, then run only the explicitly approved migration. Afterward, run the preflight again and confirm all required tables and constraints are complete. No production migration or backup is performed by this repository documentation.
 
 ### Email provider setup
 
@@ -248,7 +259,7 @@ For MAIL_PROVIDER=brevo, only BREVO_API_KEY and the verified sender settings are
 
 Follow the provider's current DNS instructions to publish SPF and DKIM. Add a DMARC policy for `fitystore.top` and monitor aggregate reports before tightening enforcement. DNS is not changed by this application. Provider plans, free quotas, costs, and setup requirements change; check the selected provider before relying on a free tier.
 
-The admin Customer email page shows whether the selected email provider is configured, subscriber consent, campaign history, and the last 30 message statuses. A `sent` status means the selected provider accepted the message; it does not prove inbox delivery. This implementation does not include a delivery/bounce webhook. An admin can suppress a permanently bounced address; suppressed accounts are excluded and cannot self-resubscribe. There is no automatic retry worker. Email failures do not roll back committed orders or payment records. Campaign sending is synchronous and intended for low volume; large lists may exceed a web-host request timeout. Send a test message to the configured test address before running a campaign.
+The admin Customer email page shows whether the selected email provider is configured, subscriber consent, campaign history, and the last 30 message statuses. A `sent` status means the selected provider accepted the message; it does not prove inbox delivery. The authenticated Brevo webhook can update matching outbox and campaign-recipient records to delivered, bounced, or complained; hard bounces, invalid addresses, and complaints suppress marketing. Soft bounces are recorded as bounced but do not automatically suppress. Webhook events are safe to repeat. There is no automatic retry worker. Email failures do not roll back committed orders or payment records. Campaign sending is synchronous and intended for low volume; large lists may exceed a web-host request timeout. Send a test message to the configured test address before running a campaign.
 
 ### Google sign-in setup
 
@@ -286,9 +297,17 @@ The existing migrate-customer-email-schema command now also creates the signed-i
 
 The automation command runs independently of web traffic:
 
-    python -m flask --app wsgi:app run-marketing-automation
+```powershell
+python -m flask --app wsgi:app run-marketing-automation
+```
 
-Create a separate Render Cron Job using the same repository, branch, environment variables, and persistent DATABASE_URL as the web service. Set its command to the line above and schedule it every 15 minutes (*/15 * * * *). Schedule times in the admin screen use Africa/Nairobi by default; the cron process checks due times using that timezone. Do not start it from Gunicorn workers. A Render Cron Job is a separately provisioned service; confirm the current Render plan and cost before enabling it. Without an independent scheduler, recurring emails and abandoned-cart reminders will not run automatically.
+Render Cron Jobs have a $1/month minimum, so they are not a zero-cost option. A free, best-effort alternative is the guarded GitHub Actions workflow at `.github/workflows/marketing-automation.yml`. It runs every six hours. It is disabled unless the repository variable `RUN_MARKETING_AUTOMATION` is set to `true`, and the database's admin automation setting must also be enabled. A six-hour cadence can delay abandoned-cart reminders by up to six hours, and GitHub may delay scheduled runs. GitHub disables scheduled workflows in public repositories after 60 days without repository activity.
+
+Before enabling it, confirm the production PostgreSQL schema is complete and you have a backup. The workflow never runs migrations. Add these GitHub Actions secrets without putting their values in the repository: `RENDER_DATABASE_URL` (the external PostgreSQL URL), `APP_SECRET_KEY`, `BREVO_API_KEY`, `MAIL_FROM_ADDRESS`, and `MAIL_REPLY_TO` (optional). Then set the repository variable `RUN_MARKETING_AUTOMATION=true`. The database automation setting remains a second pause switch. Do not add `DATABASE_URL` to the source or workflow file.
+
+GitHub Actions standard runners are free for public repositories; GitHub Free includes 2,000 minutes monthly for private repositories. At a 10-minute job timeout and four scheduled runs per day, the worst-case scheduled usage is about 1,200 minutes per 30-day month, before other workflows use the same allowance. To guarantee no overage charges, configure an Actions spending budget that stops usage at $0, or do not enable it on a billable account. When the free allowance is exhausted, runs may stop. This is a no-cost option only within the applicable free allowance and is less reliable than a dedicated scheduler.
+
+Do not start the automation from Gunicorn workers. Without an independent scheduler, recurring emails and abandoned-cart reminders will not run automatically.
 
 The migration only adds new tables/columns and does not erase existing store data. Run it before enabling automation. All automation schedules default to paused. Admin previews render current catalog content; test sends go only to MAIL_TEST_ADDRESS and are limited to three per admin per hour. A sent status means provider acceptance, not confirmed inbox placement.
 
@@ -296,7 +315,7 @@ Only verified, subscribed customer accounts are eligible. Cart reminders only co
 
 Current offers require a stored previous price higher than the current price; this schema has no separate offer start/end dates. Weekly ranking uses Completed and Paid orders from the last 90 days, with the existing lifetime recorded cart-add aggregate as a secondary signal because that legacy counter has no event timestamps. If activity is insufficient, the campaign calls items fresh picks instead of claiming popularity. Only published reviews are eligible for highlights.
 
-For Brevo bounce/complaint suppression, set BREVO_WEBHOOK_TOKEN to a long random secret and configure Brevo to POST events to /webhooks/brevo/email-events with the same value in X-Fity-Brevo-Token. Hard bounces, spam complaints, and invalid-address events suppress matching accounts. An unset token makes the endpoint reject calls. Verify the provider payload and event names before relying on this feed; admins can still suppress addresses manually.
+For Brevo delivery and bounce events, set `BREVO_WEBHOOK_TOKEN` to a long random secret and configure Brevo to POST events to `https://fitystore.top/webhooks/brevo/email-events` with the same value in the `X-Fity-Brevo-Token` header. The endpoint accepts delivered, hard/soft bounce, invalid, spam/complaint, and unsubscribe events, matching messages by Brevo message ID. Hard bounces, complaints, and invalid-address events suppress marketing; soft bounces update delivery status only. Duplicate events do not duplicate consent records. An unset token makes the endpoint reject calls. Verify the provider payload and event names before relying on this feed; admins can still suppress addresses manually.
 
 Brevo needs a verified sender and authenticated domain. Set MAIL_PROVIDER=brevo, BREVO_API_KEY, MAIL_FROM_ADDRESS, and MAIL_FROM_VERIFIED=1 only after sender/domain verification. Set MAIL_TEST_ADDRESS before using the automated test form. Store credentials only in Render environment settings or an untracked local .env file; never put credentials in .env.example.
 

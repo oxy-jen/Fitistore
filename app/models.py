@@ -484,6 +484,7 @@ class EmailMessage(TimestampMixin, db.Model):
     status = db.Column(db.String(24), default="queued", nullable=False, index=True)
     failure_reason = db.Column(db.String(255), default="")
     retry_count = db.Column(db.Integer, nullable=False, default=0)
+    provider_message_id = db.Column(db.String(255), index=True)
     sent_at = db.Column(db.DateTime)
 
 

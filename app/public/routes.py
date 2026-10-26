@@ -12,7 +12,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
-from app.models import CartAddCount, Category, CustomerAccount, CustomerCart, CustomerOrderLink, CustomerProfile, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
+from app.models import CartAddCount, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
@@ -782,18 +782,50 @@ def brevo_email_events():
     configured=(current_app.config.get("BREVO_WEBHOOK_TOKEN") or "").strip()
     supplied=(request.headers.get("X-Fity-Brevo-Token") or "").strip()
     if not configured or not hmac.compare_digest(configured,supplied):return jsonify({"ok":False}),403
-    payload=request.get_json(silent=True) or {};events=payload if isinstance(payload,list) else [payload];changed=0
+    payload=request.get_json(silent=True) or {};events=payload if isinstance(payload,list) else [payload];suppressed=0
     for event in events[:100]:
         if not isinstance(event,dict):continue
-        event_name=str(event.get("event") or event.get("type") or "").strip().lower()
-        if event_name not in {"hardbounce","hard_bounce","spam","complaint","invalid"}:continue
-        address=str(event.get("email") or event.get("recipient") or "").strip().lower()[:254]
+        event_name=str(event.get("event") or event.get("type") or "").strip().lower().replace("-", "_")
+        if event_name not in {"delivered","hardbounce","hard_bounce","softbounce","soft_bounce","spam","complaint","invalid","unsubscribed"}:continue
+        provider_id=str(event.get("message-id") or event.get("messageId") or event.get("message_id") or "").strip()[:255]
+        message=EmailMessage.query.filter_by(provider_message_id=provider_id).first() if provider_id else None
+        new_message_status=None
+        if event_name=="delivered" and message and message.status=="sent":
+            new_message_status="delivered"
+        elif event_name in {"hardbounce","hard_bounce","softbounce","soft_bounce","invalid"} and message and message.status=="sent":
+            new_message_status="bounced"
+        elif event_name in {"spam","complaint"} and message and message.status=="sent":
+            new_message_status="complained"
+        if new_message_status and message:
+            message.status=new_message_status
+            message.failure_reason="" if new_message_status=="delivered" else "Brevo reported a " + new_message_status + "."
+            if message.campaign_id and message.account_id:
+                campaign_recipient=EmailCampaignRecipient.query.filter_by(
+                    campaign_id=message.campaign_id,account_id=message.account_id
+                ).first()
+                if campaign_recipient and campaign_recipient.status in {"sent","delivered"}:
+                    campaign_recipient.status=new_message_status
+        if event_name=="delivered":
+            continue
+        address=str(event.get("email") or event.get("recipient") or (message.recipient if message else "")).strip().lower()[:254]
         if not address:continue
         account=CustomerAccount.query.filter(db.func.lower(CustomerAccount.email)==address).first()
-        if not account or account.marketing_status=="suppressed":continue
-        account.marketing_status="suppressed";account.marketing_withdrawn_at=datetime.utcnow()
-        db.session.add(CustomerConsentEvent(account_id=account.id,event="suppressed",method="brevo_webhook",wording_version="2026-10"));changed+=1
-    db.session.commit();return jsonify({"ok":True,"suppressed":changed})
+        if not account:continue
+        if event_name=="unsubscribed":
+            target_status="unsubscribed";consent_event="unsubscribed"
+        elif event_name in {"hardbounce","hard_bounce","spam","complaint","invalid"}:
+            target_status="suppressed";consent_event="suppressed"
+        else:
+            target_status=None;consent_event=None
+        if target_status and account.marketing_status != target_status:
+            account.marketing_status=target_status;account.marketing_withdrawn_at=datetime.utcnow()
+            already_recorded=CustomerConsentEvent.query.filter_by(
+                account_id=account.id,event=consent_event,method="brevo_webhook"
+            ).first()
+            if not already_recorded:
+                db.session.add(CustomerConsentEvent(account_id=account.id,event=consent_event,method="brevo_webhook",wording_version="2026-10"))
+            if target_status=="suppressed":suppressed+=1
+    db.session.commit();return jsonify({"ok":True,"suppressed":suppressed})
 
 
 @public_bp.route("/contact")
