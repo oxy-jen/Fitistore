@@ -1,15 +1,26 @@
-name: Migrate customer email schema
+﻿name: Customer email schema preflight and migration
 
 on:
   workflow_dispatch:
     inputs:
-      confirmation:
-        description: Type MIGRATE CUSTOMER EMAIL SCHEMA after verifying a restorable backup.
+      operation:
+        description: Select preflight-only review or separately approved migration.
+        required: true
+        type: choice
+        options:
+          - preflight
+          - migrate
+      preflight_confirmation:
+        description: Type PREFLIGHT CUSTOMER EMAIL SCHEMA to run read-only checks.
         required: true
         type: string
+      confirmation:
+        description: For migrate only, type MIGRATE CUSTOMER EMAIL SCHEMA.
+        required: false
+        type: string
       backup_confirmation:
-        description: Type I HAVE A VERIFIED RESTORABLE BACKUP.
-        required: true
+        description: For migrate only, type I HAVE A VERIFIED RESTORABLE BACKUP.
+        required: false
         type: string
 
 permissions: {}
@@ -19,17 +30,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  migrate:
-    if: ${{ github.ref == 'refs/heads/responsive-all-pages' }}
+  preflight:
+    if: ${{ github.ref == 'refs/heads/responsive-all-pages' && (inputs.operation == 'preflight' || inputs.operation == 'migrate') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - name: Check out the selected protected branch
+      - name: Check out the dispatch commit
         uses: actions/checkout@v4
         with:
-          ref: responsive-all-pages
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,11 +48,13 @@ jobs:
           python-version: "3.12"
       - name: Install application requirements
         run: python -m pip install --disable-pip-version-check -r requirements.txt
-      - name: Check confirmation before accessing database secret
+      - name: Validate operation confirmation before database access
         env:
+          OPERATION: ${{ inputs.operation }}
+          PREFLIGHT_CONFIRMATION_INPUT: ${{ inputs.preflight_confirmation }}
           CONFIRMATION_INPUT: ${{ inputs.confirmation }}
           BACKUP_CONFIRMATION_INPUT: ${{ inputs.backup_confirmation }}
-        run: python scripts/customer_email_schema_guard.py confirm
+        run: python scripts/customer_email_schema_guard.py dispatch-check
       - name: Validate connection settings without connecting
         env:
           DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
@@ -50,7 +63,7 @@ jobs:
           EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
           EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
         run: python scripts/customer_email_schema_guard.py settings
-      - name: Read-only schema preflight
+      - name: Read-only schema and identity preflight
         env:
           DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
           DATABASE_CA_CERT: ${{ secrets.RENDER_DATABASE_CA_CERT }}
@@ -58,6 +71,33 @@ jobs:
           EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
           EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
         run: python scripts/customer_email_schema_guard.py preflight
+
+  migrate:
+    needs: preflight
+    if: ${{ needs.preflight.result == 'success' && github.ref == 'refs/heads/responsive-all-pages' && inputs.operation == 'migrate' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the dispatch commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install application requirements
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Recheck migration and backup confirmations
+        env:
+          OPERATION: ${{ inputs.operation }}
+          PREFLIGHT_CONFIRMATION_INPUT: ${{ inputs.preflight_confirmation }}
+          CONFIRMATION_INPUT: ${{ inputs.confirmation }}
+          BACKUP_CONFIRMATION_INPUT: ${{ inputs.backup_confirmation }}
+        run: python scripts/customer_email_schema_guard.py dispatch-check
       - name: Prepare verified TLS for the Flask migration command
         env:
           DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
@@ -65,19 +105,21 @@ jobs:
           EXPECTED_DATABASE_NAME: ${{ vars.RENDER_DATABASE_NAME }}
           EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
           EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
+          RUNNER_TEMP: ${{ runner.temp }}
         run: python scripts/customer_email_schema_guard.py tls-env
       - name: Apply the scoped customer email migration
         env:
           FLASK_APP: wsgi:app
         shell: bash
         run: |
-          if python -m flask --app wsgi:app migrate-customer-email-schema >/dev/null 2>&1; then
-            echo "Customer email migration command completed." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "::error::Migration failed; diagnostic output was suppressed to prevent sensitive connection details from entering logs."
-            echo "Migration command failed; diagnostic output suppressed." >> "$GITHUB_STEP_SUMMARY"
-            exit 1
+          set +e
+          python -m flask --app wsgi:app migrate-customer-email-schema >/dev/null 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Customer email schema migration failed; command output was suppressed."
+            exit "$status"
           fi
+          echo "Customer email schema migration command completed."
       - name: Strict post-migration schema validation
         env:
           DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
@@ -86,3 +128,8 @@ jobs:
           EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
           EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
         run: python scripts/customer_email_schema_guard.py postcheck
+      - name: Remove temporary CA certificate
+        if: always()
+        env:
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: python scripts/customer_email_schema_guard.py cleanup-ca

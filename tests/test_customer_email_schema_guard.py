@@ -1,34 +1,126 @@
 from pathlib import Path
+import re
 
 import pytest
 from sqlalchemy import create_engine
 
-from app import customer_email_schema_tables
 from app.extensions import db
 from app.models import Category, Product
 from scripts.customer_email_schema_guard import (
     APPROVED_MISSING_INDEXES,
+    APPROVED_MISSING_COLUMNS,
+    BACKUP_CONFIRMATION,
+    CONFIRMATION,
+    PREFLIGHT_CONFIRMATION,
+    ColumnSpec,
     GuardError,
     classify_tables,
+    migration_column_manifest,
     migration_column_defaults,
+    migration_constraint_manifest,
     migration_index_manifest,
     require_confirmation,
+    validate_dispatch_request,
+    validate_column_snapshot,
+    validate_fk_options,
+    validate_postgres_index_snapshot,
     validate_identity,
+    validate_missing_state,
     validate_schema,
 )
 
 
 def test_confirmation_rejects_wrong_value_before_any_connection():
     with pytest.raises(GuardError, match="no database connection"):
-        require_confirmation("wrong confirmation", "I HAVE A VERIFIED RESTORABLE BACKUP")
+        require_confirmation("wrong confirmation", BACKUP_CONFIRMATION)
+    with pytest.raises(GuardError):
+        require_confirmation(CONFIRMATION, "wrong backup confirmation")
+    require_confirmation(CONFIRMATION, BACKUP_CONFIRMATION)
+
+
+@pytest.mark.parametrize("operation,preflight,migration,backup,accepted", [
+    ("preflight", PREFLIGHT_CONFIRMATION, None, None, True),
+    ("preflight", "wrong", CONFIRMATION, BACKUP_CONFIRMATION, False),
+    ("migrate", PREFLIGHT_CONFIRMATION, CONFIRMATION, BACKUP_CONFIRMATION, True),
+    ("migrate", PREFLIGHT_CONFIRMATION, "wrong", BACKUP_CONFIRMATION, False),
+    ("migrate", PREFLIGHT_CONFIRMATION, CONFIRMATION, "wrong", False),
+    ("unknown", PREFLIGHT_CONFIRMATION, CONFIRMATION, BACKUP_CONFIRMATION, False),
+])
+def test_dispatch_confirmation_is_operation_specific(operation, preflight, migration, backup, accepted):
+    if accepted:
+        validate_dispatch_request(operation, preflight, migration, backup)
+    else:
+        with pytest.raises(GuardError):
+            validate_dispatch_request(operation, preflight, migration, backup)
 
 
 def test_workflow_restricts_manual_trigger_and_target_branch():
     workflow = Path(".github/workflows/migrate-customer-email-schema.yml").read_text()
-    assert "workflow_dispatch:" in workflow
-    assert "if: ${{ github.ref == 'refs/heads/responsive-all-pages' }}" in workflow
-    assert "python scripts/customer_email_schema_guard.py confirm" in workflow
-    assert "BACKUP_CONFIRMATION_INPUT: ${{ inputs.backup_confirmation }}" in workflow
+    trigger_block = re.search(r"(?ms)^on:\s*\n(.*?)(?=^permissions:)", workflow)
+    assert trigger_block
+    events = re.findall(r"(?m)^  ([A-Za-z_][A-Za-z0-9_-]*):", trigger_block.group(1))
+    assert events == ["workflow_dispatch"]
+    jobs = re.split(r"(?m)^  (?:preflight|migrate):\s*$", workflow)
+    assert len(jobs) == 3
+    preflight_job = jobs[1]
+    migrate_job = jobs[2]
+    assert "github.ref == 'refs/heads/responsive-all-pages'" in preflight_job
+    assert "github.ref == 'refs/heads/responsive-all-pages'" in migrate_job
+    assert preflight_job.count("ref: ${{ github.sha }}") == 1
+    assert migrate_job.count("ref: ${{ github.sha }}") == 1
+    assert "ref: responsive-all-pages" not in preflight_job + migrate_job
+    assert "inputs.operation == 'migrate'" in migrate_job
+    assert "needs: preflight" in migrate_job
+    migration_command = "python -m flask --app wsgi:app migrate-customer-email-schema"
+    assert migration_command not in preflight_job
+    assert migration_command in migrate_job
+    assert "dispatch-check" in preflight_job and "dispatch-check" in migrate_job
+    assert "PREFLIGHT_CONFIRMATION_INPUT: ${{ inputs.preflight_confirmation }}" in preflight_job
+    assert "CONFIRMATION_INPUT: ${{ inputs.confirmation }}" in migrate_job
+    assert "BACKUP_CONFIRMATION_INPUT: ${{ inputs.backup_confirmation }}" in migrate_job
+    assert "if: always()" in migrate_job and "cleanup-ca" in migrate_job
+    command_step = migrate_job.split("- name: Apply the scoped customer email migration", 1)[1].split("- name:", 1)[0]
+    assert "python -m flask --app wsgi:app migrate-customer-email-schema >/dev/null 2>&1" in command_step
+    assert 'status=$?' in command_step and 'exit "$status"' in command_step
+    assert "post-migration schema validation" in migrate_job
+    assert command_step.index("exit \"$status\"") < migrate_job.index("post-migration schema validation")
+
+    # Model the job dependency/gates: only a successful preflight plus a migrate
+    # operation on the fixed ref can make the migration job eligible.
+    def migration_job_eligible(operation, preflight_succeeded, ref):
+        return (preflight_succeeded and ref == "refs/heads/responsive-all-pages"
+                and operation == "migrate")
+    assert not migration_job_eligible("preflight", True, "refs/heads/responsive-all-pages")
+    assert not migration_job_eligible("preflight", False, "refs/heads/responsive-all-pages")
+    assert not migration_job_eligible("migrate", False, "refs/heads/responsive-all-pages")
+    assert not migration_job_eligible("migrate", True, "refs/heads/main")
+    assert migration_job_eligible("migrate", True, "refs/heads/responsive-all-pages")
+
+
+@pytest.mark.parametrize("preflight_succeeds", [True, False])
+def test_preflight_only_never_has_an_executable_migration_path(preflight_succeeds):
+    workflow = Path(".github/workflows/migrate-customer-email-schema.yml").read_text()
+    jobs = re.split(r"(?m)^  (?:preflight|migrate):\s*$", workflow)
+    preflight_job, migrate_job = jobs[1], jobs[2]
+    migration_command = "python -m flask --app wsgi:app migrate-customer-email-schema"
+    assert migration_command not in preflight_job
+    gate_match = re.search(r"(?m)^    if:\s*\$\{\{\s*(.*?)\s*\}\}\s*$", migrate_job)
+    assert gate_match
+    gate_terms = {term.strip() for term in gate_match.group(1).split("&&")}
+    assert gate_terms == {
+        "needs.preflight.result == 'success'",
+        "github.ref == 'refs/heads/responsive-all-pages'",
+        "inputs.operation == 'migrate'",
+    }
+    assert "needs: preflight" in migrate_job
+    # Evaluate the actual three-term gate for the preflight-only choice both
+    # when its read-only check passes and when it fails.
+    results = {
+        "needs.preflight.result == 'success'": preflight_succeeds,
+        "github.ref == 'refs/heads/responsive-all-pages'": True,
+        "inputs.operation == 'migrate'": False,
+    }
+    assert all(results[term] for term in gate_terms) is False
 
 
 def test_wrong_database_identity_is_rejected_without_disclosing_identity():
@@ -51,14 +143,121 @@ def test_unexpected_partial_table_set_is_rejected():
         classify_tables({"customer_account"})
 
 
+@pytest.mark.parametrize("table,column", sorted(APPROVED_MISSING_COLUMNS))
+def test_each_approved_missing_column_is_allowed_only_during_preflight(table, column):
+    expected = {column, "present_column"}
+    actual = {"present_column"}
+    assert validate_missing_state(table, expected, actual, {column}, True, "columns") == {column}
+    with pytest.raises(GuardError, match="missing"):
+        validate_missing_state(table, expected, actual, {column}, False, "columns")
+
+
+def test_approved_provider_message_index_is_allowed_only_during_preflight():
+    index = next(iter(APPROVED_MISSING_INDEXES))
+    assert validate_missing_state("email_message", {index, "other"}, {"other"}, {index}, True, "indexes") == {index}
+    with pytest.raises(GuardError, match="missing"):
+        validate_missing_state("email_message", {index}, set(), {index}, False, "indexes")
+
+
+def test_unexpected_missing_object_is_rejected_even_during_preflight():
+    with pytest.raises(GuardError, match="Unexpected missing"):
+        validate_missing_state("email_message", {"unexpected"}, set(), set(), True, "columns")
+
+
+def test_exact_column_type_length_nullability_and_default_checks():
+    email = migration_column_manifest()[("customer_account", "email")]
+    validate_column_snapshot("customer_account", "email", "VARCHAR(254)", False, None, email)
+    with pytest.raises(GuardError, match="type"):
+        validate_column_snapshot("customer_account", "email", "VARCHAR(255)", False, None, email)
+    with pytest.raises(GuardError, match="type"):
+        validate_column_snapshot("customer_account", "email", "TEXT", False, None, email)
+    with pytest.raises(GuardError, match="nullability"):
+        validate_column_snapshot("customer_account", "email", "VARCHAR(254)", True, None, email)
+    with pytest.raises(GuardError, match="default"):
+        validate_column_snapshot("customer_account", "email", "VARCHAR(254)", False, "'wrong'", email)
+
+
+def test_timestamp_timezone_and_numeric_precision_are_checked():
+    timestamp = ColumnSpec("TIMESTAMP WITHOUT TIME ZONE", True, None)
+    validate_column_snapshot("example", "moment", "TIMESTAMP WITHOUT TIME ZONE", True, None, timestamp)
+    with pytest.raises(GuardError, match="type"):
+        validate_column_snapshot("example", "moment", "TIMESTAMP WITH TIME ZONE", True, None, timestamp)
+    numeric = ColumnSpec("NUMERIC(10,2)", True, None)
+    with pytest.raises(GuardError, match="type"):
+        validate_column_snapshot("example", "amount", "NUMERIC(10,3)", True, None, numeric)
+
+
+def test_foreign_key_match_mode_and_deferrability_are_checked():
+    validate_fk_options({})
+    validate_fk_options({"match": "SIMPLE", "deferrable": False, "initially": "IMMEDIATE"})
+    with pytest.raises(GuardError, match="match mode"):
+        validate_fk_options({"match": "FULL"})
+    with pytest.raises(GuardError, match="deferrable"):
+        validate_fk_options({"deferrable": True})
+    with pytest.raises(GuardError, match="timing mode"):
+        validate_fk_options({"initially": "DEFERRED"})
+
+
+def _index_snapshot(**changes):
+    snapshot = {
+        "name": "ix_sample", "table": "sample", "columns": ("account_id",),
+        "unique": False, "valid": True, "has_predicate": False,
+        "included_columns": (), "access_method": "btree",
+        "key_count": 1, "total_count": 1,
+    }
+    snapshot.update(changes)
+    return snapshot
+
+
+def test_postgres_index_catalog_snapshot_accepts_expected_plain_btree():
+    validate_postgres_index_snapshot(
+        "ix_sample", "sample", ("account_id",), False, _index_snapshot()
+    )
+
+
+@pytest.mark.parametrize("changes", [
+    {"has_predicate": True},
+    {"included_columns": ("created_at",), "total_count": 2},
+    {"access_method": "hash"},
+    {"columns": ("created_at",)},
+    {"unique": True},
+    {"valid": False},
+    {"table": "other_table"},
+])
+def test_postgres_index_catalog_snapshot_rejects_incompatible_indexes(changes):
+    with pytest.raises(GuardError, match="Incompatible PostgreSQL index"):
+        validate_postgres_index_snapshot(
+            "ix_sample", "sample", ("account_id",), False, _index_snapshot(**changes)
+        )
+
+
+def test_postgres_index_catalog_snapshot_fails_closed_on_missing_metadata():
+    incomplete = _index_snapshot()
+    del incomplete["access_method"]
+    with pytest.raises(GuardError, match="metadata incomplete"):
+        validate_postgres_index_snapshot("ix_sample", "sample", ("account_id",), False, incomplete)
+
+
+def test_unrelated_additional_indexes_are_allowed_by_policy():
+    # The guard validates every migration-declared name but tolerates unrelated
+    # local indexes; this avoids rejecting safe operator-created performance indexes.
+    assert validate_missing_state(
+        "sample", {"ix_expected"}, {"ix_expected", "ix_operator_added"}, set(), False, "indexes"
+    ) == set()
+
+
 def test_manifest_reads_the_actual_sql_indexes_and_defaults():
     indexes = migration_index_manifest()
     defaults = migration_column_defaults()
+    unique, named_unique, foreign_keys = migration_constraint_manifest()
     assert indexes["ix_marketing_campaign_run_campaign_key"] == (
         "marketing_campaign_run", ("campaign_key",), True
     )
     assert defaults[("customer_account", "two_factor_enabled")] == "FALSE"
     assert defaults[("email_message", "retry_count")] == "0"
+    assert unique["customer_order_link"] == {("order_id",)}
+    assert named_unique["email_campaign_recipient"]["uq_campaign_recipient_account"] == ("campaign_id", "account_id")
+    assert ("account_id", "customer_account", "id") in foreign_keys["email_message"]
 
 
 def test_complete_local_schema_passes_strict_postcheck():
