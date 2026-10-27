@@ -352,6 +352,7 @@ input,select,textarea,button{max-width:100%}
 .policy-hero h1{position:relative;z-index:1;margin:.25rem 0 .75rem;font-size:clamp(2rem,5vw,3.5rem);letter-spacing:-.04em;line-height:1.05}
 .policy-hero>p:not(.eyebrow){max-width:760px;color:#e1e1e1;line-height:1.7}
 .policy-hero .eyebrow{color:#ff818a;font-weight:800;letter-spacing:.14em;text-transform:uppercase;font-size:.76rem}
+.policy-effective{margin:.25rem 0 .8rem;color:#cfd1d5!important;font-size:.82rem}
 .policy-callout{padding:.85rem 1rem;border-left:3px solid #ff5363;background:#ffffff12;border-radius:.35rem;color:#fff!important}
 .policy-tabs{display:flex;gap:.55rem;overflow-x:auto;padding:1.1rem 0;scrollbar-width:thin}
 .policy-tabs a{white-space:nowrap;padding:.7rem .95rem;border:1px solid #dedede;border-radius:999px;color:inherit;text-decoration:none;font-weight:700;background:#fff;transition:background .2s,color .2s,transform .2s}
@@ -454,6 +455,53 @@ input,select,textarea,button{max-width:100%}
 .account-discovery-heading>p:last-child{max-width:70ch;color:var(--muted)}
 .account-discovery>.product-section{padding:.8rem 0}
 .account-discovery .product-row{scrollbar-width:thin}
+.nav-profile{position:relative}
+.nav .nav-profile>summary{display:flex;align-items:center;gap:.45rem;padding:.35rem .65rem;border-radius:999px;list-style:none;cursor:pointer;font-weight:800;max-width:13rem}
+.nav .nav-profile>summary::-webkit-details-marker{display:none}
+.nav-profile-avatar{display:grid;place-items:center;flex:0 0 2rem;width:2rem;height:2rem;border-radius:50%;background:var(--red);color:#fff;font-size:.9rem;font-weight:900}
+.nav-profile-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-profile[open]>summary,.nav .nav-profile>summary:hover{background:#fff}
+.nav-profile-menu{position:absolute;top:calc(100% + .55rem);right:0;z-index:30;display:grid;gap:.2rem;width:min(17rem,calc(100vw - 2rem));padding:.55rem;border:1px solid var(--border-subtle);border-radius:14px;background:#fff;box-shadow:var(--shadow-elevated)}
+.nav .nav-profile-menu a,.nav .nav-profile-menu button{display:block;width:100%;padding:.7rem .75rem;border:0;border-radius:9px;background:transparent;color:var(--text);text-align:left;text-decoration:none;font-weight:700;cursor:pointer}
+.nav .nav-profile-menu a:hover,.nav .nav-profile-menu button:hover{background:#fff0f2;color:#b41225}
+.nav-profile-menu form{margin:0;border-top:1px solid var(--border-subtle);padding-top:.2rem}
+.nav-profile-email{margin:.35rem .7rem .5rem;color:var(--muted);font-size:.84rem;overflow-wrap:anywhere}
+.nav-profile-guest{display:flex;align-items:center;gap:.4rem}
+.nav-profile-admin .nav-profile-avatar{background:#222}
+.account-recent-products{margin:0 clamp(1rem,4vw,3rem) 1rem;scroll-margin-top:1rem}
+.account-recent-product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:.75rem;margin-top:.85rem}
+.account-recent-product{overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--border-subtle);border-radius:12px;background:#fff;text-decoration:none;font-weight:800}
+.account-recent-product img{width:100%;aspect-ratio:1/1;object-fit:contain;background:#f7f7f7;padding:.4rem}
+.account-recent-product span{padding:.65rem .75rem;line-height:1.35}
+.account-recent-product:hover{border-color:var(--red);box-shadow:var(--shadow-card-hover)}
+.account-link-order{margin-top:1rem;padding-top:.8rem;border-top:1px solid var(--border-subtle)}
+.account-link-order summary{font-weight:850;color:var(--red);cursor:pointer}
+.account-link-order form{max-width:500px}
+@media(max-width:760px){.nav .nav-profile>summary{padding:.3rem}.nav-profile-label{max-width:6.5rem}.nav-profile-menu{right:-.3rem}}
+.account-profile-summary{align-items:stretch;gap:1.5rem}
+.account-profile-identity{display:flex;align-items:center;gap:1.15rem;min-width:0}
+.account-avatar{display:grid;place-items:center;flex:0 0 clamp(3.5rem,8vw,5rem);width:clamp(3.5rem,8vw,5rem);height:clamp(3.5rem,8vw,5rem);border:2px solid rgba(255,255,255,.45);border-radius:50%;background:linear-gradient(145deg,#f1273f,#a90d23);color:#fff;font-size:clamp(1.6rem,4vw,2.3rem);font-weight:950;text-transform:uppercase}
+.account-profile-email{margin:.1rem 0 .6rem;color:rgba(255,255,255,.9)!important;font-weight:650;overflow-wrap:anywhere}
+.account-profile-meta{display:flex;align-items:center;gap:.5rem .9rem;flex-wrap:wrap;color:rgba(255,255,255,.76);font-size:.88rem}
+.account-profile-badge{padding:.27rem .55rem;border-radius:999px;background:rgba(255,255,255,.14);color:#fff;font-weight:800}
+.account-profile-badge.is-verified{background:#d9fbe7;color:#146b39}.account-profile-badge.is-pending{background:#fff1c2;color:#6b4b00}
+.account-profile-actions{display:flex;flex-direction:column;align-items:flex-end;justify-content:space-between;gap:1rem}
+.account-profile-nav{display:flex;justify-content:flex-end;gap:.45rem;flex-wrap:wrap}
+.account-profile-nav a{padding:.45rem .65rem;border:1px solid rgba(255,255,255,.25);border-radius:999px;color:#fff;text-decoration:none;font-size:.88rem;font-weight:750}
+.account-profile-nav a:hover,.account-profile-nav a:focus-visible{background:#fff;color:#222}
+.account-profile-actions .account-welcome-actions{margin:0;justify-content:flex-end}
+.account-profile-actions form{margin:0}
+.account-activity{margin:1rem clamp(1rem,4vw,3rem);scroll-margin-top:1rem}
+.account-activity-heading h2{margin:.15rem 0 .25rem}.account-activity-heading .account-muted{margin:.25rem 0 0}
+.account-activity-list{position:relative;list-style:none;margin:1rem 0 0;padding:0}
+.account-activity-list:before{position:absolute;top:.6rem;bottom:.6rem;left:.48rem;width:2px;background:#f1d4d8;content:""}
+.account-activity-item{position:relative;display:flex;gap:1rem;padding:.75rem 0}
+.account-activity-marker{position:relative;z-index:1;flex:0 0 .95rem;width:.95rem;height:.95rem;margin-top:.28rem;border:3px solid #fff;border-radius:50%;background:var(--red);box-shadow:0 0 0 1px #efb4bb}
+.account-activity-copy{min-width:0;flex:1}
+.account-activity-title-row{display:flex;justify-content:space-between;align-items:baseline;gap:.5rem 1rem;flex-wrap:wrap}
+.account-activity-title-row h3{margin:0;font-size:1rem}.account-activity-title-row h3 a{color:inherit;text-decoration:none}.account-activity-title-row h3 a:hover{text-decoration:underline;color:var(--red)}
+.account-activity-title-row time{color:var(--muted);font-size:.85rem}.account-activity-copy>p{margin:.25rem 0 0;color:var(--muted);line-height:1.5}
+@media(max-width:760px){.account-profile-summary{align-items:flex-start}.account-profile-identity{align-items:flex-start}.account-profile-actions{align-items:flex-start;width:100%}.account-profile-nav{justify-content:flex-start}.account-profile-actions .account-welcome-actions{justify-content:flex-start}.account-activity-title-row{align-items:flex-start;flex-direction:column;gap:.15rem}}
 
 /* Compact question-led product request and delivery guidance on the home page. */
 .mamba-request{grid-template-columns:minmax(0,1fr) minmax(300px,.8fr);gap:.8rem;align-items:start;margin-top:.35rem}
@@ -604,7 +652,7 @@ input,select,textarea,button{max-width:100%}
 .about-page .about-category-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}
 .about-page .about-category{border-color:#e5e7eb;border-radius:12px;box-shadow:0 4px 16px rgba(15,23,42,.04)}
 .about-page .about-category:hover{transform:translateY(-4px);box-shadow:0 12px 24px rgba(15,23,42,.09)}
-.about-page .about-category:nth-child(n+5){display:none}
+.about-page .about-category:nth-child(n+5){display:block}
 .about-page .about-category-placeholder{aspect-ratio:4/3;background-color:#f1f3f5;background-position:center;background-repeat:no-repeat;background-size:contain;color:transparent;font-size:0}
 .about-page .about-category:nth-child(1) .about-category-placeholder{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 120'%3E%3Cpath fill='%2321252b' d='M42 20h26v48c0 8 17 10 24 18 5 6 0 14-9 14H37c-11 0-15-10-8-18 6-7 13-11 13-21V20zm50 0h24v42c0 9 13 12 22 19 7 6 2 18-8 18H83c-10 0-14-9-8-17 7-8 17-10 17-20V20z'/%3E%3C/svg%3E")}
 .about-page .about-category:nth-child(2) .about-category-placeholder{background-image:url('/static/images/shop-hero/hair_bonnet-removebg-preview.webp')}

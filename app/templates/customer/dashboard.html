@@ -1,12 +1,31 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="account-dashboard">
-  <div class="account-dashboard-head">
-    <div class="account-welcome-copy"><p class="eyebrow">Your FityStores account</p><h1>Welcome back, {{ account.display_name or account.email.split('@', 1)[0] }}.</h1><p>Your profile keeps your linked orders and tracking together, and gives you control of your sign-in options. New arrivals and current price drops are here for you whenever you visit; you do not need promotional email to see them.</p><div class="account-welcome-actions"><a class="btn primary" href="#customer-discovery">See fresh arrivals and offers</a><a class="btn" href="{{ url_for('public.shop') }}">Explore the shop</a></div></div>
-    <form method="post" action="{{ url_for('customer.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Sign out</button></form>
-  </div>
+  <header class="account-dashboard-head account-profile-summary">
+    <div class="account-profile-identity">
+      <div class="account-avatar" aria-hidden="true">{{ (account.display_name or account.email).strip()[0]|upper }}</div>
+      <div class="account-welcome-copy">
+        <p class="eyebrow">Your FityStores account</p>
+        <h1>{{ account.display_name or account.email.split('@', 1)[0] }}</h1>
+        <p class="account-profile-email">{{ account.email }}</p>
+        <div class="account-profile-meta">
+          <span class="account-profile-badge {{ 'is-verified' if account.email_verified_at else 'is-pending' }}">{{ 'Email verified' if account.email_verified_at else 'Email verification needed' }}</span>
+          {% if account.created_at %}<span>Member since {{ account.created_at.strftime('%b %Y') }}</span>{% endif %}
+          {% if account.google_sub %}<span>Google sign-in linked</span>{% elif account.password_hash %}<span>Password sign-in enabled</span>{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="account-profile-actions">
+      <nav class="account-profile-nav" aria-label="Account sections"><a href="#account-orders">Orders</a><a href="#account-activity">Recent activity</a><a href="#account-details">Profile & security</a></nav>
+      <div class="account-welcome-actions"><a class="btn primary" href="{{ url_for('public.shop') }}">Browse the shop</a><form method="post" action="{{ url_for('customer.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Sign out</button></form></div>
+    </div>
+  </header>
+  <section class="account-panel account-recent-products" data-recent-products data-endpoint="{{ url_for('customer.recent_products') }}" aria-labelledby="recent-products-title">
+    <p class="account-kicker">Picked up where you left off</p><h2 id="recent-products-title">Recently viewed</h2>
+    <div class="account-recent-product-grid" data-recent-products-list><p class="account-muted">Products you view on this device will appear here.</p></div>
+  </section>
   <div class="account-dashboard-grid">
-    <section class="account-panel">
+    <section class="account-panel" id="account-details">
       <div class="profile-panel-heading"><span class="profile-icon" aria-hidden="true"><svg class="icon"><use href="#icon-user"></use></svg></span><div><p class="account-kicker">Profile</p><h2>Your details</h2></div></div>
       <dl class="account-details"><div><dt>Email</dt><dd>{{ account.email }}</dd></div><div><dt>Email status</dt><dd>{% if account.email_verified_at %}<span class="account-status">Verified</span>{% else %}<span class="account-status account-status-pending">Needs verification</span>{% endif %}</dd></div></dl>
       {% if not account.email_verified_at %}<form method="post" action="{{ url_for('customer.resend_verification') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn">Resend verification link</button></form><p class="account-muted">Verify your email before changing account details.</p>
@@ -20,10 +39,11 @@
       <div class="account-google-link"><h3>Link Google sign-in</h3><p>Use the verified Google account for this same email address.</p><script src="https://accounts.google.com/gsi/client" async defer></script><div id="g_id_onload" data-client_id="{{ google_client_id }}" data-callback="onGoogleLinkResponse" data-auto_prompt="false"></div><div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="continue_with" data-shape="rectangular"></div><script>function onGoogleLinkResponse(result){const token=document.querySelector('input[name=csrf_token]')?.value;if(!token)return;const body=new URLSearchParams({credential:result.credential});fetch("{{ url_for('customer.link_google') }}",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/x-www-form-urlencoded","X-CSRFToken":token},body}).then(response=>{if(response.ok){window.location.reload()}else{window.location.href="{{ url_for('customer.dashboard') }}"}})}</script></div>
       {% elif account.google_sub %}<p class="account-note">Google sign-in is linked to this customer account.</p>{% endif %}
     </section>
-    <section class="account-panel account-orders">
+    <section class="account-panel account-orders" id="account-orders">
       <p class="account-kicker">Orders</p><h2>Orders linked to you</h2>
       {% for link in order_links %}<article class="account-order"><div><strong>{{ link.order.reference }}</strong><span>{{ link.order.created_at.strftime('%Y-%m-%d') }}</span></div><p>{{ link.order.status }} - Payment: {{ link.order.payment_status }}</p><a href="{{ url_for('public.track_order', reference=link.order.reference, tracking_token=link.order.tracking_token) }}">View order tracking</a></article>
-      {% else %}<div class="account-empty"><p>No orders are linked to this account yet.</p><a href="{{ url_for('public.shop') }}">Browse the shop</a><p class="account-muted">Orders placed before signing in may not appear here.</p></div>{% endfor %}
+      {% else %}<div class="account-empty"><p>No orders are linked to this account yet.</p><a href="{{ url_for('public.shop') }}">Browse the shop</a><p class="account-muted">Orders placed while signed in to this verified account will appear here. For help finding an older order, contact the shop.</p></div>{% endfor %}
+      <details class="account-link-order"><summary>Link an existing order</summary><p class="account-muted">Use the order reference and private tracking token from your tracking link. Only an unlinked order can be claimed.</p><form method="post" action="{{ url_for('customer.link_guest_order') }}" class="account-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Order reference<input name="reference" maxlength="24" autocomplete="off" required></label><label>Private tracking token<input name="tracking_token" type="password" maxlength="96" autocomplete="off" required></label><button class="btn" type="submit">Link order to my account</button></form></details>
     </section>
     <section class="account-panel">
       <p class="account-kicker">Your account benefits</p><h2>Shop at your pace</h2>
@@ -32,6 +52,13 @@
     </section>
   </div>
 
+  <section class="account-panel account-activity" id="account-activity" aria-labelledby="account-activity-title">
+    <div class="account-activity-heading"><div><p class="account-kicker">Your account</p><h2 id="account-activity-title">Recent activity</h2><p class="account-muted">A record of account, order, review, and email preference updates.</p></div></div>
+    {% if activity %}<ol class="account-activity-list">
+      {% for item in activity %}<li class="account-activity-item"><span class="account-activity-marker" aria-hidden="true"></span><div class="account-activity-copy"><div class="account-activity-title-row"><h3>{% if item.href %}<a href="{{ item.href }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</h3><time datetime="{{ item.occurred_at.isoformat() }}">{{ item.occurred_at.strftime('%d %b %Y, %H:%M') }}</time></div><p>{{ item.detail }}</p></div></li>{% endfor %}
+    </ol>{% else %}<div class="account-empty"><p>Your account activity will appear here as you use the shop.</p></div>{% endif %}
+  </section>
+
   <section class="account-discovery" id="customer-discovery">
     <div class="account-discovery-heading"><p class="eyebrow">Picked for your next visit</p><h2>Fresh arrivals and current offers</h2><p>Browse the latest products and marked-down items. Product availability and prices can change, so confirm details before paying.</p></div>
     {% if fresh_arrivals %}<section class="product-section" id="customer-fresh-arrivals"><div class="section-title"><div><p class="eyebrow">Just added</p><h3>Fresh arrivals</h3></div><a href="{{ url_for('public.shop', sort='newest') }}">Browse all new items</a></div><div class="product-row">{% for product in fresh_arrivals %}<div class="product-tile">{% include "partials/product_card.html" %}</div>{% endfor %}</div></section>{% endif %}
@@ -39,4 +66,33 @@
     {% if not fresh_arrivals and not discounted_products %}<div class="account-empty"><p>New products and offers will appear here when available.</p><a href="{{ url_for('public.shop') }}">Browse all products</a></div>{% endif %}
   </section>
 </section>
+<script>
+(() => {
+  const section = document.querySelector('[data-recent-products]');
+  if (!section) return;
+  const list = section.querySelector('[data-recent-products-list]');
+  let ids = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem('fity-recently-viewed-products') || '[]');
+    if (Array.isArray(saved)) ids = saved.map(Number).filter(id => Number.isInteger(id) && id > 0).slice(0, 8);
+  } catch (_) {}
+  if (!ids.length) return;
+  const query = new URLSearchParams();
+  ids.forEach(id => query.append('id', String(id)));
+  fetch(section.dataset.endpoint + '?' + query.toString(), {credentials: 'same-origin', headers: {'Accept': 'application/json'}})
+    .then(response => response.ok ? response.json() : Promise.reject())
+    .then(data => {
+      list.replaceChildren();
+      if (!data.products || !data.products.length) {
+        const empty = document.createElement('p'); empty.className = 'account-muted'; empty.textContent = 'No recently viewed products are currently available.'; list.append(empty); return;
+      }
+      data.products.forEach(product => {
+        const link = document.createElement('a'); link.className = 'account-recent-product'; link.href = product.url;
+        if (product.image_url) { const image = document.createElement('img'); image.src = product.image_url; image.alt = product.image_alt || ''; image.loading = 'lazy'; link.append(image); }
+        const name = document.createElement('span'); name.textContent = product.name; link.append(name); list.append(link);
+      });
+    })
+    .catch(() => { list.textContent = 'Recently viewed products could not be loaded right now.'; });
+})();
+</script>
 {% endblock %}

@@ -30,7 +30,7 @@
   {% if og_image_alt %}<meta property="og:image:alt" content="{{ og_image_alt }}">{% endif %}
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=facebook-clickable-image-preview-20261024">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=customer-profile-20261027">
   <script type="application/ld+json">
   {{ {"@context": "https://schema.org", "@type": "Organization", "name": settings.shop_name, "url": "https://fitystore.top/", "logo": url_for('static', filename='images/mainLogo-160.png', _external=True)}|tojson }}
   </script>
@@ -59,11 +59,21 @@
   <symbol id="icon-message" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-4-.9L3 21l1.6-4.5A8.5 8.5 0 1 1 21 11.5Z"/></symbol>
   <symbol id="icon-checkout" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></symbol>
   <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v6M14 11v6"/></symbol>
+  <symbol id="icon-facebook" viewBox="0 0 24 24"><path d="M14 21v-8h3l.5-4H14V7c0-1.2.4-2 2-2h1.7V1.4C17 1.2 15.8 1 14.4 1 11 1 9 3 9 6.7V9H6v4h3v8z"/></symbol>
+  <symbol id="icon-whatsapp" viewBox="0 0 24 24"><path d="M20.5 11.7a8.5 8.5 0 0 1-12.6 7.4L3 20l1-4.7a8.5 8.5 0 1 1 16.5-3.6Z"/><path d="M8 7.7c.3-.5.6-.5 1-.5h.4c.2 0 .4.1.5.4l.8 1.8c.1.3.1.5-.1.7l-.6.7c-.2.2-.2.4-.1.6.6 1.1 1.5 2 2.7 2.6.2.1.4.1.6-.1l.8-.9c.2-.2.4-.3.7-.2l1.8.8c.3.1.4.3.4.5 0 .4-.2 1.3-.8 1.8-.5.5-1.4.8-2.4.6-1-.2-2.3-.7-3.8-2-1.7-1.5-2.8-3.4-3.1-4.4-.3-1 .1-2 .5-2.4Z"/></symbol>
+  <symbol id="icon-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="icon-headset" viewBox="0 0 24 24"><path d="M3 13v-2a9 9 0 0 1 18 0v2"/><rect x="3" y="12" width="4" height="7" rx="2"/><rect x="17" y="12" width="4" height="7" rx="2"/><path d="M19 19a3 3 0 0 1-3 3h-3"/></symbol>
 </svg>
 <header class="site-header{% if request.endpoint == 'public.shop' %} shop-header{% endif %}">
   <a class="brand" href="{{ url_for('public.home') }}"><img src="{{ url_for('static', filename='images/mainLogo-160.png') }}" alt="FityStores logo">{% if request.endpoint == 'public.shop' %}<span class="brand-copy"><strong>{{ settings.shop_name }}</strong><small>{{ settings.tagline }}</small></span>{% else %}<span>{{ settings.shop_name }}</span>{% endif %}</a>{% if request.endpoint == 'public.shop' %}<form class="header-shop-search" action="{{ url_for('public.shop') }}"><svg class="icon" aria-hidden="true"><use href="#icon-search"></use></svg><input name="q" value="{{ request.args.get('q', '') }}" placeholder="Search for products..." aria-label="Search for products"></form>{% endif %}
   <nav id="nav" class="nav" aria-label="Primary navigation">
-    <a class="nav-account" href="{{ url_for('customer.dashboard') }}" aria-label="Your account"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Account</span></a>
+    {% if current_user.is_authenticated and current_user.is_admin %}
+      <details class="nav-profile nav-profile-admin"><summary aria-label="Admin profile menu"><span class="nav-profile-avatar" aria-hidden="true">{{ (current_user.username or 'A')[0]|upper }}</span><span class="nav-profile-label">{{ current_user.username or 'Admin' }}</span></summary><div class="nav-profile-menu"><a href="{{ url_for('admin.dashboard') }}">Admin dashboard</a><form method="post" action="{{ url_for('admin.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sign out</button></form></div></details>
+    {% elif current_user.is_authenticated %}
+      <details class="nav-profile"><summary aria-label="Customer profile menu"><span class="nav-profile-avatar" aria-hidden="true">{{ (current_user.display_name or current_user.email or 'C').strip()[0]|upper }}</span><span class="nav-profile-label">{{ current_user.display_name or 'My account' }}</span></summary><div class="nav-profile-menu"><p class="nav-profile-email">{{ current_user.email }}</p><a href="{{ url_for('customer.dashboard') }}">Account overview</a><a href="{{ url_for('customer.dashboard') }}#account-orders">My orders</a><a href="{{ url_for('customer.dashboard') }}#account-activity">Recent activity</a><a href="{{ url_for('customer.dashboard') }}#account-details">Profile and security</a><form method="post" action="{{ url_for('customer.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sign out</button></form></div></details>
+    {% else %}
+      <a class="nav-profile nav-profile-guest" href="{{ url_for('customer.login') }}"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Sign in</span></a>
+    {% endif %}
     <a href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Shop</span></a>
     {% if request.endpoint == 'public.shop' %}<a class="shop-orders-link" href="{{ url_for('public.track_order') }}"><svg class="icon"><use href="#icon-calendar"></use></svg><span>Orders</span></a>{% else %}<a href="{{ url_for('public.upcoming') }}"><svg class="icon"><use href="#icon-calendar"></use></svg><span>Upcoming</span></a>{% endif %}
     <a class="cart-link" href="{{ url_for('public.cart') }}"><svg class="icon"><use href="#icon-cart"></use></svg><span>Cart</span><span data-cart-count>0</span></a>
@@ -86,13 +96,51 @@
   {% block content %}{% endblock %}
 </main>
 <footer class="footer enhanced-footer">
-  <div class="footer-brand"><strong>{{ settings.shop_name }}</strong><p>{{ settings.tagline }}</p><div class="footer-actions"><a class="btn primary" href="{{ whatsapp_text_link(settings, build_general_message(settings)) }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>WhatsApp FityStores</span></a><a class="btn" href="tel:{{ local_contact_number }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Call {{ local_contact_number }}</span></a></div></div>
-  <div><h3>Quick links</h3><a href="{{ url_for('customer.dashboard') }}">Account</a>
-    <a href="{{ url_for('public.shop') }}">Shop products</a><a href="{{ url_for('public.cart') }}">View cart</a><a href="{{ url_for('public.contact') }}">Contact and delivery</a><a href="{{ url_for('public.upcoming') }}">Upcoming goods</a><a href="{{ url_for('public.reviews') }}">Reviews</a><a href="{{ url_for('public.referrals') }}">Rewards and referrals</a>
-    <a href="{{ url_for('public.track_order') }}">Track order</a></div>
-  <div><h3>Policies</h3><a href="{{ url_for('public.about') }}">About FityStores</a><a href="{{ url_for('public.contact') }}">Contact Us</a><a href="{{ url_for('public.delivery_policy') }}">Delivery and collection</a><a href="{{ url_for('public.payment_policy') }}">Payment information</a><a href="{{ url_for('public.returns_policy') }}">Returns and exchanges</a><a href="{{ url_for('public.privacy_policy') }}">Privacy</a><a href="{{ url_for('public.terms') }}">Terms and conditions</a></div>
-  <div><h3>Before payment</h3><p>Use WhatsApp or call to confirm price, stock, colour or size, delivery, and collection details.</p><p>{{ settings.payment_instructions }}</p></div>
-  <div><h3>Collection and delivery</h3><p>{{ settings.collection_instructions }}</p><p>{{ settings.delivery_area }}</p></div>
+  <section class="footer-showcase" aria-label="Explore FityStores essentials">
+    <div class="footer-showcase-copy">
+      <a class="footer-wordmark" href="{{ url_for('public.home') }}" aria-label="BEI FITS home">BEI <span>FITS</span><sup>®</sup></a>
+      <p class="footer-tagline">Bei Fity, Fits Poa.</p>
+      <h2>Quality essentials<br>for your everyday<br><em>style.</em></h2>
+      <p>From comfy socks to stylish accessories, we bring you everyday essentials that fit your lifestyle.</p>
+    </div>
+    <div class="footer-showcase-products" aria-label="Shop customer favourites">
+      {% for index in range(3) %}
+        {% if footer_products|length > index %}
+          {% set footer_product = footer_products[index] %}{% set footer_image = product_display_image(footer_product) %}
+          <a class="footer-product-feature" href="{{ url_for('public.product_detail', slug=footer_product.slug) }}">
+            {% if footer_image %}<img src="{{ product_image_url(footer_image) }}" alt="{{ product_image_alt(footer_image, footer_product.name) }}" loading="lazy">{% else %}<span class="footer-feature-placeholder" aria-hidden="true">{{ footer_product.name[:1] }}</span>{% endif %}
+            <span class="footer-feature-name">{{ footer_product.category.name if footer_product.category else 'FityStores Pick' }}</span><strong>{{ footer_product.name }}</strong><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg>
+          </a>
+        {% else %}
+          {% set fallback_assets = ['images/shop-hero/hair_bonnet-removebg-preview.webp', 'images/shop-hero/hair_bands-removebg-preview.webp', 'images/shop-hero/shoe3.fitistores-removebg-preview.png'] %}
+          {% set fallback_names = ['Hair Bonnets', 'Hair Bands', 'Everyday Shoes'] %}
+          <a class="footer-product-feature" href="{{ url_for('public.shop') }}"><img src="{{ url_for('static', filename=fallback_assets[index]) }}" alt="{{ fallback_names[index] }} from FityStores" loading="lazy"><span class="footer-feature-name">FityStores essentials</span><strong>{{ fallback_names[index] }}</strong><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></a>
+        {% endif %}
+      {% endfor %}
+      <a class="footer-fit-feature" href="{{ url_for('public.shop') }}">
+        <span class="footer-fit-copy">Find<br>your fit.<svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></span>
+        {% if footer_products|length > 3 %}{% set fit_product = footer_products[3] %}{% set fit_image = product_display_image(fit_product) %}{% if fit_image %}<img src="{{ product_image_url(fit_image) }}" alt="{{ product_image_alt(fit_image, fit_product.name) }}" loading="lazy">{% endif %}{% else %}<img src="{{ url_for('static', filename='images/shop-hero/shoe3.fitistores-removebg-preview.png') }}" alt="FityStores everyday shoe" loading="lazy">{% endif %}
+        <small>Comfort. Style.<br>Everyday.</small>
+      </a>
+    </div>
+    <div class="footer-vertical-mark" aria-label="BEI FITS"><span>FITY</span><small>BEI FITS</small></div>
+  </section>
+
+  <section class="footer-main-links" aria-label="Footer links and newsletter">
+    <nav class="footer-link-column" aria-label="Shop"><h2>Shop</h2><a href="{{ url_for('public.shop') }}">All Products</a><a href="{{ url_for('public.shop', sort='newest') }}">New Arrivals</a><a href="{{ url_for('public.about') }}#about-featured">Categories</a><a href="{{ url_for('public.reviews') }}">Shopper Favourites</a><a href="{{ url_for('public.cart') }}">Shopping Cart</a></nav>
+    <nav class="footer-link-column" aria-label="Your account"><h2>Your Account</h2>{% if current_user.is_authenticated and not current_user.is_admin %}<a href="{{ url_for('customer.dashboard') }}">My Profile</a><a href="{{ url_for('customer.dashboard') }}#account-orders">My Orders</a>{% else %}<a href="{{ url_for('customer.login') }}">My Profile</a><a href="{{ url_for('customer.login', next='/checkout') }}">My Orders</a>{% endif %}<a href="{{ url_for('public.track_order') }}">Track Order</a>{% if current_user.is_authenticated and not current_user.is_admin %}<form method="post" action="{{ url_for('customer.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sign Out</button></form>{% else %}<a href="{{ url_for('customer.register') }}">Sign In / Register</a>{% endif %}</nav>
+    <nav class="footer-link-column" aria-label="About us"><h2>About Us</h2><a href="{{ url_for('public.about') }}#our-story">Our Story</a><a href="{{ url_for('public.contact') }}">Contact Us</a><a href="{{ url_for('public.about') }}#about-faq">FAQs</a></nav>
+    <nav class="footer-link-column" aria-label="Need help"><h2>Need Help?</h2><a href="{{ url_for('public.about') }}#shopping-made-simple">Ordering Help</a><a href="{{ url_for('public.delivery_policy') }}">Delivery &amp; Collection</a><a href="{{ url_for('public.returns_policy') }}">Returns &amp; Exchanges</a><a href="{{ url_for('public.contact') }}">Get in Touch</a></nav>
+    <div class="footer-newsletter"><h2>Join Our Newsletter</h2><p>Be the first to know about new arrivals, special offers and more.</p><form method="post" action="{{ url_for('customer.footer_newsletter_signup') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="visually-hidden" for="footer-newsletter-email">Your email address</label><div class="footer-newsletter-field"><input id="footer-newsletter-email" name="email" type="email" maxlength="254" autocomplete="email" placeholder="Enter your email address" required><button type="submit" aria-label="Request newsletter confirmation"><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></button></div></form><small>Email offers are optional. We only subscribe you after you confirm by email.</small>
+      <div class="footer-social"><h2>Connect With Us</h2><div><a href="{{ whatsapp_text_link(settings, build_general_message(settings)) }}" target="_blank" rel="noopener" aria-label="Chat with FityStores on WhatsApp"><svg class="icon"><use href="#icon-whatsapp"></use></svg></a><a href="https://www.facebook.com/sharer/sharer.php?u={{ url_for('public.home', _external=True)|urlencode }}" target="_blank" rel="noopener" aria-label="Share FityStores on Facebook"><svg class="icon"><use href="#icon-facebook"></use></svg></a><a href="mailto:{{ settings.contact_email or '' }}" aria-label="Email FityStores"><svg class="icon"><use href="#icon-message"></use></svg></a></div></div>
+    </div>
+  </section>
+
+  <section class="footer-bottom" aria-label="Store services and legal links">
+    <div class="footer-service-points"><span><svg class="icon"><use href="#icon-truck"></use></svg><b>Fast &amp; Reliable<br>Delivery</b></span><span><svg class="icon"><use href="#icon-shield"></use></svg><b>Secure<br>Payments</b></span><span><svg class="icon"><use href="#icon-headset"></use></svg><b>Dedicated<br>Support</b></span></div>
+    <nav class="footer-legal-links" aria-label="Legal"><a href="{{ url_for('public.privacy_policy') }}">Privacy Policy</a><a href="{{ url_for('public.terms') }}">Terms &amp; Conditions</a><a href="{{ url_for('public.contact') }}">Contact</a></nav>
+    <small class="footer-copyright">© {{ now().year if now is defined else 2026 }} {{ settings.shop_name }}. All rights reserved.</small>
+  </section>
 </footer>
 </body>
 </html>

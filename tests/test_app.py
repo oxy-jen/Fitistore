@@ -7,7 +7,7 @@ import app as app_module
 from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, AuthRateLimit, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, Order, OrderItem, Product, ProductImage, ProductSuggestion, Review, ShopSettings
+from app.models import AdminUser, AuthRateLimit, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, Order, OrderItem, OrderStatusHistory, Product, ProductImage, ProductSuggestion, Review, ShopSettings
 from config import TestConfig
 
 @pytest.fixture()
@@ -28,6 +28,18 @@ def app():
 def client(app):
     return app.test_client()
 
+def sign_in_verified_customer(client, email="verified-customer@example.com"):
+    with client.application.app_context():
+        account = CustomerAccount.query.filter_by(email=email).first()
+        if account is None:
+            account = CustomerAccount(email=email, display_name="Verified Customer", email_verified_at=datetime.utcnow())
+            db.session.add(account)
+            db.session.commit()
+        user_id = account.get_id()
+    with client.session_transaction() as browser_session:
+        browser_session["_user_id"] = user_id
+        browser_session["_fresh"] = True
+
 def test_homepage_renders(client):
     rv = client.get("/")
     assert rv.status_code == 200
@@ -37,6 +49,8 @@ def test_about_renders_live_categories_products_and_working_destinations(client)
     rv = client.get("/about")
     assert rv.status_code == 200
     assert b"Bei Fity, Fits Poa." in rv.data
+    assert b"Fashion should not have to cost a fortune" in rv.data
+    assert b"making everyday fashion essentials accessible, convenient, and affordable" in rv.data
     assert b"Ankle socks" in rv.data
     assert b"Plain Socks" in rv.data
     assert b'href="/shop?category=ankle-socks"' in rv.data
@@ -50,7 +64,7 @@ def test_about_handles_an_empty_catalogue(client, app):
     rv = client.get("/about")
     assert rv.status_code == 200
     assert b"There are no active products to show right now" in rv.data
-    assert b"Product categories will appear here" in rv.data
+    assert b"From the current catalogue" in rv.data
     assert b"Plain Socks" not in rv.data
 
 def test_about_falls_back_when_catalogue_image_is_missing(client, app):
@@ -95,6 +109,7 @@ def test_invalid_product_id(client):
     assert data["lines"] == []
 
 def test_whatsapp_checkout_creates_pending_order(client):
+    sign_in_verified_customer(client)
     rv = client.post("/checkout", data={"cart_json":"[{\"product_id\":1,\"quantity\":1}]","customer_name":"A","fulfilment_method":"Collection","instructions":"Gate"})
     assert rv.status_code == 200
     assert b"Open WhatsApp" in rv.data
@@ -174,6 +189,7 @@ def test_admin_can_mark_suggestion_reviewed(client, app):
 
 
 def test_order_tracking_requires_private_token(client, app):
+    sign_in_verified_customer(client)
     rv = client.post("/checkout", data={"cart_json":"[{\"product_id\":1,\"quantity\":1}]","customer_name":"A","customer_phone":"0700","fulfilment_method":"Collection"})
     assert rv.status_code == 200
     with app.app_context():
@@ -241,6 +257,7 @@ def test_variant_cart_uses_variant_price_and_stock(client, app):
 
 
 def test_checkout_reserves_selected_variant_not_parent_stock(client, app):
+    sign_in_verified_customer(client)
     with app.app_context():
         from app.models import ProductVariant
         product = Product.query.filter_by(slug="plain-socks").first()
@@ -264,6 +281,7 @@ def test_checkout_reserves_selected_variant_not_parent_stock(client, app):
 
 
 def test_payment_verification_awards_loyalty_once(client, app):
+    sign_in_verified_customer(client)
     with app.app_context():
         settings = ShopSettings.query.first()
         settings.loyalty_enabled = True
@@ -273,6 +291,7 @@ def test_payment_verification_awards_loyalty_once(client, app):
     with app.app_context():
         from app.models import Order
         order_id = Order.query.first().id
+    client.post("/account/logout")
     client.post("/admin/login", data={"username":"owner","password":"secret123"})
     for _ in range(2):
         rv = client.post(f"/admin/reconciliation/orders/{order_id}/verify", data={"receipt":"MPESA123","amount":"150","reason":"Verified from M-Pesa statement"}, follow_redirects=True)
@@ -731,6 +750,7 @@ def test_seo_metadata_uses_clean_production_canonical(client):
     assert b'href="https://fitystore.top/"' in response.data
     assert b'property="og:url" content="https://fitystore.top/"' in response.data
 
+    sign_in_verified_customer(client)
     private_response = client.get('/checkout')
     assert b'name="robots" content="noindex,follow"' in private_response.data
     assert b'rel="canonical"' not in private_response.data
@@ -802,6 +822,7 @@ def test_checkout_and_policy_pages_show_current_store_terms(client, app):
         settings.payment_number = "254700000000"
         db.session.commit()
 
+    sign_in_verified_customer(client)
     checkout = client.get("/checkout")
     assert checkout.status_code == 200
     assert b"Meet at the confirmed Othaya collection point." in checkout.data
@@ -814,8 +835,8 @@ def test_checkout_and_policy_pages_show_current_store_terms(client, app):
     delivery = client.get("/delivery-policy")
     assert b"KSh 50" in delivery.data
     returns = client.get("/returns-policy")
-    assert b"within 48 hours of delivery" in returns.data
-    assert b"does not automatically approve a refund or exchange" in returns.data
+    assert b"ideally within 48 hours of receiving it" in returns.data
+    assert b"does not by itself approve a refund or exchange" in returns.data
 
 @pytest.fixture()
 def app_context(app):
@@ -828,10 +849,23 @@ def _register_customer(client, email="customer@example.com", marketing=False):
         "email": email,
         "password": "a-strong-test-password-123",
         "confirm_password": "a-strong-test-password-123",
+        "accept_terms": "yes",
     }
     if marketing:
         data["marketing_opt_in"] = "yes"
     return client.post("/account/register", data=data, follow_redirects=True)
+
+def test_registration_requires_terms_acceptance(client, app):
+    response = client.post("/account/register", data={
+        "display_name": "Test Customer",
+        "email": "terms@example.com",
+        "password": "a-strong-test-password-123",
+        "confirm_password": "a-strong-test-password-123",
+    })
+    assert response.status_code == 200
+    assert b"Please accept the Terms and Conditions" in response.data
+    with app.app_context():
+        assert CustomerAccount.query.filter_by(email="terms@example.com").count() == 0
 
 
 def test_customer_registration_hashes_password_and_defaults_marketing_off(client, app):
@@ -939,13 +973,112 @@ def test_customer_orders_are_account_scoped_and_admin_is_not_customer(client, ap
     assert client.get("/admin/").status_code == 403
 
 
+def test_customer_dashboard_activity_uses_owned_order_history_without_internal_notes(client, app, app_context):
+    account = CustomerAccount(email="activity-owner@example.com", display_name="Activity Owner", email_verified_at=datetime.utcnow())
+    db.session.add(account)
+    db.session.flush()
+    order = Order(reference="FITY-ACTIVITY-1", fulfilment_method="Collection", status="Ready for collection")
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.add(OrderStatusHistory(
+        order_id=order.id, field="status", old_value="Order received",
+        new_value="Ready for collection", note="Internal stockroom note: keep private",
+    ))
+    db.session.commit()
+    sign_in_verified_customer(client, account.email)
+
+    response = client.get("/account/")
+    assert response.status_code == 200
+    assert b"Order placed" in response.data
+    assert b"Order status updated" in response.data
+    assert b"FITY-ACTIVITY-1" in response.data
+    assert b"Internal stockroom note" not in response.data
+
+
+def test_customer_profile_menu_and_remembered_session(client, app, app_context):
+    account = CustomerAccount(
+        email="profile-menu@example.com", display_name="Profile Shopper",
+        password_hash=generate_password_hash("a-strong-test-password-123"),
+        email_verified_at=datetime.utcnow(),
+    )
+    db.session.add(account)
+    db.session.commit()
+
+    signed_in = client.post("/account/login", data={
+        "email": account.email, "password": "a-strong-test-password-123",
+    }, follow_redirects=False)
+    assert signed_in.status_code == 302
+    cookies = signed_in.headers.getlist("Set-Cookie")
+    assert any(cookie.startswith("remember_token=") and "Expires=" in cookie for cookie in cookies), cookies
+    home = client.get("/")
+    assert b"Profile Shopper" in home.data
+    assert b"My orders" in home.data
+    client.delete_cookie("session", domain="example.test")
+    dashboard = client.get("/account/")
+    assert dashboard.status_code == 200
+    assert b"Profile Shopper" in dashboard.data
+    assert b"Recently viewed" in dashboard.data
+    assert b"Recent activity" in dashboard.data
+
+    signed_out = client.post("/account/logout", data={"csrf_token": "test"}, follow_redirects=True)
+    assert signed_out.status_code == 200
+    guest_home = client.get("/")
+    assert b"Sign in" in guest_home.data
+    assert b"Profile Shopper" not in guest_home.data
+
+
+def test_customer_can_claim_only_unlinked_order_with_private_tracking_token(client, app, app_context):
+    first = CustomerAccount(email="claim-first@example.com", display_name="First", email_verified_at=datetime.utcnow())
+    second = CustomerAccount(email="claim-second@example.com", display_name="Second", email_verified_at=datetime.utcnow())
+    unlinked = Order(reference="FITY-CLAIM-1", fulfilment_method="Collection", tracking_token="private-token-for-first-order")
+    owned = Order(reference="FITY-CLAIM-2", fulfilment_method="Collection", tracking_token="private-token-for-second-order")
+    db.session.add_all([first, second, unlinked, owned])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=second.id, order_id=owned.id))
+    db.session.commit()
+    sign_in_verified_customer(client, first.email)
+
+    wrong = client.post("/account/orders/link", data={"reference": unlinked.reference, "tracking_token": "wrong-token"})
+    assert wrong.status_code == 302
+    assert CustomerOrderLink.query.filter_by(order_id=unlinked.id).count() == 0
+    linked = client.post("/account/orders/link", data={"reference": unlinked.reference, "tracking_token": unlinked.tracking_token})
+    assert linked.status_code == 302
+    assert CustomerOrderLink.query.filter_by(order_id=unlinked.id, account_id=first.id).one()
+    refused = client.post("/account/orders/link", data={"reference": owned.reference, "tracking_token": owned.tracking_token})
+    assert refused.status_code == 302
+    assert CustomerOrderLink.query.filter_by(order_id=owned.id).one().account_id == second.id
+    dashboard = client.get("/account/")
+    assert b"FITY-CLAIM-1" in dashboard.data
+    assert b"FITY-CLAIM-2" not in dashboard.data
+
+
+def test_recently_viewed_endpoint_returns_only_requested_active_catalogue_products(client, app, app_context):
+    sign_in_verified_customer(client)
+    response = client.get("/account/recent-products?id=1&id=999999&id=bad")
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json["products"]] == [1]
+
+
+def test_checkout_redirect_preserves_checkout_return_for_login_and_registration(client):
+    response = client.get("/checkout", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/account/login?next=/checkout")
+    login = client.get(response.headers["Location"])
+    assert b'name="next" value="/checkout"' in login.data
+    assert b"/account/register?next=/checkout" in login.data
+
+
 def test_google_signin_uses_mocked_verified_sub_and_refuses_unsafe_link(client, app, monkeypatch, app_context):
     import app.customer.routes as customer_routes
     app.config["GOOGLE_CLIENT_ID"] = "test-client-id"
     claims = {"sub": "google-sub-123", "email": "googleuser@gmail.com", "name": "Google User", "email_verified": True, "hd": ""}
     monkeypatch.setattr(customer_routes, "verify_google_credential", lambda credential: claims)
     client.set_cookie("g_csrf_token", "csrf-state", domain="example.test")
-    response = client.post("/account/google", data={"credential": "mocked", "g_csrf_token": "csrf-state"}, follow_redirects=True)
+    declined = client.post("/account/google", data={"credential": "mocked", "g_csrf_token": "csrf-state"})
+    assert declined.status_code == 302
+    assert CustomerAccount.query.filter_by(google_sub="google-sub-123").count() == 0
+    response = client.post("/account/google", data={"credential": "mocked", "g_csrf_token": "csrf-state", "accept_terms": "yes"}, follow_redirects=True)
     assert response.status_code == 200
     account = CustomerAccount.query.filter_by(google_sub="google-sub-123").one()
     assert account.email_verified_at is not None
@@ -1318,7 +1451,13 @@ def test_customer_auth_forms_keep_csrf_protection(client, app):
     response = client.post("/account/register", data={"email": "csrf@example.com"})
     assert response.status_code == 400
 
-def test_verified_customer_checkout_links_new_order_and_keeps_guest_path(client, app_context, app):
+def test_checkout_requires_verified_account_and_links_order_to_it(client, app_context, app):
+    guest_get = client.get("/checkout", follow_redirects=False)
+    assert guest_get.status_code == 302
+    assert guest_get.headers["Location"].endswith("/account/login?next=/checkout")
+    guest_post = client.post("/checkout", data={"cart_json": "[{\"product_id\":1,\"quantity\":1}]", "customer_name": "Guest", "fulfilment_method": "Collection"}, follow_redirects=False)
+    assert guest_post.status_code == 302
+    assert Order.query.count() == 0
     from datetime import datetime
     account = CustomerAccount(email="checkout-account@example.com", display_name="Checkout", password_hash=generate_password_hash("a-strong-test-password-123"), email_verified_at=datetime.utcnow())
     db.session.add(account)

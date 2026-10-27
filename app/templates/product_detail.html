@@ -66,5 +66,16 @@
     </form>{% endif %}
   </div></section>
 {% if related %}<section><div class="section-title"><h2>Related products</h2></div><div class="product-grid">{% for product in related %}{% include "partials/product_card.html" %}{% endfor %}</div></section>{% endif %}
+<script>
+(() => {
+  try {
+    const key = 'fity-recently-viewed-products';
+    const id = {{ product.id|tojson }};
+    const saved = JSON.parse(localStorage.getItem(key) || '[]');
+    const ids = Array.isArray(saved) ? saved.map(Number).filter(value => Number.isInteger(value) && value > 0) : [];
+    localStorage.setItem(key, JSON.stringify([id, ...ids.filter(value => value !== id)].slice(0, 8)));
+  } catch (_) {}
+})();
+</script>
 {% endblock %}
 

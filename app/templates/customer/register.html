@@ -4,18 +4,20 @@
   <div class="account-intro">
     <p class="eyebrow">Join FityStores</p>
     <h1>Create your customer account.</h1>
-    <p>Confirm your email address to activate your account. Customer access is separate from staff access.</p>
+    <p>Create and verify an account to place orders and keep their tracking together. Order updates are separate from optional promotional emails.</p>
   </div>
   <div class="account-panel">
     <h2>Create account</h2>
     <form method="post" class="account-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ next_url }}">
       <label>Your name<input name="display_name" maxlength="120" required autocomplete="name"></label>
       <label>Email address<input type="email" name="email" maxlength="254" required autocomplete="email"></label>
       <label>Password <span class="account-muted">(at least 12 characters)</span><input type="password" name="password" minlength="12" maxlength="128" required autocomplete="new-password"></label>
       <label>Confirm password<input type="password" name="confirm_password" minlength="12" maxlength="128" required autocomplete="new-password"></label>
-      <label class="check account-consent"><input type="checkbox" name="marketing_opt_in" value="yes"> Email me FityStores offers, new arrivals, product updates, and occasional reminders about unfinished carts. This is optional; I will start receiving marketing emails after confirming my choice by email, and I can unsubscribe at any time.</label>
-      <p class="account-legal">By creating an account, you agree to our <a href="{{ url_for('public.terms') }}">terms</a> and acknowledge our <a href="{{ url_for('public.privacy_policy') }}">privacy information</a>. Marketing emails are a separate optional choice.</p>
+      <label class="check account-consent"><input type="checkbox" name="accept_terms" value="yes" required> I have read and agree to the <a href="{{ url_for('public.terms') }}">Terms and Conditions</a> and acknowledge the <a href="{{ url_for('public.privacy_policy') }}">Privacy Notice</a>. This is required to create an account and place orders.</label>
+      <label class="check account-consent"><input type="checkbox" name="marketing_opt_in" value="yes"> I would like promotional emails about FityStores offers, new arrivals, product updates, and occasional cart reminders. This is optional; I will receive them only after confirming by email, and I can unsubscribe at any time.</label>
+      <p class="account-legal">Order and account messages are used to help manage your account and orders. Agreeing to the Terms does not subscribe you to promotional email.</p>
       <button class="btn primary wide" type="submit">Create customer account</button>
     </form>
     <p class="account-inline-links">Already have an account? <a href="{{ url_for('customer.login') }}">Sign in</a></p>
