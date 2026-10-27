@@ -849,7 +849,37 @@ def contact():
 
 @public_bp.route("/about")
 def about():
-    return render_template("about.html", title="About FityStores", seo_title="About FityStores | BEI FITS", seo_description="Learn about FityStores and how to ask questions or confirm product and order details.")
+    # Keep About imagery tied to active catalogue records. Eager loading here
+    # mirrors the shop route and keeps the shared product cards from issuing
+    # per-product image or variant queries.
+    active_products = Product.query.filter(Product.active.is_(True))
+    featured_products = product_list_options(
+        active_products.order_by(Product.featured.desc(), Product.created_at.desc(), Product.id.desc())
+    ).limit(4).all()
+    categories = (
+        Category.query.filter(Category.products.any(Product.active.is_(True)))
+        .order_by(Category.name.asc())
+        .all()
+    )
+    representative_ids = (
+        db.session.query(func.min(Product.id).label("product_id"))
+        .filter(Product.active.is_(True))
+        .group_by(Product.category_id)
+        .subquery()
+    )
+    category_products = product_list_options(
+        Product.query.join(representative_ids, Product.id == representative_ids.c.product_id)
+    ).all()
+    category_images = {product.category_id: product for product in category_products}
+    return render_template(
+        "about.html",
+        title="About FityStores",
+        seo_title="About FityStores | BEI FITS",
+        seo_description="Meet BEI FITS / FityStores, browse current products, and find out how to order or get help.",
+        featured_products=featured_products,
+        categories=categories,
+        category_images=category_images,
+    )
 
 @public_bp.route("/reviews", methods=["GET", "POST"])
 def reviews():
