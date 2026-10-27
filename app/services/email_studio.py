@@ -15,7 +15,7 @@ EMAIL_CATEGORIES = {
     },
     "cart_reminder": {
         "label": "Cart reminder (manual only)",
-        "subject": "Still interested in your picks at BEI FITS?",
+        "subject": "Still interested in your picks at FityStores?",
         "headline": "Your cart is still here",
         "message": "Hi {{ customer_name }}, you left these items in your cart. Would you like to continue shopping? Availability and prices can change.",
         "variables": ("customer_name", "cart_item_count", "cart_total", "unsubscribe_link"),
@@ -23,7 +23,7 @@ EMAIL_CATEGORIES = {
     },
     "thank_you": {
         "label": "Thank-you email",
-        "subject": "Thank you for shopping with BEI FITS",
+        "subject": "Thank you for shopping with FityStores",
         "headline": "Thank you, {{ customer_name }}",
         "message": "Thank you for choosing FityStores. Order {{ order_reference }} is currently {{ order_status }} and the recorded total is {{ order_total }}.",
         "variables": ("customer_name", "order_reference", "order_subtotal", "discount_amount", "delivery_fee", "order_total", "order_status", "payment_status", "fulfilment_instructions"),
@@ -31,7 +31,7 @@ EMAIL_CATEGORIES = {
     },
     "promotion": {
         "label": "Promotions and new arrivals",
-        "subject": "Fresh finds from BEI FITS",
+        "subject": "Fresh finds from FityStores",
         "headline": "Selected for you",
         "message": "Hi {{ customer_name }}, take a look at these selected products from our current catalogue.\n\n{{ unsubscribe_link }}",
         "variables": ("customer_name", "unsubscribe_link"),

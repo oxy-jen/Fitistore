@@ -114,7 +114,7 @@ def render_promo_share_card(title: str, description: str, image_path: Path | Non
     else:
         draw.text((220, 285), "FityStores", font=_font(48, True), fill=RED)
     draw.rounded_rectangle((778, 60, 1148, 570), radius=22, fill=DARK)
-    draw.text((812, 92), "BEI FITS  |  FITYSTORES", font=_font(18, True), fill=WHITE)
+    draw.text((812, 92), "FityStores", font=_font(18, True), fill=WHITE)
     title_font = _font(34, True)
     title_lines = []
     words = " ".join((title or "Shop FityStores").split()).split()
@@ -154,7 +154,7 @@ def render_social_post_image(title: str, description: str, image_path: Path | No
     """Create a portrait share image with readable details."""
     width,height=1080,1350
     canvas=Image.new("RGB",(width,height),WHITE);draw=ImageDraw.Draw(canvas)
-    draw.rectangle((0,0,width,18),fill=RED);draw.text((58,44),"BEI FITS  |  FITYSTORES",font=_font(24,True),fill=DARK)
+    draw.rectangle((0,0,width,18),fill=RED);draw.text((58,44),"FityStores",font=_font(24,True),fill=DARK)
     draw.rounded_rectangle((38,96,1042,836),radius=30,fill="#F2F2F2")
     source=_read_source_image(image_path,image_url)
     if source:

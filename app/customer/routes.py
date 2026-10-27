@@ -649,8 +649,8 @@ def footer_newsletter_signup():
         db.session.commit()
         try:
             _issue_and_send(account, "marketing_confirm")
-        except Exception:
-            logger.warning("Footer newsletter confirmation could not be prepared error_type=%s", "delivery_error")
+        except Exception as exc:
+            logger.warning("Footer newsletter confirmation could not be prepared error_type=%s", type(exc).__name__)
     flash("If that address is eligible, we will send an email confirmation. Promotional messages stay off until confirmed. No account yet? Create one and choose the optional email offers preference.", "info")
     return redirect(url_for("public.home"))
 
