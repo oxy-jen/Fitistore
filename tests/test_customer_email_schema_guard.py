@@ -549,12 +549,14 @@ def test_unrelated_additional_indexes_are_allowed_by_policy():
 def test_manifest_reads_the_actual_sql_indexes_and_defaults():
     indexes = migration_index_manifest()
     defaults = migration_column_defaults()
+    columns = migration_column_manifest()
     unique, named_unique, foreign_keys = migration_constraint_manifest()
     assert indexes["ix_marketing_campaign_run_campaign_key"] == (
         "marketing_campaign_run", ("campaign_key",), True
     )
     assert defaults[("customer_account", "two_factor_enabled")] == "FALSE"
     assert defaults[("email_message", "retry_count")] == "0"
+    assert columns[("customer_consent_event", "wording_version")].sql_type == "VARCHAR(120)"
     assert unique["customer_order_link"] == {("order_id",)}
     assert named_unique["email_campaign_recipient"]["uq_campaign_recipient_account"] == ("campaign_id", "account_id")
     assert ("account_id", "customer_account", "id") in foreign_keys["email_message"]

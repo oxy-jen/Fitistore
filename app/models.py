@@ -454,7 +454,7 @@ class CustomerConsentEvent(TimestampMixin, db.Model):
     account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), nullable=False, index=True)
     event = db.Column(db.String(24), nullable=False)
     method = db.Column(db.String(24), nullable=False)
-    wording_version = db.Column(db.String(32), default="2026-10", nullable=False)
+    wording_version = db.Column(db.String(120), default="2026-10", nullable=False)
     account = db.relationship("CustomerAccount")
 
 

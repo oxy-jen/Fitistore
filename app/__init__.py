@@ -523,6 +523,11 @@ def register_cli(app: Flask):
                         statement = statement.strip()
                         if statement:
                             connection.execute(text(statement))
+                    consent_migration = Path(__file__).resolve().parent.parent / "migrations" / "20261029_consent_wording_version.sql"
+                    for statement in consent_migration.read_text(encoding="utf-8").split(";"):
+                        statement = statement.strip()
+                        if statement:
+                            connection.execute(text(statement))
                     email_columns = {column["name"] for column in inspect(connection).get_columns("email_message")}
                     if "retry_count" not in email_columns:
                         connection.execute(text("ALTER TABLE email_message ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"))
