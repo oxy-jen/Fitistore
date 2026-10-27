@@ -18,8 +18,8 @@
   </form>
 </section>
 <section class="form-card">
-  <h2>Send a manual email</h2>
-  <p>Bulk email is limited to active, verified customers who subscribed to marketing. Sent means Brevo accepted the request; it does not confirm inbox delivery.</p>
+  <h2>Send a promotional email</h2>
+  <p>This bulk sender is for promotions and is limited to active, verified customers who subscribed to marketing. For a non-promotional message, use the service update form below. Provider acceptance does not confirm inbox delivery.</p>
   <p id="manual-recipient-count" aria-live="polite">0 recipients selected. All eligible subscribers: {{ eligible_total }}.</p>
   {% if not messages_available %}
     <p class="status-warn">Sending is unavailable: the email history table is missing. No email will be sent until the existing customer email schema is available.</p>
@@ -46,8 +46,28 @@
   </form>
 </section>
 <section class="form-card">
+  <h2>Send a service update (non-promotional)</h2>
+  <p>Send account, order, or essential service information to active, email-verified customer accounts. A marketing subscription is not required. Do not include offers, product promotions, or advertising in this message.</p>
+  {% if service_eligible_total > 500 %}<p class="status-warn">There are {{ service_eligible_total }} active verified accounts. Search for a smaller group and select recipients individually; the send limit is 500.</p>{% endif %}
+  {% if not service_messages_available %}<p class="status-warn">Service email is unavailable until email history and admin audit storage are ready.</p>{% endif %}
+  <form method="post" action="{{ url_for('admin.send_service_customer_email') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="service_send_key" value="{{ service_send_key }}">
+    {% if service_eligible_total <= 500 %}<label class="check"><input type="checkbox" name="service_all_eligible" value="yes"> Send to all active, verified accounts ({{ service_eligible_total }})</label>{% endif %}
+    <fieldset><legend>Or select active, verified accounts</legend>
+      {% for account in accounts if account.active and account.email_verified_at %}
+      <label class="check"><input type="checkbox" name="account_ids" value="{{ account.id }}"> {{ account.display_name or 'Customer' }} — {{ account.email }}</label>
+      {% else %}<p>No active, verified customer accounts match this search.</p>{% endfor %}
+    </fieldset>
+    <label>Subject<input name="service_subject" maxlength="200" required></label>
+    <label>Service message<textarea name="service_body" maxlength="5000" rows="5" required></textarea></label>
+    <label>For multiple recipients, type the exact confirmation shown (for example SEND 3)<input name="service_confirm_send" maxlength="20" autocomplete="off"></label>
+    <button class="btn primary" {% if not mail_configured or not service_messages_available %}disabled{% endif %}>Send service update</button>
+  </form>
+</section>
+<section class="form-card">
   <h2>Registered customers</h2>
-  <p>Select individual subscribers above, or use "all eligible subscribers." Service messages remain individual and require an active, verified account.</p>
+  <p>Customer accounts are listed below with verification and marketing status. Open an account to send an individual service message or review its linked orders. Service messages do not require a marketing subscription.</p>
   {% for account in accounts %}
   <details>
     <summary>{{ account.display_name or 'Customer' }} - {{ account.email }} - {{ account.marketing_status }} - {{ 'verified' if account.email_verified_at else 'email not verified' }}</summary>
