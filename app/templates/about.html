@@ -544,6 +544,50 @@
         transition: none !important;
     }
 }
+
+/* Catalogue-led About page, overriding older static-image About rules. */
+.about-page .about-hero{min-height:0;background:#101114;color:#fff}
+.about-page .about-hero::before{background:radial-gradient(ellipse at 78% 50%,#303037 0,transparent 48%),linear-gradient(100deg,#101114 20%,#17171b 68%,#241317 100%)}
+.about-page .about-hero-content{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.9fr);gap:clamp(2rem,5vw,5rem);min-height:490px;padding:4rem 0}
+.about-page .about-hero-copy{align-self:center;max-width:580px}
+.about-page .about-hero .about-eyebrow{color:#ff6473}
+.about-page .about-hero h1{color:#fff}
+.about-page .about-hero h1 span{color:#ff3448}
+.about-page .about-hero p{color:#e2e2e6}
+.about-page .about-slogan{color:#ff6875}
+.about-page .about-btn-outline{background:transparent;color:#fff!important;border-color:#8a8a91}
+.about-page .about-quick-nav{position:sticky;top:0;z-index:9;display:flex;justify-content:center;gap:.45rem;flex-wrap:wrap;padding:.65rem 1rem;background:rgba(255,255,255,.96);border-bottom:1px solid #e6e6e8;backdrop-filter:blur(12px)}
+.about-page .about-quick-nav a{padding:.55rem .8rem;border-radius:999px;background:#f4f4f5;color:#242429;font-size:.88rem;font-weight:750;white-space:nowrap}
+.about-page .about-quick-nav a:hover,.about-page .about-quick-nav a:focus-visible{background:#e32636;color:#fff}
+.about-page .about-hero-art{display:grid;grid-template-columns:1.05fr .95fr;grid-template-rows:1fr 1fr;gap:.8rem;min-height:350px;align-self:center}
+.about-page .about-hero-art figure{position:relative;overflow:hidden;margin:0;border:1px solid #ffffff26;border-radius:18px;background:#29292e}
+.about-page .about-hero-art figure:first-child{grid-row:span 2}
+.about-page .about-hero-art img{width:100%;height:100%;min-height:160px;object-fit:cover}
+.about-page .about-hero-art figcaption{position:absolute;inset:auto 0 0;padding:1.8rem .9rem .8rem;color:#fff;font-size:.85rem;font-weight:750;background:linear-gradient(transparent,#000b)}
+.about-page .about-hero-empty{display:grid;place-items:center;grid-column:1/-1;min-height:250px;border:1px solid #ffffff26;border-radius:18px;background:linear-gradient(140deg,#25252b,#111);color:#fff;font-size:clamp(2rem,5vw,4rem);font-weight:850;letter-spacing:-.06em}
+.about-page .about-story-grid>div:first-child,.about-page .about-story-grid>div:last-child{order:initial}
+.about-page .about-story-image{width:100%;min-height:320px;max-height:430px;object-fit:cover;padding:0;background:#f4f5f7}
+.about-page .about-story-empty{display:grid;place-items:center;min-height:320px;border-radius:16px;background:#111;color:#fff;font-size:clamp(2rem,5vw,4rem);font-weight:850;letter-spacing:-.06em}
+.about-page .about-highlight{font-size:1.05rem;background:#fff5f6;color:#25252b}
+.about-page .about-category-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}
+.about-page .about-category:nth-child(n){display:block}
+.about-page .about-category-image{aspect-ratio:4/3;object-fit:cover;background:#f1f2f4}
+.about-page .about-category-placeholder{display:grid;aspect-ratio:4/3;place-items:center;background:#f1f2f4;color:#62626b;font-size:1rem}
+.about-page .about-category-info{padding:1rem}
+.about-page .about-category-info h3{margin:0 0 .35rem}
+.about-page .about-category-info p{margin:0;color:#6a6a72;font-size:.85rem;line-height:1.5}
+.about-page .about-products{background:#f5f5f6}
+.about-page .about-product-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:2rem}
+.about-page .about-empty{margin-top:1.5rem;padding:1.5rem;border:1px dashed #c9c9cf;border-radius:14px;background:#fff;color:#56565e}
+.about-page .about-step:nth-child(n){display:block}
+.about-page .about-faq{display:grid;gap:.7rem;max-width:850px;margin:2rem auto 0}
+.about-page .about-faq details{padding:1rem 1.2rem;border:1px solid #e4e4e7;border-radius:12px;background:#fff}
+.about-page .about-faq summary{cursor:pointer;font-weight:750}
+.about-page .about-faq details p{margin:.8rem 0 0;color:#62626a;line-height:1.65}
+.about-page .about-final-cta{background:#111;color:#fff}
+@media(max-width:820px){.about-page .about-hero-content{grid-template-columns:1fr;gap:2rem;padding:3rem 0}.about-page .about-hero-art{min-height:300px;max-height:430px}.about-page .about-category-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.about-page .about-product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.about-page .about-hero-content{padding:2.8rem 0}.about-page .about-hero-art{min-height:250px;gap:.5rem}.about-page .about-category-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.about-page .about-product-grid{grid-template-columns:1fr}.about-page .about-quick-nav{justify-content:flex-start;overflow-x:auto;flex-wrap:nowrap}.about-page .about-story-image,.about-page .about-story-empty{min-height:250px}}
+@media(max-width:360px){.about-page .about-category-grid{grid-template-columns:1fr}}
 </style>
 
 <div class="about-page">
@@ -554,37 +598,42 @@
             <div class="about-hero-copy">
                 <div class="about-eyebrow">Get to know FityStores</div>
 
-                <h1>
-                    Good Style.<br>
-                    <span>Fair Prices.</span>
-                </h1>
+                <h1>BEI FITS<br><span>FityStores.</span></h1>
 
                 <p>
-                    Everyday fashion essentials that fit your
-                    style and your budget. Discover practical
-                    essentials and stylish finds without making
-                    shopping complicated.
+                    Everyday essentials and practical fashion finds, available to browse online.
                 </p>
 
-                <span class="about-slogan">
-                    {{ settings.tagline if settings and settings.tagline else "FityStores" }}
-                </span>
+                <span class="about-slogan">Bei Fity, Fits Poa.</span>
 
                 <div class="about-hero-actions">
-                    <a href="/shop" class="about-btn about-btn-red">
-                        Explore Our Collection
+                    <a href="{{ url_for('public.shop') }}" class="about-btn about-btn-red">
+                        Shop Products
                     </a>
 
-                    <a href="#our-story" class="about-btn about-btn-outline">
-                        Our Story
+                    <a href="{{ url_for('public.contact') }}" class="about-btn about-btn-outline">
+                        Contact Us
                     </a>
                 </div>
             </div>
+            {% if featured_products %}
+            <div class="about-hero-art" aria-label="A few products currently listed by FityStores">
+                {% for product in featured_products[:3] %}
+                {% set image = product_display_image(product) %}
+                <figure>
+                    {% if image %}<img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" width="540" height="540" loading="{{ 'eager' if loop.first else 'lazy' }}">
+                    {% else %}<div class="about-hero-empty" role="img" aria-label="{{ product.name }}">{{ product.name }}</div>{% endif %}
+                    <figcaption>{{ product.name }}</figcaption>
+                </figure>
+                {% endfor %}
+            </div>
+            {% else %}<div class="about-hero-art"><div class="about-hero-empty" role="img" aria-label="BEI FITS / FityStores">BEI FITS</div></div>
+            {% endif %}
         </div>
     </section>
 
     <!-- OUR STORY -->
-    <nav class="about-quick-nav" aria-label="Explore FityStores"><a href="#our-story">Our story</a><a href="#what-we-sell">What we sell</a><a href="#about-values">Our values</a><a href="#about-steps">How ordering works</a><a href="#about-help">Get help</a></nav>
+    <nav class="about-quick-nav" aria-label="Explore FityStores"><a href="#our-story">Our story</a><a href="#what-we-sell">Categories</a><a href="#about-featured">Current products</a><a href="#about-values">Our values</a><a href="#about-steps">How ordering works</a><a href="#about-help">Get help &amp; FAQ</a></nav>
 <section class="about-section" id="our-story">
         <div class="about-container about-story-grid">
 
@@ -592,46 +641,28 @@
                 <div class="about-eyebrow">Who we are</div>
 
                 <h2 class="about-heading">
-                    Fashion should not have to cost a fortune.
+                    Everyday essentials, easy to explore.
                 </h2>
 
                 <p>
-                    FityStores is a merchandise shop focused on making
-                    everyday fashion essentials accessible,
-                    convenient, and affordable.
+                    BEI FITS / FityStores is an online merchandise shop for everyday fashion essentials and practical finds.
                 </p>
 
                 <p>
-                    We bring together practical products and stylish
-                    finds for students and people in the surrounding
-                    neighbourhood.
-                </p>
-
-                <p>
-                    From socks, bonnets, and hair accessories to
-                    underwear, boxers, vests, and shoes, our goal is
-                    to make finding your everyday essentials simple.
-                </p>
-
-                <p>
-                    We believe that clear prices, honest product
-                    information, and convenient shopping should be
-                    part of every customer's experience.
+                    Browse current listings, review each product's details and availability, then contact the shop if you need help choosing or ordering.
                 </p>
 
                 <div class="about-highlight">
-                    FityStores — FityStores
+                    Bei Fity, Fits Poa.
                 </div>
             </div>
 
             <div>
-                <img
-                    class="about-story-image"
-                    src="/static/images/shop-hero/shoe3.fitistores-removebg-preview.png"
-                    alt="Everyday fashion essentials including shoes, socks, bonnets and clothing"
-                    loading="lazy"
-                    onerror="this.style.display='none';"
-                >
+                {% set story_product = featured_products[0] if featured_products else none %}
+                {% set story_image = product_display_image(story_product) if story_product else none %}
+                {% if story_image %}
+                <img class="about-story-image" src="{{ product_image_url(story_image) }}" alt="{{ product_image_alt(story_image) }}" width="720" height="540" loading="lazy">
+                {% else %}<div class="about-story-empty" role="img" aria-label="BEI FITS / FityStores">BEI FITS</div>{% endif %}
             </div>
 
         </div>
@@ -656,80 +687,49 @@
                 </p>
             </div>
 
+            {% if categories %}
             <div class="about-category-grid">
-
-                <a href="/shop" class="about-category">
-                    <div class="about-category-placeholder">01</div>
+                {% for category in categories %}
+                {% set product = category_images.get(category.id) %}
+                {% set image = product_display_image(product) if product else none %}
+                <a href="{{ url_for('public.shop', category=category.slug) }}" class="about-category">
+                    {% if image %}
+                    <img class="about-category-image" src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" width="540" height="405" loading="lazy">
+                    {% else %}<div class="about-category-placeholder" aria-hidden="true">{{ category.name }}</div>{% endif %}
                     <div class="about-category-info">
-                        <h3>Socks</h3>
-                        <p>Everyday essentials for your feet.</p>
+                        <h3>{{ category.name }}</h3>
+                        <p>View current {{ category.name|lower }} listings.</p>
                     </div>
                 </a>
-
-                <a href="/shop" class="about-category">
-                    <div class="about-category-placeholder">02</div>
-                    <div class="about-category-info">
-                        <h3>Bonnets</h3>
-                        <p>Practical accessories for your routine.</p>
-                    </div>
-                </a>
-
-                <a href="/shop" class="about-category">
-                    <div class="about-category-placeholder">03</div>
-                    <div class="about-category-info">
-                        <h3>Shower Caps</h3>
-                        <p>Useful everyday personal-care essentials.</p>
-                    </div>
-                </a>
-
-                <a href="/shop" class="about-category">
-                    <div class="about-category-placeholder">04</div>
-                    <div class="about-category-info">
-                        <h3>Hair Accessories</h3>
-                        <p>Simple accessories for different styles.</p>
-                    </div>
-                </a>
-
-                <a href="/shop" class="about-category">
-                    <div class="about-category-placeholder">05</div>
-                    <div class="about-category-info">
-                        <h3>Underwear</h3>
-                        <p>Everyday wardrobe essentials.</p>
-                    </div>
-                </a>
-
-                <a href="/shop" class="about-category">
-                    <div class="about-category-placeholder">06</div>
-                    <div class="about-category-info">
-                        <h3>Vests</h3>
-                        <p>Practical basics for your wardrobe.</p>
-                    </div>
-                </a>
-
-                <a href="/shop" class="about-category">
-                    <div class="about-category-placeholder">07</div>
-                    <div class="about-category-info">
-                        <h3>Boxers</h3>
-                        <p>Everyday clothing essentials.</p>
-                    </div>
-                </a>
-
-                <a href="/shop" class="about-category">
-                    <div class="about-category-placeholder">08</div>
-                    <div class="about-category-info">
-                        <h3>Shoes</h3>
-                        <p>Footwear for your everyday style.</p>
-                    </div>
-                </a>
-
+                {% endfor %}
             </div>
+            {% else %}
+            <p class="about-empty">Product categories will appear here when items are available in the shop.</p>
+            {% endif %}
 
             <div class="about-center" style="margin-top:35px;">
-                <a href="/shop" class="about-btn about-btn-red">
+                <a href="{{ url_for('public.shop') }}" class="about-btn about-btn-red">
                     Browse the Shop
                 </a>
             </div>
 
+        </div>
+    </section>
+
+    <!-- CURRENT CATALOGUE PICKS -->
+    <section class="about-section about-products" id="about-featured">
+        <div class="about-container">
+            <div class="about-eyebrow">From the current catalogue</div>
+            <h2 class="about-heading">Current products</h2>
+            <p class="about-description">See current product details, prices and availability in the shop.</p>
+            {% if featured_products %}
+            <div class="about-product-grid">
+                {% for product in featured_products %}{% include "partials/product_card.html" %}{% endfor %}
+            </div>
+            {% else %}
+            <p class="about-empty">There are no active products to show right now. Check back later or contact the shop with a question.</p>
+            {% endif %}
+            <p style="margin-top:1.5rem"><a href="{{ url_for('public.shop') }}" class="about-btn about-btn-red">Browse all products</a></p>
         </div>
     </section>
 
@@ -834,10 +834,10 @@
             </div>
 
             <div style="margin-top:32px;">
-                <a href="/shop" class="about-btn about-btn-red">
+                <a href="{{ url_for('public.shop') }}" class="about-btn about-btn-red">
                     Start Shopping
                 </a>
-                <a href="/cart" class="about-btn about-btn-white"
+                <a href="{{ url_for('public.cart') }}" class="about-btn about-btn-white"
                    style="margin-left:8px;">
                     View Cart
                 </a>
@@ -846,89 +846,31 @@
         </div>
     </section>
 
-    <!-- PRODUCT SUGGESTIONS -->
-    <section class="about-section">
+    <!-- PRACTICAL HELP -->
+    <section class="about-section" id="about-help">
         <div class="about-container">
-
-            <div class="about-suggest">
-                <div>
-                    <div class="about-eyebrow">Help shape the collection</div>
-
-                    <h2>Can't Find What You're Looking For?</h2>
-
-                    <p>
-                        Tell us what you'd love to see in the FityStores
-                        collection. Your suggestions help us understand
-                        what customers are looking for. A suggestion
-                        does not guarantee that an item will be stocked.
-                    </p>
-                </div>
-
-                <a href="/contact" class="about-btn about-btn-red">
-                    Suggest a Product
-                </a>
-            </div>
-
-        </div>
-    </section>
-
-    <!-- AVAILABILITY / CONTACT -->
-    <section class="about-section" id="about-help" style="padding-top:0;">
-        <div class="about-container about-center">
-
-            <div class="about-eyebrow">Need some help?</div>
-
-            <h2 class="about-heading">
-                Looking for Something That's Out of Stock?
-            </h2>
-
-            <p class="about-description">
-                Some products, sizes, or colours may not always be
-                available. Contact us to enquire about availability
-                or ask about an item you're interested in.
-            </p>
-
-            <div style="margin-top:24px;">
-                <a href="/contact" class="about-btn about-btn-red">
-                    Ask About a Product
-                </a>
-            </div>
-
-        </div>
-    </section>
-
-    <!-- TRUST AND INFORMATION -->
-    <section class="about-section about-categories">
-        <div class="about-container">
-
             <div class="about-center">
-                <div class="about-eyebrow">Clear information matters</div>
-                <h2 class="about-heading">Shop With Confidence</h2>
-                <p class="about-description">
-                    Check the available information and contact the
-                    shop if you need help before placing an order.
-                </p>
+                <div class="about-eyebrow">Helpful answers</div>
+                <h2 class="about-heading">A few things to know</h2>
             </div>
-
-            <div class="about-trust-grid">
-
-                <a href="/contact" class="about-trust-link">
-                    Contact Us
-                    <span>Ask questions about products and orders.</span>
-                </a>
-
-                <a href="/track-order" class="about-trust-link">
-                    Track Your Order
-                    <span>Check order updates where tracking is available.</span>
-                </a>
-
-                <a href="/shop" class="about-trust-link">
-                    Browse Products
-                    <span>Explore products and check their details.</span>
-                </a>
-
+            <div class="about-faq">
+                <details>
+                    <summary>How do I place an order?</summary>
+                    <p>Open a product to check its details and available options, add it to your cart, then follow the checkout instructions shown on the site.</p>
+                </details>
+                <details>
+                    <summary>How can I check if something is available?</summary>
+                    <p>Check the product page for current stock and options. If its price or availability needs confirmation, contact the shop before paying.</p>
+                </details>
+                <details>
+                    <summary>How do collection and delivery work?</summary>
+                    <p>See the current <a href="{{ url_for('public.delivery_policy') }}">delivery and collection information</a> and the options shown during checkout. Contact the shop if you need clarification.</p>
+                </details>
+                <details>
+                    <summary>How do I get help with an order?</summary>
+                    <p>Use the <a href="{{ url_for('public.contact') }}">Contact page</a>. For an order update, use the site's <a href="{{ url_for('public.track_order') }}">order tracking page</a> when you have the requested details.</p>
+                </details>
             </div>
-
         </div>
     </section>
 
@@ -945,15 +887,15 @@
             </p>
 
             <div class="about-slogan">
-                {{ settings.tagline if settings and settings.tagline else "FityStores" }}
+                Bei Fity, Fits Poa.
             </div>
 
             <div class="about-hero-actions" style="justify-content:center;">
-                <a href="/shop" class="about-btn about-btn-red">
+                <a href="{{ url_for('public.shop') }}" class="about-btn about-btn-red">
                     Shop FityStores
                 </a>
 
-                <a href="/contact" class="about-btn about-btn-outline">
+                <a href="{{ url_for('public.contact') }}" class="about-btn about-btn-outline">
                     Contact Us
                 </a>
             </div>

@@ -33,6 +33,36 @@ def test_homepage_renders(client):
     assert rv.status_code == 200
     assert b"Fresh essentials" in rv.data
 
+def test_about_renders_live_categories_products_and_working_destinations(client):
+    rv = client.get("/about")
+    assert rv.status_code == 200
+    assert b"Bei Fity, Fits Poa." in rv.data
+    assert b"Ankle socks" in rv.data
+    assert b"Plain Socks" in rv.data
+    assert b'href="/shop?category=ankle-socks"' in rv.data
+    assert b'href="/contact"' in rv.data
+    assert b'href="#about-help"' in rv.data
+
+def test_about_handles_an_empty_catalogue(client, app):
+    with app.app_context():
+        Product.query.update({Product.active: False})
+        db.session.commit()
+    rv = client.get("/about")
+    assert rv.status_code == 200
+    assert b"There are no active products to show right now" in rv.data
+    assert b"Product categories will appear here" in rv.data
+    assert b"Plain Socks" not in rv.data
+
+def test_about_falls_back_when_catalogue_image_is_missing(client, app):
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").one()
+        db.session.add(ProductImage(product=product, filename="missing-about-test.webp", alt_text="Missing photo", is_primary=True))
+        db.session.commit()
+    rv = client.get("/about")
+    assert rv.status_code == 200
+    assert b"Temporary product placeholder" in rv.data
+    assert b"/static/images/mainLogo-160.png" in rv.data
+
 def test_shop_search_and_category_filter(client):
     rv = client.get("/shop?q=Plain&category=ankle-socks")
     assert rv.status_code == 200
