@@ -572,47 +572,91 @@ def _safe_driver_versions() -> str:
     return f"psycopg={version} implementation={implementation} libpq={libpq_version}"
 
 
-def _connection_failure_category(error: Exception) -> str:
-    """Classify only recognized SQLSTATEs or known diagnostic phrases."""
-    try:
-        sqlstate = getattr(error, "sqlstate", None)
-        if not sqlstate:
-            sqlstate = getattr(getattr(error, "diag", None), "sqlstate", None)
-        if isinstance(sqlstate, str) and re.fullmatch(r"[0-9A-Z]{5}", sqlstate):
-            if sqlstate.startswith("28"):
-                return "authentication error"
-            if sqlstate.startswith("08"):
-                return "network/connectivity error"
-    except Exception:
-        pass
+def _exception_chain(error: Exception):
+    """Yield a bounded exception/cause chain without rendering tracebacks."""
+    pending = [error]
+    seen: set[int] = set()
+    while pending and len(seen) < 12:
+        current = pending.pop(0)
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        yield current
+        for attribute in ("__cause__", "__context__", "orig"):
+            try:
+                nested = getattr(current, attribute, None)
+            except Exception:
+                nested = None
+            if isinstance(nested, Exception) and id(nested) not in seen:
+                pending.append(nested)
 
-    # Inspect messages only for a small allowlist of generic phrases. Never
-    # return or log the message itself, which may contain credentials/hostnames.
-    try:
-        message = str(error).lower()
-    except Exception:
-        return "unclassified connection error"
-    tls_phrases = (
+
+def _connection_failure_category(error: Exception) -> str:
+    """Classify using SQLSTATEs and allowlisted phrases across wrapped errors.
+
+    Exception text is inspected only in memory. Only fixed category labels leave
+    this function; raw diagnostics can contain connection details.
+    """
+    chain = list(_exception_chain(error))
+    messages: list[str] = []
+    states: list[str] = []
+    for item in chain:
+        try:
+            message = str(item).lower()
+            if message:
+                messages.append(message)
+        except Exception:
+            pass
+        try:
+            state = getattr(item, "sqlstate", None)
+            if not state:
+                state = getattr(getattr(item, "diag", None), "sqlstate", None)
+            if isinstance(state, str) and re.fullmatch(r"[0-9A-Z]{5}", state):
+                states.append(state)
+        except Exception:
+            pass
+    text = "\n".join(messages)
+
+    # More specific certificate errors take precedence over a wrapper's generic
+    # "SSL error" message.
+    if any(phrase in text for phrase in (
+        "does not match host name", "does not match hostname",
+        "hostname mismatch", "host name mismatch",
+        "certificate subject name does not match",
+    )):
+        return "hostname certificate verification failure"
+    if any(phrase in text for phrase in (
+        "unable to get local issuer certificate", "unable to get issuer certificate",
+        "unable to verify the first certificate", "self-signed certificate",
         "certificate verify failed", "certificate verification failed",
-        "certificate has expired", "root certificate file", "ssl error",
-        "tls handshake", "ssl certificate",
-    )
-    auth_phrases = (
-        "password authentication failed", "no password supplied",
-        "authentication failed",
-    )
-    network_phrases = (
-        "connection refused",
-        "network is unreachable", "no route to host", "could not translate host name",
-        "could not connect to server",
-    )
-    if any(phrase in message for phrase in tls_phrases):
-        return "TLS verification/configuration error"
-    if any(phrase in message for phrase in auth_phrases):
+        "certificate has expired", "certificate is not yet valid",
+    )):
+        return "CA trust/certificate-chain verification failure"
+    if any(phrase in text for phrase in (
+        "invalid sslmode", "invalid sslrootcert", "invalid connection option \"sslmode",
+        "could not read root certificate", "root certificate file",
+    )):
+        return "invalid TLS configuration"
+    if any(phrase in text for phrase in (
+        "tls handshake", "ssl handshake", "tlsv1 alert", "sslv3 alert",
+        "wrong version number", "protocol version", "ssl syscall error", "ssl error",
+    )):
+        return "other TLS handshake failure"
+
+    if any(state.startswith("28") for state in states):
         return "authentication error"
-    if any(phrase in message for phrase in ("timeout expired", "timed out", "connection timeout")):
+    if any(state.startswith("08") for state in states):
+        return "network/connectivity error"
+    if any(phrase in text for phrase in (
+        "password authentication failed", "no password supplied", "authentication failed",
+    )):
+        return "authentication error"
+    if any(phrase in text for phrase in ("timeout expired", "timed out", "connection timeout")):
         return "timeout error"
-    if any(phrase in message for phrase in network_phrases):
+    if any(phrase in text for phrase in (
+        "connection refused", "network is unreachable", "no route to host",
+        "could not translate host name", "could not connect to server",
+    )):
         return "network/connectivity error"
     return "unclassified connection error"
 
@@ -629,8 +673,9 @@ def safe_failure(
         return GuardError(f"{stage} failed; diagnostic details were suppressed.")
     category = category or _connection_failure_category(error)
     allowed_categories = {
-        "authentication error", "TLS verification/configuration error",
-        "network/connectivity error", "timeout error", "identity check failed",
+        "authentication error", "CA trust/certificate-chain verification failure",
+        "hostname certificate verification failure", "invalid TLS configuration",
+        "other TLS handshake failure", "network/connectivity error", "timeout error", "identity check failed",
         "unclassified connection error",
     }
     if category not in allowed_categories:
