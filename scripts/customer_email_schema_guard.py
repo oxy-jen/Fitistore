@@ -297,8 +297,10 @@ def postgres_index_catalog(connection, schema, table, index_names):
         }
     except GuardError:
         raise
-    except Exception:
-        raise GuardError("PostgreSQL index catalog inspection failed; diagnostic details suppressed.") from None
+    except Exception as exc:
+        raise GuardError(
+            f"PostgreSQL index catalog inspection failed ({type(exc).__name__}); diagnostic details suppressed."
+        ) from None
 
 
 def normalize_default(value: str | None) -> str | None:
@@ -545,6 +547,11 @@ def write_summary(lines: list[str]) -> None:
         summary.write("\n".join(f"- {line}" for line in lines) + "\n")
 
 
+def safe_failure(stage: str, error: Exception) -> GuardError:
+    """Expose only the operation and exception class, never its message or URL."""
+    return GuardError(f"{stage} failed ({type(error).__name__}); diagnostic details were suppressed.")
+
+
 def _connect() -> object:
     from sqlalchemy import create_engine
     url, expected_database, expected_schema, _expected_host = required_settings()
@@ -616,9 +623,14 @@ def run(mode: str) -> None:
         print("Requested operation confirmation passed; no database connection opened.")
         write_summary([f"{os.environ.get('OPERATION')} operation confirmation passed.", "No database connection opened."])
         return
-    connection = None
     try:
         connection = _connect()
+    except GuardError:
+        raise
+    except Exception as exc:
+        raise safe_failure("Database connection/identity check", exc) from None
+
+    try:
         schema = os.environ["EXPECTED_DATABASE_SCHEMA"]
         notes = validate_schema(connection, schema, allow_approved_missing=(mode == "preflight"))
         if mode == "postcheck" and any(note.startswith("approved missing") for note in notes):
@@ -629,9 +641,8 @@ def run(mode: str) -> None:
         write_summary(notes + ["Schema validation passed."])
     except GuardError:
         raise
-    except Exception:
-        # Do not display driver exceptions: they can contain connection data.
-        raise GuardError("Database/schema validation failed; diagnostic details were suppressed.") from None
+    except Exception as exc:
+        raise safe_failure("Database catalog/schema inspection", exc) from None
     finally:
         if connection is not None:
             engine = getattr(connection, "engine", None)

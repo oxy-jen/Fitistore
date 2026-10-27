@@ -24,6 +24,7 @@ from scripts.customer_email_schema_guard import (
     migration_index_manifest,
     require_confirmation,
     required_settings,
+    run,
     validate_dispatch_request,
     validate_column_snapshot,
     validate_fk_options,
@@ -223,6 +224,22 @@ def test_read_only_connect_uses_system_ca_and_verify_full(monkeypatch):
     }
     assert "sslmode=verify-full" in calls["url"]
     assert "sslrootcert=system" in calls["url"]
+
+
+def test_preflight_error_identifies_stage_and_exception_class_without_error_text(monkeypatch):
+    secret_url = "postgresql://private-user:private-password@private-host/private-db"
+
+    def fail_connect():
+        raise RuntimeError(f"connection failed for {secret_url}")
+
+    monkeypatch.setattr("scripts.customer_email_schema_guard._connect", fail_connect)
+    with pytest.raises(GuardError) as caught:
+        run("preflight")
+
+    message = str(caught.value)
+    assert "Database connection/identity check failed (RuntimeError)" in message
+    assert secret_url not in message
+    assert "private-password" not in message
 
 
 def test_missing_parent_table_stops_preflight():
