@@ -1,5 +1,6 @@
 import io
 import hashlib
+import json
 from datetime import datetime
 
 import pytest
@@ -956,6 +957,11 @@ def test_marketing_double_opt_in_and_unsubscribe_history(client, app, app_contex
     db.session.refresh(account)
     assert account.marketing_status == "unsubscribed"
     assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="withdrawn").count() == 1
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    audience = client.get("/admin/email")
+    assert b"Marketing consent:" in audience.data
+    assert b"Marketing consent: <strong>unsubscribed</strong>" in audience.data
+    assert b"withdrawn via unsubscribe_link" in audience.data
 
 
 def test_customer_orders_are_account_scoped_and_admin_is_not_customer(client, app, app_context):
@@ -1340,10 +1346,10 @@ def test_customer_email_migration_creates_missing_sqlite_tables_and_preserves_st
         inspector = inspect(db.engine)
         assert feature_tables <= set(inspector.get_table_names())
         studio_columns = {
-            "email_template": {"id", "category", "subject", "headline", "message", "created_at", "updated_at"},
+            "email_template": {"id", "category", "name", "subject", "headline", "message", "blocks_json", "created_at", "updated_at"},
             "email_draft": {
                 "id", "name", "category", "subject", "headline", "message",
-                "product_ids_json", "account_ids_json", "order_id", "cart_id",
+                "blocks_json", "product_ids_json", "account_ids_json", "order_id", "cart_id",
                 "status", "created_by_id", "created_at", "updated_at",
             },
         }
@@ -1385,6 +1391,23 @@ def test_customer_email_sqlite_migration_is_idempotent_and_enforces_uniqueness(t
         with pytest.raises(Exception):
             db.session.commit()
         db.session.rollback()
+
+
+def test_customer_email_builder_migration_preserves_legacy_template_and_allows_duplicates(tmp_path, monkeypatch):
+    isolated_app, _feature_tables, _expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    with isolated_app.app_context():
+        from sqlalchemy import inspect, text
+        db.session.execute(text("CREATE TABLE email_template (id INTEGER PRIMARY KEY, category VARCHAR(32) NOT NULL UNIQUE, subject VARCHAR(200) NOT NULL, headline VARCHAR(200) NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)"))
+        db.session.execute(text("CREATE INDEX ix_email_template_category ON email_template (category)"))
+        db.session.execute(text("INSERT INTO email_template (id, category, subject, headline, message, created_at, updated_at) VALUES (7, 'promotion', 'Old subject', 'Old headline', 'Old body', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
+        db.session.commit()
+        result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+        assert result.exit_code == 0, result.output
+        assert db.session.execute(text("SELECT subject, message, name, blocks_json FROM email_template WHERE id = 7")).one() == ("Old subject", "Old body", "Saved template", "[]")
+        db.session.execute(text("INSERT INTO email_template (category, name, subject, headline, message, blocks_json, created_at, updated_at) VALUES ('promotion', 'Second', 'Another', '', 'Body', '[]', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
+        db.session.commit()
+        assert db.session.execute(text("SELECT COUNT(*) FROM email_template WHERE category = 'promotion'")).scalar_one() == 2
+        assert not any(tuple(row.get("column_names") or ()) == ("category",) for row in inspect(db.engine).get_unique_constraints("email_template"))
 
 
 def test_customer_email_sqlite_migration_rolls_back_failed_ddl(tmp_path, monkeypatch):
@@ -2150,6 +2173,10 @@ def test_email_studio_templates_and_drafts_persist_without_sending(client, app, 
     saved = EmailTemplate.query.filter_by(category="customer_service").one()
     assert saved.subject == "A note for {{ customer_name }}"
     assert sent == []
+    loaded = client.get(f"/admin/email/studio?category=customer_service&account_id={account.id}")
+    assert b"saved template" in loaded.data
+    assert b'value="A note for {{ customer_name }}"' in loaded.data
+    assert b"Saved reusable content" in loaded.data
 
     draft_response = client.post("/admin/email/studio", data={
         "category": "customer_service", "account_id": str(account.id),
@@ -2181,6 +2208,143 @@ def test_email_studio_preview_is_personalized_escaped_and_does_not_send(client, 
     assert b"Preview" in response.data
     assert b"&lt;script&gt;Customer&lt;/script&gt;" in response.data
     assert sent == []
+
+
+def test_email_studio_sends_saved_template_content_to_selected_unsubscribed_service_recipient(client, app, app_context, monkeypatch):
+    import app.services.customer_mail as customer_mail
+    _configure_brevo_test(app)
+    sent = []
+    monkeypatch.setattr(
+        customer_mail, "_send_brevo",
+        lambda recipient, subject, html, text: sent.append((recipient, subject, html, text)) or "saved-template-id",
+    )
+    account = CustomerAccount(
+        email="saved-template-recipient@example.test", display_name="Saved Recipient",
+        email_verified_at=datetime.utcnow(), marketing_status="none",
+    )
+    db.session.add(account)
+    db.session.add(EmailTemplate(
+        category="customer_service", subject="Service for {{ customer_name }}",
+        headline="Saved greeting", message="Saved template body for {{ customer_name }}.",
+    ))
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    payload = {
+        "category": "customer_service", "account_id": str(account.id),
+        "subject": "Service for {{ customer_name }}", "headline": "Saved greeting",
+        "message": "Saved template body for {{ customer_name }}.",
+    }
+    preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
+    assert preview.status_code == 200
+    result = client.post("/admin/email/studio", data={
+        **payload, "action": "send", "confirm_send": "SEND 1",
+        "operation_id": "12345678-1234-5678-1234-567812345678",
+    }, follow_redirects=True)
+    assert result.status_code == 200
+    assert len(sent) == 1
+    recipient, subject, html, text = sent[0]
+    assert recipient == account.email
+    assert subject == "Service for Saved"
+    assert "Saved template body for Saved." in html
+    assert "Saved template body for Saved." in text
+    record = EmailMessage.query.filter_by(
+        idempotency_key=f"email-studio:12345678-1234-5678-1234-567812345678:{account.id}"
+    ).one()
+    assert record.status == "sent"
+    assert record.subject == subject
+
+
+def test_email_studio_mixed_promotional_copy_cannot_use_service_category_to_bypass_consent(client, app, app_context):
+    account = CustomerAccount(
+        email="service-category-no-consent@example.test", display_name="No Consent",
+        email_verified_at=datetime.utcnow(), marketing_status="none",
+    )
+    db.session.add(account)
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post("/admin/email/studio", data={
+        "category": "customer_service", "account_id": str(account.id),
+        "subject": "Special offer just for you", "headline": "Save today",
+        "message": "Our limited time discount is available now.", "action": "preview",
+    })
+    assert response.status_code == 200
+    assert b"not currently subscribed to marketing email" in response.data
+
+
+def test_email_studio_visual_template_duplicate_blocks_preview_and_send(client, app, app_context, monkeypatch):
+    import app.services.customer_mail as customer_mail
+    _configure_brevo_test(app)
+    app.config.update(PUBLIC_BASE_URL="https://fitystore.top", CLOUDINARY_CLOUD_NAME="fity-test")
+    sent = []
+    monkeypatch.setattr(
+        customer_mail, "_send_brevo",
+        lambda recipient, subject, html, text: sent.append((recipient, subject, html, text)) or "visual-template-id",
+    )
+    account = CustomerAccount(
+        email="visual-builder@example.test", display_name="Visual Buyer",
+        email_verified_at=datetime.utcnow(), marketing_status="subscribed",
+    )
+    product = Product.query.filter_by(slug="plain-socks").one()
+    product.images.append(ProductImage(
+        filename="banner.webp", storage_backend="cloudinary",
+        cloudinary_public_id="fity/banners/plain-socks", alt_text="Socks on display", is_primary=True,
+    ))
+    db.session.add(account)
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    blocks = [
+        {"type": "heading", "text": "New for {{ customer_name }}", "align": "center"},
+        {"type": "paragraph", "text": "A real catalogue selection."},
+        {"type": "image_banner", "product_id": product.id, "alt": "New socks in the collection"},
+        {"type": "product_grid"},
+        {"type": "button", "text": "View socks", "target": "product", "product_id": product.id},
+        {"type": "divider"},
+        {"type": "contact", "text": "Questions?"},
+    ]
+    payload = {
+        "category": "promotion", "account_id": str(account.id),
+        "account_ids": [str(account.id)], "product_ids": [str(product.id)],
+        "subject": "New Fity arrivals", "headline": "New collection",
+        "message": "Visual promotional template", "blocks_json": json.dumps(blocks),
+        "template_name": "New arrivals canvas",
+    }
+    saved_response = client.post("/admin/email/studio", data={**payload, "action": "save_template_as"}, follow_redirects=True)
+    assert saved_response.status_code == 200
+    saved = EmailTemplate.query.filter_by(name="New arrivals canvas").one()
+    saved_blocks = json.loads(saved.blocks_json)
+    assert [block["type"] for block in saved_blocks] == [block["type"] for block in blocks]
+    assert saved_blocks[2]["product_id"] == product.id
+    assert b"email-block-list" in saved_response.data
+    assert b"Desktop preview" in saved_response.data and b"Mobile preview" in saved_response.data
+
+    duplicate = client.post("/admin/email/studio", data={
+        **payload, "template_id": str(saved.id), "template_name": "New arrivals copy",
+        "action": "duplicate_template",
+    }, follow_redirects=True)
+    assert duplicate.status_code == 200
+    copy = EmailTemplate.query.filter_by(name="New arrivals copy").one()
+    assert copy.category == "promotion" and json.loads(copy.blocks_json) == saved_blocks
+
+    payload["template_id"] = str(copy.id)
+    payload["blocks_json"] = json.dumps(saved_blocks)
+    preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
+    assert preview.status_code == 200
+    assert b"https://res.cloudinary.com/fity-test/image/upload/fity/banners/plain-socks" in preview.data
+    assert b"New for Visual" in preview.data
+    result = client.post("/admin/email/studio", data={
+        **payload, "action": "send", "confirm_send": "SEND 1",
+        "operation_id": "87654321-1234-5678-1234-567812345678",
+    }, follow_redirects=True)
+    assert result.status_code == 200
+    assert len(sent) == 1
+    assert sent[0][0] == account.email
+    assert "https://fitystore.top/product/plain-socks" in sent[0][2]
+    assert "Unsubscribe" in sent[0][2]
+    assert "A real catalogue selection." in sent[0][3]
+    history = EmailMessage.query.filter_by(
+        idempotency_key=f"email-studio:87654321-1234-5678-1234-567812345678:{account.id}", status="sent"
+    ).one()
+    assert history.template_id == copy.id
 
 
 def test_email_studio_test_send_requires_prior_preview_and_explicit_address(client, app, app_context, monkeypatch):
@@ -2270,7 +2434,13 @@ def test_email_studio_order_preview_uses_owned_order_and_recorded_financial_stat
     payload = {
         "category": "order_confirmation", "account_id": str(account.id), "order_id": str(order.id),
         "subject": "Order {{ order_reference }}", "headline": "Order details",
-        "message": "Payment: {{ payment_status }}. Order: {{ order_status }}.", "action": "preview",
+        "message": "Payment: {{ payment_status }}. Order: {{ order_status }}.",
+        "blocks_json": json.dumps([
+            {"type": "heading", "text": "Order {{ order_reference }}"},
+            {"type": "order_summary"},
+            {"type": "button", "text": "Track order", "target": "order"},
+        ]),
+        "action": "preview",
     }
     response = client.post("/admin/email/studio", data=payload)
     assert response.status_code == 200
@@ -2280,6 +2450,8 @@ def test_email_studio_order_preview_uses_owned_order_and_recorded_financial_stat
     assert b"KSh 10" in response.data
     assert b"KSh 5" in response.data
     assert b"KSh 180" in response.data
+    assert b"Order STUDIO-ORDER-1" in response.data
+    assert b"View order" in response.data or b"Track this order" in response.data or b"Track order" in response.data
 
     payload["account_id"] = str(stranger.id)
     denied = client.post("/admin/email/studio", data=payload)

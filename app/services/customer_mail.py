@@ -143,7 +143,7 @@ def _send_brevo(recipient: str, subject: str, html_body: str, text_body: str) ->
         return str(message_id)[:255] if message_id else None
 
 
-def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *, account_id=None, order_id=None, campaign_id=None, html_body: str, text_body: str) -> EmailMessage:
+def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *, account_id=None, order_id=None, campaign_id=None, template_id=None, html_body: str, text_body: str) -> EmailMessage:
     record = EmailMessage.query.filter_by(idempotency_key=idempotency_key).first()
     marketing = kind == "marketing_campaign" or kind.startswith("marketing_")
     if marketing and account_id:
@@ -165,7 +165,7 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
                 db.session.commit()
                 return record
             if not record:
-                record = EmailMessage(recipient=recipient[:254],subject=subject[:200],kind=kind[:32],idempotency_key=idempotency_key[:160],account_id=account_id,order_id=order_id,campaign_id=campaign_id,status="suppressed",failure_reason="Recipient is no longer eligible for marketing email.")
+                record = EmailMessage(recipient=recipient[:254],subject=subject[:200],kind=kind[:32],idempotency_key=idempotency_key[:160],account_id=account_id,order_id=order_id,campaign_id=campaign_id,template_id=template_id,status="suppressed",failure_reason="Recipient is no longer eligible for marketing email.")
                 db.session.add(record);db.session.commit()
             return record
     if record:
@@ -184,7 +184,7 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
     record = EmailMessage(
         recipient=recipient[:254], subject=subject[:200], kind=kind[:32],
         idempotency_key=idempotency_key[:160], account_id=account_id,
-        order_id=order_id, campaign_id=campaign_id, status="queued",
+        order_id=order_id, campaign_id=campaign_id, template_id=template_id, status="queued",
     )
     db.session.add(record)
     db.session.commit()

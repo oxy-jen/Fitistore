@@ -19,10 +19,26 @@ from app.models import (
     Order, OrderItem, Product,
 )
 from app.services.cart import validate_cart
-from app.services.email_studio import EMAIL_CATEGORIES, EmailContentError, render_studio_message, validate_variables
+from app.services.email_studio import EMAIL_CATEGORIES, EmailContentError, render_studio_message, validate_email_blocks, validate_variables
 from app.services.formatting import money
 from app.services.product_images import product_display_image, product_image_alt, product_image_url
 from app.services.settings import current_settings
+
+_PROMOTIONAL_COPY = re.compile(
+    r"\b(?:discounts?|sales?|offers?|promotions?|coupons?|vouchers?|deals?|"
+    r"new\s+arrivals|shop\s+now|buy\s+now|limited\s+time|save\s+\d+%|"
+    r"featured\s+products|product\s+recommendations)\b",
+    re.IGNORECASE,
+)
+
+
+def _requires_marketing_consent(category, subject, headline, message, blocks):
+    if EMAIL_CATEGORIES[category]["marketing"]:
+        return True
+    if any(block["type"] in {"product_grid", "image_banner"} for block in blocks):
+        return True
+    copy = " ".join([subject or "", headline or "", message or ""] + [block.get("text", "") for block in blocks])
+    return bool(_PROMOTIONAL_COPY.search(copy))
 
 
 def _public_url(path):
@@ -93,17 +109,29 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
         raise EmailContentError("Choose an active customer with a verified email address for this preview/context.")
 
     template = EMAIL_CATEGORIES[category]
-    saved = EmailTemplate.query.filter_by(category=category).first()
+    saved = None
+    try:
+        requested_template_id = int(form.get("template_id") or 0)
+    except (TypeError, ValueError):
+        requested_template_id = 0
+    if requested_template_id:
+        saved = EmailTemplate.query.filter_by(id=requested_template_id, category=category).first()
+        if not saved:
+            raise EmailContentError("Choose a saved template from the selected email category.")
+    if not saved:
+        saved = EmailTemplate.query.filter_by(category=category).order_by(EmailTemplate.id).first()
     default = template
     subject = (form.get("subject") if "subject" in form else (saved.subject if saved else default["subject"])) or ""
     headline = (form.get("headline") if "headline" in form else (saved.headline if saved else default["headline"])) or ""
     message = (form.get("message") if "message" in form else (saved.message if saved else default["message"])) or ""
+    blocks_source = form.get("blocks_json") if "blocks_json" in form else (saved.blocks_json if saved else "[]")
     if not subject.strip() or not message.strip():
         raise EmailContentError("Enter both a subject and a message before previewing or sending.")
     try:
         validate_variables(subject, category)
         validate_variables(headline, category)
         validate_variables(message, category)
+        blocks = validate_email_blocks(blocks_source, category)
     except EmailContentError:
         raise
 
@@ -145,6 +173,11 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
             })
         subtotal_values = [line.subtotal_cents if line.subtotal_cents is not None else line.price_cents * line.quantity if line.price_cents is not None else None for line in order.items]
         order_summary = {
+            "reference": order.reference,
+            "date": order.created_at.strftime("%Y-%m-%d") if order.created_at else "",
+            "status": order.status or "",
+            "payment_status": order.payment_status or "",
+            "fulfilment_method": order.fulfilment_method or "",
             "subtotal": money(sum(subtotal_values), current_settings().currency) if all(value is not None for value in subtotal_values) else "Price to be confirmed",
             "discount": money(order.discount_cents, current_settings().currency),
             "delivery": money(order.delivery_fee_cents, current_settings().currency),
@@ -205,7 +238,7 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
             if len(by_id) != len(product_ids) or any(product.display_stock_quantity <= 0 for product in found):
                 raise EmailContentError("A selected product is inactive, unavailable, or no longer in stock. Refresh the picker.")
             products = [_product_card(by_id[product_id]) for product_id in product_ids]
-        if category == "promotion" and not products:
+        if category == "promotion" and not products and any(block["type"] in {"product_grid", "image_banner"} for block in blocks):
             raise EmailContentError("Select at least one active, in-stock catalogue product for a promotion.")
 
     customer_name = (account.display_name or account.email.partition("@")[0]).strip().split()[0]
@@ -213,6 +246,7 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
     if order:
         context.update({
             "order_reference": order.reference,
+            "order_date": order.created_at.strftime("%Y-%m-%d") if order.created_at else None,
             "order_subtotal": order_summary["subtotal"],
             "discount_amount": order_summary["discount"],
             "delivery_fee": order_summary["delivery"],
@@ -225,8 +259,9 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
     if category == "cart_reminder":
         context["cart_item_count"] = sum(line.quantity for line in cart_lines)
         context["cart_total"] = cart_total
+    promotional = _requires_marketing_consent(category, subject, headline, message, blocks)
     unsubscribe_url = ""
-    if template["marketing"]:
+    if promotional:
         if account.marketing_status != "subscribed":
             raise EmailContentError("This address is not currently subscribed to marketing email.")
         if test_mode:
@@ -239,14 +274,29 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
     shop_url = _public_url(url_for("public.shop"))
     logo_url = _public_url(url_for("static", filename="images/mainLogo-160.png"))
     primary_label = "Continue shopping"
-    if category in {"order_confirmation", "thank_you", "order_status"} and order:
+    if order:
         primary_url = _public_url(url_for("public.track_order_link", reference=order.reference, tracking_token=order.tracking_token))
         primary_label = "View order status"
     elif category == "cart_reminder":
         primary_url = _public_url(url_for("public.cart"))
         primary_label = "Return to your cart"
+    product_map = {product["id"]: product for product in products}
+    for block in blocks:
+        if block["type"] == "button" and block.get("target") == "order" and not order:
+            raise EmailContentError("Choose an order linked to this customer before adding an order-tracking button.")
+        if block["type"] == "button" and block.get("target") == "cart" and category != "cart_reminder":
+            raise EmailContentError("Cart buttons are only available in cart-reminder emails.")
+        if block["type"] in {"image_banner", "button"} and block.get("product_id"):
+            product = product_map.get(block["product_id"])
+            if not product:
+                raise EmailContentError("Add each banner or product-button item to the selected catalogue products before previewing.")
+            if block["type"] == "image_banner" and not product["image_url"]:
+                raise EmailContentError("That catalogue product has no accessible HTTPS image. Choose a product with an uploaded image.")
+        if block["type"] == "order_summary" and not (order_summary or cart_summary):
+            # Optional order/cart sections disappear when this recipient has no corresponding data.
+            continue
     rendered_subject, html, text = render_studio_message(
-        category, subject, headline, message, context, products=products,
+        category, subject, headline, message, context, blocks=blocks, products=products,
         order_lines=order_lines, order_summary=order_summary, cart_summary=cart_summary,
         primary_url=primary_url, primary_label=primary_label, shop_url=shop_url, logo_url=logo_url,
         unsubscribe_url=unsubscribe_url,
@@ -263,7 +313,7 @@ def register_email_studio_routes(admin_bp):
     def email_studio():
         from app.admin.routes import model_schema_missing
         from app.services.customer_mail import mail_configuration_status, queue_email
-        from app.services.email_studio import validate_variables
+        from app.services.email_studio import validate_email_blocks, validate_variables
 
         required = (CustomerAccount, CustomerCart, CustomerOrderLink, CustomerToken, EmailDraft, EmailMessage, EmailTemplate, FinancialAuditEvent, Order, Product)
         from sqlalchemy import inspect
@@ -280,6 +330,17 @@ def register_email_studio_routes(admin_bp):
             )
             return redirect(url_for("admin.email_center"))
         category = request.values.get("category", "customer_service")
+        raw_template_id = request.values.get("template_id", "").strip()
+        try:
+            requested_template_id = int(raw_template_id) if raw_template_id else None
+        except ValueError:
+            requested_template_id = None
+        selected_template = db.session.get(EmailTemplate, requested_template_id) if requested_template_id else None
+        if selected_template and request.method == "GET":
+            category = selected_template.category
+        elif selected_template and selected_template.category != category:
+            flash("The selected template does not match this email category.", "error")
+            return redirect(url_for("admin.email_studio", category="customer_service"))
         if request.method == "POST" and not request.values.get("category"):
             flash("Choose a supported Email Studio category. Nothing was sent.", "error")
             return redirect(url_for("admin.email_studio"))
@@ -291,7 +352,8 @@ def register_email_studio_routes(admin_bp):
         search = request.values.get("product_search", "").strip()[:100]
         account_id = request.values.get("account_id", "").strip()
         accounts = CustomerAccount.query.order_by(CustomerAccount.display_name, CustomerAccount.email).limit(500).all()
-        saved_template = EmailTemplate.query.filter_by(category=category).first()
+        saved_templates = EmailTemplate.query.order_by(EmailTemplate.category, EmailTemplate.name, EmailTemplate.id).all()
+        saved_template = selected_template or EmailTemplate.query.filter_by(category=category).order_by(EmailTemplate.id).first()
         defaults = EMAIL_CATEGORIES[category]
         draft_id = request.values.get("draft_id", "").strip()
         draft = None
@@ -316,6 +378,21 @@ def register_email_studio_routes(admin_bp):
         subject = request.values.get("subject", draft.subject if draft else saved_template.subject if saved_template else defaults["subject"])
         headline = request.values.get("headline", draft.headline if draft else saved_template.headline if saved_template else defaults["headline"])
         message = request.values.get("message", draft.message if draft else saved_template.message if saved_template else defaults["message"])
+        blocks_source = request.values.get("blocks_json", draft.blocks_json if draft else saved_template.blocks_json if saved_template else "[]")
+        try:
+            editor_blocks = validate_email_blocks(blocks_source, category)
+        except EmailContentError:
+            editor_blocks = []
+        if not editor_blocks:
+            editor_blocks = [{"type": "heading", "text": headline, "align": "left"}, {"type": "paragraph", "text": message, "align": "left"}]
+            if category == "promotion":
+                editor_blocks.append({"type": "product_grid"})
+            if category == "cart_reminder":
+                editor_blocks.extend([{"type": "product_grid"}, {"type": "order_summary"}])
+            if category in {"order_confirmation", "thank_you", "order_status"}:
+                editor_blocks.append({"type": "order_summary"})
+            order_category = category in {"order_confirmation", "thank_you", "order_status"}
+            editor_blocks.extend([{"type": "button", "text": "View order" if order_category else "Return to your cart" if category == "cart_reminder" else "View details", "target": "order" if order_category else "cart" if category == "cart_reminder" else "shop"}, {"type": "contact", "text": "Questions?", "align": "left"}])
         if draft and "product_ids" not in request.values:
             product_selection = json.loads(draft.product_ids_json or "[]")
         else:
@@ -337,11 +414,14 @@ def register_email_studio_routes(admin_bp):
         def verify_editor_text():
             for value in (subject, headline, message):
                 validate_variables(value, category)
+            validate_email_blocks(request.form.get("blocks_json", "[]"), category)
 
         def preview_fingerprint():
             fields = {
                 "category": category, "subject": subject, "headline": headline,
                 "message": message, "account_id": account_id,
+                "template_id": request.values.get("template_id", ""),
+                "blocks_json": request.values.get("blocks_json", "[]"),
                 "order_id": request.values.get("order_id", ""),
                 "products": sorted(str(value) for value in request.values.getlist("product_ids")),
                 "accounts": sorted(str(value) for value in request.values.getlist("account_ids")),
@@ -355,11 +435,40 @@ def register_email_studio_routes(admin_bp):
                 if action == "save_template":
                     if not subject.strip() or not message.strip():
                         raise EmailContentError("A reusable template needs both a subject and message.")
-                    row = saved_template or EmailTemplate(category=category)
+                    template_name = request.form.get("template_name", "").strip()[:120]
+                    row = selected_template or saved_template or EmailTemplate(category=category)
+                    row.category = category
+                    if template_name:
+                        row.name = template_name
                     row.subject, row.headline, row.message = subject[:200], headline[:200], message[:5000]
+                    row.blocks_json = json.dumps(validate_email_blocks(request.form.get("blocks_json", "[]"), category))
                     db.session.add(row); db.session.commit()
-                    flash("Reusable category template saved. No email was sent.", "success")
-                    return redirect(url_for("admin.email_studio", category=category))
+                    flash("Reusable template saved. No email was sent.", "success")
+                    return redirect(url_for("admin.email_studio", category=category, template_id=row.id))
+                if action == "save_template_as":
+                    template_name = request.form.get("template_name", "").strip()[:120]
+                    if not template_name or not subject.strip() or not message.strip():
+                        raise EmailContentError("Enter a name, subject, and message to save a new template.")
+                    row = EmailTemplate(
+                        category=category, name=template_name, subject=subject[:200],
+                        headline=headline[:200], message=message[:5000],
+                        blocks_json=json.dumps(validate_email_blocks(request.form.get("blocks_json", "[]"), category)),
+                    )
+                    db.session.add(row); db.session.commit()
+                    flash("New reusable template saved. No email was sent.", "success")
+                    return redirect(url_for("admin.email_studio", category=category, template_id=row.id))
+                if action == "duplicate_template":
+                    template_name = request.form.get("template_name", "").strip()[:120]
+                    if not template_name:
+                        raise EmailContentError("Give the duplicated template a name before saving it.")
+                    row = EmailTemplate(
+                        category=category, name=template_name, subject=subject[:200],
+                        headline=headline[:200], message=message[:5000],
+                        blocks_json=json.dumps(validate_email_blocks(request.form.get("blocks_json", "[]"), category)),
+                    )
+                    db.session.add(row); db.session.commit()
+                    flash("Template duplicated. Edit and reuse this saved copy.", "success")
+                    return redirect(url_for("admin.email_studio", category=category, template_id=row.id))
                 if action == "reset_template":
                     if request.form.get("confirm_reset") != "RESET":
                         raise EmailContentError("Type RESET to confirm returning this category to its code-backed default.")
@@ -382,6 +491,7 @@ def register_email_studio_routes(admin_bp):
                     row = draft or EmailDraft(name=name, created_by_id=current_user.id)
                     row.name, row.category = name, category
                     row.subject, row.headline, row.message = subject[:200], headline[:200], message[:5000]
+                    row.blocks_json = json.dumps(validate_email_blocks(request.form.get("blocks_json", "[]"), category))
                     row.product_ids_json = json.dumps(list(dict.fromkeys(selected_products))[:30])
                     row.account_ids_json = json.dumps({
                         "recipients": list(dict.fromkeys(selected_accounts))[:300],
@@ -405,8 +515,12 @@ def register_email_studio_routes(admin_bp):
                     return redirect(url_for("admin.email_studio", category=category))
                 if action in {"preview", "send_test", "send"}:
                     selected_account = account
+                    marketing_message = _requires_marketing_consent(
+                        category, subject, headline, message,
+                        validate_email_blocks(request.form.get("blocks_json", "[]"), category),
+                    )
                     if action == "send":
-                        if defaults["marketing"]:
+                        if marketing_message:
                             requested_ids = []
                             for raw in request.form.getlist("account_ids"):
                                 try: requested_ids.append(int(raw))
@@ -414,6 +528,8 @@ def register_email_studio_routes(admin_bp):
                             requested_ids = list(dict.fromkeys(requested_ids))
                             if len(requested_ids) > 500:
                                 raise EmailContentError("Select no more than 500 recipients in one synchronous send.")
+                            if not requested_ids and selected_account and category != "promotion":
+                                requested_ids = [selected_account.id]
                             targets = CustomerAccount.query.filter(
                                 CustomerAccount.id.in_(requested_ids), CustomerAccount.active.is_(True),
                                 CustomerAccount.email_verified_at.isnot(None), CustomerAccount.marketing_status == "subscribed",
@@ -445,14 +561,14 @@ def register_email_studio_routes(admin_bp):
                             except EmailContentError:
                                 suppressed += 1
                                 continue
-                            kind = "marketing_abandoned_cart" if category == "cart_reminder" else "marketing_campaign" if defaults["marketing"] else "admin_" + category
+                            kind = "marketing_abandoned_cart" if category == "cart_reminder" else "marketing_campaign" if marketing_message else "admin_" + category
                             if category == "cart_reminder":
                                 cart = CustomerCart.query.filter_by(account_id=target.id).first()
                                 key = f"cart-reminder:{cart.episode_key}" if cart else f"email-studio:{operation_id}:{target.id}"
                             else:
                                 key = f"email-studio:{operation_id}:{target.id}"
                             try:
-                                result = queue_email(target.email, payload_subject, kind, key, account_id=target.id, order_id=order.id if order else None, html_body=html, text_body=text)
+                                result = queue_email(target.email, payload_subject, kind, key, account_id=target.id, order_id=order.id if order else None, template_id=saved_template.id if saved_template else None, html_body=html, text_body=text)
                             except Exception:
                                 db.session.rollback(); failed += 1; continue
                             if result.status in {"sent", "delivered"}: accepted += 1
@@ -493,24 +609,27 @@ def register_email_studio_routes(admin_bp):
                         rendered_subject, html, text, order, _cards = _render_for(category, request.form, selected_account, test_mode=True)
                         html = html.replace("<title>", "<title>[TEST PREVIEW] ", 1)
                         try:
-                            row = queue_email(target_email, "[TEST PREVIEW] " + rendered_subject, "admin_test", "email-studio-test:" + token_urlsafe(24), account_id=None, order_id=order.id if order else None, html_body=html, text_body="TEST PREVIEW ONLY\n\n" + text)
+                            row = queue_email(target_email, "[TEST PREVIEW] " + rendered_subject, "admin_test", "email-studio-test:" + token_urlsafe(24), account_id=None, order_id=order.id if order else None, template_id=saved_template.id if saved_template else None, html_body=html, text_body="TEST PREVIEW ONLY\n\n" + text)
                         except Exception:
                             db.session.rollback()
                             raise EmailContentError("The provider did not accept the test message.") from None
                         db.session.add(FinancialAuditEvent(admin=current_user, event_type="email_studio_test", entity_type="EmailMessage", entity_id=row.id, note="Email Studio test status=" + row.status))
                         db.session.commit()
-                        flash("Test result: " + row.status + ". Provider acceptance is not inbox delivery.", "success" if row.status == "sent" else "warning")
+                        detail = (" " + row.failure_reason) if row.failure_reason else ""
+                        flash("Test result: " + row.status + "." + detail + " Provider acceptance is not inbox delivery.", "success" if row.status == "sent" else "warning")
                         return redirect(url_for("admin.email_studio", category=category))
 
                     if not selected_account:
                         raise EmailContentError("Choose a customer context before previewing this category.")
                     rendered_subject, html, text, order, cards = _render_for(category, request.form, selected_account, test_mode=True)
                     eligible_count = 1
-                    if defaults["marketing"]:
+                    if marketing_message:
                         try:
                             selected_ids = list(dict.fromkeys(int(value) for value in request.form.getlist("account_ids")))
                         except (TypeError, ValueError):
                             selected_ids = []
+                        if not selected_ids and selected_account and category != "promotion":
+                            selected_ids = [selected_account.id]
                         targets = CustomerAccount.query.filter(
                             CustomerAccount.id.in_(selected_ids), CustomerAccount.active.is_(True),
                             CustomerAccount.email_verified_at.isnot(None), CustomerAccount.marketing_status == "subscribed",
@@ -535,6 +654,8 @@ def register_email_studio_routes(admin_bp):
         return render_template(
             "admin/email_studio.html", title="Email Studio", categories=EMAIL_CATEGORIES,
             category=category, accounts=accounts, account=account, linked_orders=linked_orders,
+            templates=saved_templates,
+            selected_template=saved_template, editor_blocks=editor_blocks,
             products=products, product_choices=product_choices, drafts=drafts, carts=carts, selected_products=set(map(str, product_selection)),
             selected_account_ids=set(map(str, selected_account_ids)),
             subject=subject, headline=headline, message=message, draft=draft, preview=preview,

@@ -71,6 +71,8 @@
   {% for account in accounts %}
   <details>
     <summary>{{ account.display_name or 'Customer' }} - {{ account.email }} - {{ account.marketing_status }} - {{ 'verified' if account.email_verified_at else 'email not verified' }}</summary>
+    <p>Marketing consent: <strong>{{ account.marketing_status }}</strong>. {% if account.marketing_consent_at %}Confirmed {{ account.marketing_consent_at.strftime('%Y-%m-%d %H:%M UTC') }}.{% endif %}{% if account.marketing_withdrawn_at %} Withdrawn {{ account.marketing_withdrawn_at.strftime('%Y-%m-%d %H:%M UTC') }}.{% endif %}</p>
+    {% if consent_events.get(account.id) %}<h3>Consent history</h3><ul>{% for event in consent_events[account.id] %}<li>{{ event.event }} via {{ event.method }}{% if event.created_at %} — {{ event.created_at.strftime('%Y-%m-%d %H:%M UTC') }}{% endif %} (wording {{ event.wording_version }})</li>{% endfor %}</ul>{% elif account.marketing_status == 'none' %}<p>No promotional consent recorded.</p>{% endif %}
     {% if account.id in order_map %}
     <h3>Linked orders</h3>
     {% for order in order_map[account.id] %}
