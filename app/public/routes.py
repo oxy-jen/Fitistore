@@ -7,7 +7,7 @@ from urllib.parse import quote
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
-from flask import Blueprint, Response, current_app, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, Response, current_app, flash, jsonify, make_response, redirect, render_template, request, session, url_for
 from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
@@ -20,7 +20,7 @@ from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, b
 from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
 from app.services.referrals import get_or_create_profile, normalize_phone, record_referral_click
 from werkzeug.utils import secure_filename
-from flask_login import current_user
+from flask_login import current_user, logout_user
 
 public_bp = Blueprint("public", __name__)
 PRODUCTS_PER_PAGE = 8
@@ -92,7 +92,10 @@ def save_payment_proof(file):
 @public_bp.app_context_processor
 def helpers():
     from app.services.formatting import money, split_options
-    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER}
+    footer_products = product_list_options(Product.query.filter_by(active=True)).order_by(
+        Product.featured.desc(), Product.updated_at.desc(), Product.id.desc()
+    ).limit(4).all()
+    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "footer_products": footer_products}
 
 def product_query():
     q = request.args.get("q", "").strip()
@@ -735,6 +738,12 @@ def api_validate_cart():
 
 @public_bp.route("/checkout", methods=["GET", "POST"])
 def checkout():
+    account = current_user._get_current_object() if current_user.is_authenticated else None
+    if not isinstance(account, CustomerAccount) or not account.active or not account.email_verified_at:
+        if isinstance(account, CustomerAccount):
+            logout_user()
+        flash("Sign in with a verified customer account to place your order. New customers can create an account first.", "info")
+        return redirect(url_for("customer.login", next=url_for("public.checkout")))
     settings = current_settings()
     if request.method == "POST":
         try:
@@ -861,17 +870,14 @@ def about():
         .order_by(Category.name.asc())
         .all()
     )
-    representative_ids = (
-        db.session.query(func.min(Product.id).label("product_id"))
-        .filter(Product.active.is_(True))
-        .group_by(Product.category_id)
-        .subquery()
-    )
     category_products = product_list_options(
-        Product.query.join(representative_ids, Product.id == representative_ids.c.product_id)
+        active_products.order_by(Product.featured.desc(), Product.created_at.desc(), Product.id.desc())
     ).all()
-    category_images = {product.category_id: product for product in category_products}
-    return render_template(
+    category_images = {}
+    for product in category_products:
+        if product.category_id not in category_images and product_display_image(product):
+            category_images[product.category_id] = product
+    response = make_response(render_template(
         "about.html",
         title="About FityStores",
         seo_title="About FityStores | BEI FITS",
@@ -879,7 +885,9 @@ def about():
         featured_products=featured_products,
         categories=categories,
         category_images=category_images,
-    )
+    ))
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
 
 @public_bp.route("/reviews", methods=["GET", "POST"])
 def reviews():
@@ -1057,13 +1065,17 @@ def render_policy_page(slug):
     # make the terms page fail.
     if slug == "terms":
         policy = {
-            "title": "Terms of Service",
-            "description": "How FityStores listings, order requests, payment checks, and fulfilment arrangements work.",
+            "title": "Terms and Conditions",
+            "description": "Terms for using FityStores, placing an order request, paying, and arranging collection or delivery.",
             "sections": [
-                ("Listings, prices, and stock", ["Product information, prices, variants, and stock are shown as currently recorded by the store and may change. Confirm availability, selected options, and the total with the seller before paying. An unavailable or unpriced item cannot be treated as a confirmed sale at a guessed price."]),
-                ("Order review and payment", ["Submitting checkout details creates an order request for seller review. Follow the payment instructions shown by the store and confirm them with the seller. A payment reference or WhatsApp message does not alone mean the order has been accepted or payment verified."]),
-                ("Delivery and collection", ["The seller must confirm the available fulfilment method, location, timing, and any delivery fee for each order before you travel or rely on delivery."]),
-                ("Problems and legal rights", ["Contact the seller promptly about an order problem. These terms do not remove rights that apply under Kenyan law. No legal entity details or guarantees are added by this page."]),
+                ("About these terms and account checkout", ["FityStores is the shop name used on this website. These terms apply when you browse the site, create an account, or place an order request. Checkout requires a customer account; keep your account details accurate and protect your password and verification codes. You are responsible for activity carried out through your signed-in account, subject to rights that cannot be excluded by law."]),
+                ("Products, prices, and availability", ["Product descriptions, images, options, prices, and stock show information currently recorded by the shop. They may change or be incorrect. Check the listing and confirm availability, selected size or colour, final price, and total with the seller before paying. No unlisted price or unavailable item is guaranteed." ]),
+                ("Order requests and confirmation", ["Submitting checkout creates an order request for seller review; it does not by itself reserve stock, accept the order, or confirm a sale. The seller will confirm the item, final total, payment instructions, and fulfilment arrangement. Keep the order reference and check the order status in your account or through the order-tracking page." ]),
+                ("Payment and payment references", ["Follow the payment instructions confirmed for your order. M-Pesa payment is handled outside the website; the site may let you enter a transaction reference or upload proof for the seller to review. Entering a reference or uploading proof does not automatically verify payment. Never share your M-Pesa PIN, password, or one-time sign-in code." ]),
+                ("Collection and delivery", ["The available fulfilment method, meeting point, timing, delivery area, and any fee must be confirmed with the seller for your order. The listed collection reference is Othaya Mathenge Technical Training Institute; confirm the exact meeting place and time before travelling. Do not treat an order request as a confirmed delivery booking." ]),
+                ("Cancellations, returns, and consumer rights", ["Contact the seller promptly if you need to change or cancel an order, or if an item is incorrect, damaged, or faulty. The Returns, Exchanges, and Cancellations policy explains how to raise a request. Nothing in these terms removes a consumer right or remedy that applies under Kenyan law, including rights under the Consumer Protection Act." ]),
+                ("Website use and customer content", ["Use the site lawfully, do not interfere with its operation or security, and submit accurate information. Reviews and other customer submissions must not be unlawful, misleading, abusive, or infringe another person's rights. Reviews may be moderated before publication. Product photos, descriptions, and site branding belong to their respective rights holders; do not copy or reuse them without permission." ]),
+                ("Questions, changes, and applicable law", ["Contact FityStores through the Contact page or call 0791305329 about an order or these terms. These terms are governed by applicable Kenyan law, and any dispute remains subject to consumer protections and the jurisdiction of Kenyan courts. Updated terms will be posted on this page with a revised effective date; changes do not remove rights that already apply to an order."]),
             ],
         }
         return render_template(
@@ -1080,38 +1092,45 @@ def render_policy_page(slug):
             "title": "Delivery and Collection Policy",
             "description": "Check delivery availability, discuss any fee, and agree collection or delivery details before paying or travelling.",
             "sections": [
-                ("Delivery availability", [settings.delivery_area or "Contact FityStores to check whether delivery is available for your location. Availability and any fee are confirmed for each order."]),
-                ("Collection", [settings.collection_instructions or "Contact the seller to agree on a collection point and time before travelling."]),
+                ("Delivery availability", [settings.delivery_area or "Contact FityStores to check whether delivery is available for your location. Availability, timing, and any fee are confirmed for each order."]),
+                ("Collection", [settings.collection_instructions or "The collection reference point is Othaya Mathenge Technical Training Institute. Contact the seller to agree on the exact meeting point and time before travelling."]),
                 ("Delivery fee", [("The configured delivery fee is " + money(settings.delivery_fee_cents, settings.currency) + ". Confirm that it applies to your order before paying.") if settings.delivery_fee_cents is not None else "No fixed delivery fee is configured here. The seller will confirm any fee for your location before payment."]),
-                ("Before travelling or paying", ["Confirm the item, price, stock, fulfilment method, any delivery fee, and the collection or delivery arrangements with the seller. An order or payment reference alone does not confirm fulfilment."]),
+                ("Before travelling or paying", ["Confirm the item, selected options, price, stock, fulfilment method, any delivery fee, and the collection or delivery arrangements with the seller. A checkout request or payment reference alone does not confirm fulfilment."]),
             ],
         },
         "payment": {
             "title": "Payment Policy",
             "description": "Follow the current payment instructions and understand how payment is checked and confirmed.",
             "sections": [
-                ("Available instructions", [settings.payment_instructions or "Ask the seller to confirm the payment method and amount for your order."]),
-                ("Confirm before paying", ["Confirm product availability, the total amount, and the payment instructions with the seller before sending payment. Keep your transaction message and enter the requested reference at checkout."]),
-                ("Payment confirmation", ["A reference submitted with an order is not, by itself, confirmation that payment has been verified or that an order is confirmed. Follow the order status and contact the seller if you need help."]),
+                ("Available instructions", [settings.payment_instructions or "Ask the seller to confirm the payment method and amount for your order. The website does not process card payments."]),
+                ("Confirm before paying", ["Confirm product availability, the final total, and the payment instructions with the seller before sending payment. Keep the M-Pesa transaction message and enter the requested reference at checkout. Never share your M-Pesa PIN or account password."]),
+                ("Payment review and confirmation", ["M-Pesa is paid outside the website. A reference or optional proof submitted with an order is information for seller review; it is not automatic payment verification or order confirmation. Do not pay a second time just because the status has not updated—contact the seller with your order reference first."]),
             ],
         },
         "returns": {
             "title": "Returns, exchanges, and cancellations",
             "description": "How to raise a return, exchange, cancellation, or refund request for review.",
             "sections": [
-                ("Report a problem", ["Contact FityStores within 48 hours of delivery if an item is incorrect, damaged, or appears defective. Include your order reference and describe the issue; photos can help the seller review it. Do not send sensitive payment credentials."]),
-                ("Review and next steps", ["The seller will review the order details and discuss an appropriate next step with you. Eligibility and any return, exchange, cancellation, or refund arrangement must be confirmed for the specific order."]),
-                ("Assessment and outcome", ["The seller will review the order details and discuss the next step with you. Contacting the store within 48 hours starts a review; it does not automatically approve a refund or exchange. Any remedy will be assessed for the specific case and applicable consumer rights are not waived."]),
-                ("Contact", ["Use the Contact page to call or message the seller about an order."]),
+                ("Report a problem", ["Contact FityStores as soon as practical if an item is incorrect, damaged, or appears faulty. Prompt reporting—ideally within 48 hours of receiving it—helps the seller investigate while details are fresh; this is not a limit on rights or remedies provided by law. Include your order reference and describe the issue. Photos may help the review."]),
+                ("Cancellation or change of mind", ["If you need to cancel or change an order, contact the seller as soon as possible before it is prepared or handed over. A change-of-mind return is not automatic and must be agreed with the seller, subject always to any applicable legal right to cancel or obtain a remedy."]),
+                ("Review and next steps", ["The seller will review the order and discuss the next step for the specific case. Do not send an item back until the seller confirms the return method. A request starts a review; it does not by itself approve a refund or exchange. Applicable consumer rights are not waived."]),
+                ("Refunds", ["If a refund is agreed or required, the seller will confirm the amount and method with you. The store does not promise an automatic refund or a fixed processing time on this page."]),
+                ("Contact", ["Use the Contact page or call 0791305329 with your order reference and a description of the issue. Never include your M-Pesa PIN or password."]),
             ],
         },
         "privacy": {
             "title": "Privacy information",
             "description": "What shopping and account features collect, how FityStores uses information, and how to ask a question.",
             "sections": [
-                ("Information you provide", ["Depending on how you use the site, FityStores may receive your name, phone number, order items, fulfilment instructions, payment reference, and any payment proof you choose to upload. Enquiry, review, suggestion, and restock forms collect the details you submit."]),
-                ("How it is used", ["Order and contact details are used to review and fulfil requests, communicate about orders, and provide customer support. Submitted reviews may be shown publicly after approval. The application hashes the submitter IP address when a review is created."]),
-                ("Customer accounts and preferences", ["Customer accounts store a normalized email address, display name, password hash or Google identity, verification status, and marketing preference. Verification, reset, and unsubscribe tokens are stored as hashes. Consent requests and withdrawals include their time, source, and wording version. Promotional messages are separate from necessary account and order updates."]),("Handling and questions", ["Do not submit passwords, PINs, or payment credentials in free-text fields. For a privacy question or a request about information you submitted, contact the seller using the Contact page. The site does not state a retention period or response deadline. The project does not document which external service providers may handle submitted information, so the store should confirm those arrangements before publishing a complete privacy notice."]),
+                ("Who is responsible and how to contact us", ["FityStores is responsible for personal information collected through this shop. For a privacy request or question, use the Contact page or call 0791305329 and ask for the person responsible for privacy. The shop currently publishes under the FityStores trading name; this notice does not invent a separate registered legal entity or postal address."]),
+                ("Information the site collects", ["Depending on how you use the site, it may process your name, email address, phone number, account and verification details, order items, delivery or collection instructions, order history, payment reference, and payment proof you choose to upload. The site also receives the information you submit in contact, enquiry, review, suggestion, and restock forms. Account passwords are stored as password hashes; verification and reset tokens are stored as hashes. Google sign-in may provide your Google account identifier, email, and display name."]),
+                ("Why information is used", ["Information is used to create and secure accounts, process and link order requests, check payment reports, arrange fulfilment, answer enquiries, handle reviews and restock requests, prevent misuse, maintain records, and meet applicable legal obligations. The site may create a one-way hash of an IP address for abuse controls or review moderation. A review may be displayed publicly after moderation; avoid putting private information in a review." ]),
+                ("Marketing and service messages", ["Promotional email is optional and requires a separate marketing opt-in; accepting the Terms and Conditions or creating an account does not subscribe you to marketing. You can withdraw marketing consent using the unsubscribe link or account preference controls. The shop may still send necessary account, security, order, and service messages that are not promotional." ]),
+                ("Cookies, sessions, and browser storage", ["The site uses session and security data needed to sign you in, protect forms, and keep shopping functions working. Cart information may be stored in your browser or account to preserve your selections. This notice does not claim that analytics or advertising trackers are used." ]),
+                ("Service providers and external links", ["Information is hosted and processed by the web host and database provider configured for the site. If enabled, Google handles Google sign-in; Cloudinary may deliver product images; and the configured SMTP, Resend, or Brevo provider may handle email. These providers receive only information needed for their service. The site links to WhatsApp; if you choose to open it and send a message, WhatsApp/Meta receives the message and account details under its own terms. M-Pesa transactions are made outside this website; the shop may record the reference or proof you provide. Provider locations and transfer safeguards depend on the services configured by the shop, so information may be processed outside Kenya." ]),
+                ("Retention and security", ["The shop keeps information only as long as it is reasonably needed for the purposes described, account operation, order records, dispute handling, and legal obligations. The site does not publish fixed retention periods for each record type; contact the shop to ask about a particular record. The shop uses access controls and technical safeguards, but no internet transmission or storage system can be guaranteed completely secure." ]),
+                ("Your choices and data rights", ["Subject to applicable law, you may ask to be informed about, access, correct, or object to processing of your personal information, or request deletion where appropriate. You may also withdraw consent for optional marketing. Contact the shop through the Contact page or call 0791305329; include enough detail to identify the account or order, but do not send a password, PIN, or sign-in code. You may raise a complaint with Kenya's Office of the Data Protection Commissioner."]),
+                ("Children and sensitive information", ["Do not submit another person's personal information unless you are authorised to do so. Do not enter passwords, M-Pesa PINs, payment credentials, or unrelated sensitive information in reviews, enquiries, or order notes. A parent or guardian should contact the shop about information submitted by a child."]),
             ],
         },
         "terms": {

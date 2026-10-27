@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from datetime import timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,6 +21,11 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "0" if os.environ.get("FLASK_DEBUG", "").lower() in {"1", "true"} else "1").lower() in {"1", "true", "yes"}
+    PERMANENT_SESSION_LIFETIME = timedelta(days=30)
+    REMEMBER_COOKIE_DURATION = timedelta(days=30)
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SAMESITE = "Lax"
+    REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
     MAIL_PROVIDER = os.environ.get("MAIL_PROVIDER", "")
     RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
     BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")

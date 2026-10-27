@@ -545,12 +545,12 @@
     }
 }
 
-/* Catalogue-led About page, overriding older static-image About rules. */
-.about-page .about-hero{min-height:0;background:#101114;color:#fff}
-.about-page .about-hero::before{background:radial-gradient(ellipse at 78% 50%,#303037 0,transparent 48%),linear-gradient(100deg,#101114 20%,#17171b 68%,#241317 100%)}
-.about-page .about-hero-content{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.9fr);gap:clamp(2rem,5vw,5rem);min-height:490px;padding:4rem 0}
+/* Compact, cinematic hero using the transparent shop-hero product cutouts. */
+.about-page .about-hero{min-height:0;background:#08090b;color:#fff}
+.about-page .about-hero::before{inset:-18px;background:linear-gradient(90deg,#050607 0%,rgba(16,17,20,.62) 48%,rgba(10,9,11,.78) 100%),radial-gradient(ellipse at 67% 56%,rgba(205,211,221,.3),transparent 29%),radial-gradient(ellipse at 83% 45%,rgba(174,17,39,.34),transparent 32%),url('{{ url_for('static', filename='images/shop-hero/shoe3.fitistores-removebg-preview.png') }}') 65% 78%/40% auto no-repeat,url('{{ url_for('static', filename='images/shop-hero/hair_bonnet-removebg-preview.webp') }}') 90% 40%/22% auto no-repeat,#101114;filter:blur(12px);opacity:.82;transform:scale(1.03)}
+.about-page .about-hero-content{display:grid;grid-template-columns:minmax(285px,.95fr) minmax(340px,1.25fr) minmax(190px,.58fr);gap:clamp(.8rem,1.8vw,1.5rem);min-height:310px;padding:1.65rem 0;align-items:center}
 .about-page .about-hero-copy{align-self:center;max-width:580px}
-.about-page .about-hero .about-eyebrow{color:#ff6473}
+.about-page .about-hero .about-eyebrow{color:#ff3448}
 .about-page .about-hero h1{color:#fff}
 .about-page .about-hero h1 span{color:#ff3448}
 .about-page .about-hero p{color:#e2e2e6}
@@ -559,11 +559,19 @@
 .about-page .about-quick-nav{position:sticky;top:0;z-index:9;display:flex;justify-content:center;gap:.45rem;flex-wrap:wrap;padding:.65rem 1rem;background:rgba(255,255,255,.96);border-bottom:1px solid #e6e6e8;backdrop-filter:blur(12px)}
 .about-page .about-quick-nav a{padding:.55rem .8rem;border-radius:999px;background:#f4f4f5;color:#242429;font-size:.88rem;font-weight:750;white-space:nowrap}
 .about-page .about-quick-nav a:hover,.about-page .about-quick-nav a:focus-visible{background:#e32636;color:#fff}
-.about-page .about-hero-art{display:grid;grid-template-columns:1.05fr .95fr;grid-template-rows:1fr 1fr;gap:.8rem;min-height:350px;align-self:center}
-.about-page .about-hero-art figure{position:relative;overflow:hidden;margin:0;border:1px solid #ffffff26;border-radius:18px;background:#29292e}
-.about-page .about-hero-art figure:first-child{grid-row:span 2}
-.about-page .about-hero-art img{width:100%;height:100%;min-height:160px;object-fit:cover}
-.about-page .about-hero-art figcaption{position:absolute;inset:auto 0 0;padding:1.8rem .9rem .8rem;color:#fff;font-size:.85rem;font-weight:750;background:linear-gradient(transparent,#000b)}
+.about-page .about-hero-art{position:relative;isolation:isolate;overflow:hidden;min-height:270px;align-self:stretch;border-radius:20px;background:radial-gradient(ellipse at 54% 64%,rgba(255,255,255,.15),transparent 41%),linear-gradient(110deg,rgba(255,255,255,.015),rgba(255,255,255,.06) 52%,rgba(194,18,39,.12));}
+.about-page .about-hero-art::before{content:"";position:absolute;inset:9% 12%;z-index:-1;border-radius:50%;background:rgba(213,218,226,.12);filter:blur(35px)}
+.about-page .about-hero-product{position:absolute;display:block;width:auto;height:auto;object-fit:contain;filter:drop-shadow(0 16px 16px rgba(0,0,0,.42))}
+.about-page .about-hero-product-shoe{z-index:3;width:78%;max-height:72%;left:15%;bottom:5%}
+.about-page .about-hero-product-bonnet{z-index:2;width:35%;max-height:65%;left:1%;top:2%}
+.about-page .about-hero-product-bands{z-index:2;width:31%;max-height:43%;right:2%;top:4%}
+.about-page .about-hero-product-hair{z-index:4;width:33%;max-height:39%;right:1%;bottom:1%}
+.about-page .about-hero-benefits{display:grid;gap:.4rem;padding:.8rem .9rem;border:1px solid #ffffff24;border-radius:14px;background:rgba(0,0,0,.38);backdrop-filter:blur(12px)}
+.about-page .about-hero-benefit{display:grid;grid-template-columns:25px 1fr;gap:.55rem;align-items:center;padding:.55rem 0;color:#fff}
+.about-page .about-hero-benefit+.about-hero-benefit{border-top:1px solid #ffffff1c}
+.about-page .about-hero-benefit-icon{color:#ff3448;font-size:1.2rem;line-height:1}
+.about-page .about-hero-benefit strong{display:block;font-size:.82rem;line-height:1.25}
+.about-page .about-hero-benefit small{display:block;margin-top:.15rem;color:#c7c7cc;font-size:.68rem;line-height:1.35}
 .about-page .about-hero-empty{display:grid;place-items:center;grid-column:1/-1;min-height:250px;border:1px solid #ffffff26;border-radius:18px;background:linear-gradient(140deg,#25252b,#111);color:#fff;font-size:clamp(2rem,5vw,4rem);font-weight:850;letter-spacing:-.06em}
 .about-page .about-story-grid>div:first-child,.about-page .about-story-grid>div:last-child{order:initial}
 .about-page .about-story-image{width:100%;min-height:320px;max-height:430px;object-fit:cover;padding:0;background:#f4f5f7}
@@ -585,9 +593,254 @@
 .about-page .about-faq summary{cursor:pointer;font-weight:750}
 .about-page .about-faq details p{margin:.8rem 0 0;color:#62626a;line-height:1.65}
 .about-page .about-final-cta{background:#111;color:#fff}
-@media(max-width:820px){.about-page .about-hero-content{grid-template-columns:1fr;gap:2rem;padding:3rem 0}.about-page .about-hero-art{min-height:300px;max-height:430px}.about-page .about-category-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.about-page .about-product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:600px){.about-page .about-hero-content{padding:2.8rem 0}.about-page .about-hero-art{min-height:250px;gap:.5rem}.about-page .about-category-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.about-page .about-product-grid{grid-template-columns:1fr}.about-page .about-quick-nav{justify-content:flex-start;overflow-x:auto;flex-wrap:nowrap}.about-page .about-story-image,.about-page .about-story-empty{min-height:250px}}
+@media(max-width:900px){.about-page .about-hero-content{grid-template-columns:minmax(250px,.9fr) minmax(300px,1.1fr);gap:1rem;min-height:300px;padding:1.5rem 0}.about-page .about-hero-benefits{grid-column:1/-1;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem;padding:.35rem .75rem}.about-page .about-hero-benefit+.about-hero-benefit{border-top:0;border-left:1px solid #ffffff1c;padding-left:.75rem}.about-page .about-category-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.about-page .about-product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.about-page .about-hero-content{grid-template-columns:1fr;gap:.8rem;padding:1.2rem 0}.about-page .about-hero h1{font-size:clamp(2.35rem,10vw,3.4rem)}.about-page .about-hero p{font-size:15px}.about-page .about-hero-art{min-height:175px;max-height:175px}.about-page .about-hero-product-shoe{width:78%;max-height:76%;left:12%}.about-page .about-hero-product-bonnet{width:29%;left:0}.about-page .about-hero-product-bands{width:26%;right:0}.about-page .about-hero-product-hair{width:29%;right:0}.about-page .about-hero-benefits{gap:.25rem;padding:.35rem .5rem}.about-page .about-hero-benefit{grid-template-columns:19px 1fr;gap:.3rem;padding:.4rem .15rem}.about-page .about-hero-benefit strong{font-size:.68rem}.about-page .about-hero-benefit small{font-size:.59rem}.about-page .about-category-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.about-page .about-product-grid{grid-template-columns:1fr}.about-page .about-quick-nav{justify-content:flex-start;overflow-x:auto;flex-wrap:nowrap}.about-page .about-story-image,.about-page .about-story-empty{min-height:250px}}
 @media(max-width:360px){.about-page .about-category-grid{grid-template-columns:1fr}}
+
+/* Reference-inspired About page: compact cards, broad image collage, and simple order steps. */
+.about-page .about-section{padding:30px 0}
+.about-page .about-hero-content{min-height:270px;padding:1.25rem 0}
+.about-page .about-hero h1{font-size:clamp(2.2rem,4.3vw,3.45rem);letter-spacing:-.045em;line-height:1.02;margin-bottom:.65rem}
+.about-page .about-hero p{max-width:43ch;font-size:.9rem;line-height:1.45;margin:.4rem 0}
+.about-page .about-hero .about-slogan{margin:.45rem 0 .7rem;font-size:.78rem;font-weight:650;letter-spacing:.02em;color:#fff}
+.about-page .about-hero-actions{gap:.6rem}
+.about-page .about-hero .about-btn{min-height:37px;padding:.55rem .85rem;border-radius:7px;font-size:.75rem}
+.about-page .about-hero-benefit-icon{display:grid;place-items:center}
+.about-page .about-hero-benefit-icon svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.about-page .about-hero-art{min-height:230px}
+.about-page .about-hero-product-shoe{width:88%;max-height:77%;left:8%;bottom:4%}
+.about-page .about-story-grid{grid-template-columns:minmax(300px,.92fr) minmax(0,1.08fr);gap:clamp(1.5rem,4vw,3.8rem)}
+.about-page .about-story-copy .about-heading{max-width:16ch;margin:0 0 .55rem;font-size:clamp(1.55rem,2.6vw,2.2rem);line-height:1.08;letter-spacing:-.035em}
+.about-page .about-story-copy p{max-width:56ch;margin:.45rem 0;font-size:.94rem;line-height:1.55}
+.about-page .about-highlight{margin-top:.65rem;padding:.75rem .9rem;font-size:.9rem;font-weight:450;line-height:1.5;background:#fff5f6}
+.about-page .about-highlight span{display:inline-block;margin-top:.35rem;font-weight:650}
+.about-page .about-story-collage{display:grid;grid-template-columns:1.08fr .92fr;grid-template-rows:1fr 1fr;gap:.5rem;min-height:185px;max-height:205px}
+.about-page .about-story-photo{position:relative;overflow:hidden;min-width:0;min-height:0;margin:0;border-radius:10px;background:#eceef0}
+.about-page .about-story-photo-0{grid-row:span 2}
+.about-page .about-story-photo img{width:100%;height:100%;min-height:0;object-fit:cover}
+.about-page .about-story-photo figcaption{position:absolute;right:.45rem;bottom:.45rem;max-width:90%;padding:.35rem .55rem;border-radius:6px;background:#c91d2c;color:white;font-size:.78rem;font-weight:750;line-height:1.3;text-shadow:0 1px 2px #0005}
+.about-page .about-categories{background:#f5f6f7}
+.about-page .about-categories .about-container{position:relative;padding-top:.15rem}
+.about-page .about-categories .about-center{text-align:left}
+.about-page .about-categories .about-eyebrow{margin-bottom:.3rem;font-size:.62rem;letter-spacing:.06em}
+.about-page .about-categories .about-heading{margin:0;font-size:clamp(1.25rem,2.4vw,1.75rem);line-height:1.15;letter-spacing:-.025em}
+.about-page .about-categories .about-description{margin:.25rem 0 0;font-size:.72rem;line-height:1.4}
+.about-page .about-category-grid{display:grid!important;grid-template-columns:repeat(8,minmax(0,1fr));gap:.55rem;margin-top:.75rem}
+.about-page .about-category:nth-child(n){display:block!important;visibility:visible!important;opacity:1!important}
+.about-page .about-category{border:0;border-radius:9px;box-shadow:0 2px 12px #1111110b}
+.about-page .about-category:hover{transform:translateY(-2px);box-shadow:0 6px 18px #11111112}
+.about-page .about-category-image,.about-page .about-category-placeholder{aspect-ratio:1.05/1}
+.about-page .about-category-image{padding:.35rem;object-fit:contain;background:#fff}
+.about-page .about-category-info{padding:.4rem .35rem .5rem;text-align:center}
+.about-page .about-category-info h3{margin:0;font-size:.72rem;line-height:1.15}
+.about-page .about-category-info p{margin:.2rem 0 0;font-size:.6rem;line-height:1.3}
+.about-page .about-categories .about-center:last-child{position:absolute;top:0;right:0;margin:0!important}
+.about-page .about-categories .about-center:last-child .about-btn{min-height:32px;padding:.45rem .7rem;font-size:.68rem}
+.about-page .about-difference-layout{display:grid;grid-template-columns:minmax(190px,.35fr) minmax(0,1fr);gap:1.6rem;align-items:center}
+.about-page .about-difference-photo{height:190px;overflow:hidden;border-radius:10px;background:#171717}
+.about-page .about-difference-photo img{width:100%;height:100%;object-fit:cover}
+.about-page .about-difference-copy .about-eyebrow{margin-bottom:.25rem;font-size:.62rem;letter-spacing:.06em}
+.about-page .about-difference-copy .about-heading{margin:0;font-size:1.45rem;line-height:1.1}
+.about-page .about-difference-copy>.about-description{margin:.25rem 0 .55rem;font-size:.72rem;line-height:1.4}
+.about-page .about-values-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:.6rem;margin-top:.55rem}
+.about-page .about-value-card{padding:.65rem;border-radius:9px;box-shadow:0 2px 12px #11111108}
+.about-page .about-value-number{width:25px;height:25px;margin:0 0 .3rem;border-radius:6px;font-size:.8rem}
+.about-page .about-value-card h3{margin:0 0 .2rem;font-size:.76rem;line-height:1.2}
+.about-page .about-value-card p{font-size:.64rem;line-height:1.35}
+.about-page .about-steps-layout{display:grid;grid-template-columns:minmax(210px,.36fr) minmax(0,1fr);gap:1.5rem;align-items:center}
+.about-page .about-steps .about-eyebrow{margin-bottom:.3rem;font-size:.62rem;letter-spacing:.06em;color:#ff4657}
+.about-page .about-steps .about-heading{margin:0;font-size:1.5rem;line-height:1.08}
+.about-page .about-steps .about-description{margin:.4rem 0;font-size:.72rem;line-height:1.4}
+.about-page .about-step-shop-link{color:#fff;font-size:.72rem;font-weight:750;text-decoration:underline!important;text-underline-offset:3px}
+.about-page .about-steps-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin:0}
+.about-page .about-step{position:relative;display:grid;grid-template-columns:30px 1fr;column-gap:.45rem;align-content:start;min-width:0;padding:.2rem .65rem;border:0;border-left:1px solid #33363a;border-radius:0;background:transparent}
+.about-page .about-step-number{display:grid;place-items:center;width:22px;height:22px;margin:0;border-radius:50%;background:#e32636;color:#fff;font-size:.57rem}
+.about-page .about-step-icon{color:#fff;font-size:1.3rem;line-height:1.1}
+.about-page .about-step h3{grid-column:2;margin:.25rem 0 .15rem;font-size:.74rem;line-height:1.2}
+.about-page .about-step p{grid-column:2;margin:0;font-size:.61rem;line-height:1.35;color:#c7c7c7}
+.about-page .about-community{padding:20px 0 14px}
+.about-page .about-community-heading{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.6rem}
+.about-page .about-community-heading h2{margin:0;font-size:1.05rem;line-height:1.2}
+.about-page .about-community-heading p{margin:.15rem 0 0;color:#6a6a72;font-size:.67rem}
+.about-page .about-community-heading>a{color:var(--red);font-size:.7rem;font-weight:750}
+.about-page .about-trust-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:.55rem;margin:0 0 .65rem}
+.about-page .about-trust-link{padding:.65rem .75rem;border-radius:8px;box-shadow:0 2px 10px #11111108}
+.about-page .about-trust-link strong{font-size:.72rem}
+.about-page .about-trust-link span{margin-top:.18rem;font-size:.62rem;line-height:1.35}
+.about-page .about-help-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.65rem}
+.about-page .about-help-card{position:relative;min-width:0;padding:.8rem;border:1px solid #ececef;border-radius:10px;background:#fff}
+.about-page .about-help-pink{background:linear-gradient(135deg,#fff5f6,#fff)}
+.about-page .about-help-blue{background:linear-gradient(135deg,#fff,#f0f4f8)}
+.about-page .about-help-icon{float:left;display:grid;place-items:center;width:24px;height:24px;margin:0 .55rem .2rem 0;border:1.5px solid var(--red);border-radius:50%;color:var(--red);font-size:.85rem;font-weight:800}
+.about-page .about-help-card .about-eyebrow{margin:0 0 .25rem;font-size:.52rem;letter-spacing:.04em;color:#e32636}
+.about-page .about-help-card h3{margin:0 0 .25rem;font-size:.8rem;line-height:1.15}
+.about-page .about-help-card p{margin:0 0 .45rem;color:#55565c;font-size:.61rem;line-height:1.35}
+.about-page .about-help-card .about-btn{min-height:28px;padding:.35rem .55rem;font-size:.61rem;border-radius:6px}
+.about-page .about-help-card ul{display:grid;gap:.28rem;margin:.4rem 0 0;padding:0;list-style:none}
+.about-page .about-help-card li a{display:block;color:#17181c;font-size:.63rem;font-weight:750}
+.about-page .about-help-card li span{display:block;color:#62626a;font-size:.57rem;line-height:1.3}
+.about-page .about-brand-ribbon{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-top:.65rem;padding:.5rem .85rem;border-radius:8px;background:#08090b;color:#fff}
+.about-page .about-brand-mark{color:#fff;font-size:1.05rem;font-weight:850;letter-spacing:-.03em}
+.about-page .about-brand-ribbon p{margin:0;color:#e4e4e6;font-size:.63rem;line-height:1.35}
+.about-page .about-brand-ribbon p strong{color:#fff}
+.about-page .about-ribbon-end{text-align:right;font-size:.66rem;font-weight:750;line-height:1.35}
+.about-page .about-final-cta{position:relative;overflow:hidden;display:flex;align-items:center;min-height:180px;padding:24px 0;text-align:left;background:radial-gradient(ellipse at 77% 50%,#5a0b16 0,transparent 36%),linear-gradient(100deg,#12090b,#3d0710 52%,#10090b)}
+.about-page .about-final-cta .about-container{position:relative;display:flex;align-items:center;min-height:130px}
+.about-page .about-final-copy{position:relative;z-index:2;max-width:58%}
+.about-page .about-final-cta .about-eyebrow{margin-bottom:.3rem;color:#ff4657;font-size:.58rem;letter-spacing:.06em}
+.about-page .about-final-cta h2{margin:0;font-size:clamp(1.5rem,3vw,2.2rem);line-height:1.1}
+.about-page .about-final-cta p{margin:.35rem 0;color:#e5e5e5;font-size:.72rem;line-height:1.4}
+.about-page .about-final-cta .about-slogan{margin:.3rem 0 .55rem;font-size:.68rem;color:#fff}
+.about-page .about-final-cta .about-hero-actions{justify-content:flex-start!important}
+.about-page .about-final-cta .about-btn{min-height:30px;padding:.4rem .65rem;font-size:.64rem}
+.about-page .about-final-shoe{position:absolute;right:1%;bottom:-15%;width:min(38%,420px);height:145%;object-fit:contain;filter:drop-shadow(0 14px 16px #0009)}
+.about-page .about-products{display:none}
+@media(max-width:900px){.about-page .about-category-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.about-page .about-story-grid{grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:1.2rem}.about-page .about-story-collage{min-height:170px;max-height:185px}.about-page .about-difference-layout{grid-template-columns:170px minmax(0,1fr);gap:1rem}.about-page .about-values-grid{gap:.35rem}.about-page .about-value-card{padding:.5rem}.about-page .about-steps-layout{grid-template-columns:1fr;gap:.8rem}.about-page .about-steps-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:600px){.about-page .about-section{padding:22px 0}.about-page .about-hero-content{min-height:0}.about-page .about-story-grid{grid-template-columns:1fr;gap:1rem}.about-page .about-story-collage{min-height:160px;max-height:175px}.about-page .about-categories .about-container{padding-top:2rem}.about-page .about-categories .about-center:last-child{top:0;bottom:auto;left:auto;right:0}.about-page .about-category-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem}.about-page .about-difference-layout{grid-template-columns:1fr;gap:.75rem}.about-page .about-difference-photo{height:190px}.about-page .about-values-grid{grid-template-columns:1fr}.about-page .about-steps-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem}.about-page .about-step{padding:.4rem;border-left:0;border-top:1px solid #33363a}.about-page .about-trust-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.about-page .about-help-grid{grid-template-columns:1fr}.about-page .about-brand-ribbon{flex-wrap:wrap}.about-page .about-ribbon-end{margin-left:auto}.about-page .about-final-cta{min-height:230px}.about-page .about-final-copy{max-width:72%}.about-page .about-final-shoe{right:-7%;bottom:-7%;width:48%;height:90%}.about-page .about-community-heading{align-items:flex-start;flex-direction:column;gap:.35rem}}
+.about-page{font-size:16px}
+.about-page .about-eyebrow{font-size:.78rem;letter-spacing:.08em}
+.about-page .about-quick-nav a{font-size:.95rem}
+.about-page .about-hero p{font-size:1rem;line-height:1.5}
+.about-page .about-hero .about-slogan{font-size:.9rem}
+.about-page .about-hero .about-btn{font-size:.86rem}
+.about-page .about-hero-benefit strong{font-size:.95rem}
+.about-page .about-hero-benefit small{font-size:.8rem;line-height:1.4}
+.about-page .about-story-copy p{font-size:1rem;line-height:1.6}
+.about-page .about-highlight{font-size:.95rem;line-height:1.55}
+.about-page .about-story-photo figcaption{font-size:.88rem}
+.about-page .about-categories .about-description{font-size:.9rem;line-height:1.5}
+.about-page .about-category-info h3{font-size:.9rem}
+.about-page .about-category-info p{font-size:.78rem;line-height:1.4}
+.about-page .about-categories .about-center:last-child .about-btn{font-size:.8rem}
+.about-page .about-difference-copy>.about-description{font-size:.9rem;line-height:1.5}
+.about-page .about-value-card h3{font-size:.95rem}
+.about-page .about-value-card p{font-size:.83rem;line-height:1.45}
+.about-page .about-steps .about-description{font-size:.9rem;line-height:1.5}
+.about-page .about-step-shop-link{font-size:.88rem}
+.about-page .about-step h3{font-size:.9rem}
+.about-page .about-step p{font-size:.8rem;line-height:1.45}
+.about-page .about-community-heading p{font-size:.85rem}
+.about-page .about-community-heading>a{font-size:.86rem}
+.about-page .about-trust-link strong{font-size:.9rem}
+.about-page .about-trust-link span{font-size:.82rem;line-height:1.45}
+.about-page .about-help-card .about-eyebrow{font-size:.7rem}
+.about-page .about-help-card h3{font-size:.98rem;line-height:1.25}
+.about-page .about-help-card p{font-size:.84rem;line-height:1.5}
+.about-page .about-help-card .about-btn{font-size:.8rem}
+.about-page .about-help-card li a{font-size:.83rem}
+.about-page .about-help-card li span{font-size:.77rem;line-height:1.4}
+.about-page .about-brand-ribbon p,.about-page .about-ribbon-end{font-size:.82rem;line-height:1.45}
+.about-page .about-final-cta p{font-size:.95rem;line-height:1.5}
+.about-page .about-final-cta .about-slogan{font-size:.88rem}
+.about-page .about-final-cta .about-btn{font-size:.82rem}
+@media(max-width:600px){.about-page .about-category-info p{font-size:.8rem}.about-page .about-help-card p{font-size:.9rem}.about-page .about-trust-link span{font-size:.85rem}.about-page .about-step p{font-size:.84rem}.about-page .about-hero-benefit small{font-size:.78rem}}
+/* Consistent spacing between sections and within each content group. */
+.about-page .about-container,.about-page .about-hero-content{width:min(1180px,calc(100% - 48px))}
+.about-page .about-section{padding-block:38px}
+.about-page .about-quick-nav{gap:.7rem;padding:.8rem 1.25rem}
+.about-page .about-quick-nav a{padding:.65rem .95rem}
+.about-page .about-story-grid{gap:clamp(28px,4vw,54px)}
+.about-page .about-story-copy .about-heading{margin-bottom:.85rem}
+.about-page .about-story-copy p{margin:.6rem 0}
+.about-page .about-highlight{margin-top:1rem;padding:1rem 1.1rem}
+.about-page .about-story-collage{gap:.7rem;min-height:200px;max-height:215px}
+.about-page .about-categories .about-container{padding-top:.3rem}
+.about-page .about-categories .about-center:first-child{padding-right:190px}
+.about-page .about-category-grid{gap:.75rem;margin-top:1rem}
+.about-page .about-category-info{padding:.65rem .5rem .7rem}
+.about-page .about-category-info h3{margin-bottom:.2rem}
+.about-page .about-category-info p{margin-top:.25rem}
+.about-page .about-difference-layout{gap:clamp(20px,3vw,38px)}
+.about-page .about-difference-photo{height:210px}
+.about-page .about-difference-copy>.about-description{margin:.45rem 0 .8rem}
+.about-page .about-values-grid{gap:.75rem;margin-top:.8rem}
+.about-page .about-value-card{padding:.9rem}
+.about-page .about-value-number{margin-bottom:.45rem}
+.about-page .about-value-card h3{margin-bottom:.35rem}
+.about-page .about-steps-layout{gap:2rem}
+.about-page .about-steps-grid{margin-block:.25rem}
+.about-page .about-step{padding:.35rem .9rem}
+.about-page .about-step h3{margin:.4rem 0 .3rem}
+.about-page .about-community{padding-block:26px 20px}
+.about-page .about-community-heading{margin-bottom:.9rem}
+.about-page .about-trust-grid{gap:.75rem;margin-bottom:1rem}
+.about-page .about-trust-link{padding:.85rem .95rem}
+.about-page .about-help-grid{gap:.85rem}
+.about-page .about-help-card{padding:1rem}
+.about-page .about-help-card h3{margin-bottom:.4rem}
+.about-page .about-help-card p{margin-bottom:.7rem}
+.about-page .about-help-card ul{gap:.45rem;margin-top:.6rem}
+.about-page .about-brand-ribbon{gap:1.25rem;margin-top:.9rem;padding:.75rem 1rem}
+.about-page .about-final-cta{padding-block:30px}
+.about-page .about-final-copy{padding-block:.25rem}
+@media(max-width:900px){.about-page .about-section{padding-block:30px}.about-page .about-story-grid{gap:1.5rem}.about-page .about-story-collage{min-height:180px;max-height:190px}.about-page .about-difference-layout{gap:1.1rem}.about-page .about-values-grid{gap:.55rem}.about-page .about-value-card{padding:.7rem}.about-page .about-steps-layout{gap:1rem}.about-page .about-step{padding:.35rem .55rem}}
+@media(max-width:600px){.about-page .about-container,.about-page .about-hero-content{width:calc(100% - 32px)}.about-page .about-section{padding-block:26px}.about-page .about-quick-nav{gap:.45rem;padding:.65rem .75rem}.about-page .about-quick-nav a{padding:.55rem .75rem}.about-page .about-story-grid{gap:1.2rem}.about-page .about-story-collage{min-height:170px;max-height:180px}.about-page .about-categories .about-center:first-child{padding-right:0}.about-page .about-category-grid{gap:.65rem;margin-top:1.1rem}.about-page .about-difference-layout{gap:1rem}.about-page .about-values-grid{gap:.65rem}.about-page .about-community{padding-block:22px 16px}.about-page .about-community-heading{margin-bottom:.7rem}.about-page .about-trust-grid{gap:.6rem;margin-bottom:.8rem}.about-page .about-help-grid{gap:.7rem}.about-page .about-help-card{padding:.9rem}.about-page .about-brand-ribbon{gap:.7rem;padding:.7rem}.about-page .about-final-cta{padding-block:24px}}
+.about-page .about-community{background:#090a0b;color:#fff}
+.about-page .about-community-heading h2{color:#fff}
+.about-page .about-community-heading p{color:#d3d5d8}
+.about-page .about-community-heading>a{color:#55d98a}
+.about-page .about-trust-link{background:#151719;color:#fff!important;border-color:#3b3d3f;border-top:2px solid #e32636}
+.about-page .about-trust-link:nth-child(even){border-top-color:#38b66b}
+.about-page .about-trust-link strong{color:#fff}
+.about-page .about-trust-link span{color:#d0d2d4}
+.about-page .about-trust-link:hover,.about-page .about-trust-link:focus-visible{border-color:#55d98a;background:#1c2020}
+.about-page .about-help-card,.about-page .about-help-pink,.about-page .about-help-blue{background:#151719;color:#fff;border-color:#3b3d3f;box-shadow:0 8px 20px #0003}
+.about-page .about-help-pink{border-top:2px solid #e32636}
+.about-page .about-help-card:not(.about-help-pink):not(.about-help-blue){border-top:2px solid #fff}
+.about-page .about-help-blue{border-top:2px solid #38b66b}
+.about-page .about-help-card h3,.about-page .about-help-card li a{color:#fff}
+.about-page .about-help-card p,.about-page .about-help-card li span{color:#d0d2d4}
+.about-page .about-help-icon{border-color:#38b66b;color:#55d98a}
+.about-page .about-help-card .about-eyebrow{color:#ff5363}
+.about-page .about-help-blue .about-eyebrow{color:#55d98a}
+.about-page .about-help-card li a:hover{color:#55d98a}
+.about-page .about-brand-ribbon{background:#f7f7f7;color:#17181c}
+.about-page .about-brand-mark{color:#e32636}
+.about-page .about-brand-ribbon p{color:#313438}
+.about-page .about-brand-ribbon p strong{color:#188449}
+.about-page .about-ribbon-end{color:#17181c}
+.about-page .about-community{background:#f5f6f7;color:#17181c}
+.about-page .about-confidence-panel{margin-bottom:1rem;padding:1rem 1.1rem;border-radius:10px;background:#090a0b;color:#fff}
+.about-page .about-confidence-panel .about-community-heading{margin-bottom:.75rem}
+.about-page .about-help-card,.about-page .about-help-pink,.about-page .about-help-blue{background:#fff;color:#17181c;border:1px solid #ececef;box-shadow:none}
+.about-page .about-help-pink{background:linear-gradient(135deg,#fff5f6,#fff);border-left:3px solid #e32636}
+.about-page .about-help-blue{background:linear-gradient(135deg,#fff,#f0f4f8);border-left:3px solid #38b66b}
+.about-page .about-help-card h3,.about-page .about-help-card li a{color:#17181c}
+.about-page .about-help-card p,.about-page .about-help-card li span{color:#55565c}
+.about-page .about-help-icon{border-color:#e32636;color:#e32636}
+.about-page .about-help-card .about-eyebrow,.about-page .about-help-blue .about-eyebrow{color:#e32636}
+.about-page .about-brand-ribbon{background:#090a0b;color:#fff}
+.about-page .about-brand-mark,.about-page .about-brand-ribbon p strong{color:#fff}
+.about-page .about-brand-ribbon p,.about-page .about-ribbon-end{color:#e4e4e6}
+.about-page .about-hero-product-shoe{z-index:3;width:94%;max-height:70%;left:3%;top:0;bottom:auto}
+.about-page .about-hero-art-copy{position:absolute;z-index:1;inset:auto .75rem .65rem;text-align:center;color:#fff;text-shadow:0 2px 8px #000;font-size:.9rem;line-height:1.35}
+.about-page .about-hero-art-copy span,.about-page .about-hero-art-copy strong{display:block}
+.about-page .about-hero-art-copy span{color:#e1e1e5;font-size:.8rem;letter-spacing:.12em;text-transform:uppercase}
+.about-page .about-hero-art-copy strong{color:#fff;font-size:1.1rem}
+@media(max-width:600px){.about-page .about-hero-product-shoe{width:90%;max-height:64%;left:5%;top:0}.about-page .about-hero-art-copy{inset:auto .4rem .45rem}.about-page .about-hero-art-copy span{font-size:.68rem}.about-page .about-hero-art-copy strong{font-size:.95rem}}
+.about-page .about-hero-art{background:transparent;border-radius:0}
+.about-page .about-hero-art::before{display:none}
+.about-page .about-category-placeholder{color:var(--red)}
+.about-page .about-category-icon{width:42%;height:42%;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.about-page .about-category-grid-fallback .about-category-placeholder{background:#fff}
+.about-page .about-shop-arrow{width:17px;height:17px;margin-left:.25rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.about-page .find-fit-section{display:block!important;position:relative!important;clear:both;width:100%;min-height:270px!important;margin:0!important;padding:34px max(24px,calc((100% - 1180px)/2))!important;overflow:visible!important;visibility:visible!important;opacity:1!important;background:#f4f5f7!important;color:#111827!important}
+.about-page .find-fit-section>.about-container{display:block!important;width:100%!important;max-width:1180px!important;margin:0 auto!important;padding:0!important;visibility:visible!important;opacity:1!important}
+.about-page .find-fit-section .find-fit-eyebrow{margin:0 0 5px;color:#e32636;font-size:.72rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.about-page .find-fit-section .find-fit-heading{margin:0;font-size:clamp(1.35rem,2.4vw,1.8rem);line-height:1.15;letter-spacing:-.025em;color:#16171b}
+.about-page .find-fit-section .find-fit-description{margin:5px 0 0;color:#35363b;font-size:.9rem;line-height:1.45}
+.about-page .find-fit-grid{display:grid!important;grid-template-columns:repeat(8,minmax(0,1fr));gap:12px;width:100%;margin:16px 0 0;padding:0;visibility:visible!important;opacity:1!important}
+.about-page .fit-category-card{display:flex!important;visibility:visible!important;opacity:1!important;min-width:0;flex-direction:column;overflow:hidden;border:1px solid #e6e7e9;border-radius:10px;background:#fff;color:#16171b!important;text-decoration:none;box-shadow:0 3px 14px #12131a0a}
+.about-page .fit-category-image,.about-page .fit-category-placeholder{display:grid;width:100%;height:auto;aspect-ratio:1.05/1;object-fit:contain;padding:8px;background:#fff}
+.about-page .fit-category-placeholder{place-items:center;color:#e32636}
+.about-page .fit-category-icon{width:46%;height:46%;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.about-page .fit-category-info{display:block;padding:8px 5px 9px;text-align:center}
+.about-page .fit-category-info h3{margin:0;color:#17181c;font-size:.9rem;line-height:1.2}
+.about-page .fit-category-info p{margin:4px 0 0;color:#55565c;font-size:.75rem;line-height:1.35}
+.about-page .find-fit-action{display:flex;justify-content:flex-end;margin:0!important}
+.about-page .find-fit-action .about-btn{min-height:36px;padding:8px 12px;font-size:.82rem}
+@media(max-width:900px){.about-page .find-fit-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}
+@media(max-width:600px){.about-page .find-fit-section{padding:26px 16px!important}.about-page .find-fit-section>.about-container{width:100%!important}.about-page .find-fit-action{justify-content:flex-start;margin-top:14px!important}.about-page .find-fit-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}}
 </style>
 
 <div class="about-page">
@@ -598,121 +851,62 @@
             <div class="about-hero-copy">
                 <div class="about-eyebrow">Get to know FityStores</div>
 
-                <h1>BEI FITS<br><span>FityStores.</span></h1>
+                <h1>Good Style.<br><span>Fair Prices.</span></h1>
 
                 <p>
-                    Everyday essentials and practical fashion finds, available to browse online.
+                    Everyday fashion essentials that fit your style and your budget. Discover practical essentials and stylish finds without making shopping complicated.
                 </p>
 
-                <span class="about-slogan">Bei Fity, Fits Poa.</span>
+                <span class="about-slogan">FityStores — Style. Essentials. Everyday.</span>
 
                 <div class="about-hero-actions">
                     <a href="{{ url_for('public.shop') }}" class="about-btn about-btn-red">
-                        Shop Products
+                        Explore Our Collection <span aria-hidden="true">→</span>
                     </a>
 
                     <a href="{{ url_for('public.contact') }}" class="about-btn about-btn-outline">
-                        Contact Us
+                        Our Story
                     </a>
                 </div>
             </div>
-            {% if featured_products %}
-            <div class="about-hero-art" aria-label="A few products currently listed by FityStores">
-                {% for product in featured_products[:3] %}
-                {% set image = product_display_image(product) %}
-                <figure>
-                    {% if image %}<img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" width="540" height="540" loading="{{ 'eager' if loop.first else 'lazy' }}">
-                    {% else %}<div class="about-hero-empty" role="img" aria-label="{{ product.name }}">{{ product.name }}</div>{% endif %}
-                    <figcaption>{{ product.name }}</figcaption>
-                </figure>
-                {% endfor %}
+            <div class="about-hero-art" aria-hidden="true">
+                <img class="about-hero-product about-hero-product-shoe" src="{{ url_for('static', filename='images/shop-hero/shoe3.fitistores-removebg-preview.png') }}" alt="" width="560" height="420" loading="eager">
+                <div class="about-hero-art-copy"><span>Everyday Essentials</span><strong>Fair prices for your fit.</strong></div>
             </div>
-            {% else %}<div class="about-hero-art"><div class="about-hero-empty" role="img" aria-label="BEI FITS / FityStores">BEI FITS</div></div>
-            {% endif %}
+            <aside class="about-hero-benefits" aria-label="Shopping at FityStores">
+                <div class="about-hero-benefit"><span class="about-hero-benefit-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 7h12v11H3zM15 11h4l3 3v4h-7zM7 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM18 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg></span><span><strong>Collection or Delivery</strong><small>See the available options for your order.</small></span></div>
+                <div class="about-hero-benefit"><span class="about-hero-benefit-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 20 6v5c0 5-3.4 8.2-8 10-4.6-1.8-8-5-8-10V6l8-3Z"/><path d="m8.5 12 2.2 2.2 4.8-5"/></svg></span><span><strong>Clear Checkout</strong><small>Review your order before you place it.</small></span></div>
+                <div class="about-hero-benefit"><span class="about-hero-benefit-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v18M17 7.5c0-1.7-2-3-5-3S7 5.8 7 7.5s2 2.7 5 3.5 5 1.8 5 3.5-2 3-5 3-5-1.3-5-3"/></svg></span><span><strong>Everyday Prices</strong><small>Practical finds for a smaller budget.</small></span></div>
+            </aside>
         </div>
     </section>
+
+    {% include "partials/about_find_fit.html" %}
 
     <!-- OUR STORY -->
-    <nav class="about-quick-nav" aria-label="Explore FityStores"><a href="#our-story">Our story</a><a href="#what-we-sell">Categories</a><a href="#about-featured">Current products</a><a href="#about-values">Our values</a><a href="#about-steps">How ordering works</a><a href="#about-help">Get help &amp; FAQ</a></nav>
-<section class="about-section" id="our-story">
+<nav class="about-quick-nav" aria-label="Explore FityStores"><a href="#our-story">Our Story</a><a href="#what-we-sell">What We Sell</a><a href="#about-values">Our Values</a><a href="#about-steps">How Ordering Works</a><a href="#about-help">Get Help</a></nav>
+<section class="about-section about-story-section" id="our-story">
         <div class="about-container about-story-grid">
-
             <div class="about-story-copy">
                 <div class="about-eyebrow">Who we are</div>
-
-                <h2 class="about-heading">
-                    Everyday essentials, easy to explore.
-                </h2>
-
-                <p>
-                    BEI FITS / FityStores is an online merchandise shop for everyday fashion essentials and practical finds.
-                </p>
-
-                <p>
-                    Browse current listings, review each product's details and availability, then contact the shop if you need help choosing or ordering.
-                </p>
-
-                <div class="about-highlight">
-                    Bei Fity, Fits Poa.
-                </div>
+                <h2 class="about-heading">Fashion should not have to cost a fortune.</h2>
+                <p>FityStores is a merchandise shop focused on making everyday fashion essentials accessible, convenient, and affordable.</p>
+                <p>We bring together practical products and stylish finds for students and people in the surrounding neighbourhood.</p>
+                <div class="about-highlight">From socks, bonnets, and hair accessories to underwear, boxers, vests, and shoes, our goal is to make finding everyday essentials simple.<br><span>— FityStores</span></div>
             </div>
-
-            <div>
-                {% set story_product = featured_products[0] if featured_products else none %}
-                {% set story_image = product_display_image(story_product) if story_product else none %}
-                {% if story_image %}
-                <img class="about-story-image" src="{{ product_image_url(story_image) }}" alt="{{ product_image_alt(story_image) }}" width="720" height="540" loading="lazy">
-                {% else %}<div class="about-story-empty" role="img" aria-label="BEI FITS / FityStores">BEI FITS</div>{% endif %}
-            </div>
-
-        </div>
-    </section>
-
-    <!-- PRODUCT CATEGORIES -->
-    <section class="about-section about-categories" id="what-we-sell">
-        <div class="about-container">
-
-            <div class="about-center">
-                <div class="about-eyebrow">Find your fit</div>
-
-                <h2 class="about-heading">
-                    Everyday Essentials.<br>
-                    More Ways to Fit Your Style.
-                </h2>
-
-                <p class="about-description">
-                    Explore practical essentials and stylish finds
-                    for everyday use. Browse the collection to see
-                    what's currently available.
-                </p>
-            </div>
-
-            {% if categories %}
-            <div class="about-category-grid">
-                {% for category in categories %}
-                {% set product = category_images.get(category.id) %}
-                {% set image = product_display_image(product) if product else none %}
-                <a href="{{ url_for('public.shop', category=category.slug) }}" class="about-category">
-                    {% if image %}
-                    <img class="about-category-image" src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" width="540" height="405" loading="lazy">
-                    {% else %}<div class="about-category-placeholder" aria-hidden="true">{{ category.name }}</div>{% endif %}
-                    <div class="about-category-info">
-                        <h3>{{ category.name }}</h3>
-                        <p>View current {{ category.name|lower }} listings.</p>
-                    </div>
-                </a>
+            <div class="about-story-collage" aria-label="A selection of FityStores products">
+                {% for i in range(3) %}
+                    {% set story_product = featured_products[i] if featured_products|length > i else none %}
+                    {% set story_image = product_display_image(story_product) if story_product else none %}
+                    <figure class="about-story-photo about-story-photo-{{ i }}">
+                    {% if story_image %}<img src="{{ product_image_url(story_image) }}" alt="{{ product_image_alt(story_image) }}" loading="lazy">
+                    {% elif i == 0 %}<img src="{{ url_for('static', filename='images/shop-hero/hb-removebg-preview.png') }}" alt="Satin hair bonnet" loading="lazy">
+                    {% elif i == 1 %}<img src="{{ url_for('static', filename='images/shop-hero/hair_bonnet-removebg-preview.webp') }}" alt="Hair bonnet" loading="lazy">
+                    {% else %}<img src="{{ url_for('static', filename='images/shop-hero/shoe3.fitistores-removebg-preview.png') }}" alt="Everyday shoe" loading="lazy'>{% endif %}
+                    {% if story_product %}<figcaption>{{ story_product.name }}</figcaption>{% endif %}
+                    </figure>
                 {% endfor %}
             </div>
-            {% else %}
-            <p class="about-empty">Product categories will appear here when items are available in the shop.</p>
-            {% endif %}
-
-            <div class="about-center" style="margin-top:35px;">
-                <a href="{{ url_for('public.shop') }}" class="about-btn about-btn-red">
-                    Browse the Shop
-                </a>
-            </div>
-
         </div>
     </section>
 
@@ -733,144 +927,66 @@
         </div>
     </section>
 
-    <!-- OUR VALUES -->
-    <section class="about-section">
-        <div class="about-container">
-
-            <div class="about-center">
+    <!-- WHY SHOP WITH US -->
+    <section class="about-section about-difference" id="about-values">
+        <div class="about-container about-difference-layout">
+            {% set difference_product = featured_products[3] if featured_products|length > 3 else (featured_products[0] if featured_products else none) %}
+            {% set difference_image = product_display_image(difference_product) if difference_product else none %}
+            <div class="about-difference-photo">
+                {% if difference_image %}<img src="{{ product_image_url(difference_image) }}" alt="{{ product_image_alt(difference_image) }}" loading="lazy">
+                {% else %}<img src="{{ url_for('static', filename='images/shop-hero/shoe3.fitistores-removebg-preview.png') }}" alt="Everyday shoe from the FityStores collection" loading="lazy">{% endif %}
+            </div>
+            <div class="about-difference-copy">
                 <div class="about-eyebrow">The FityStores difference</div>
                 <h2 class="about-heading">What Matters to Us</h2>
-                <p class="about-description">
-                    A straightforward shopping experience built around
-                    affordability, honest information, and convenience.
-                </p>
-            </div>
-
-            <div class="about-values-grid">
-
-                <article class="about-value-card">
-                    <div class="about-value-number">01</div>
-                    <h3>Affordable Choices</h3>
-                    <p>
-                        We focus on everyday essentials and fair prices,
-                        helping customers shop with their budgets in mind.
-                    </p>
-                </article>
-
-                <article class="about-value-card">
-                    <div class="about-value-number">02</div>
-                    <h3>Honest Service</h3>
-                    <p>
-                        We aim to provide clear product information,
-                        transparent pricing, and honest updates about
-                        availability.
-                    </p>
-                </article>
-
-                <article class="about-value-card">
-                    <div class="about-value-number">03</div>
-                    <h3>Convenient Shopping</h3>
-                    <p>
-                        Browse products online and choose from the
-                        collection or delivery options supported by
-                        the shop.
-                    </p>
-                </article>
-
+                <p class="about-description">A straightforward shopping experience built around affordability, honest information, and convenience.</p>
+                <div class="about-values-grid">
+                    <article class="about-value-card"><div class="about-value-number" aria-hidden="true">$</div><h3>Affordable Choices</h3><p>Everyday essentials and practical style finds to browse with your budget in mind.</p></article>
+                    <article class="about-value-card"><div class="about-value-number" aria-hidden="true">✓</div><h3>Honest Service</h3><p>Clear product information, transparent prices, and updates about availability.</p></article>
+                    <article class="about-value-card"><div class="about-value-number" aria-hidden="true">♡</div><h3>Convenient Shopping</h3><p>Browse online and review collection or delivery options supported by the shop.</p></article>
+                </div>
             </div>
         </div>
     </section>
 
     <!-- HOW SHOPPING WORKS -->
     <section class="about-section about-steps" id="about-steps">
-        <div class="about-container">
-
-            <div class="about-eyebrow">Simple from start to finish</div>
-            <h2 class="about-heading">Shopping Made Simple</h2>
-
-            <p class="about-description">
-                Finding your essentials doesn't need to be complicated.
-                Here's how to get started.
-            </p>
-
+        <div class="about-container about-steps-layout">
+            <div class="about-steps-intro"><div class="about-eyebrow">Simple from start to finish</div><h2 class="about-heading">Shopping Made Simple</h2><p class="about-description">Finding your everyday essentials does not need to be complicated. Here is how to get started.</p><a class="about-step-shop-link" href="{{ url_for('public.shop') }}">Browse the shop <span aria-hidden="true">→</span></a></div>
             <div class="about-steps-grid">
-
-                <article class="about-step">
-                    <div class="about-step-number">01</div>
-                    <h3>Browse</h3>
-                    <p>
-                        Explore the available products and choose
-                        what you need.
-                    </p>
-                </article>
-
-                <article class="about-step">
-                    <div class="about-step-number">02</div>
-                    <h3>Check the Details</h3>
-                    <p>
-                        Review prices, descriptions, available sizes
-                        or colours, and stock information.
-                    </p>
-                </article>
-
-                <article class="about-step">
-                    <div class="about-step-number">03</div>
-                    <h3>Place Your Order</h3>
-                    <p>
-                        Add available items to your cart and follow
-                        the website's ordering process.
-                    </p>
-                </article>
-
-                <article class="about-step">
-                    <div class="about-step-number">04</div>
-                    <h3>Collect or Receive</h3>
-                    <p>
-                        Follow the shop's instructions for supported
-                        collection or delivery options.
-                    </p>
-                </article>
-
+                <article class="about-step"><div class="about-step-number">01</div><span class="about-step-icon" aria-hidden="true">⌕</span><h3>Browse</h3><p>Explore available products and choose what you need.</p></article>
+                <article class="about-step"><div class="about-step-number">02</div><span class="about-step-icon" aria-hidden="true">▤</span><h3>Check the Details</h3><p>Review prices, descriptions, options, and stock information.</p></article>
+                <article class="about-step"><div class="about-step-number">03</div><span class="about-step-icon" aria-hidden="true">▱</span><h3>Place Your Order</h3><p>Add available items to your cart and follow checkout.</p></article>
+                <article class="about-step"><div class="about-step-number">04</div><span class="about-step-icon" aria-hidden="true">⇢</span><h3>Collect or Receive</h3><p>Follow the shop's instructions for available fulfilment options.</p></article>
             </div>
-
-            <div style="margin-top:32px;">
-                <a href="{{ url_for('public.shop') }}" class="about-btn about-btn-red">
-                    Start Shopping
-                </a>
-                <a href="{{ url_for('public.cart') }}" class="about-btn about-btn-white"
-                   style="margin-left:8px;">
-                    View Cart
-                </a>
-            </div>
-
         </div>
     </section>
 
-    <!-- PRACTICAL HELP -->
-    <section class="about-section" id="about-help">
+    <!-- COMMUNITY AND SHOPPER HELP -->
+    <section class="about-section about-community" id="about-help">
         <div class="about-container">
-            <div class="about-center">
-                <div class="about-eyebrow">Helpful answers</div>
-                <h2 class="about-heading">A few things to know</h2>
+            <div class="about-confidence-panel">
+            <div class="about-community-heading"><div><h2>Shop with confidence</h2><p>Useful information and help are easy to find while you shop.</p></div><a href="{{ url_for('public.contact') }}">Need a hand? Contact us <span aria-hidden="true">→</span></a></div>
+            <div class="about-trust-grid">
+                <a class="about-trust-link" href="{{ url_for('public.shop') }}"><strong>Browse Products</strong><span>Explore current product details, prices, and options.</span></a>
+                <a class="about-trust-link" href="{{ url_for('public.track_order') }}"><strong>Track Your Order</strong><span>Check order progress using the details requested on the tracking page.</span></a>
+                <a class="about-trust-link" href="{{ url_for('public.contact') }}"><strong>Talk to the Shop</strong><span>Ask about a product, availability, or an order.</span></a>
+                <a class="about-trust-link" href="{{ url_for('public.delivery_policy') }}"><strong>Collection &amp; Delivery</strong><span>Review the current fulfilment information before ordering.</span></a>
             </div>
-            <div class="about-faq">
-                <details>
-                    <summary>How do I place an order?</summary>
-                    <p>Open a product to check its details and available options, add it to your cart, then follow the checkout instructions shown on the site.</p>
-                </details>
-                <details>
-                    <summary>How can I check if something is available?</summary>
-                    <p>Check the product page for current stock and options. If its price or availability needs confirmation, contact the shop before paying.</p>
-                </details>
-                <details>
-                    <summary>How do collection and delivery work?</summary>
-                    <p>See the current <a href="{{ url_for('public.delivery_policy') }}">delivery and collection information</a> and the options shown during checkout. Contact the shop if you need clarification.</p>
-                </details>
-                <details>
-                    <summary>How do I get help with an order?</summary>
-                    <p>Use the <a href="{{ url_for('public.contact') }}">Contact page</a>. For an order update, use the site's <a href="{{ url_for('public.track_order') }}">order tracking page</a> when you have the requested details.</p>
-                </details>
             </div>
+            <div class="about-help-grid">
+                <article class="about-help-card about-help-pink"><div class="about-help-icon" aria-hidden="true">?</div><div class="about-eyebrow">Help shape the collection</div><h3>Can't Find What You're Looking For?</h3><p>Tell us what you would love to see in the FityStores collection. Your suggestion helps us understand what customers are looking for.</p><a class="about-btn about-btn-red" href="{{ url_for('public.contact') }}">Suggest a Product <span aria-hidden="true">→</span></a></article>
+                <article class="about-help-card"><div class="about-eyebrow">Need some help?</div><h3>Looking for Something That's Out of Stock?</h3><p>Some products, sizes, or colours may not always be available. Contact us to ask about availability or other options.</p><a class="about-btn about-btn-red" href="{{ url_for('public.contact') }}">Ask About a Product <span aria-hidden="true">→</span></a></article>
+                <article class="about-help-card about-help-blue"><div class="about-eyebrow">Clear information matters</div><h3>Shop With Confidence</h3><p>Check the available information and contact the shop if you need help before placing an order.</p><ul><li><a href="{{ url_for('public.contact') }}">Contact Us</a><span>Ask questions about products and orders.</span></li><li><a href="{{ url_for('public.track_order') }}">Track Your Order</a><span>Check order updates with your details.</span></li><li><a href="{{ url_for('public.shop') }}">Browse Products</a><span>Explore products and check their details.</span></li></ul></article>
+            </div>
+            <div class="about-faq about-help-faq" aria-label="Frequently asked questions">
+                <h2 class="about-heading">Helpful Answers</h2>
+                <details><summary>How do I place an order?</summary><p>Open a product to check its details and available options, add it to your cart, then follow the checkout instructions shown on the site.</p></details>
+                <details><summary>How can I check if something is available?</summary><p>Check the product page for current stock and options. If its price or availability needs confirmation, contact the shop before paying.</p></details>
+                <details><summary>How do collection and delivery work?</summary><p>See the current <a href="{{ url_for('public.delivery_policy') }}">delivery and collection information</a> and the options shown during checkout. Contact the shop if you need clarification.</p></details>
+                <details><summary>How do I get help with an order?</summary><p>Use the <a href="{{ url_for('public.contact') }}">Contact page</a>. For an order update, use the site's <a href="{{ url_for('public.track_order') }}">order tracking page</a> when you have the requested details.</p></details>
+            </div>
+            <div class="about-brand-ribbon"><span class="about-brand-mark">FityStores</span><p><strong>Bei Fity, Fits Poa.</strong><br>Everyday essentials. Practical style. Easy to explore.</p><span class="about-ribbon-end">More than a shop.<br>A place to find your fit.</span></div>
         </div>
     </section>
 
@@ -878,27 +994,8 @@
     <section class="about-final-cta">
         <div class="about-container">
 
-            <div class="about-eyebrow">Your next find starts here</div>
-
-            <h2>Your Style. Your Budget. Your Fit.</h2>
-
-            <p>
-                Discover everyday essentials and find what works for you.
-            </p>
-
-            <div class="about-slogan">
-                Bei Fity, Fits Poa.
-            </div>
-
-            <div class="about-hero-actions" style="justify-content:center;">
-                <a href="{{ url_for('public.shop') }}" class="about-btn about-btn-red">
-                    Shop FityStores
-                </a>
-
-                <a href="{{ url_for('public.contact') }}" class="about-btn about-btn-outline">
-                    Contact Us
-                </a>
-            </div>
+            <div class="about-final-copy"><div class="about-eyebrow">Your next find starts here</div><h2>Your Style. Your Budget. Your Fit.</h2><p>Discover everyday essentials and find what works for you.</p><span class="about-slogan">FityStores — Style. Essentials. Everyday.</span><div class="about-hero-actions"><a href="{{ url_for('public.shop') }}" class="about-btn about-btn-red">Shop FityStores <span aria-hidden="true">→</span></a><a href="{{ url_for('public.contact') }}" class="about-btn about-btn-outline">Contact Us</a></div></div>
+            <img class="about-final-shoe" src="{{ url_for('static', filename='images/shop-hero/shoe3.fitistores-removebg-preview.png') }}" alt="" loading="lazy">
 
         </div>
     </section>

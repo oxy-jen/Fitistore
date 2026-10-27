@@ -10,18 +10,25 @@ from secrets import randbelow, token_urlsafe
 from urllib.parse import urlsplit
 
 from email_validator import EmailNotValidError, validate_email
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db, csrf
-from app.models import AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, Product
+from app.models import AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, Order, Product, Review
 from app.services.customer_mail import mail_configuration_status, queue_branded_email
+from app.services.product_images import product_display_image, product_image_alt, product_image_url
 
 customer_bp = Blueprint("customer", __name__, url_prefix="/account")
 CONSENT_TEXT_VERSION = "2026-10-explicit-registration-opt-in"
 logger = logging.getLogger(__name__)
+
+
+def _login_customer(account):
+    """Keep a customer signed in across page navigation and browser restarts."""
+    login_user(account, remember=True)
+    session.permanent = True
 
 
 def _public_url(endpoint, **values):
@@ -63,7 +70,7 @@ def customer_required(view):
 
 def _safe_customer_next(value):
     parsed = urlsplit((value or "").strip())
-    allowed_path = parsed.path in {"/account", "/account/", "/referrals"}
+    allowed_path = parsed.path in {"/account", "/account/", "/referrals", "/checkout"}
     if parsed.scheme or parsed.netloc or not allowed_path or parsed.path.startswith("//") or "\\" in parsed.path:
         return url_for("customer.dashboard")
     return parsed.path + (("?" + parsed.query) if parsed.query else "")
@@ -106,7 +113,7 @@ def _find_token(raw, purpose):
     return row
 
 
-def _send_token_email(account, purpose, raw):
+def _send_token_email(account, purpose, raw, next_url=None):
     if purpose == "verify_email":
         path = "customer.verify_email"
         subject = "Verify your FityStores email"
@@ -125,7 +132,10 @@ def _send_token_email(account, purpose, raw):
         heading = "Confirm promotional email preferences"
         text = "Confirm that you would like to receive occasional FityStores offers, new arrivals, and promotions by email."
         minutes = 24 * 60
-    url = _public_url(path, token=raw)
+    url_values = {"token": raw}
+    if purpose == "verify_email" and next_url:
+        url_values["next"] = _safe_customer_next(next_url)
+    url = _public_url(path, **url_values)
     event_key = hashlib.sha256(raw.encode()).hexdigest()[:24]
     return queue_branded_email(
         account.email, subject, purpose, f"{purpose}:{event_key}", heading, [text], account_id=account.id,
@@ -133,7 +143,7 @@ def _send_token_email(account, purpose, raw):
     )
 
 
-def _issue_and_send(account, purpose, minutes=None):
+def _issue_and_send(account, purpose, minutes=None, next_url=None):
     raw = token_urlsafe(32)
     token_row = CustomerToken(
         account_id=account.id,
@@ -144,7 +154,7 @@ def _issue_and_send(account, purpose, minutes=None):
     db.session.add(token_row)
     db.session.commit()
     try:
-        result = _send_token_email(account, purpose, raw)
+        result = _send_token_email(account, purpose, raw, next_url=next_url)
     except Exception:
         token_row.used_at = datetime.utcnow()
         db.session.commit()
@@ -256,25 +266,29 @@ def _google_email_authoritative(claims):
 
 @customer_bp.route("/register", methods=["GET", "POST"])
 def register():
+    next_url = _safe_customer_next(request.values.get("next"))
     if request.method == "POST":
+        if request.form.get("accept_terms") != "yes":
+            flash("Please accept the Terms and Conditions and acknowledge the Privacy Notice to create an account.", "error")
+            return render_template("customer/register.html", title="Create account", next_url=next_url)
         email_input = request.form.get("email", "")
         key = email_input.strip().lower()[:254]
         if not _rate_allowed("register", key):
             flash("Please wait before trying registration again.", "warning")
-            return render_template("customer/register.html", title="Create account")
+            return render_template("customer/register.html", title="Create account", next_url=next_url)
         try:
             email = normalize_email(email_input)
         except (EmailNotValidError, AttributeError, TypeError):
             flash("Enter a valid email address.", "error")
-            return render_template("customer/register.html", title="Create account")
+            return render_template("customer/register.html", title="Create account", next_url=next_url)
         name = request.form.get("display_name", "").strip()[:120]
         password = request.form.get("password", "")
         if len(name) < 1 or len(password) < 12 or len(password) > 128 or password != request.form.get("confirm_password", ""):
             flash("Enter your name and a matching password of at least 12 characters.", "error")
-            return render_template("customer/register.html", title="Create account")
+            return render_template("customer/register.html", title="Create account", next_url=next_url)
         if CustomerAccount.query.filter_by(email=email).first():
             flash("If this address can be registered, we will send the next steps to it.", "info")
-            return redirect(url_for("customer.login"))
+            return redirect(url_for("customer.login", next=next_url))
         account = CustomerAccount(email=email, display_name=name, password_hash=generate_password_hash(password))
         db.session.add(account)
         try:
@@ -282,20 +296,20 @@ def register():
         except IntegrityError:
             db.session.rollback()
             flash("If this address can be registered, we will send the next steps to it.", "info")
-            return redirect(url_for("customer.login"))
+            return redirect(url_for("customer.login", next=next_url))
         if request.form.get("marketing_opt_in") == "yes":
             # Explicit opt-in is independent of account terms and is confirmed by email.
             _record_consent(account, "requested", "registration_explicit_opt_in")
         db.session.commit()
-        result = _issue_and_send(account, "verify_email")
+        result = _issue_and_send(account, "verify_email", next_url=next_url)
         if account.marketing_status == "pending":
             _issue_and_send(account, "marketing_confirm")
         flash(
             "Your FityStores account was created. " + _delivery_message(result),
             "success" if result and result.status == "sent" else "warning",
         )
-        return redirect(url_for("customer.login"))
-    return render_template("customer/register.html", title="Create account")
+        return redirect(url_for("customer.login", next=next_url))
+    return render_template("customer/register.html", title="Create account", next_url=next_url)
 
 
 @customer_bp.route("/login", methods=["GET", "POST"])
@@ -315,7 +329,7 @@ def login():
                     return _begin_code_challenge(account, "verify_code", next_url)
                 if account.two_factor_enabled:
                     return _begin_code_challenge(account, "login_code", next_url)
-                login_user(account)
+                _login_customer(account)
                 return redirect(next_url)
             flash("The email or password was not recognized.", "error")
     return render_template(
@@ -382,7 +396,7 @@ def verify_code():
                     next_url = session.pop("pending_customer_next", None)
                     session.pop("pending_customer_id", None)
                     session.pop("pending_customer_purpose", None)
-                    login_user(account)
+                    _login_customer(account)
                     flash("Your email is verified." if purpose == "verify_code" else "You are signed in.", "success")
                     return redirect(_safe_customer_next(next_url))
         db.session.commit()
@@ -438,7 +452,80 @@ def logout():
 @customer_bp.route("/")
 @customer_required
 def dashboard():
-    links = CustomerOrderLink.query.filter_by(account_id=current_user.id).order_by(CustomerOrderLink.created_at.desc()).all()
+    links = CustomerOrderLink.query.filter_by(account_id=current_user.id).order_by(CustomerOrderLink.created_at.desc()).limit(20).all()
+    activity = []
+
+    def add_activity(occurred_at, title, detail, kind="account", href=None):
+        if occurred_at:
+            activity.append({
+                "occurred_at": occurred_at,
+                "title": title,
+                "detail": detail,
+                "kind": kind,
+                "href": href,
+            })
+
+    add_activity(current_user.created_at, "Account created", "Your FityStores customer account was created.")
+    add_activity(current_user.email_verified_at, "Email verified", "Your email address was verified.")
+    for link in links:
+        order = link.order
+        tracking_url = url_for(
+            "public.track_order",
+            reference=order.reference,
+            tracking_token=order.tracking_token,
+        )
+        add_activity(
+            order.created_at,
+            "Order placed",
+            f"You placed order {order.reference}.",
+            "order",
+            tracking_url,
+        )
+        for event in order.history:
+            if event.field == "status":
+                add_activity(
+                    event.created_at,
+                    "Order status updated",
+                    f"Order {order.reference}: {event.new_value}.",
+                    "order",
+                    tracking_url,
+                )
+            elif event.field == "payment_status":
+                add_activity(
+                    event.created_at,
+                    "Payment status updated",
+                    f"Order {order.reference}: {event.new_value}.",
+                    "payment",
+                    tracking_url,
+                )
+
+    reviews = Review.query.filter_by(customer_account_id=current_user.id).order_by(
+        Review.created_at.desc(), Review.id.desc()
+    ).limit(10).all()
+    for review in reviews:
+        product_name = review.product.name if review.product else "FityStores"
+        add_activity(
+            review.created_at,
+            "Review submitted",
+            f"Your review for {product_name} is {review.status}.",
+            "review",
+            url_for("public.reviews"),
+        )
+
+    consent_events = CustomerConsentEvent.query.filter_by(account_id=current_user.id).order_by(
+        CustomerConsentEvent.created_at.desc(), CustomerConsentEvent.id.desc()
+    ).limit(10).all()
+    consent_copy = {
+        "requested": ("Promotional email requested", "You requested promotional email confirmation."),
+        "confirmed": ("Promotional email confirmed", "You confirmed promotional email."),
+        "withdrawn": ("Promotional email stopped", "You withdrew promotional email consent."),
+    }
+    for event in consent_events:
+        title, detail = consent_copy.get(event.event, ("Email preference updated", "Your email preference changed."))
+        add_activity(event.created_at, title, detail, "preference")
+
+    activity.sort(key=lambda item: item["occurred_at"], reverse=True)
+    activity = activity[:15]
     fresh_arrivals = Product.query.filter_by(active=True).order_by(Product.created_at.desc(), Product.id.desc()).limit(6).all()
     fresh_ids = {product.id for product in fresh_arrivals}
     discounted_products = Product.query.filter(
@@ -448,7 +535,69 @@ def dashboard():
         Product.previous_price_cents > Product.price_cents,
         Product.id.notin_(fresh_ids),
     ).order_by(Product.updated_at.desc(), Product.id.desc()).limit(6).all()
-    return render_template("customer/dashboard.html", title="Your FityStores account", account=current_user, order_links=links, fresh_arrivals=fresh_arrivals, discounted_products=discounted_products, mail_configured=mail_configuration_status()[0], google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""))
+    return render_template("customer/dashboard.html", title="Your FityStores account", account=current_user, order_links=links, activity=activity, fresh_arrivals=fresh_arrivals, discounted_products=discounted_products, mail_configured=mail_configuration_status()[0], google_client_id=current_app.config.get("GOOGLE_CLIENT_ID", ""))
+
+
+@customer_bp.post("/orders/link")
+@customer_required
+def link_guest_order():
+    """Claim an unlinked order only when the customer proves possession of its tracking token."""
+    if not current_user.email_verified_at:
+        flash("Verify your email before linking an order.", "warning")
+        return redirect(url_for("customer.dashboard"))
+    reference = request.form.get("reference", "").strip().upper()[:24]
+    tracking_token = request.form.get("tracking_token", "").strip()[:96]
+    order = Order.query.filter_by(reference=reference, tracking_token=tracking_token).first() if reference and tracking_token else None
+    if not order:
+        flash("We could not link that order. Check the reference and private tracking token, then try again.", "error")
+        return redirect(url_for("customer.dashboard") + "#account-orders")
+    existing = CustomerOrderLink.query.filter_by(order_id=order.id).first()
+    if existing and existing.account_id != current_user.id:
+        # Do not reveal whether another account owns this order.
+        flash("We could not link that order. Check the reference and private tracking token, then try again.", "error")
+    elif existing:
+        flash("That order is already linked to your account.", "info")
+    else:
+        db.session.add(CustomerOrderLink(account_id=current_user.id, order_id=order.id))
+        try:
+            db.session.commit()
+            flash("Order linked. You can now view it in your account.", "success")
+        except IntegrityError:
+            db.session.rollback()
+            flash("We could not link that order. Check the reference and private tracking token, then try again.", "error")
+    return redirect(url_for("customer.dashboard") + "#account-orders")
+
+
+@customer_bp.get("/recent-products")
+@customer_required
+def recent_products():
+    """Return active catalogue details for the small set of IDs stored in this browser."""
+    ids = []
+    for raw_id in request.args.getlist("id")[:8]:
+        try:
+            product_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if product_id > 0 and product_id not in ids:
+            ids.append(product_id)
+    if not ids:
+        return jsonify(products=[])
+    found = Product.query.filter(Product.id.in_(ids), Product.active.is_(True)).all()
+    by_id = {product.id: product for product in found}
+    products = []
+    for product_id in ids:
+        product = by_id.get(product_id)
+        if not product:
+            continue
+        image = product_display_image(product)
+        products.append({
+            "id": product.id,
+            "name": product.name,
+            "url": url_for("public.product_detail", slug=product.slug),
+            "image_url": product_image_url(image) if image else "",
+            "image_alt": product_image_alt(image, product.name) if image else product.name,
+        })
+    return jsonify(products=products)
 
 
 @customer_bp.post("/profile")
@@ -482,6 +631,30 @@ def subscribe_marketing():
     return redirect(url_for("customer.dashboard"))
 
 
+@customer_bp.post("/newsletter")
+def footer_newsletter_signup():
+    email_input = request.form.get("email", "").strip()
+    if not _rate_allowed("footer_newsletter", email_input.lower()[:254], limit=4, window_minutes=60):
+        flash("If that address is eligible, we will send an email confirmation. Promotional messages stay off until confirmed.", "info")
+        return redirect(url_for("public.home"))
+    try:
+        email = normalize_email(email_input)
+    except (EmailNotValidError, AttributeError, TypeError):
+        flash("Enter a valid email address to request newsletter confirmation.", "error")
+        return redirect(url_for("public.home"))
+
+    account = CustomerAccount.query.filter_by(email=email, active=True).first()
+    if account and account.email_verified_at and account.marketing_status not in {"subscribed", "suppressed"}:
+        _record_consent(account, "requested", "footer_newsletter")
+        db.session.commit()
+        try:
+            _issue_and_send(account, "marketing_confirm")
+        except Exception:
+            logger.warning("Footer newsletter confirmation could not be prepared error_type=%s", "delivery_error")
+    flash("If that address is eligible, we will send an email confirmation. Promotional messages stay off until confirmed. No account yet? Create one and choose the optional email offers preference.", "info")
+    return redirect(url_for("public.home"))
+
+
 
 @customer_bp.post("/marketing/unsubscribe")
 @customer_required
@@ -495,20 +668,21 @@ def unsubscribe_account():
 @customer_bp.route("/verify/<token>", methods=["GET", "POST"])
 def verify_email(token):
     row = _find_token(token, "verify_email")
+    next_url = _safe_customer_next(request.values.get("next"))
     if request.method == "GET":
         valid = bool(row and not row.account.email_verified_at)
         heading = "Verify your email"
         if row and row.account.email_verified_at:
             heading = "Email already verified"
-        return render_template("customer/confirm_token.html", title=heading, heading=heading, action=url_for("customer.verify_email", token=token), valid=valid)
+        return render_template("customer/confirm_token.html", title=heading, heading=heading, action=url_for("customer.verify_email", token=token, next=next_url), valid=valid)
     if not row:
         flash("That verification link is invalid, expired, or already used. Sign in and request another if your email is not verified.", "error")
-        return redirect(url_for("customer.login"))
+        return redirect(url_for("customer.login", next=next_url))
     if row.account.email_verified_at:
         row.used_at = row.used_at or datetime.utcnow()
         db.session.commit()
         flash("Your email is already verified.", "info")
-        return redirect(url_for("customer.login"))
+        return redirect(url_for("customer.login", next=next_url))
     verified_at = datetime.utcnow()
     row.used_at = verified_at
     row.account.email_verified_at = row.account.email_verified_at or verified_at
@@ -522,7 +696,7 @@ def verify_email(token):
     db.session.commit()
     queue_branded_email(row.account.email, "Welcome to FityStores", "welcome", f"welcome:{row.account.id}", "Welcome to FityStores", ["Your account is ready. You can view your linked orders and manage your account preferences on our website."], account_id=row.account.id, button_url=_public_url("customer.dashboard"), button_text="View your account")
     flash("Your email is verified.", "success")
-    return redirect(url_for("customer.login"))
+    return redirect(url_for("customer.login", next=next_url))
 
 
 @customer_bp.post("/verification/resend")
@@ -644,10 +818,13 @@ def google_signin():
             return _begin_code_challenge(account, "verify_code", next_url)
         if account.two_factor_enabled:
             return _begin_code_challenge(account, "login_code", next_url)
-        login_user(account)
+        _login_customer(account)
         return redirect(next_url)
     if CustomerAccount.query.filter_by(email=claims["email"]).first():
         flash("An account already uses this email. Sign in with its existing method, then link Google from your account.", "warning")
+        return redirect(url_for("customer.login", next=next_url))
+    if request.form.get("accept_terms") != "yes":
+        flash("Please accept the Terms and Conditions and acknowledge the Privacy Notice before creating a customer account.", "error")
         return redirect(url_for("customer.login", next=next_url))
     account = CustomerAccount(
         email=claims["email"], display_name=claims.get("name", ""),
@@ -665,7 +842,7 @@ def google_signin():
     db.session.commit()
     if account.marketing_status == "pending":
         _issue_and_send(account, "marketing_confirm")
-    login_user(account)
+    _login_customer(account)
     flash("Your Google account is verified and ready to use.", "success")
     return redirect(next_url)
 
