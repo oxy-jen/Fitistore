@@ -30,6 +30,7 @@ from scripts.customer_email_schema_guard import (
     required_settings,
     run,
     _safe_driver_versions,
+    safe_failure,
     validate_dispatch_request,
     validate_column_snapshot,
     validate_fk_options,
@@ -37,6 +38,7 @@ from scripts.customer_email_schema_guard import (
     validate_identity,
     validate_missing_state,
     validate_schema,
+    write_summary,
 )
 
 
@@ -263,7 +265,11 @@ def test_preflight_error_reports_safe_driver_diagnostics_without_raw_error(monke
 
 
 @pytest.mark.parametrize("message,expected", [
-    ("certificate verify failed for private-host", "TLS verification/configuration error"),
+    ("unable to get local issuer certificate for private-host", "CA trust/certificate-chain verification failure"),
+    ("certificate verify failed for private-host", "CA trust/certificate-chain verification failure"),
+    ("certificate subject name for private-host does not match host name", "hostname certificate verification failure"),
+    ("could not read root certificate file CA_SECRET.pem", "invalid TLS configuration"),
+    ("TLS handshake failure with private-host", "other TLS handshake failure"),
     ("connection timed out to private-host", "timeout error"),
     ("connection refused by 192.0.2.1", "network/connectivity error"),
     ("password authentication failed for user private-user", "authentication error"),
@@ -275,6 +281,41 @@ def test_connection_failure_category_never_returns_exception_text(message, expec
     assert category == expected
     assert "private-host" not in category
     assert "private-user" not in category
+
+
+def test_specific_cause_wins_over_wrapped_generic_tls_error():
+    cause = RuntimeError(
+        "hostname mismatch for database private-host, IP 192.0.2.8; "
+        "URL postgresql://user:password@private-host/private-db"
+    )
+    wrapper = RuntimeError("SSL error while opening connection")
+    wrapper.__cause__ = cause
+
+    assert _connection_failure_category(wrapper) == "hostname certificate verification failure"
+
+
+def test_certificate_chain_cause_is_found_without_exposing_it_in_summary(monkeypatch, tmp_path):
+    secret_detail = (
+        "unable to get local issuer certificate for private-host; "
+        "IP 192.0.2.9; postgresql://user:password@private-host/private-db"
+    )
+    wrapper = RuntimeError("SQLAlchemy connection error")
+    wrapper.__cause__ = RuntimeError(secret_detail)
+    monkeypatch.setattr(
+        "scripts.customer_email_schema_guard._safe_driver_versions",
+        lambda: "psycopg=3.3.6 implementation=binary libpq=180006",
+    )
+    summary_path = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_path))
+
+    diagnostic = safe_failure("Database connection/identity check", wrapper)
+    write_summary([str(diagnostic)])
+    output = str(diagnostic) + summary_path.read_text(encoding="utf-8")
+
+    assert "category=CA trust/certificate-chain verification failure" in output
+    assert "psycopg=3.3.6 implementation=binary libpq=180006" in output
+    for secret in ("private-host", "192.0.2.9", "user:password", "private-db", secret_detail):
+        assert secret not in output
 
 
 def test_connection_failure_category_uses_sqlstate_without_message():
