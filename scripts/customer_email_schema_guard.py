@@ -58,7 +58,8 @@ def migration_sql() -> str:
     customer_email = (migrations_dir / "20261017_customer_accounts_email.sql").read_text(encoding="utf-8")
     email_studio = (migrations_dir / "20261027_email_studio.sql").read_text(encoding="utf-8")
     email_builder = (migrations_dir / "20261028_email_builder.sql").read_text(encoding="utf-8")
-    return f"{customer_email}\n{email_studio}\n{email_builder}"
+    consent_wording = (migrations_dir / "20261029_consent_wording_version.sql").read_text(encoding="utf-8")
+    return f"{customer_email}\n{email_studio}\n{email_builder}\n{consent_wording}"
 
 
 def migration_column_defaults() -> dict[tuple[str, str], str | None]:
@@ -149,6 +150,16 @@ def migration_column_manifest() -> dict[tuple[str, str], ColumnSpec]:
         manifest[(table.lower(), column.lower())] = ColumnSpec(
             canonical_sql_type(sql_type), nullable, default_match.group(1) if default_match else None
         )
+    type_changes = re.compile(
+        r"ALTER\s+TABLE\s+(\w+)\s+ALTER\s+COLUMN\s+(\w+)\s+TYPE\s+(" + _SQL_TYPE + r")\s*;",
+        re.I,
+    )
+    for table, column, sql_type in type_changes.findall(sql):
+        key = (table.lower(), column.lower())
+        if key not in manifest:
+            raise GuardError("Migration type change references an unknown column.")
+        previous = manifest[key]
+        manifest[key] = ColumnSpec(canonical_sql_type(sql_type), previous.nullable, previous.default)
     if not manifest:
         raise GuardError("Migration column definitions could not be verified.")
     if {table for table, _column in manifest} != EXPECTED_TABLES:

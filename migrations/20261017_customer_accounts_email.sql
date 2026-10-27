@@ -13,7 +13,7 @@ CREATE INDEX IF NOT EXISTS ix_customer_token_purpose ON customer_token(purpose);
 CREATE INDEX IF NOT EXISTS ix_customer_token_token_hash ON customer_token(token_hash);
 CREATE INDEX IF NOT EXISTS ix_customer_token_expires_at ON customer_token(expires_at);
 CREATE TABLE IF NOT EXISTS customer_consent_event (
- id SERIAL PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES customer_account(id), event VARCHAR(24) NOT NULL, method VARCHAR(24) NOT NULL, wording_version VARCHAR(32) NOT NULL DEFAULT '2026-10', created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+ id SERIAL PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES customer_account(id), event VARCHAR(24) NOT NULL, method VARCHAR(24) NOT NULL, wording_version VARCHAR(120) NOT NULL DEFAULT '2026-10', created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS ix_customer_consent_event_account_id ON customer_consent_event(account_id);
 CREATE TABLE IF NOT EXISTS customer_order_link (
