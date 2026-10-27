@@ -318,6 +318,10 @@ class GuardError(Exception):
     pass
 
 
+class IdentityCheckError(GuardError):
+    """A connected database did not match the configured identity."""
+
+
 def require_confirmation(value: str | None, backup_value: str | None) -> None:
     if value != CONFIRMATION or backup_value != BACKUP_CONFIRMATION:
         raise GuardError("Migration or verified-backup confirmation rejected; no database connection was opened.")
@@ -369,7 +373,7 @@ def classify_tables(existing: set[str]) -> str:
 
 def validate_identity(database: str, schema: str, expected_database: str, expected_schema: str) -> None:
     if database != expected_database or schema != expected_schema:
-        raise GuardError("Connected database/schema identity does not match the configured expected identity.")
+        raise IdentityCheckError("Connected database/schema identity does not match the configured expected identity.")
 
 
 def _engine_url(url: str) -> str:
@@ -547,9 +551,94 @@ def write_summary(lines: list[str]) -> None:
         summary.write("\n".join(f"- {line}" for line in lines) + "\n")
 
 
-def safe_failure(stage: str, error: Exception) -> GuardError:
-    """Expose only the operation and exception class, never its message or URL."""
-    return GuardError(f"{stage} failed ({type(error).__name__}); diagnostic details were suppressed.")
+def _safe_driver_versions() -> str:
+    """Read local driver versions without opening a database connection."""
+    version = implementation = libpq_version = "unavailable"
+    try:
+        import psycopg
+        version = str(psycopg.__version__)
+    except Exception:
+        pass
+    try:
+        from psycopg import pq
+        implementation = str(pq.__impl__)
+        libpq_version = str(pq.version())
+    except Exception:
+        pass
+    safe = re.compile(r"^[A-Za-z0-9_.+-]{1,40}$")
+    version = version if safe.fullmatch(version) else "unavailable"
+    implementation = implementation if safe.fullmatch(implementation) else "unavailable"
+    libpq_version = libpq_version if safe.fullmatch(libpq_version) else "unavailable"
+    return f"psycopg={version} implementation={implementation} libpq={libpq_version}"
+
+
+def _connection_failure_category(error: Exception) -> str:
+    """Classify only recognized SQLSTATEs or known diagnostic phrases."""
+    try:
+        sqlstate = getattr(error, "sqlstate", None)
+        if not sqlstate:
+            sqlstate = getattr(getattr(error, "diag", None), "sqlstate", None)
+        if isinstance(sqlstate, str) and re.fullmatch(r"[0-9A-Z]{5}", sqlstate):
+            if sqlstate.startswith("28"):
+                return "authentication error"
+            if sqlstate.startswith("08"):
+                return "network/connectivity error"
+    except Exception:
+        pass
+
+    # Inspect messages only for a small allowlist of generic phrases. Never
+    # return or log the message itself, which may contain credentials/hostnames.
+    try:
+        message = str(error).lower()
+    except Exception:
+        return "unclassified connection error"
+    tls_phrases = (
+        "certificate verify failed", "certificate verification failed",
+        "certificate has expired", "root certificate file", "ssl error",
+        "tls handshake", "ssl certificate",
+    )
+    auth_phrases = (
+        "password authentication failed", "no password supplied",
+        "authentication failed",
+    )
+    network_phrases = (
+        "connection refused",
+        "network is unreachable", "no route to host", "could not translate host name",
+        "could not connect to server",
+    )
+    if any(phrase in message for phrase in tls_phrases):
+        return "TLS verification/configuration error"
+    if any(phrase in message for phrase in auth_phrases):
+        return "authentication error"
+    if any(phrase in message for phrase in ("timeout expired", "timed out", "connection timeout")):
+        return "timeout error"
+    if any(phrase in message for phrase in network_phrases):
+        return "network/connectivity error"
+    return "unclassified connection error"
+
+
+def safe_failure(
+    stage: str,
+    error: Exception,
+    *,
+    category: str | None = None,
+    include_driver_diagnostics: bool = True,
+) -> GuardError:
+    """Expose version diagnostics and a bounded category, never exception text."""
+    if not include_driver_diagnostics:
+        return GuardError(f"{stage} failed; diagnostic details were suppressed.")
+    category = category or _connection_failure_category(error)
+    allowed_categories = {
+        "authentication error", "TLS verification/configuration error",
+        "network/connectivity error", "timeout error", "identity check failed",
+        "unclassified connection error",
+    }
+    if category not in allowed_categories:
+        category = "unclassified connection error"
+    versions = _safe_driver_versions()
+    return GuardError(
+        f"{stage} failed; {versions}; category={category}. Raw diagnostics suppressed."
+    )
 
 
 def _connect() -> object:
@@ -625,10 +714,19 @@ def run(mode: str) -> None:
         return
     try:
         connection = _connect()
+    except IdentityCheckError as exc:
+        if mode == "preflight":
+            raise safe_failure(
+                "Database connection/identity check", exc, category="identity check failed"
+            ) from None
+        raise
     except GuardError:
         raise
     except Exception as exc:
-        raise safe_failure("Database connection/identity check", exc) from None
+        raise safe_failure(
+            "Database connection/identity check", exc,
+            include_driver_diagnostics=(mode == "preflight"),
+        ) from None
 
     try:
         schema = os.environ["EXPECTED_DATABASE_SCHEMA"]
@@ -642,7 +740,10 @@ def run(mode: str) -> None:
     except GuardError:
         raise
     except Exception as exc:
-        raise safe_failure("Database catalog/schema inspection", exc) from None
+        raise safe_failure(
+            "Database catalog/schema inspection", exc,
+            include_driver_diagnostics=False,
+        ) from None
     finally:
         if connection is not None:
             engine = getattr(connection, "engine", None)
