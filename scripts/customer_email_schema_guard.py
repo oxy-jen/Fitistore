@@ -553,14 +553,18 @@ def write_summary(lines: list[str]) -> None:
 
 def _safe_driver_versions() -> str:
     """Read local driver versions without opening a database connection."""
+    version = implementation = libpq_version = "unavailable"
     try:
         import psycopg
-        from psycopg import pq
         version = str(psycopg.__version__)
+    except Exception:
+        pass
+    try:
+        from psycopg import pq
         implementation = str(pq.__impl__)
         libpq_version = str(pq.version())
     except Exception:
-        return "psycopg=unavailable implementation=unavailable libpq=unavailable"
+        pass
     safe = re.compile(r"^[A-Za-z0-9_.+-]{1,40}$")
     version = version if safe.fullmatch(version) else "unavailable"
     implementation = implementation if safe.fullmatch(implementation) else "unavailable"
@@ -578,7 +582,7 @@ def _connection_failure_category(error: Exception) -> str:
             if sqlstate.startswith("28"):
                 return "authentication error"
             if sqlstate.startswith("08"):
-                return "network/connection error"
+                return "network/connectivity error"
     except Exception:
         pass
 
@@ -598,7 +602,7 @@ def _connection_failure_category(error: Exception) -> str:
         "authentication failed",
     )
     network_phrases = (
-        "timeout expired", "timed out", "connection refused",
+        "connection refused",
         "network is unreachable", "no route to host", "could not translate host name",
         "could not connect to server",
     )
@@ -606,8 +610,10 @@ def _connection_failure_category(error: Exception) -> str:
         return "TLS verification/configuration error"
     if any(phrase in message for phrase in auth_phrases):
         return "authentication error"
+    if any(phrase in message for phrase in ("timeout expired", "timed out", "connection timeout")):
+        return "timeout error"
     if any(phrase in message for phrase in network_phrases):
-        return "network/timeout error"
+        return "network/connectivity error"
     return "unclassified connection error"
 
 
@@ -622,6 +628,13 @@ def safe_failure(
     if not include_driver_diagnostics:
         return GuardError(f"{stage} failed; diagnostic details were suppressed.")
     category = category or _connection_failure_category(error)
+    allowed_categories = {
+        "authentication error", "TLS verification/configuration error",
+        "network/connectivity error", "timeout error", "identity check failed",
+        "unclassified connection error",
+    }
+    if category not in allowed_categories:
+        category = "unclassified connection error"
     versions = _safe_driver_versions()
     return GuardError(
         f"{stage} failed; {versions}; category={category}. Raw diagnostics suppressed."

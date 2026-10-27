@@ -1,5 +1,7 @@
 from pathlib import Path
 import re
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
@@ -27,6 +29,7 @@ from scripts.customer_email_schema_guard import (
     require_confirmation,
     required_settings,
     run,
+    _safe_driver_versions,
     validate_dispatch_request,
     validate_column_snapshot,
     validate_fk_options,
@@ -230,7 +233,10 @@ def test_read_only_connect_uses_system_ca_and_verify_full(monkeypatch):
 
 def test_preflight_error_reports_safe_driver_diagnostics_without_raw_error(monkeypatch):
     secret_url = "postgresql://private-user:private-password@private-host/private-db"
-    raw_message = f"connection failed for {secret_url}; token=private-token"
+    raw_message = (
+        f"connection failed for {secret_url}; token=private-token; "
+        "address=192.0.2.44 database=private-db"
+    )
 
     def fail_connect():
         raise RuntimeError(raw_message)
@@ -250,12 +256,16 @@ def test_preflight_error_reports_safe_driver_diagnostics_without_raw_error(monke
     assert secret_url not in message
     assert "private-password" not in message
     assert "private-token" not in message
+    assert "private-host" not in message
+    assert "192.0.2.44" not in message
+    assert "private-db" not in message
     assert raw_message not in message
 
 
 @pytest.mark.parametrize("message,expected", [
     ("certificate verify failed for private-host", "TLS verification/configuration error"),
-    ("connection timed out to private-host", "network/timeout error"),
+    ("connection timed out to private-host", "timeout error"),
+    ("connection refused by 192.0.2.1", "network/connectivity error"),
     ("password authentication failed for user private-user", "authentication error"),
     ("unexpected private detail", "unclassified connection error"),
 ])
@@ -275,6 +285,41 @@ def test_connection_failure_category_uses_sqlstate_without_message():
             return "private-user private-password"
 
     assert _connection_failure_category(DatabaseError()) == "authentication error"
+
+
+@pytest.mark.parametrize("sqlstate,expected", [
+    ("28P01", "authentication error"),
+    ("08001", "network/connectivity error"),
+    ("08006", "network/connectivity error"),
+    ("ZZZZZ", "unclassified connection error"),
+])
+def test_recognized_sqlstate_maps_to_safe_category(sqlstate, expected):
+    class DatabaseError(Exception):
+        def __init__(self, state):
+            self.sqlstate = state
+
+        def __str__(self):
+            return "message includes private-password and private-host"
+
+    assert _connection_failure_category(DatabaseError(sqlstate)) == expected
+
+
+def test_driver_version_diagnostics_use_mocked_local_versions(monkeypatch):
+    psycopg = ModuleType("psycopg")
+    psycopg.__version__ = "3.2.7"
+    psycopg.pq = SimpleNamespace(__impl__="binary", version=lambda: 180000)
+    monkeypatch.setitem(sys.modules, "psycopg", psycopg)
+
+    assert _safe_driver_versions() == "psycopg=3.2.7 implementation=binary libpq=180000"
+
+
+def test_missing_driver_version_information_is_reported_safely(monkeypatch):
+    psycopg = ModuleType("psycopg")
+    psycopg.__version__ = "3.2.7"
+    psycopg.pq = SimpleNamespace(__impl__="binary")
+    monkeypatch.setitem(sys.modules, "psycopg", psycopg)
+
+    assert _safe_driver_versions() == "psycopg=3.2.7 implementation=binary libpq=unavailable"
 
 
 def test_preflight_identity_failure_has_safe_identity_category(monkeypatch):
