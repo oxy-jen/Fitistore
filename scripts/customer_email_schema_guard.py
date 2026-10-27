@@ -28,8 +28,12 @@ APPROVED_MISSING_COLUMNS = {
     ("customer_account", "two_factor_enabled"),
     ("email_message", "retry_count"),
     ("email_message", "provider_message_id"),
+    ("email_template", "name"),
+    ("email_template", "blocks_json"),
+    ("email_draft", "blocks_json"),
+    ("email_message", "template_id"),
 }
-APPROVED_MISSING_INDEXES = {"ix_email_message_provider_message_id"}
+APPROVED_MISSING_INDEXES = {"ix_email_message_provider_message_id", "ix_email_message_template_id"}
 def migration_index_manifest() -> dict[str, tuple[str, tuple[str, ...], bool]]:
     sql = migration_sql()
     pattern = re.compile(
@@ -53,7 +57,8 @@ def migration_sql() -> str:
     migrations_dir = Path(__file__).resolve().parent.parent / "migrations"
     customer_email = (migrations_dir / "20261017_customer_accounts_email.sql").read_text(encoding="utf-8")
     email_studio = (migrations_dir / "20261027_email_studio.sql").read_text(encoding="utf-8")
-    return f"{customer_email}\n{email_studio}"
+    email_builder = (migrations_dir / "20261028_email_builder.sql").read_text(encoding="utf-8")
+    return f"{customer_email}\n{email_studio}\n{email_builder}"
 
 
 def migration_column_defaults() -> dict[tuple[str, str], str | None]:
@@ -178,8 +183,20 @@ def migration_constraint_manifest():
             if reference:
                 target_table, target_column = reference.groups()
                 foreign_keys[table].add((column.lower(), target_table.lower(), target_column.lower()))
+    alters = re.compile(r"ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+(.*?);", re.I | re.S)
+    for table, declaration in alters.findall(sql):
+        parsed = _COLUMN_DECLARATION.match(declaration.strip())
+        if not parsed:
+            continue
+        column, _sql_type, options = parsed.groups()
+        reference = re.search(r"\bREFERENCES\s+\"?([A-Za-z_][A-Za-z0-9_]*)\"?\s*\(\s*\"?([A-Za-z_][A-Za-z0-9_]*)\"?\s*\)", options, re.I)
+        if reference:
+            target_table, target_column = reference.groups()
+            foreign_keys[table.lower()].add((column.lower(), target_table.lower(), target_column.lower()))
     if set(unique) != EXPECTED_TABLES or len(foreign_keys) != len(EXPECTED_TABLES):
         raise GuardError("Migration constraint definitions could not be verified.")
+    if re.search(r"ALTER\s+TABLE\s+email_template\s+DROP\s+CONSTRAINT\s+IF\s+EXISTS\s+email_template_category_key", sql, re.I):
+        unique["email_template"].discard(("category",))
     return unique, named_unique, foreign_keys
 
 

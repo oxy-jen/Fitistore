@@ -459,6 +459,36 @@ def register_cli(app: Flask):
                         db.metadata.create_all(
                             bind=connection, tables=tables, checkfirst=True
                         )
+                        template_columns = {column["name"] for column in inspect(connection).get_columns("email_template")}
+                        draft_columns = {column["name"] for column in inspect(connection).get_columns("email_draft")}
+                        template_has_category_unique = any(
+                            tuple(index.get("column_names") or ()) == ("category",)
+                            for index in inspect(connection).get_unique_constraints("email_template")
+                        )
+                        if "name" not in template_columns or "blocks_json" not in template_columns or template_has_category_unique:
+                            # SQLite cannot drop the old UNIQUE(category) constraint in place.
+                            required_legacy_columns = {"id", "category", "subject", "headline", "message", "created_at", "updated_at"}
+                            if not required_legacy_columns <= template_columns:
+                                # Leave an unexpected partial table untouched; validation below fails closed.
+                                template_has_category_unique = False
+                            else:
+                                connection.exec_driver_sql("DROP INDEX IF EXISTS ix_email_template_category")
+                                connection.exec_driver_sql("ALTER TABLE email_template RENAME TO email_template_legacy")
+                                db.metadata.tables["email_template"].create(bind=connection)
+                                old_columns = {column["name"] for column in inspect(connection).get_columns("email_template_legacy")}
+                                name_expr = "name" if "name" in old_columns else "'Saved template'"
+                                blocks_expr = "blocks_json" if "blocks_json" in old_columns else "'[]'"
+                                connection.exec_driver_sql(
+                                    "INSERT INTO email_template (id, category, name, subject, headline, message, blocks_json, created_at, updated_at) "
+                                    f"SELECT id, category, {name_expr}, subject, headline, message, {blocks_expr}, created_at, updated_at FROM email_template_legacy"
+                                )
+                                connection.exec_driver_sql("DROP TABLE email_template_legacy")
+                        if "blocks_json" not in draft_columns:
+                            connection.exec_driver_sql("ALTER TABLE email_draft ADD COLUMN blocks_json TEXT NOT NULL DEFAULT '[]'")
+                        email_message_columns = {column["name"] for column in inspect(connection).get_columns("email_message")}
+                        if "template_id" not in email_message_columns:
+                            connection.exec_driver_sql("ALTER TABLE email_message ADD COLUMN template_id INTEGER")
+                        connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_email_message_template_id ON email_message (template_id)")
                         account_columns = {column["name"] for column in inspect(connection).get_columns("customer_account")}
                         if "two_factor_enabled" not in account_columns:
                             connection.exec_driver_sql("ALTER TABLE customer_account ADD COLUMN two_factor_enabled BOOLEAN NOT NULL DEFAULT 0")
@@ -485,6 +515,11 @@ def register_cli(app: Flask):
                             connection.execute(text(statement))
                     studio_migration = Path(__file__).resolve().parent.parent / "migrations" / "20261027_email_studio.sql"
                     for statement in studio_migration.read_text(encoding="utf-8").split(";"):
+                        statement = statement.strip()
+                        if statement:
+                            connection.execute(text(statement))
+                    builder_migration = Path(__file__).resolve().parent.parent / "migrations" / "20261028_email_builder.sql"
+                    for statement in builder_migration.read_text(encoding="utf-8").split(";"):
                         statement = statement.strip()
                         if statement:
                             connection.execute(text(statement))

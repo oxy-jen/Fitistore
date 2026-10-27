@@ -67,6 +67,12 @@ def email_center():
         account_query = account_query.filter(customer_match)
     subscribers = query.order_by(CustomerAccount.marketing_consent_at.desc()).paginate(page=max(1, request.args.get("page", 1, type=int)), per_page=25, error_out=False)
     accounts = account_query.order_by(CustomerAccount.created_at.desc()).distinct().limit(100).all()
+    consent_events = {}
+    if accounts and model_schema_ready(CustomerConsentEvent, inspector):
+        for event in CustomerConsentEvent.query.filter(
+            CustomerConsentEvent.account_id.in_([account.id for account in accounts])
+        ).order_by(CustomerConsentEvent.created_at.desc()).all():
+            consent_events.setdefault(event.account_id, []).append(event)
     order_map = {}
     if accounts and model_schema_ready(CustomerOrderLink, inspector) and model_schema_ready(Order, inspector):
         links = CustomerOrderLink.query.filter(CustomerOrderLink.account_id.in_([a.id for a in accounts])).all()
@@ -81,7 +87,7 @@ def email_center():
     configured, note = mail_configuration_status()
     eligible_total = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None)).count()
     service_eligible_total = CustomerAccount.query.filter_by(active=True).filter(CustomerAccount.email_verified_at.isnot(None)).count()
-    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, accounts=accounts, order_map=order_map, campaigns=campaigns, messages=messages, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex)
+    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, accounts=accounts, order_map=order_map, consent_events=consent_events, campaigns=campaigns, messages=messages, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex)
 
 
 @admin_bp.post("/email/send-manual")

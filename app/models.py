@@ -478,6 +478,7 @@ class EmailMessage(TimestampMixin, db.Model):
     account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), index=True)
     order_id = db.Column(db.Integer, db.ForeignKey("order.id"), index=True)
     campaign_id = db.Column(db.Integer, db.ForeignKey("email_campaign.id"), index=True)
+    template_id = db.Column(db.Integer, index=True)
     kind = db.Column(db.String(32), nullable=False, index=True)
     subject = db.Column(db.String(200), nullable=False)
     idempotency_key = db.Column(db.String(160), unique=True, nullable=False)
@@ -513,12 +514,14 @@ class EmailCampaignRecipient(db.Model):
 
 
 class EmailTemplate(TimestampMixin, db.Model):
-    """Persistent reusable editor content; never sends by itself."""
+    """Persistent, named reusable email template; never sends by itself."""
     id = db.Column(db.Integer, primary_key=True)
-    category = db.Column(db.String(32), nullable=False, unique=True, index=True)
+    category = db.Column(db.String(32), nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False, default="Saved template")
     subject = db.Column(db.String(200), nullable=False)
     headline = db.Column(db.String(200), nullable=False, default="")
     message = db.Column(db.Text, nullable=False, default="")
+    blocks_json = db.Column(db.Text, nullable=False, default="[]")
 
 
 class EmailDraft(TimestampMixin, db.Model):
@@ -529,6 +532,7 @@ class EmailDraft(TimestampMixin, db.Model):
     subject = db.Column(db.String(200), nullable=False)
     headline = db.Column(db.String(200), nullable=False, default="")
     message = db.Column(db.Text, nullable=False, default="")
+    blocks_json = db.Column(db.Text, nullable=False, default="[]")
     product_ids_json = db.Column(db.Text, nullable=False, default="[]")
     account_ids_json = db.Column(db.Text, nullable=False, default="[]")
     order_id = db.Column(db.Integer, db.ForeignKey("order.id"), index=True)
