@@ -314,22 +314,8 @@ def _run_abandoned_carts(settings, now_utc):
 
 
 def run_marketing_automation():
-    settings=MarketingAutomationSettings.query.get(1)
-    if not settings or not settings.enabled:
-        return {"status":"paused","campaigns":0,"abandoned":0}
-    try:zone=ZoneInfo(settings.timezone_name)
-    except ZoneInfoNotFoundError:zone=ZoneInfo("Africa/Nairobi")
-    utc_now=datetime.now(timezone.utc)
-    local_now=utc_now.astimezone(zone)
-    outcomes=[]
-    if settings.daily_goodies_enabled and local_now.hour>=settings.daily_goodies_hour:
-        products,intro=_choose_products("daily_goodies",local_now.date().toordinal())
-        if products:outcomes.append(_run_campaign("daily_goodies",local_now,products,intro))
-    if settings.weekly_picks_enabled and local_now.weekday()==settings.weekly_picks_weekday and local_now.hour>=settings.weekly_picks_hour:
-        products,intro=_choose_products("weekly_picks")
-        if products:outcomes.append(_run_campaign("weekly_picks",local_now,products,intro,include_reviews=True))
-    abandoned=_run_abandoned_carts(settings,datetime.utcnow()) if settings.abandoned_cart_enabled else {"status":"disabled","accepted":0}
-    return {"status":"complete","campaigns":outcomes,"abandoned":abandoned}
+    """Compatibility no-op: marketing and cart-reminder automation is disabled."""
+    return {"status": "paused", "campaigns": 0, "abandoned": 0}
 
 
 def next_scheduled_runs(settings, now=None):

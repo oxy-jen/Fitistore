@@ -8,7 +8,7 @@ import re
 import socket
 import urllib.request
 from secrets import token_urlsafe
-from uuid import uuid4
+from uuid import UUID, uuid4
 import hashlib
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -18,220 +18,235 @@ from sqlalchemy import func, or_, update
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 from app.extensions import db
-from app.models import AdminUser, CustomerAccount, Category, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, Order, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailMessage, MarketingAutomationSettings, MarketingCampaignRun
+from app.models import AdminUser, CustomerAccount, CustomerCart, CustomerOrderLink, Category, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate
 from app.services.formatting import parse_money
 from app.services.inventory import InventoryError, adjust_stock, adjust_variant_stock, low_stock_products
 from app.services.orders import FULFILMENT_STATUSES, PAYMENT_STATUSES, award_loyalty_for_order, refundable_cents, sales_summary, update_order_status
 from app.services.product_images import ImageStorageError, cloudinary_configured, cloudinary_public_id, delete_cloudinary_asset, upload_image_bytes
 
 admin_bp = Blueprint("admin", __name__, template_folder="../templates/admin")
+
+
+def model_schema_ready(model, inspector=None):
+    """Return whether a model's full mapped table is available for ORM use."""
+    return not model_schema_missing(model, inspector)
+
+
+def model_schema_missing(model, inspector=None):
+    """Return the concrete missing table or columns needed by an ORM model."""
+    if inspector is None:
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+    table_name = model.__tablename__
+    if not inspector.has_table(table_name):
+        return [f"{table_name} table"]
+    actual_columns = {column["name"] for column in inspector.get_columns(table_name)}
+    expected_columns = {column.name for column in model.__table__.columns}
+    return [f"{table_name}.{name}" for name in sorted(expected_columns - actual_columns)]
+
+
 @admin_bp.route("/email")
 @login_required
 def email_center():
     from app.services.customer_mail import mail_configuration_status
+    from sqlalchemy import inspect
     search = request.args.get("q", "").strip()[:120]
+    inspector = inspect(db.engine)
+    if not model_schema_ready(CustomerAccount, inspector):
+        flash("Customer email is unavailable because the customer account table is not present in this database.", "warning")
+        return render_template("admin/email_unavailable.html", title="Customer email")
     query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None))
+    account_query = CustomerAccount.query
     if search:
         term = f"%{search}%"
         query = query.filter(or_(CustomerAccount.email.ilike(term), CustomerAccount.display_name.ilike(term)))
+        customer_match = or_(CustomerAccount.email.ilike(term), CustomerAccount.display_name.ilike(term))
+        if model_schema_ready(CustomerOrderLink, inspector) and model_schema_ready(Order, inspector):
+            account_query = account_query.outerjoin(CustomerOrderLink, CustomerOrderLink.account_id == CustomerAccount.id).outerjoin(Order, Order.id == CustomerOrderLink.order_id)
+            customer_match = or_(customer_match, Order.reference.ilike(term))
+        account_query = account_query.filter(customer_match)
     subscribers = query.order_by(CustomerAccount.marketing_consent_at.desc()).paginate(page=max(1, request.args.get("page", 1, type=int)), per_page=25, error_out=False)
-    account_query = CustomerAccount.query.order_by(CustomerAccount.created_at.desc())
-    if search:
-        term = f"%{search}%"
-        account_query = account_query.filter(or_(CustomerAccount.email.ilike(term), CustomerAccount.display_name.ilike(term)))
-    accounts = account_query.limit(100).all()
-    campaigns = EmailCampaign.query.order_by(EmailCampaign.created_at.desc()).limit(25).all()
-    messages = EmailMessage.query.order_by(EmailMessage.created_at.desc()).limit(30).all()
+    accounts = account_query.order_by(CustomerAccount.created_at.desc()).distinct().limit(100).all()
+    order_map = {}
+    if accounts and model_schema_ready(CustomerOrderLink, inspector) and model_schema_ready(Order, inspector):
+        links = CustomerOrderLink.query.filter(CustomerOrderLink.account_id.in_([a.id for a in accounts])).all()
+        order_map = {account.id: [] for account in accounts}
+        for link in links:
+            order_map.setdefault(link.account_id, []).append(link.order)
+    campaigns = EmailCampaign.query.order_by(EmailCampaign.created_at.desc()).limit(25).all() if model_schema_ready(EmailCampaign, inspector) else []
+    messages_available = model_schema_ready(EmailMessage, inspector)
+    messages = EmailMessage.query.order_by(EmailMessage.created_at.desc()).limit(30).all() if messages_available else []
+    products = Product.query.filter_by(active=True).order_by(Product.name).all()
     configured, note = mail_configuration_status()
-    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, accounts=accounts, campaigns=campaigns, messages=messages, search=search, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""))
+    eligible_total = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None)).count()
+    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, accounts=accounts, order_map=order_map, campaigns=campaigns, messages=messages, messages_available=messages_available, products=products, search=search, eligible_total=eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex)
+
+
+@admin_bp.post("/email/send-manual")
+@login_required
+def send_manual_customer_email():
+    from uuid import UUID
+    from sqlalchemy import inspect
+    from app.services.customer_mail import mail_configuration_status, queue_email
+    from app.services.product_images import product_display_image, product_image_alt, product_image_url
+
+    inspector = inspect(db.engine)
+    if not all(model_schema_ready(model, inspector) for model in (CustomerAccount, EmailMessage, CustomerToken)):
+        flash("Email was not sent. Customer accounts, message history, and unsubscribe-token tables must be available first.", "error")
+        return redirect(url_for("admin.email_center"))
+    try:
+        batch_key = str(UUID(request.form.get("send_key", "")))
+    except (ValueError, TypeError, AttributeError):
+        flash("Email was not sent because its one-time send key was invalid. Refresh the email centre and try again.", "error")
+        return redirect(url_for("admin.email_center"))
+    selected_ids = set()
+    for raw_id in request.form.getlist("account_ids"):
+        try:
+            selected_ids.add(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    if len(selected_ids) > 500:
+        flash("This manual send is limited to 500 recipients per request. Nothing was sent.", "error")
+        return redirect(url_for("admin.email_center"))
+    eligible_query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None))
+    all_eligible = request.form.get("all_eligible") == "yes"
+    if all_eligible:
+        if eligible_query.count() > 500:
+            flash("This manual send is limited to 500 recipients. Use the Email Studio recipient picker to send a smaller confirmed batch.", "error")
+            return redirect(url_for("admin.email_center"))
+        accounts = eligible_query.order_by(CustomerAccount.id).limit(500).all()
+    else:
+        accounts = eligible_query.filter(CustomerAccount.id.in_(selected_ids)).order_by(CustomerAccount.id).all() if selected_ids else []
+    if not accounts:
+        flash("Choose at least one active, verified customer who has subscribed to marketing email.", "error")
+        return redirect(url_for("admin.email_center"))
+    if len(accounts) > 1 and request.form.get("confirm_send", "").strip() != f"SEND {len(accounts)}":
+        flash(f"Email not sent. Type SEND {len(accounts)} to confirm the exact recipient count.", "warning")
+        return redirect(url_for("admin.email_center"))
+    subject = request.form.get("subject", "").strip()[:200]
+    body = request.form.get("body", "").strip()[:5000]
+    if not subject or not body:
+        flash("Email not sent. Enter both a subject and message.", "error")
+        return redirect(url_for("admin.email_center"))
+    configured, note = mail_configuration_status()
+    if not configured:
+        flash("Email was not sent: " + note, "error")
+        return redirect(url_for("admin.email_center"))
+
+    products = []
+    from urllib.parse import urlparse
+    base_url = (current_app.config.get("PUBLIC_BASE_URL") or "").rstrip("/")
+    parsed_base = urlparse(base_url)
+    if parsed_base.scheme != "https" or not parsed_base.netloc:
+        flash("Email was not sent. Set PUBLIC_BASE_URL to the canonical HTTPS store origin first.", "error")
+        return redirect(url_for("admin.email_center"))
+    if parsed_base.scheme == "https" and parsed_base.netloc:
+        for raw_id in request.form.getlist("product_ids"):
+            try:
+                product = Product.query.filter_by(id=int(raw_id), active=True).first()
+                if product and product.display_stock_quantity <= 0:
+                    product = None
+            except (TypeError, ValueError):
+                product = None
+            if not product:
+                continue
+            image = product_display_image(product)
+            image_url = product_image_url(image) if image else ""
+            if image_url.startswith("/"):
+                image_url = base_url + image_url
+            if not image_url.startswith("https://"):
+                image_url = ""
+            products.append({
+                "name": product.name,
+                "price": product.price_cents,
+                "image_url": image_url,
+                "image_alt": product_image_alt(image, f"Product image: {product.name}") if image else f"Product image: {product.name}",
+                "url": base_url + url_for("public.product_detail", slug=product.slug),
+            })
+    batch_sent = batch_failed = 0
+    for account in accounts:
+        key = f"admin-manual:{batch_key}:{account.id}"
+        prior = EmailMessage.query.filter_by(idempotency_key=key).first()
+        if prior and prior.status in {"sent", "delivered"}:
+            batch_sent += 1
+            continue
+        # The raw token is intentionally never stored; issue a fresh token on retries.
+        token = token_urlsafe(32)
+        try:
+            db.session.add(CustomerToken(account_id=account.id, purpose="unsubscribe", token_hash=hashlib.sha256(token.encode()).hexdigest(), expires_at=datetime.utcnow() + timedelta(days=3650)))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            batch_failed += 1
+            continue
+        unsubscribe_url = base_url + url_for("customer.unsubscribe", token=token)
+        first_name = (account.display_name or account.email.partition("@")[0]).strip().split()[0]
+        shop_url = base_url + url_for("public.shop")
+        contact_url = base_url + url_for("public.contact")
+        logo_url = base_url + url_for("static", filename="images/mainLogo-160.png")
+        html_body = render_template("emails/manual_customer_email.html", subject=subject, body=body, first_name=first_name, products=products, unsubscribe_url=unsubscribe_url, shop_url=shop_url, contact_url=contact_url, logo_url=logo_url)
+        text_body = "\n".join([body, *[f"{item['name']}: {item['url']}" for item in products], *(["Unsubscribe: " + unsubscribe_url] if unsubscribe_url else [])])
+        text_body = "\n".join([f"Hi {first_name},", "", body, *[f"{item['name']}: {item['url']}" for item in products], "", "Continue shopping: " + shop_url, "Contact FityStores: " + contact_url, "FityStores · Bei Fity, Fits Poa.", *( ["Unsubscribe: " + unsubscribe_url] if unsubscribe_url else [])])
+        try:
+            message = queue_email(account.email, subject, "marketing_campaign", key, account_id=account.id, html_body=html_body, text_body=text_body)
+            if message.status in {"sent", "delivered"}:
+                batch_sent += 1
+            else:
+                batch_failed += 1
+        except Exception:
+            db.session.rollback()
+            batch_failed += 1
+    flash(f"Manual email result: provider accepted {batch_sent}; failed or suppressed {batch_failed}. Provider acceptance does not confirm inbox delivery.", "success" if batch_sent and not batch_failed else "warning")
+    return redirect(url_for("admin.email_center"))
 
 
 @admin_bp.route("/email/automation", methods=["GET", "POST"])
 @login_required
 def email_automation():
-    from app.services.customer_mail import mail_configuration_status
-    settings=MarketingAutomationSettings.query.get(1)
-    if not settings:
-        settings=MarketingAutomationSettings(id=1)
-        db.session.add(settings);db.session.commit()
-    if request.method=="POST":
-        action=request.form.get("action","save")
-        if action=="test":
-            from types import SimpleNamespace
-            from app.services.marketing_automation import _choose_products, _render_products_email
-            from app.services.customer_mail import mail_configuration_status, queue_email
-            test_address=(current_app.config.get("MAIL_TEST_ADDRESS") or "").strip()
-            configured,note=mail_configuration_status()
-            recent_tests=FinancialAuditEvent.query.filter_by(admin_id=current_user.id,event_type="marketing_automation_test").filter(FinancialAuditEvent.created_at>=datetime.utcnow()-timedelta(hours=1)).count()
-            kind=request.form.get("campaign_type","daily_goodies")
-            if not test_address or not configured:
-                flash("Test not sent: configure MAIL_TEST_ADDRESS and a verified provider. "+note,"error")
-            elif recent_tests>=3:
-                flash("Test send limit reached. Try again later.","warning")
-            elif kind not in {"daily_goodies","weekly_picks","offers","reviews"}:
-                flash("Choose a valid preview type.","error")
-            else:
-                products,intro=_choose_products(kind)
-                subject={"daily_goodies":"Fity Goodies test","weekly_picks":"Weekly picks test","offers":"Offers test","reviews":"Review highlights test"}[kind]
-                preview_account=SimpleNamespace(display_name="Admin preview",email=test_address)
-                html,text=_render_products_email(preview_account,subject,subject,intro,products,"")
-                row=queue_email(test_address,subject,"marketing_test","automation-test:"+uuid4().hex,html_body=html,text_body=text)
-                db.session.add(FinancialAuditEvent(admin=current_user,event_type="marketing_automation_test",entity_type="EmailMessage",entity_id=row.id,note="Admin test type="+kind+" status="+row.status))
-                db.session.commit()
-                flash("Test status: "+row.status+". Provider acceptance does not guarantee inbox delivery.","success" if row.status=="sent" else "warning")
-            return redirect(url_for("admin.email_automation"))
-        if action=="save":
-            settings.enabled=request.form.get("enabled")=="yes"
-            settings.daily_goodies_enabled=request.form.get("daily_goodies_enabled")=="yes"
-            settings.weekly_picks_enabled=request.form.get("weekly_picks_enabled")=="yes"
-            settings.abandoned_cart_enabled=request.form.get("abandoned_cart_enabled")=="yes"
-            try:
-                settings.daily_goodies_hour=max(0,min(23,int(request.form.get("daily_goodies_hour","9"))))
-                settings.weekly_picks_hour=max(0,min(23,int(request.form.get("weekly_picks_hour","10"))))
-                settings.weekly_picks_weekday=max(0,min(6,int(request.form.get("weekly_picks_weekday","0"))))
-                settings.abandoned_cart_minutes=max(120,min(1440,int(request.form.get("abandoned_cart_minutes","180"))))
-            except (TypeError,ValueError):
-                flash("Enter valid schedule values. Abandonment delay must be 2 to 24 hours.","error")
-                return redirect(url_for("admin.email_automation"))
-            zone=request.form.get("timezone_name","Africa/Nairobi").strip()
-            settings.timezone_name=zone if zone in {"Africa/Nairobi","UTC"} else "Africa/Nairobi"
-            db.session.commit()
-            db.session.add(FinancialAuditEvent(admin=current_user,event_type="marketing_automation_settings_updated",entity_type="MarketingAutomationSettings",entity_id=settings.id,note="Campaign schedules changed"))
-            db.session.commit()
-            flash("Marketing automation settings saved. Campaigns only run when enabled and the separate scheduler invokes the job.","success")
-        return redirect(url_for("admin.email_automation"))
-    configured,note=mail_configuration_status()
-    runs=MarketingCampaignRun.query.order_by(MarketingCampaignRun.scheduled_for.desc()).limit(30).all()
-    from app.services.marketing_automation import next_scheduled_runs
-    next_runs=next_scheduled_runs(settings)
-    return render_template("admin/email_automation.html",title="Email automation",settings=settings,mail_configured=configured,mail_note=note,runs=runs,next_runs=next_runs,test_address=current_app.config.get('MAIL_TEST_ADDRESS',''))
+    return render_template("admin/email_automation.html", title="Email automation")
 
 
 @admin_bp.get("/email/automation/preview/<campaign_type>")
 @login_required
 def email_automation_preview(campaign_type):
-    from types import SimpleNamespace
-    from app.services.marketing_automation import _choose_products, _render_products_email
-    allowed={"daily_goodies":"Your Fity Goodies","weekly_picks":"This week's popular picks","offers":"Current offers","reviews":"Customer review highlights"}
-    if campaign_type not in allowed:return Response("Not found",status=404)
-    products,intro=_choose_products(campaign_type)
-    account=CustomerAccount.query.filter_by(active=True,marketing_status="subscribed").first()
-    if not account:account=SimpleNamespace(display_name="FityStores Customer",email="preview@example.invalid")
-    html,_text=_render_products_email(account,allowed[campaign_type],allowed[campaign_type],intro,products,"https://fitystore.top/unsubscribe-preview")
-    return Response(html,mimetype="text/html")
+    return Response("Email automation is disabled. Use the manual customer email centre.", status=410)
 
 
 @admin_bp.route("/email/campaigns", methods=["GET", "POST"])
 @login_required
 def email_campaigns():
-    from app.services.customer_mail import mail_configuration_status, queue_branded_email
-    eligible = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None))
-    eligible_count = eligible.count()
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()[:120]
-        subject = request.form.get("subject", "").strip()[:200]
-        body = request.form.get("body", "").strip()[:10000]
-        if not subject or not body:
-            flash("A subject and message are required.", "error")
-            return redirect(url_for("admin.email_campaigns"))
-        if request.form.get("action") == "test":
-            target = current_app.config.get("MAIL_TEST_ADDRESS", "")
-            configured, note = mail_configuration_status()
-            if not target or not configured:
-                flash("Test message was not sent: configure an authorized MAIL_TEST_ADDRESS and verified email sender. " + note, "error")
-            else:
-                key = f"campaign-test:{uuid4().hex}"
-                result = queue_branded_email(target, subject, "campaign_test", key, name or subject, [body])
-                flash("Test message status: " + result.status, "success" if result.status == "sent" else "error")
-            return redirect(url_for("admin.email_center"))
-        if not name:
-            flash("Campaign name is required.", "error")
-            return redirect(url_for("admin.email_campaigns"))
-        campaign = EmailCampaign(name=name, subject=subject, body=body, created_by_id=current_user.id, status="draft")
-        db.session.add(campaign)
-        db.session.flush()
-        db.session.add(FinancialAuditEvent(admin=current_user, event_type="email_campaign_draft_created", entity_type="EmailCampaign", entity_id=campaign.id, note=f"Eligible subscribers at draft: {eligible_count}"))
-        db.session.commit()
-        return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
-    campaigns = EmailCampaign.query.order_by(EmailCampaign.created_at.desc()).limit(50).all()
-    return render_template("admin/email_campaigns.html", title="Promotional campaigns", eligible_count=eligible_count, campaigns=campaigns, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""))
+    flash("Promotional campaigns are disabled. Use the manual customer email centre.", "info")
+    return redirect(url_for("admin.email_center"))
 
 
 @admin_bp.route("/email/campaigns/<int:campaign_id>", methods=["GET", "POST"])
 @login_required
 def email_campaign_detail(campaign_id):
-    from app.services.customer_mail import mail_configuration_status, queue_branded_email
-    campaign = EmailCampaign.query.get_or_404(campaign_id)
-    if request.method == "POST":
-        if campaign.status != "draft" or request.form.get("confirm_send") != "SEND":
-            flash("Campaign was not sent. Type SEND to confirm the previewed campaign.", "error")
-            return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
-        configured, note = mail_configuration_status()
-        if not configured:
-            flash("Campaign was not sent: " + note, "error")
-            return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
-        claimed = db.session.execute(update(EmailCampaign).where(EmailCampaign.id == campaign.id, EmailCampaign.status == "draft").values(status="sending"))
-        if claimed.rowcount != 1:
-            db.session.rollback()
-            flash("This campaign has already been claimed or sent.", "warning")
-            return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
-        db.session.add(FinancialAuditEvent(admin=current_user, event_type="email_campaign_send_started", entity_type="EmailCampaign", entity_id=campaign.id, note="Explicit admin confirmation"))
-        db.session.commit()
-        recipients = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None)).order_by(CustomerAccount.id).all()
-        for account in recipients:
-            db.session.refresh(account)
-            row = EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id, account_id=account.id).first()
-            if row and row.status == "sent":
-                continue
-            if not account.active or account.marketing_status != "subscribed" or not account.email_verified_at:
-                if row:
-                    row.status = "suppressed"
-                    db.session.commit()
-                continue
-            if not row:
-                row = EmailCampaignRecipient(campaign_id=campaign.id, account_id=account.id, recipient=account.email, status="queued")
-                db.session.add(row)
-                db.session.flush()
-            token = token_urlsafe(32)
-            db.session.add(CustomerToken(account_id=account.id, purpose="unsubscribe", token_hash=hashlib.sha256(token.encode()).hexdigest(), expires_at=datetime.utcnow() + timedelta(days=3650)))
-            db.session.commit()
-            unsubscribe_url = url_for("customer.unsubscribe", token=token, _external=True, _scheme="https")
-            try:
-                message = queue_branded_email(account.email, campaign.subject, "marketing_campaign", f"campaign:{campaign.id}:account:{account.id}", campaign.name, [campaign.body], account_id=account.id, campaign_id=campaign.id, unsubscribe_url=unsubscribe_url)
-                row.status = message.status
-                row.failure_reason = message.failure_reason
-                row.sent_at = message.sent_at
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-                row = EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id, account_id=account.id).first()
-                if row:
-                    row.status = "failed"
-                    row.failure_reason = "Message preparation or delivery failed."
-                    db.session.commit()
-        counts = {status: EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id, status=status).count() for status in ("sent", "failed", "not_configured", "suppressed")}
-        campaign.status = "sent" if counts["sent"] and not any(counts[key] for key in ("failed", "not_configured")) else "partial"
-        campaign.sent_at = datetime.utcnow() if counts["sent"] else None
-        db.session.add(FinancialAuditEvent(admin=current_user, event_type="email_campaign_send_finished", entity_type="EmailCampaign", entity_id=campaign.id, note=f"sent={counts['sent']} failed={counts['failed']} not_configured={counts['not_configured']} suppressed={counts['suppressed']}"))
-        db.session.commit()
-        flash(f"Campaign result: sent {counts['sent']}; failed {counts['failed']}; not configured {counts['not_configured']}; suppressed {counts['suppressed']}.", "success" if campaign.status == "sent" else "warning")
-        return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
-    recipients = EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id).order_by(EmailCampaignRecipient.id.desc()).all()
-    eligible_count = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None)).count()
-    return render_template("admin/email_campaign_detail.html", title=campaign.name, campaign=campaign, recipients=recipients, eligible_count=eligible_count)
+    flash("Promotional campaigns are disabled. Use the manual customer email centre.", "info")
+    return redirect(url_for("admin.email_center"))
 
 
 @admin_bp.post("/email/customers/<int:account_id>/message")
 @login_required
 def email_customer_message(account_id):
     from app.services.customer_mail import queue_branded_email
+    from sqlalchemy import inspect
+    inspector = inspect(db.engine)
+    if not all(model_schema_ready(model, inspector) for model in (CustomerAccount, EmailMessage, FinancialAuditEvent)):
+        flash("Message not sent. Required customer account, email history, or audit schema is unavailable; no email was attempted.", "error")
+        return redirect(url_for("admin.email_center"))
     account = CustomerAccount.query.get_or_404(account_id)
     subject = request.form.get("subject", "").strip()[:200]
     body = request.form.get("body", "").strip()[:5000]
     if request.form.get("confirm_send") != "yes" or not account.active or not account.email_verified_at or not subject or not body:
         flash("Choose an active verified customer, enter a subject and message, and confirm the send.", "error")
     else:
-        result = queue_branded_email(account.email, subject, "admin_service", f"admin-message:{uuid4().hex}", "A message from FityStores", [body], account_id=account.id)
+        try:
+            send_key = str(UUID(request.form.get("send_key", "")))
+        except (ValueError, TypeError, AttributeError):
+            flash("Message not sent because its one-time send key was invalid. Refresh and try again.", "error")
+            return redirect(url_for("admin.email_center"))
+        result = queue_branded_email(account.email, subject, "admin_service", f"admin-message:{account.id}:{send_key}", "A message from FityStores", [body], account_id=account.id)
         db.session.add(FinancialAuditEvent(admin=current_user, event_type="customer_service_email", entity_type="CustomerAccount", entity_id=account.id, note=f"EmailMessage {result.id}: {result.status}"))
         db.session.commit()
         flash("Service message status: " + result.status, "success" if result.status == "sent" else "error")
@@ -1413,6 +1428,10 @@ def clear_admin_cache():
         return redirect(url_for("admin.data_management"))
     flash(f"Cleared {cleared} cached product share-card image(s). Other records were not changed.", "success")
     return redirect(url_for("admin.data_management"))
+
+
+from .email_studio import register_email_studio_routes
+register_email_studio_routes(admin_bp)
 
 
 @admin_bp.post("/data/clear")

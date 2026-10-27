@@ -3,6 +3,7 @@ from __future__ import annotations
 import click
 import csv
 import json
+import os
 from pathlib import Path
 from flask import Flask
 from werkzeug.security import generate_password_hash
@@ -177,7 +178,7 @@ def customer_email_schema_tables():
     from .models import (
         AuthRateLimit, CustomerAccount, CustomerCart, CustomerConsentEvent,
         CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient,
-        EmailMessage, MarketingAutomationSettings, MarketingCampaignRun,
+        EmailDraft, EmailMessage, EmailTemplate, MarketingAutomationSettings, MarketingCampaignRun,
         MarketingProductExposure,
     )
     return [
@@ -185,6 +186,7 @@ def customer_email_schema_tables():
         CustomerConsentEvent.__table__, CustomerOrderLink.__table__,
         AuthRateLimit.__table__, EmailCampaign.__table__, EmailMessage.__table__,
         EmailCampaignRecipient.__table__, CustomerCart.__table__,
+        EmailTemplate.__table__, EmailDraft.__table__,
         MarketingAutomationSettings.__table__, MarketingCampaignRun.__table__,
         MarketingProductExposure.__table__,
     ]
@@ -378,10 +380,8 @@ def register_cli(app: Flask):
 
     @app.cli.command("run-marketing-automation")
     def run_marketing_automation_command():
-        """Run due marketing and abandoned-cart jobs (invoke from a separate scheduler)."""
-        from app.services.marketing_automation import run_marketing_automation
-        result = run_marketing_automation()
-        click.echo(json.dumps(result, sort_keys=True))
+        """Compatibility no-op: scheduled marketing email automation is paused."""
+        click.echo(json.dumps({"status": "paused", "emails_sent": 0}, sort_keys=True))
 
     @app.cli.command("check-customer-email-schema")
     def check_customer_email_schema():
@@ -410,6 +410,11 @@ def register_cli(app: Flask):
         if dialect not in {"sqlite", "postgresql", "postgres"}:
             raise click.ClickException(
                 f"Unsupported database dialect for customer/email schema migration: {dialect}."
+            )
+        if os.environ.get("RENDER", "").lower() == "true" and dialect != "postgresql":
+            raise click.ClickException(
+                "Render customer/email migration requires the configured PostgreSQL DATABASE_URL; "
+                "no schema changes were made."
             )
 
         tables = customer_email_schema_tables()
@@ -475,6 +480,11 @@ def register_cli(app: Flask):
                 with db.engine.begin() as connection:
                     connection.execute(text("SELECT pg_advisory_xact_lock(724930117)"))
                     for statement in statements:
+                        statement = statement.strip()
+                        if statement:
+                            connection.execute(text(statement))
+                    studio_migration = Path(__file__).resolve().parent.parent / "migrations" / "20261027_email_studio.sql"
+                    for statement in studio_migration.read_text(encoding="utf-8").split(";"):
                         statement = statement.strip()
                         if statement:
                             connection.execute(text(statement))

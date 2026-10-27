@@ -1,4 +1,5 @@
 import io
+import hashlib
 from datetime import datetime
 
 import pytest
@@ -6,7 +7,7 @@ import app as app_module
 from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, AuthRateLimit, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailMessage, Order, OrderItem, Product, ProductImage, ProductSuggestion, Review, ShopSettings
+from app.models import AdminUser, AuthRateLimit, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, Order, OrderItem, Product, ProductImage, ProductSuggestion, Review, ShopSettings
 from config import TestConfig
 
 @pytest.fixture()
@@ -943,30 +944,21 @@ def test_mail_provider_failure_is_recorded_without_secrets(app, monkeypatch, app
     assert result.failure_reason == "SMTP error 535."
 
 
-def test_campaign_only_targets_confirmed_active_subscribers_and_prevents_resend(client, app, monkeypatch, app_context):
-    from datetime import datetime
+def test_campaign_routes_are_disabled_in_manual_only_mode(client, app, monkeypatch, app_context):
     import app.services.customer_mail as customer_mail
-    app.config.update(MAIL_PROVIDER="smtp", MAIL_FROM_VERIFIED=True, MAIL_FROM_ADDRESS="verified@example.test", MAIL_SERVER="smtp.example.test", MAIL_TEST_ADDRESS="owner@example.test")
     sent = []
-    monkeypatch.setattr(customer_mail, "_send_smtp", lambda recipient, subject, html, text: sent.append((recipient, subject, html)))
-    eligible = CustomerAccount(email="eligible@example.com", display_name="Eligible", email_verified_at=datetime.utcnow(), marketing_status="subscribed", marketing_consent_at=datetime.utcnow())
-    declined = CustomerAccount(email="declined@example.com", display_name="Declined", email_verified_at=datetime.utcnow(), marketing_status="none")
-    db.session.add_all([eligible, declined])
-    db.session.commit()
+    monkeypatch.setattr(customer_mail, "queue_branded_email", lambda *args, **kwargs: sent.append(args))
     assert client.post("/admin/login", data={"username": "owner", "password": "secret123"}, follow_redirects=True).status_code == 200
-    draft = client.post("/admin/email/campaigns", data={"name": "New arrivals", "subject": "New arrivals", "body": "See what is new."})
-    campaign = EmailCampaign.query.one()
-    assert draft.status_code == 302
-    preview = client.get(f"/admin/email/campaigns/{campaign.id}")
-    assert b"Current eligible subscriber count: 1" in preview.data
-    response = client.post(f"/admin/email/campaigns/{campaign.id}", data={"confirm_send": "SEND"})
-    assert response.status_code == 302
-    assert [item[0] for item in sent] == ["eligible@example.com"]
-    assert "unsubscribe" in sent[0][2]
-    assert EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id).count() == 1
-    assert EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id, status="sent").count() == 1
-    client.post(f"/admin/email/campaigns/{campaign.id}", data={"confirm_send": "SEND"})
-    assert len(sent) == 1
+    responses = [
+        client.get("/admin/email/campaigns"),
+        client.get("/admin/email/campaigns/1"),
+        client.post("/admin/email/campaigns", data={"name": "New arrivals", "subject": "New arrivals", "body": "See what is new."}),
+        client.post("/admin/email/campaigns/1", data={"confirm_send": "SEND"}),
+    ]
+    assert all(response.status_code == 302 for response in responses)
+    assert all(response.headers["Location"].endswith("/admin/email") for response in responses)
+    assert EmailCampaign.query.count() == 0
+    assert sent == []
 
 
 def _isolated_legacy_sqlite_app(tmp_path, monkeypatch):
@@ -980,7 +972,7 @@ def _isolated_legacy_sqlite_app(tmp_path, monkeypatch):
     feature_tables = {
         "customer_account", "customer_token", "customer_consent_event",
         "customer_order_link", "auth_rate_limit", "email_message",
-        "email_campaign", "email_campaign_recipient", "customer_cart",
+        "email_campaign", "email_campaign_recipient", "customer_cart", "email_template", "email_draft",
         "marketing_automation_settings", "marketing_campaign_run", "marketing_product_exposure",
     }
     with isolated_app.app_context():
@@ -1040,7 +1032,7 @@ def test_customer_email_migration_creates_schema_on_fresh_sqlite_database(tmp_pa
             "admin_user", "order", "category", "product", "customer_account", "customer_token",
             "customer_consent_event", "customer_order_link", "auth_rate_limit",
             "email_message", "email_campaign", "email_campaign_recipient",
-            "customer_cart", "marketing_automation_settings", "marketing_campaign_run", "marketing_product_exposure",
+            "customer_cart", "email_template", "email_draft", "marketing_automation_settings", "marketing_campaign_run", "marketing_product_exposure",
         }
         assert set(inspect(db.engine).get_table_names()) == expected
 
@@ -1126,7 +1118,7 @@ def test_customer_email_postgresql_migration_keeps_locked_idempotent_sql(monkeyp
                 "customer_account", "customer_token", "customer_consent_event",
                 "customer_order_link", "auth_rate_limit", "email_message",
                 "email_campaign", "email_campaign_recipient",
-                "customer_cart", "marketing_automation_settings", "marketing_campaign_run", "marketing_product_exposure",
+                "customer_cart", "email_template", "email_draft", "marketing_automation_settings", "marketing_campaign_run", "marketing_product_exposure",
             })
 
         def get_columns(self, table_name):
@@ -1161,19 +1153,36 @@ def test_customer_email_postgresql_migration_keeps_locked_idempotent_sql(monkeyp
     assert statements[0] == "SELECT pg_advisory_xact_lock(724930117)"
     assert any("CREATE TABLE IF NOT EXISTS customer_account" in sql for sql in statements)
     assert any("CREATE TABLE IF NOT EXISTS email_campaign_recipient" in sql for sql in statements)
+    assert any("CREATE TABLE IF NOT EXISTS email_template" in sql for sql in statements)
+    assert any("CREATE TABLE IF NOT EXISTS email_draft" in sql for sql in statements)
     assert "Created tables:" in result.output
 
 
 def test_customer_email_migration_creates_missing_sqlite_tables_and_preserves_store_records(tmp_path, monkeypatch):
     isolated_app, feature_tables, expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
-    result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+    runner = isolated_app.test_cli_runner()
+    result = runner.invoke(args=["migrate-customer-email-schema"])
     assert result.exit_code == 0, result.output
     assert "Created tables:" in result.output
     assert "No existing store records were changed." in result.output
+    status = runner.invoke(args=["check-customer-email-schema"])
+    assert status.exit_code == 0, status.output
+    assert "Schema status: complete" in status.output
     with isolated_app.app_context():
         from sqlalchemy import inspect
         inspector = inspect(db.engine)
         assert feature_tables <= set(inspector.get_table_names())
+        studio_columns = {
+            "email_template": {"id", "category", "subject", "headline", "message", "created_at", "updated_at"},
+            "email_draft": {
+                "id", "name", "category", "subject", "headline", "message",
+                "product_ids_json", "account_ids_json", "order_id", "cart_id",
+                "status", "created_by_id", "created_at", "updated_at",
+            },
+        }
+        for table_name, required_columns in studio_columns.items():
+            actual_columns = {column["name"] for column in inspector.get_columns(table_name)}
+            assert required_columns <= actual_columns
         settings = ShopSettings.query.one()
         admin = AdminUser.query.one()
         product = Product.query.filter_by(slug="existing-product").one()
@@ -1243,11 +1252,35 @@ def test_customer_email_migration_fails_safely_on_partial_existing_table(tmp_pat
         assert db.session.execute(text("SELECT email FROM customer_account WHERE id = 1")).scalar_one() == "keep@example.test"
 
 
+def test_customer_email_migration_rejects_incomplete_email_studio_table_without_replacing_it(tmp_path, monkeypatch):
+    isolated_app, _feature_tables, _expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    with isolated_app.app_context():
+        from sqlalchemy import inspect, text
+        db.session.execute(text("CREATE TABLE email_template (id INTEGER PRIMARY KEY, category VARCHAR(32))"))
+        db.session.execute(text("INSERT INTO email_template (id, category) VALUES (7, 'saved')"))
+        db.session.commit()
+        result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+        assert result.exit_code != 0
+        assert "email_template (missing columns" in result.output
+        inspector = inspect(db.engine)
+        assert {column["name"] for column in inspector.get_columns("email_template")} == {"id", "category"}
+        assert db.session.execute(text("SELECT category FROM email_template WHERE id = 7")).scalar_one() == "saved"
+        assert "email_draft" not in inspector.get_table_names()
+
+
 def test_customer_email_migration_rejects_unsupported_dialect(app, monkeypatch):
     monkeypatch.setattr(app_module, "database_dialect_name", lambda: "mysql")
     result = app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
     assert result.exit_code != 0
     assert "Unsupported database dialect" in result.output
+
+
+def test_customer_email_migration_refuses_sqlite_on_render(app, monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setattr(app_module, "database_dialect_name", lambda: "sqlite")
+    result = app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+    assert result.exit_code != 0
+    assert "requires the configured PostgreSQL DATABASE_URL" in result.output
 
 
 def test_customer_auth_forms_keep_csrf_protection(client, app):
@@ -1719,3 +1752,404 @@ def test_weekly_popular_ranking_uses_only_paid_completed_sales(app, app_context)
     ])
     db.session.commit()
     assert _ranked_products(5)[0].id==product.id
+
+
+def test_manual_email_page_uses_real_linked_orders_and_admin_auth(client, app, app_context):
+    from datetime import datetime
+    from app.models import CustomerOrderLink
+    assert client.get("/admin/email").status_code in {302, 401}
+    account = CustomerAccount(email="manual-order@example.test", display_name="Manual Customer", email_verified_at=datetime.utcnow(), marketing_status="subscribed")
+    order = Order(reference="REAL-ORDER-101", customer_name="Manual Customer", fulfilment_method="Collection", status="Processing")
+    db.session.add_all([account, order]); db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id)); db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.get("/admin/email?q=REAL-ORDER-101")
+    assert response.status_code == 200
+    assert b"REAL-ORDER-101" in response.data
+    assert b"Processing" in response.data
+    assert b"select eligible recipients" in response.data.lower()
+
+
+def test_manual_email_uses_brevo_products_and_idempotent_send(client, app, app_context, monkeypatch):
+    from datetime import datetime
+    from app.models import ProductImage
+    import app.services.customer_mail as customer_mail
+    _configure_brevo_test(app)
+    app.config["PUBLIC_BASE_URL"] = "https://fitystore.top"
+    app.config["CLOUDINARY_CLOUD_NAME"] = "fity-test"
+    sent = []
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html, text: sent.append((recipient, html, text)) or "fake-provider-id")
+    account = CustomerAccount(email="manual-send@example.test", display_name="Manual Shopper", email_verified_at=datetime.utcnow(), marketing_status="subscribed")
+    product = Product.query.filter_by(slug="plain-socks").one()
+    product.images.append(ProductImage(filename="actual-socks.webp", storage_backend="cloudinary", cloudinary_public_id="fity/products/socks", alt_text="Actual sock set", is_primary=True))
+    db.session.add(account); db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    payload = {
+        "send_key": "d7c71045a5f2441cb7de09f22f4db250",
+        "account_ids": [str(account.id)],
+        "product_ids": [str(product.id)],
+        "subject": "Real product update",
+        "body": "<script>alert('x')</script> Hello",
+    }
+    first = client.post("/admin/email/send-manual", data=payload, follow_redirects=True)
+    second = client.post("/admin/email/send-manual", data=payload, follow_redirects=True)
+    assert first.status_code == second.status_code == 200
+    assert len(sent) == 1
+    assert "/account/unsubscribe/" in sent[0][1]
+    token = sent[0][1].split("/account/unsubscribe/", 1)[1].split('"', 1)[0]
+    assert CustomerToken.query.filter_by(
+        purpose="unsubscribe", token_hash=hashlib.sha256(token.encode()).hexdigest()
+    ).count() == 1
+    assert "https://res.cloudinary.com/fity-test/image/upload/fity/products/socks" in sent[0][1]
+    assert "https://fitystore.top/product/plain-socks" in sent[0][1]
+    assert "&lt;script&gt;" in sent[0][1]
+    assert "https://fitystore.top/product/plain-socks" in sent[0][2]
+    assert b"provider accepted 1" in second.data
+    from uuid import UUID
+    assert EmailMessage.query.filter_by(idempotency_key=f"admin-manual:{UUID(payload['send_key'])}:{account.id}").one().status == "sent"
+
+
+def test_manual_email_retry_reuses_idempotency_key_with_a_fresh_unsubscribe_link(client, app, app_context, monkeypatch):
+    from datetime import datetime, timedelta
+    import urllib.error
+    import app.services.customer_mail as customer_mail
+    _configure_brevo_test(app)
+    sent = []
+    attempts = {"count": 0}
+
+    def transient_failure_then_success(recipient, subject, html, text):
+        attempts["count"] += 1
+        sent.append((html, text))
+        if attempts["count"] == 1:
+            raise urllib.error.HTTPError("https://provider.invalid", 503, "temporary", {}, None)
+        return "retry-success-id"
+
+    monkeypatch.setattr(customer_mail, "_send_brevo", transient_failure_then_success)
+    account = CustomerAccount(email="manual-retry@example.test", display_name="Retry Shopper", email_verified_at=datetime.utcnow(), marketing_status="subscribed")
+    db.session.add(account)
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    payload = {"send_key": "eaa613c35a6e4d828552cc42203e8193", "account_ids": [str(account.id)], "subject": "Store update", "body": "A product update."}
+
+    first = client.post("/admin/email/send-manual", data=payload, follow_redirects=True)
+    message = EmailMessage.query.filter(EmailMessage.idempotency_key.like("admin-manual:%")).one()
+    message.updated_at = datetime.utcnow() - timedelta(hours=2)
+    db.session.commit()
+    second = client.post("/admin/email/send-manual", data=payload, follow_redirects=True)
+
+    assert first.status_code == second.status_code == 200
+    assert attempts["count"] == 2
+    assert all("/account/unsubscribe/" in html for html, _text in sent)
+    assert EmailMessage.query.filter_by(idempotency_key=message.idempotency_key).count() == 1
+    assert EmailMessage.query.filter_by(idempotency_key=message.idempotency_key).one().status == "sent"
+
+
+def test_manual_bulk_send_requires_confirmation_and_only_sends_eligible_accounts(client, app, app_context, monkeypatch):
+    from datetime import datetime
+    import app.services.customer_mail as customer_mail
+    _configure_brevo_test(app)
+    sent = []
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html, text: sent.append(recipient) or "fake-provider-id")
+    allowed = [
+        CustomerAccount(email=f"bulk-{index}@example.test", display_name="Bulk", email_verified_at=datetime.utcnow(), marketing_status="subscribed")
+        for index in range(2)
+    ]
+    refused = CustomerAccount(email="not-subscribed@example.test", display_name="Not Subscribed", email_verified_at=datetime.utcnow(), marketing_status="none")
+    db.session.add_all([*allowed, refused]); db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    data = {"send_key": "76c2a76846a04bdbac49a15954045bf2", "account_ids": [str(a.id) for a in allowed] + [str(refused.id)], "subject": "Store news", "body": "A plain update"}
+    not_confirmed = client.post("/admin/email/send-manual", data=data, follow_redirects=True)
+    assert b"Type SEND 2 to confirm the exact recipient count" in not_confirmed.data
+    assert sent == []
+    data["confirm_send"] = "SEND 2"
+    response = client.post("/admin/email/send-manual", data=data, follow_redirects=True)
+    assert response.status_code == 200
+    assert len(sent) == 2
+
+
+def test_manual_email_provider_failure_is_reported_and_recorded(client, app, app_context, monkeypatch):
+    from datetime import datetime
+    import app.services.customer_mail as customer_mail
+    _configure_brevo_test(app)
+    account = CustomerAccount(email="manual-failure@example.test", display_name="Failure", email_verified_at=datetime.utcnow(), marketing_status="subscribed")
+    db.session.add(account); db.session.commit()
+    def fail_send(*_args):
+        raise RuntimeError("sensitive provider response must not be shown")
+    monkeypatch.setattr(customer_mail, "_send_brevo", fail_send)
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post("/admin/email/send-manual", data={
+        "send_key": "c3b8fb7731ec41f4b442ed38ecf1b4dd",
+        "account_ids": [str(account.id)], "subject": "Manual note", "body": "Message",
+    }, follow_redirects=True)
+    assert b"provider accepted 0; failed or suppressed 1" in response.data
+    assert b"sensitive provider response" not in response.data
+    message = EmailMessage.query.filter(EmailMessage.idempotency_key.like("admin-manual:%")).one()
+    assert message.status == "failed"
+
+
+def test_customer_service_email_stops_before_query_when_email_message_schema_is_incomplete(client, app, app_context, monkeypatch):
+    import app.services.customer_mail as customer_mail
+    account = CustomerAccount(email="partial-schema@example.test", display_name="Partial Schema", email_verified_at=datetime.utcnow())
+    db.session.add(account)
+    db.session.commit()
+    account_id = account.id
+    db.session.remove()
+    with db.engine.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE email_message DROP COLUMN retry_count")
+    sent = []
+    monkeypatch.setattr(customer_mail, "queue_branded_email", lambda *args, **kwargs: sent.append(args))
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+
+    response = client.post(
+        f"/admin/email/customers/{account_id}/message",
+        data={"subject": "Service update", "body": "Please contact the store.", "confirm_send": "yes"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Required customer account, email history, or audit schema is unavailable" in response.data
+    assert sent == []
+
+
+def test_manual_promotional_email_stops_when_unsubscribe_token_schema_is_incomplete(client, app, app_context, monkeypatch):
+    import app.services.customer_mail as customer_mail
+    account = CustomerAccount(email="token-schema@example.test", display_name="Token Schema", email_verified_at=datetime.utcnow(), marketing_status="subscribed")
+    db.session.add(account)
+    db.session.commit()
+    account_id = account.id
+    db.session.remove()
+    with db.engine.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE customer_token DROP COLUMN used_at")
+    sent = []
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args, **kwargs: sent.append(args))
+    _configure_brevo_test(app)
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+
+    response = client.post(
+        "/admin/email/send-manual",
+        data={"send_key": "e3aef5d5c7d7485697796bfa33d8cc5e", "account_ids": [str(account_id)], "subject": "Store update", "body": "A product update."},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"unsubscribe-token tables must be available" in response.data
+    assert sent == []
+
+
+def test_brevo_webhook_returns_unavailable_when_email_schema_is_incomplete(client, app, app_context):
+    EmailCampaignRecipient.__table__.drop(db.engine)
+    app.config["BREVO_WEBHOOK_TOKEN"] = "test-shared-hook-token"
+
+    response = client.post(
+        "/webhooks/brevo/email-events",
+        json={"event": "hardBounce", "email": "person@example.test"},
+        headers={"X-Fity-Brevo-Token": "test-shared-hook-token"},
+    )
+
+    assert response.status_code == 503
+    assert response.get_json() == {"ok": False, "error": "email schema unavailable"}
+
+
+def test_automation_page_is_disabled_without_accessing_automation_tables(client, app, app_context):
+    from app.models import MarketingAutomationSettings, MarketingCampaignRun
+    MarketingCampaignRun.__table__.drop(db.engine)
+    MarketingAutomationSettings.__table__.drop(db.engine)
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.get("/admin/email/automation")
+    assert response.status_code == 200
+    assert b"Automation is disabled" in response.data
+    assert b"manual customer email centre" in response.data.lower()
+
+
+def test_email_studio_templates_and_drafts_persist_without_sending(client, app, app_context, monkeypatch):
+    import app.services.customer_mail as customer_mail
+    sent = []
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args))
+    account = CustomerAccount(email="studio-draft@example.test", display_name="Draft Customer", email_verified_at=datetime.utcnow())
+    db.session.add(account); db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    template_response = client.post("/admin/email/studio", data={
+        "category": "customer_service", "account_id": str(account.id),
+        "subject": "A note for {{ customer_name }}", "headline": "Hello {{ customer_name }}",
+        "message": "Saved reusable content", "action": "save_template",
+    }, follow_redirects=True)
+    assert template_response.status_code == 200
+    saved = EmailTemplate.query.filter_by(category="customer_service").one()
+    assert saved.subject == "A note for {{ customer_name }}"
+    assert sent == []
+
+    draft_response = client.post("/admin/email/studio", data={
+        "category": "customer_service", "account_id": str(account.id),
+        "subject": "One-off note", "headline": "A draft", "message": "Not sent",
+        "draft_name": "Customer follow-up", "action": "save_draft",
+    }, follow_redirects=True)
+    assert draft_response.status_code == 200
+    draft = EmailDraft.query.filter_by(name="Customer follow-up").one()
+    assert draft.category == "customer_service"
+    assert draft.subject == "One-off note"
+    assert "preview_account_id" in draft.account_ids_json
+    assert b"Editing draft: Customer follow-up" in draft_response.data
+    assert sent == []
+
+
+def test_email_studio_preview_is_personalized_escaped_and_does_not_send(client, app, app_context, monkeypatch):
+    import app.services.customer_mail as customer_mail
+    sent = []
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args))
+    account = CustomerAccount(email="studio-preview@example.test", display_name="<script>Customer</script>", email_verified_at=datetime.utcnow())
+    db.session.add(account); db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post("/admin/email/studio", data={
+        "category": "customer_service", "account_id": str(account.id),
+        "subject": "Hello {{ customer_name }}", "headline": "Welcome {{ customer_name }}",
+        "message": "This is a preview.", "action": "preview",
+    })
+    assert response.status_code == 200
+    assert b"Preview" in response.data
+    assert b"&lt;script&gt;Customer&lt;/script&gt;" in response.data
+    assert sent == []
+
+
+def test_email_studio_test_send_requires_prior_preview_and_explicit_address(client, app, app_context, monkeypatch):
+    import app.services.customer_mail as customer_mail
+    _configure_brevo_test(app)
+    sent = []
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html, text: sent.append((recipient, subject, html, text)) or "studio-test-id")
+    account = CustomerAccount(email="studio-test-context@example.test", display_name="Test Context", email_verified_at=datetime.utcnow())
+    db.session.add(account); db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    payload = {
+        "category": "customer_service", "account_id": str(account.id),
+        "subject": "Hello {{ customer_name }}", "headline": "Test greeting",
+        "message": "This is test data.", "test_email": "owner-controlled@example.test",
+    }
+    preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
+    assert preview.status_code == 200 and sent == []
+    result = client.post("/admin/email/studio", data={**payload, "action": "send_test", "confirm_test": "SEND TEST"}, follow_redirects=True)
+    assert result.status_code == 200
+    assert len(sent) == 1
+    assert sent[0][0] == "owner-controlled@example.test"
+    assert sent[0][1].startswith("[TEST PREVIEW]")
+    assert b"TEST PREVIEW" in sent[0][2].encode()
+    assert EmailMessage.query.filter_by(kind="admin_test", status="sent").count() == 1
+
+
+def test_email_studio_promotion_requires_preview_consent_and_real_catalogue_items(client, app, app_context, monkeypatch):
+    from datetime import timedelta
+    from uuid import uuid4
+    import app.services.customer_mail as customer_mail
+    _configure_brevo_test(app)
+    app.config["PUBLIC_BASE_URL"] = "https://fitystore.top"
+    app.config["CLOUDINARY_CLOUD_NAME"] = "fity-test"
+    sent = []
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html, text: sent.append((recipient, subject, html, text)) or "studio-promo-id")
+    account = CustomerAccount(email="studio-promo@example.test", display_name="Promo Buyer", email_verified_at=datetime.utcnow(), marketing_status="subscribed")
+    denied = CustomerAccount(email="studio-denied@example.test", display_name="Not Subscribed", email_verified_at=datetime.utcnow(), marketing_status="none")
+    product = Product.query.filter_by(slug="plain-socks").one()
+    product.images.append(ProductImage(filename="catalog-image.webp", storage_backend="cloudinary", cloudinary_public_id="fity/products/catalog", alt_text="Real catalogue image", is_primary=True))
+    db.session.add_all([account, denied]); db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    payload = {
+        "category": "promotion", "account_id": str(account.id), "account_ids": [str(account.id), str(denied.id)],
+        "product_ids": [str(product.id)], "subject": "Current picks", "headline": "For {{ customer_name }}",
+        "message": "See {{ customer_name }}'s selection. {{ unsubscribe_link }}",
+    }
+    preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
+    assert preview.status_code == 200 and sent == []
+    result = client.post("/admin/email/studio", data={**payload, "action": "send", "confirm_send": "SEND 1", "operation_id": str(uuid4())}, follow_redirects=True)
+    assert result.status_code == 200
+    assert len(sent) == 1 and sent[0][0] == account.email
+    assert "https://fitystore.top/product/plain-socks" in sent[0][2]
+    assert "https://res.cloudinary.com/fity-test/image/upload/fity/products/catalog" in sent[0][2]
+    assert "/account/unsubscribe/" in sent[0][2]
+    assert "studio-denied@example.test" not in sent[0][2]
+    assert CustomerToken.query.filter_by(account_id=account.id, purpose="unsubscribe").count() == 1
+
+
+def test_cart_activity_shows_real_account_cart_and_manual_eligibility(client, app, app_context):
+    from datetime import timedelta
+    from secrets import token_urlsafe
+    account = CustomerAccount(email="cart-activity@example.test", display_name="Cart Shopper", email_verified_at=datetime.utcnow(), marketing_status="subscribed")
+    db.session.add(account); db.session.flush()
+    cart = CustomerCart(account_id=account.id, items_json='[{"product_id":1,"quantity":2}]', episode_key=token_urlsafe(24), updated_at=datetime.utcnow() - timedelta(hours=3))
+    db.session.add(cart); db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.get("/admin/email/cart-activity")
+    assert response.status_code == 200
+    assert b"Cart Shopper" in response.data
+    assert b"Plain Socks" in response.data
+    assert b"Eligible for manual reminder" in response.data
+    assert b"No email is sent automatically" in response.data
+
+
+def test_email_studio_order_preview_uses_owned_order_and_recorded_financial_status(client, app, app_context):
+    account = CustomerAccount(email="studio-order-owner@example.test", display_name="Order Owner", email_verified_at=datetime.utcnow())
+    stranger = CustomerAccount(email="studio-order-stranger@example.test", display_name="Stranger", email_verified_at=datetime.utcnow())
+    db.session.add_all([account, stranger]); db.session.flush()
+    order = Order(reference="STUDIO-ORDER-1", fulfilment_method="Collection", status="Processing", payment_status="Awaiting payment", total_cents=18000, discount_cents=1000, delivery_fee_cents=500)
+    db.session.add(order); db.session.flush()
+    db.session.add_all([
+        CustomerOrderLink(account_id=account.id, order_id=order.id),
+        OrderItem(order_id=order.id, product_id=1, product_name="Plain Socks", quantity=1, price_cents=18500, subtotal_cents=18500),
+    ])
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    payload = {
+        "category": "order_confirmation", "account_id": str(account.id), "order_id": str(order.id),
+        "subject": "Order {{ order_reference }}", "headline": "Order details",
+        "message": "Payment: {{ payment_status }}. Order: {{ order_status }}.", "action": "preview",
+    }
+    response = client.post("/admin/email/studio", data=payload)
+    assert response.status_code == 200
+    assert b"Awaiting payment" in response.data
+    assert b"Processing" in response.data
+    assert b"KSh 185" in response.data
+    assert b"KSh 10" in response.data
+    assert b"KSh 5" in response.data
+    assert b"KSh 180" in response.data
+
+    payload["account_id"] = str(stranger.id)
+    denied = client.post("/admin/email/studio", data=payload)
+    assert denied.status_code == 200
+    assert b"not linked to this customer" in denied.data
+
+
+def test_email_studio_rejects_unknown_variables_and_admin_only_access(client, app, app_context):
+    assert client.get("/admin/email/studio").status_code == 302
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post("/admin/email/studio", data={
+        "category": "customer_service", "subject": "Unsafe {{ config }}", "headline": "Hello",
+        "message": "No arbitrary template code", "action": "save_template",
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Unsupported variable" in response.data
+    assert EmailTemplate.query.filter_by(category="customer_service").count() == 0
+
+
+def test_manual_cart_reminder_revalidates_and_records_one_cart_episode(client, app, app_context, monkeypatch):
+    from datetime import timedelta
+    from secrets import token_urlsafe
+    import app.services.customer_mail as customer_mail
+    _configure_brevo_test(app)
+    sent = []
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html, text: sent.append((recipient, html, text)) or "cart-reminder-provider-id")
+    account = CustomerAccount(email="studio-cart-reminder@example.test", display_name="Cart Reminder", email_verified_at=datetime.utcnow(), marketing_status="subscribed")
+    db.session.add(account); db.session.flush()
+    cart = CustomerCart(account_id=account.id, items_json='[{"product_id":1,"quantity":2}]', episode_key=token_urlsafe(24), updated_at=datetime.utcnow() - timedelta(hours=3))
+    db.session.add(cart); db.session.commit()
+    original_activity = cart.updated_at
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    payload = {
+        "category": "cart_reminder", "account_id": str(account.id), "account_ids": [str(account.id)],
+        "subject": "Still interested?", "headline": "Your saved items", "message": "Current prices are shown.",
+    }
+    preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
+    assert preview.status_code == 200 and sent == []
+    result = client.post("/admin/email/studio", data={**payload, "action": "send", "confirm_send": "SEND 1", "operation_id": "12345678-1234-5678-1234-567812345678"}, follow_redirects=True)
+    assert result.status_code == 200
+    assert len(sent) == 1
+    assert "Plain Socks" in sent[0][1]
+    assert "/account/unsubscribe/" in sent[0][1]
+    assert cart.reminder_sent_at is not None
+    assert cart.updated_at == original_activity
+    assert EmailMessage.query.filter_by(idempotency_key=f"cart-reminder:{cart.episode_key}", status="sent").count() == 1

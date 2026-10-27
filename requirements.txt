@@ -6,7 +6,7 @@ email-validator==2.2.0
 python-dotenv==1.0.1
 pytest==8.3.2
 gunicorn
-psycopg[binary]
+psycopg[binary]>=3.2.3,<4
 cloudinary==1.41.0
 Pillow==11.3.0
 google-auth[requests]==2.62.0

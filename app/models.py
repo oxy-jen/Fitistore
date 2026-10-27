@@ -512,6 +512,31 @@ class EmailCampaignRecipient(db.Model):
     __table_args__ = (UniqueConstraint("campaign_id", "account_id", name="uq_campaign_recipient_account"),)
 
 
+class EmailTemplate(TimestampMixin, db.Model):
+    """Persistent reusable editor content; never sends by itself."""
+    id = db.Column(db.Integer, primary_key=True)
+    category = db.Column(db.String(32), nullable=False, unique=True, index=True)
+    subject = db.Column(db.String(200), nullable=False)
+    headline = db.Column(db.String(200), nullable=False, default="")
+    message = db.Column(db.Text, nullable=False, default="")
+
+
+class EmailDraft(TimestampMixin, db.Model):
+    """Persistent one-off manual email draft, separate from reusable templates."""
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    category = db.Column(db.String(32), nullable=False, index=True)
+    subject = db.Column(db.String(200), nullable=False)
+    headline = db.Column(db.String(200), nullable=False, default="")
+    message = db.Column(db.Text, nullable=False, default="")
+    product_ids_json = db.Column(db.Text, nullable=False, default="[]")
+    account_ids_json = db.Column(db.Text, nullable=False, default="[]")
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), index=True)
+    cart_id = db.Column(db.Integer, db.ForeignKey("customer_cart.id"), index=True)
+    status = db.Column(db.String(24), nullable=False, default="draft", index=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("admin_user.id"), nullable=False)
+
+
 class CustomerCart(TimestampMixin, db.Model):
     """Minimal authenticated cart snapshot used for safe abandonment reminders."""
     id = db.Column(db.Integer, primary_key=True)

@@ -17,7 +17,11 @@ EXPECTED_TABLES = {
     "email_message", "email_campaign_recipient", "customer_cart",
     "marketing_automation_settings", "marketing_campaign_run",
     "marketing_product_exposure",
+    "email_template", "email_draft",
 }
+EMAIL_STUDIO_TABLES = {"email_template", "email_draft"}
+PRE_EMAIL_STUDIO_TABLES = EXPECTED_TABLES - EMAIL_STUDIO_TABLES
+APPROVED_MISSING_TABLES = EMAIL_STUDIO_TABLES
 BASE_COLUMNS = {"admin_user": {"id"}, "order": {"id"}, "product": {"id"}}
 # These are the only missing objects approved for an existing feature schema.
 APPROVED_MISSING_COLUMNS = {
@@ -46,8 +50,10 @@ def migration_index_manifest() -> dict[str, tuple[str, tuple[str, ...], bool]]:
 
 
 def migration_sql() -> str:
-    sql_path = Path(__file__).resolve().parent.parent / "migrations" / "20261017_customer_accounts_email.sql"
-    return sql_path.read_text(encoding="utf-8")
+    migrations_dir = Path(__file__).resolve().parent.parent / "migrations"
+    customer_email = (migrations_dir / "20261017_customer_accounts_email.sql").read_text(encoding="utf-8")
+    email_studio = (migrations_dir / "20261027_email_studio.sql").read_text(encoding="utf-8")
+    return f"{customer_email}\n{email_studio}"
 
 
 def migration_column_defaults() -> dict[tuple[str, str], str | None]:
@@ -368,6 +374,8 @@ def classify_tables(existing: set[str]) -> str:
         return "new"
     if present == EXPECTED_TABLES:
         return "existing"
+    if PRE_EMAIL_STUDIO_TABLES <= present and (EXPECTED_TABLES - present) <= APPROVED_MISSING_TABLES:
+        return "upgradable"
     raise GuardError("Some but not all customer email tables exist; ambiguous partial migration state.")
 
 
@@ -377,14 +385,20 @@ def validate_identity(database: str, schema: str, expected_database: str, expect
 
 
 def _engine_url(url: str) -> str:
-    # SQLAlchemy uses psycopg 3; TLS options are passed separately and cannot be weakened by URL params.
+    # SQLAlchemy uses psycopg 3; caller URL TLS values cannot weaken verification.
     from sqlalchemy.engine import make_url
+    ca_file = Path(os.environ.get("DATABASE_CA_CERT_FILE", ""))
+    if not ca_file.is_file():
+        raise GuardError(
+            "A trusted PostgreSQL CA bundle is required for verify-full TLS; "
+            "configure RENDER_DATABASE_CA_CERT_PEM in GitHub Actions and rerun."
+        )
     try:
         parsed = make_url(url)
     except Exception:
         raise GuardError("Database URL could not be prepared for verified TLS; details suppressed.") from None
     query = {k: v for k, v in parsed.query.items() if k.lower() not in {"sslmode", "sslrootcert"}}
-    query.update({"sslmode": "verify-full", "sslrootcert": "system"})
+    query.update({"sslmode": "verify-full", "sslrootcert": str(ca_file)})
     parsed = parsed.set(
         drivername="postgresql+psycopg",
         query=query,
@@ -427,6 +441,11 @@ def validate_schema(connection, schema: str, *, allow_approved_missing: bool) ->
     problems: list[str] = []
     for table in customer_email_schema_tables():
         name = table.name
+        if name not in tables:
+            if name in APPROVED_MISSING_TABLES and allow_approved_missing:
+                problems.append(f"approved missing table: {name} (migration 20261027_email_studio.sql)")
+                continue
+            raise GuardError(f"Unexpected missing table: {name}.")
         actual_columns = {row["name"]: row for row in inspector.get_columns(name, schema=schema_arg)}
         expected_columns = {column for table_name, column in column_manifest if table_name == name}
         if set(actual_columns) - expected_columns:
@@ -695,7 +714,7 @@ def _connect() -> object:
             _engine_url(url),
             connect_args={
                 "sslmode": "verify-full",
-                "sslrootcert": "system",
+                "sslrootcert": os.environ["DATABASE_CA_CERT_FILE"],
                 "options": "-c default_transaction_read_only=on",
             },
             hide_parameters=True,
@@ -712,30 +731,54 @@ def _connect() -> object:
 
 
 def export_verified_migration_environment() -> None:
-    """Write a strict-TLS URL to GitHub's private per-job environment file."""
+    """Install the trusted Render CA bundle and export strict-TLS settings to GitHub."""
     from sqlalchemy.engine import make_url
+    import ssl
 
     url, _database, _schema, _host = required_settings()
     github_env = Path(os.environ.get("GITHUB_ENV", ""))
     if not github_env.is_file():
         raise GuardError("GitHub runner environment files are unavailable.")
     try:
+        ca_pem = os.environ.get("RENDER_DATABASE_CA_CERT_PEM", "")
+        blocks = re.findall(
+            r"-----BEGIN CERTIFICATE-----\s+.+?\s+-----END CERTIFICATE-----",
+            ca_pem,
+            flags=re.S,
+        )
+        remainder = re.sub(
+            r"-----BEGIN CERTIFICATE-----\s+.+?\s+-----END CERTIFICATE-----",
+            "",
+            ca_pem,
+            flags=re.S,
+        ).strip()
+        if not blocks or remainder:
+            raise GuardError("The trusted PostgreSQL CA bundle is missing or malformed.")
+        for block in blocks:
+            ssl.PEM_cert_to_DER_cert(block)
+        runner_temp = Path(os.environ.get("RUNNER_TEMP", ""))
+        if not runner_temp.is_dir():
+            raise GuardError("GitHub runner temporary storage is unavailable.")
+        ca_file = runner_temp / "render-postgres-ca.pem"
+        ca_file.write_text("\n".join(blocks) + "\n", encoding="ascii")
+        os.chmod(ca_file, 0o600)
         parsed = make_url(url)
         query = {key: value for key, value in parsed.query.items() if key.lower() not in {"sslmode", "sslrootcert"}}
-        query.update({"sslmode": "verify-full", "sslrootcert": "system"})
+        query.update({"sslmode": "verify-full", "sslrootcert": str(ca_file)})
         verified_url = parsed.set(drivername="postgresql+psycopg", query=query).render_as_string(hide_password=False)
         if "\n" in verified_url or "\r" in verified_url:
             raise GuardError("Database URL format is invalid; details suppressed.")
         with github_env.open("a", encoding="utf-8", newline="\n") as output:
             output.write(f"DATABASE_URL={verified_url}\n")
+            output.write(f"DATABASE_CA_CERT_FILE={ca_file}\n")
             output.write("PGSSLMODE=verify-full\n")
-            output.write("PGSSLROOTCERT=system\n")
+            output.write(f"PGSSLROOTCERT={ca_file}\n")
     except GuardError:
         raise
     except Exception:
         raise GuardError("Verified TLS environment could not be prepared; details suppressed.") from None
-    print("Migration environment prepared with verified TLS; no connection opened.")
-    write_summary(["Migration environment prepared with verify-full TLS."])
+    print("Migration environment prepared with verify-full TLS and the supplied provider CA; no connection opened.")
+    write_summary(["Migration environment prepared with verify-full TLS and the supplied provider CA."])
 
 
 def run(mode: str) -> None:

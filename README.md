@@ -212,17 +212,19 @@ The existing `AdminUser` table and admin authentication remain separate. Custome
 
 ### Database setup
 
-Creating the Flask app does not create or alter database tables. For a new local SQLite store, run `python -m flask --app wsgi:app init-db` explicitly; this command can seed starter data and is for a fresh local store only. The customer/email migration creates only the twelve customer/account email tables and adds the required account, outbox, and retry fields. Before changing an existing database, inspect it with `python -m flask --app wsgi:app check-customer-email-schema`. This command reads schema metadata and reports missing tables, columns, indexes, uniqueness constraints, and foreign keys without changing the database. The migration checks required base tables and validates the resulting schema; SQLite uses a transaction, while PostgreSQL uses an advisory lock and transaction. An incomplete existing feature table causes an error rather than a destructive repair.
+Creating the Flask app does not create or alter database tables. For a new local SQLite store, run `python -m flask --app wsgi:app init-db` explicitly; this command can seed starter data and is for a fresh local store only. Do not run it on Render. The customer/email migration creates the customer/account, consent, cart, outbox, Email Studio template and draft tables and adds the required account, outbox, and retry fields. `check-customer-email-schema` is read-only and reports missing tables, columns, indexes, uniqueness constraints, and foreign keys. The migration validates the resulting schema; SQLite uses a transaction, while PostgreSQL uses an advisory lock and transaction. An incomplete existing feature table causes an error rather than a destructive repair.
 
-For PostgreSQL, first confirm the active `DATABASE_URL` points to the intended database, take and verify a restorable backup, and review the migration SQL. Then apply the additive migration explicitly:
+For Render PostgreSQL, use the existing migration command as the web service's **Build Command** so the schema is ready before the new app version starts. Set **Settings > Build & Deploy > Build Command** to:
 
-```powershell
-python -m flask --app wsgi:app migrate-customer-email-schema
+```text
+pip install -r requirements.txt && python -m flask --app wsgi:app migrate-customer-email-schema
 ```
 
-The migration adds customer identity, token, consent, order-link, rate-limit, campaign, and email-message tables. It does not change or delete existing order, product, inventory, payment, image, or admin records. Run it before enabling customer account/email routes on PostgreSQL. The migration is idempotent. Referral, review, and cart-counter database changes are separate and use `migrate-postgresql-feature-schema`; Cloudinary image columns use `migrate-cloudinary-schema`.
+This uses the same existing `DATABASE_URL` as the app; no external URL, additional CA variable, GitHub secret, shell session, or per-worker startup migration is required. The command is schema-only: it does not send email, seed products, or reset data. It takes a PostgreSQL advisory lock, applies the project's dated idempotent SQL inside a transaction, and checks every required table, column, index, uniqueness constraint, and foreign key before succeeding. If the database URL is missing or points to SQLite on Render, the build fails instead of silently initializing an ephemeral database. A failed migration fails the build and prevents that deploy; if a later deploy step fails after the additive transaction committed, the prior app version can continue using the preserved existing data and the next build safely rechecks the schema.
 
-For the hosted PostgreSQL database when Render Shell is unavailable, the repository includes a manual GitHub Actions workflow at `.github/workflows/migrate-customer-email-schema.yml`. On the repository's default branch, first save Render's **external** PostgreSQL URL as the GitHub Actions secret `RENDER_DATABASE_URL` (never paste it into a file or chat). Open **Actions > Migrate customer email schema > Run workflow**, type exactly `MIGRATE CUSTOMER EMAIL SCHEMA`, and start it. It performs a read-only preflight, runs only the additive customer/email migration, then fails unless the post-migration schema check is complete. It does not send emails. The workflow must be on the default branch before it can be manually run.
+The `20261017_customer_accounts_email.sql` and `20261027_email_studio.sql` migrations add customer identity, consent, cart, email history, templates and drafts. They do not delete or recreate existing orders, products, inventory, payments, images, or admin records. The command is repeatable and serialized, so ordinary redeploys need no extra manual migration command. Referral/review/cart-counter changes remain separate (`migrate-postgresql-feature-schema`); Cloudinary columns use `migrate-cloudinary-schema`.
+
+The guarded GitHub Actions workflow remains an optional manual fallback. It is not needed when the Render Build Command above is configured. No production migration is run by this repository change.
 
 #### Production database safety
 
@@ -253,7 +255,6 @@ MAIL_PASSWORD=<provider password>
 MAIL_USE_TLS=1
 MAIL_USE_SSL=0
 MAIL_FROM_VERIFIED=1
-MAIL_TEST_ADDRESS=<authorized owner test inbox>
 PUBLIC_BASE_URL=https://fitystore.top
 ```
 
@@ -261,7 +262,7 @@ For MAIL_PROVIDER=brevo, only BREVO_API_KEY and the verified sender settings are
 
 Follow the provider's current DNS instructions to publish SPF and DKIM. Add a DMARC policy for `fitystore.top` and monitor aggregate reports before tightening enforcement. DNS is not changed by this application. Provider plans, free quotas, costs, and setup requirements change; check the selected provider before relying on a free tier.
 
-The admin Customer email page shows whether the selected email provider is configured, subscriber consent, campaign history, and the last 30 message statuses. A `sent` status means the selected provider accepted the message; it does not prove inbox delivery. The authenticated Brevo webhook can update matching outbox and campaign-recipient records to delivered, bounced, or complained; hard bounces, invalid addresses, and complaints suppress marketing. Soft bounces are recorded as bounced but do not automatically suppress. Webhook events are safe to repeat. There is no automatic retry worker. Email failures do not roll back committed orders or payment records. Campaign sending is synchronous and intended for low volume; large lists may exceed a web-host request timeout. Send a test message to the configured test address before running a campaign.
+The admin Customer email page shows provider configuration and message statuses. A `sent` status means the selected provider accepted the message; it does not prove inbox delivery. The authenticated Brevo webhook can update matching outbox records to delivered, bounced, or complained; hard bounces, invalid addresses, and complaints suppress marketing. Soft bounces are recorded as bounced but do not automatically suppress. Webhook events are safe to repeat. Email sending is synchronous and intended for low volume; large sends may exceed a web-host request timeout. Email failures do not roll back committed orders or payment records.
 
 ### Google sign-in setup
 
@@ -284,41 +285,21 @@ The integration stays unavailable until `GOOGLE_CLIENT_ID` and the `google-auth`
 4. Check that marketing status is `none` when unchecked. If opting in, confirm the separate `marketing_confirm` token only after verifying the account, then unsubscribe using the one-time link.
 5. Sign into a verified account before checkout and confirm its order appears on that account only. Submit a guest order and confirm it remains available through the existing WhatsApp/tracking workflow without an account link.
 6. To exercise email delivery in tests, mock the provider transport (`app.services.customer_mail._send_smtp`, `_send_resend`, or `_send_brevo`) or mock `urllib.request.urlopen`. Automated tests must never use a live provider credential.
-7. Only after sender verification, configure `MAIL_TEST_ADDRESS`, send one test message from the admin centre, and inspect its status. Preview a campaign and type `SEND` only when the eligible subscriber count and content are correct.
+7. Only after sender verification, sign into Admin > Email Studio, select a category and verified customer context, preview the message, then explicitly enter an address you control and type `SEND TEST` for an isolated test. For an actual multi-recipient send, review the recipient selection and type the exact `SEND N` confirmation shown. Automated tests must mock provider delivery.
 
 Use HTTPS in production and set `SESSION_COOKIE_SECURE=1`. Registration, login, verification, password reset and Google sign-in are rate-limited per IP/action; session cookies remain HTTP-only and SameSite Lax. Password reset/verification raw tokens are only included in the generated email and are stored in the database as SHA-256 hashes. The email outbox stores recipient, subject, event, status and failure summary, not token links or message bodies. Review privacy wording and any retention schedule with the business owner; this implementation is not a legal compliance certification.
 
 
-## Scheduled marketing automation
+## Email Studio: manual-only operation
 
-Marketing automation is opt-in at both levels: customers explicitly request and confirm promotional email, and the owner enables schedules in Admin > Customer email > Email automation. Account terms remain separate from marketing consent. Essential verification, security, and order messages continue independently.
+The six Email Studio categories are order confirmation, cart reminder, thank-you, promotions/new arrivals, order status/fulfilment update, and custom customer service. Reusable templates and one-off drafts are stored separately. Variables are allowlisted by category and safely substituted; product cards, order summaries, prices, images, and links are reloaded from current database records. Preview does not send. Test sends require an explicitly entered owner-controlled address, display a test warning, and are limited to three per admin per hour. Bulk sends require an exact `SEND N` confirmation.
 
-The existing migrate-customer-email-schema command now also creates the signed-in cart snapshot and automation run/settings tables and additively adds the outbox retry counter. Run it once after deploying this version, against the same database used by the web service:
+Marketing and cart reminders are manual-only. The scheduled workflow is paused, the compatibility CLI command is a no-op, and opening a page, changing a cart, saving a draft/template, or deploying never sends marketing email. The app does not start a scheduler in Gunicorn. No cron service or paid worker is needed for these manual features. Existing order/security transactional behavior continues separately.
 
-    python -m flask --app wsgi:app migrate-customer-email-schema
+Cart activity currently records signed-in, verified account snapshots. Guest carts remain browser-local and are not included in admin activity or email. The cart activity page shows current catalogue prices and stock, checkout activity, age, prior episode reminder status, and eligibility reasons. A cart reminder can be sent manually only after at least two hours without activity, while checkout is inactive, when products remain available, and when the account is verified and subscribed. Prices and stock are rechecked at send time. One provider-accepted reminder is recorded per cart episode. The current cart schema does not link a cleared cart to a completed order, so the admin view labels it cleared/resolved instead of claiming an order association.
 
-The automation command runs independently of web traffic:
+To deploy Email Studio on Render, configure the Build Command above and deploy normally. The schema migration does not send email. Set `PUBLIC_BASE_URL=https://fitystore.top`, `MAIL_PROVIDER=brevo`, `BREVO_API_KEY`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`, `MAIL_FROM_VERIFIED=1` after Brevo verifies the sender/domain, and `MAIL_REPLY_TO` only if it points to a monitored inbox. Store credentials in Render environment settings, never source files. After the deploy succeeds, sign into Admin, review previews, then test only to an address you control. Brevo sending uses HTTPS; no cron or additional Render service is required.
 
-```powershell
-python -m flask --app wsgi:app run-marketing-automation
-```
+For authenticated delivery events, set `BREVO_WEBHOOK_TOKEN` and configure Brevo to POST to `https://fitystore.top/webhooks/brevo/email-events` with the same value in the `X-Fity-Brevo-Token` header. Provider acceptance (`sent`) is not confirmed inbox delivery; only authenticated webhook events can mark delivery or suppression states. There is no automatic retry worker. Local and automated tests must use a mocked provider and a test database; never use production credentials in tests.
 
-Render Cron Jobs have a $1/month minimum, so they are not a zero-cost option. A free, best-effort alternative is the guarded GitHub Actions workflow at `.github/workflows/marketing-automation.yml`. It runs every six hours. It is disabled unless the repository variable `RUN_MARKETING_AUTOMATION` is set to `true`, and the database's admin automation setting must also be enabled. A six-hour cadence can delay abandoned-cart reminders by up to six hours, and GitHub may delay scheduled runs. GitHub disables scheduled workflows in public repositories after 60 days without repository activity.
-
-Before enabling it, confirm the production PostgreSQL schema is complete and you have a backup. The workflow never runs migrations. Add these GitHub Actions secrets without putting their values in the repository: `RENDER_DATABASE_URL` (the external PostgreSQL URL), `APP_SECRET_KEY`, `BREVO_API_KEY`, `MAIL_FROM_ADDRESS`, and `MAIL_REPLY_TO` (optional). Then set the repository variable `RUN_MARKETING_AUTOMATION=true`. The database automation setting remains a second pause switch. Do not add `DATABASE_URL` to the source or workflow file.
-
-GitHub Actions standard runners are free for public repositories; GitHub Free includes 2,000 minutes monthly for private repositories. At a 10-minute job timeout and four scheduled runs per day, the worst-case scheduled usage is about 1,200 minutes per 30-day month, before other workflows use the same allowance. To guarantee no overage charges, configure an Actions spending budget that stops usage at $0, or do not enable it on a billable account. When the free allowance is exhausted, runs may stop. This is a no-cost option only within the applicable free allowance and is less reliable than a dedicated scheduler.
-
-Do not start the automation from Gunicorn workers. Without an independent scheduler, recurring emails and abandoned-cart reminders will not run automatically.
-
-The migration only adds new tables/columns and does not erase existing store data. Run it before enabling automation. All automation schedules default to paused. Admin previews render current catalog content; test sends go only to MAIL_TEST_ADDRESS and are limited to three per admin per hour. A sent status means provider acceptance, not confirmed inbox placement.
-
-Only verified, subscribed customer accounts are eligible. Cart reminders only cover authenticated accounts whose cart snapshot is past the configured inactivity window; checkout activity suppresses the reminder for 30 minutes, and an order request resolves the episode. Guest carts are never emailed. Product prices and availability are revalidated before each reminder. One reminder is sent per episode by default, and the frequency limit is at most one marketing message per account per rolling 24 hours.
-
-Current offers require a stored previous price higher than the current price; this schema has no separate offer start/end dates. Weekly ranking uses Completed and Paid orders from the last 90 days, with the existing lifetime recorded cart-add aggregate as a secondary signal because that legacy counter has no event timestamps. If activity is insufficient, the campaign calls items fresh picks instead of claiming popularity. Only published reviews are eligible for highlights.
-
-For Brevo delivery and bounce events, set `BREVO_WEBHOOK_TOKEN` to a long random secret and configure Brevo to POST events to `https://fitystore.top/webhooks/brevo/email-events` with the same value in the `X-Fity-Brevo-Token` header. The endpoint accepts delivered, hard/soft bounce, invalid, spam/complaint, and unsubscribe events, matching messages by Brevo message ID. Hard bounces, complaints, and invalid-address events suppress marketing; soft bounces update delivery status only. Duplicate events do not duplicate consent records. An unset token makes the endpoint reject calls. Verify the provider payload and event names before relying on this feed; admins can still suppress addresses manually.
-
-Brevo needs a verified sender and authenticated domain. Set MAIL_PROVIDER=brevo, BREVO_API_KEY, MAIL_FROM_ADDRESS, and MAIL_FROM_VERIFIED=1 only after sender/domain verification. Set MAIL_TEST_ADDRESS before using the automated test form. Store credentials only in Render environment settings or an untracked local .env file; never put credentials in .env.example.
-
-This feature does not certify legal compliance or inbox delivery. Kenya's Data Protection Act and General Regulations require specific prior consent for direct marketing and a clear, low-effort opt-out. Review the privacy notice, ODPC registration obligations, data retention, and vendor/data-transfer arrangements with qualified counsel before launch.
+Kenyan direct marketing requires an appropriate legal basis and opt-out. The app requires verified explicit marketing subscription and an unsubscribe link for promotional sends, but this is not legal-compliance certification. Review the privacy notice, retention, and provider/data-transfer arrangements before launch.
