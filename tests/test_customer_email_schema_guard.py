@@ -14,8 +14,10 @@ from scripts.customer_email_schema_guard import (
     PREFLIGHT_CONFIRMATION,
     ColumnSpec,
     GuardError,
+    IdentityCheckError,
     classify_tables,
     _connect,
+    _connection_failure_category,
     _engine_url,
     export_verified_migration_environment,
     migration_column_manifest,
@@ -226,20 +228,68 @@ def test_read_only_connect_uses_system_ca_and_verify_full(monkeypatch):
     assert "sslrootcert=system" in calls["url"]
 
 
-def test_preflight_error_identifies_stage_and_exception_class_without_error_text(monkeypatch):
+def test_preflight_error_reports_safe_driver_diagnostics_without_raw_error(monkeypatch):
     secret_url = "postgresql://private-user:private-password@private-host/private-db"
+    raw_message = f"connection failed for {secret_url}; token=private-token"
 
     def fail_connect():
-        raise RuntimeError(f"connection failed for {secret_url}")
+        raise RuntimeError(raw_message)
 
     monkeypatch.setattr("scripts.customer_email_schema_guard._connect", fail_connect)
+    monkeypatch.setattr(
+        "scripts.customer_email_schema_guard._safe_driver_versions",
+        lambda: "psycopg=3.test implementation=binary libpq=180000",
+    )
     with pytest.raises(GuardError) as caught:
         run("preflight")
 
     message = str(caught.value)
-    assert "Database connection/identity check failed (RuntimeError)" in message
+    assert "Database connection/identity check failed" in message
+    assert "psycopg=3.test implementation=binary libpq=180000" in message
+    assert "category=unclassified connection error" in message
     assert secret_url not in message
     assert "private-password" not in message
+    assert "private-token" not in message
+    assert raw_message not in message
+
+
+@pytest.mark.parametrize("message,expected", [
+    ("certificate verify failed for private-host", "TLS verification/configuration error"),
+    ("connection timed out to private-host", "network/timeout error"),
+    ("password authentication failed for user private-user", "authentication error"),
+    ("unexpected private detail", "unclassified connection error"),
+])
+def test_connection_failure_category_never_returns_exception_text(message, expected):
+    error = RuntimeError(message)
+    category = _connection_failure_category(error)
+    assert category == expected
+    assert "private-host" not in category
+    assert "private-user" not in category
+
+
+def test_connection_failure_category_uses_sqlstate_without_message():
+    class DatabaseError(Exception):
+        sqlstate = "28P01"
+
+        def __str__(self):
+            return "private-user private-password"
+
+    assert _connection_failure_category(DatabaseError()) == "authentication error"
+
+
+def test_preflight_identity_failure_has_safe_identity_category(monkeypatch):
+    monkeypatch.setattr(
+        "scripts.customer_email_schema_guard._connect",
+        lambda: (_ for _ in ()).throw(IdentityCheckError("private database identity")),
+    )
+    monkeypatch.setattr(
+        "scripts.customer_email_schema_guard._safe_driver_versions",
+        lambda: "psycopg=3.test implementation=binary libpq=180000",
+    )
+    with pytest.raises(GuardError) as caught:
+        run("preflight")
+    assert "category=identity check failed" in str(caught.value)
+    assert "private database identity" not in str(caught.value)
 
 
 def test_missing_parent_table_stops_preflight():
