@@ -80,8 +80,11 @@ def test_about_falls_back_when_catalogue_image_is_missing(client, app):
 def test_shop_search_and_category_filter(client):
     rv = client.get("/shop?q=Plain&category=ankle-socks")
     assert rv.status_code == 200
-    assert b"Plain Socks" in rv.data
-    assert b"Unpriced Cap" not in rv.data
+    grid_start = rv.data.index(b'<div id="product-grid"')
+    grid_end = rv.data.index(b'<div id="shop-empty"', grid_start)
+    product_grid = rv.data[grid_start:grid_end]
+    assert b"Plain Socks" in product_grid
+    assert b"Unpriced Cap" not in product_grid
 
 def test_product_detail(client):
     rv = client.get("/product/plain-socks")
@@ -722,11 +725,11 @@ def test_public_policy_pages_and_sitemap_xml(client):
     import xml.etree.ElementTree as ET
 
     pages = {
-        "/delivery-policy": "Delivery and collection",
-        "/payment-policy": "Payment information",
+        "/delivery-policy": "Delivery and Collection Policy",
+        "/payment-policy": "Payment Policy",
         "/returns-policy": "Returns, exchanges, and cancellations",
-        "/privacy": "Privacy information",
-        "/terms": "Terms and conditions",
+        "/privacy": "Privacy Policy",
+        "/terms": "Terms and Conditions",
     }
     for path, heading in pages.items():
         response = client.get(path)
@@ -829,6 +832,7 @@ def test_checkout_and_policy_pages_show_current_store_terms(client, app):
     assert b"Nearby delivery is arranged by contacting the seller." in checkout.data
     assert b"KSh 50" in checkout.data
     assert b"Confirm availability, then use the configured manual M-Pesa payment number." in checkout.data
+    assert b"254700000000" in checkout.data
     assert b"Never share your M-Pesa PIN." in checkout.data
     assert b"/returns-policy" in checkout.data
 

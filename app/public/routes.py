@@ -95,7 +95,7 @@ def helpers():
     footer_products = product_list_options(Product.query.filter_by(active=True)).order_by(
         Product.featured.desc(), Product.updated_at.desc(), Product.id.desc()
     ).limit(4).all()
-    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "footer_products": footer_products}
+    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "footer_products": footer_products, "current_year": datetime.now().year}
 
 def product_query():
     q = request.args.get("q", "").strip()
@@ -880,8 +880,8 @@ def about():
     response = make_response(render_template(
         "about.html",
         title="About FityStores",
-        seo_title="About FityStores | BEI FITS",
-        seo_description="Meet BEI FITS / FityStores, browse current products, and find out how to order or get help.",
+        seo_title="About FityStores",
+        seo_description="Meet FityStores, browse current products, and find out how to order or get help.",
         featured_products=featured_products,
         categories=categories,
         category_images=category_images,

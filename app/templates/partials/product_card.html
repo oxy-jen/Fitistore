@@ -18,7 +18,7 @@
   <div class="product-body">
     <p class="category">{{ product.category.name }}</p>
     <h3><a href="{{ url_for('public.product_detail', slug=product.slug) }}">{{ product.name }}</a></h3>
-    <p class="shop-card-description">{{ product.description|striptags|truncate(100, true) if product.description else "Everyday essentials from BEI FITS." }}</p>
+    <p class="shop-card-description">{{ product.description|striptags|truncate(100, true) if product.description else "Everyday essentials from FityStores." }}</p>
     {% if variant_count and product.min_variant_price_cents is not none %}
       <p class="price">{% if product.min_variant_price_cents == product.max_variant_price_cents %}{{ money(product.min_variant_price_cents, settings.currency) }}{% else %}{{ money(product.min_variant_price_cents, settings.currency) }} – {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}</p><p class="variant-summary">{{ variant_count }} options available</p>
     {% else %}<p class="price">{% if product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}Ask for price{% endif %}{% if product.has_discount %}<s>{{ money(product.previous_price_cents, settings.currency) }}</s>{% endif %}</p>{% endif %}

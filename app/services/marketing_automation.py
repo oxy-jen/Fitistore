@@ -301,11 +301,11 @@ def _run_abandoned_carts(settings, now_utc):
                 item["quantity"]=line.quantity
                 item["variant_label"]=line.variant_label
                 payloads.append(item)
-        html=render_template("emails/product_campaign.html",subject="Still interested in your picks at BEI FITS?",heading="Your cart is still here",intro="You left these items in your cart. Would you like to continue shopping? Availability and prices can change.",first_name=(account.display_name or account.email.split("@",1)[0]).split()[0],products=payloads,unsubscribe_url=unsubscribe,shop_url=_public_url(url_for("public.shop")),cart_url=_public_url(url_for("public.cart")))
+        html=render_template("emails/product_campaign.html",subject="Still interested in your picks at FityStores?",heading="Your cart is still here",intro="You left these items in your cart. Would you like to continue shopping? Availability and prices can change.",first_name=(account.display_name or account.email.split("@",1)[0]).split()[0],products=payloads,unsubscribe_url=unsubscribe,shop_url=_public_url(url_for("public.shop")),cart_url=_public_url(url_for("public.cart")))
         text_lines=[f"Hi {(account.display_name or account.email.split('@',1)[0]).split()[0]},","You left these items in your cart. Availability and prices can change."]
         for item in payloads:text_lines.extend([item["name"],item["price"],item["url"]])
         text_lines.extend(["Continue shopping: "+_public_url(url_for("public.cart")),"Unsubscribe: "+unsubscribe])
-        result=queue_email(account.email,"Still interested in your picks at BEI FITS?","marketing_abandoned_cart",key,account_id=account.id,html_body=html,text_body="\n".join(text_lines))
+        result=queue_email(account.email,"Still interested in your picks at FityStores?","marketing_abandoned_cart",key,account_id=account.id,html_body=html,text_body="\n".join(text_lines))
         if result.status=="sent":
             cart.reminder_sent_at=datetime.utcnow();db.session.commit();accepted+=1
         elif result.status=="suppressed":suppressed+=1
