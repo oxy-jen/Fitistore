@@ -75,11 +75,13 @@ def email_center():
             order_map.setdefault(link.account_id, []).append(link.order)
     campaigns = EmailCampaign.query.order_by(EmailCampaign.created_at.desc()).limit(25).all() if model_schema_ready(EmailCampaign, inspector) else []
     messages_available = model_schema_ready(EmailMessage, inspector)
+    service_messages_available = messages_available and model_schema_ready(FinancialAuditEvent, inspector)
     messages = EmailMessage.query.order_by(EmailMessage.created_at.desc()).limit(30).all() if messages_available else []
     products = Product.query.filter_by(active=True).order_by(Product.name).all()
     configured, note = mail_configuration_status()
     eligible_total = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None)).count()
-    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, accounts=accounts, order_map=order_map, campaigns=campaigns, messages=messages, messages_available=messages_available, products=products, search=search, eligible_total=eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex)
+    service_eligible_total = CustomerAccount.query.filter_by(active=True).filter(CustomerAccount.email_verified_at.isnot(None)).count()
+    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, accounts=accounts, order_map=order_map, campaigns=campaigns, messages=messages, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex)
 
 
 @admin_bp.post("/email/send-manual")
@@ -118,7 +120,7 @@ def send_manual_customer_email():
     else:
         accounts = eligible_query.filter(CustomerAccount.id.in_(selected_ids)).order_by(CustomerAccount.id).all() if selected_ids else []
     if not accounts:
-        flash("Choose at least one active, verified customer who has subscribed to marketing email.", "error")
+        flash("This is the promotional bulk sender. Choose an active, verified marketing subscriber, or use the non-promotional service update form for other verified accounts.", "error")
         return redirect(url_for("admin.email_center"))
     if len(accounts) > 1 and request.form.get("confirm_send", "").strip() != f"SEND {len(accounts)}":
         flash(f"Email not sent. Type SEND {len(accounts)} to confirm the exact recipient count.", "warning")
@@ -197,6 +199,88 @@ def send_manual_customer_email():
             db.session.rollback()
             batch_failed += 1
     flash(f"Manual email result: provider accepted {batch_sent}; failed or suppressed {batch_failed}. Provider acceptance does not confirm inbox delivery.", "success" if batch_sent and not batch_failed else "warning")
+    return redirect(url_for("admin.email_center"))
+
+
+@admin_bp.post("/email/send-service")
+@login_required
+def send_service_customer_email():
+    """Send a manually confirmed service update to active, verified accounts."""
+    from sqlalchemy import inspect
+    from app.services.customer_mail import mail_configuration_status, queue_branded_email
+
+    inspector = inspect(db.engine)
+    if not all(model_schema_ready(model, inspector) for model in (CustomerAccount, EmailMessage, FinancialAuditEvent)):
+        flash("Service message not sent. Customer accounts, email history, or audit storage is unavailable.", "error")
+        return redirect(url_for("admin.email_center"))
+    try:
+        batch_key = str(UUID(request.form.get("service_send_key", "")))
+    except (ValueError, TypeError, AttributeError):
+        flash("Service message not sent because its one-time send key was invalid. Refresh and try again.", "error")
+        return redirect(url_for("admin.email_center"))
+
+    selected_ids = set()
+    for raw_id in request.form.getlist("account_ids"):
+        try:
+            selected_ids.add(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    if len(selected_ids) > 500:
+        flash("Service updates are limited to 500 recipients per send. Nothing was sent.", "error")
+        return redirect(url_for("admin.email_center"))
+
+    eligible_query = CustomerAccount.query.filter_by(active=True).filter(CustomerAccount.email_verified_at.isnot(None))
+    if request.form.get("service_all_eligible") == "yes":
+        if eligible_query.count() > 500:
+            flash("There are more than 500 verified accounts. Search for a smaller group and select recipients individually.", "error")
+            return redirect(url_for("admin.email_center"))
+        accounts = eligible_query.order_by(CustomerAccount.id).limit(500).all()
+    else:
+        accounts = eligible_query.filter(CustomerAccount.id.in_(selected_ids)).order_by(CustomerAccount.id).all() if selected_ids else []
+    if not accounts:
+        flash("Select at least one active, verified customer account for the service update.", "error")
+        return redirect(url_for("admin.email_center"))
+    if len(accounts) > 1 and request.form.get("service_confirm_send", "").strip() != f"SEND {len(accounts)}":
+        flash(f"Service update not sent. Type SEND {len(accounts)} to confirm the exact recipient count.", "warning")
+        return redirect(url_for("admin.email_center"))
+
+    subject = request.form.get("service_subject", "").strip()[:200]
+    body = request.form.get("service_body", "").strip()[:5000]
+    if not subject or not body:
+        flash("Service update not sent. Enter both a subject and message.", "error")
+        return redirect(url_for("admin.email_center"))
+    configured, note = mail_configuration_status()
+    if not configured:
+        flash("Service update not sent: " + note, "error")
+        return redirect(url_for("admin.email_center"))
+
+    sent = failed = 0
+    for account in accounts:
+        key = f"admin-service-batch:{batch_key}:{account.id}"
+        prior = EmailMessage.query.filter_by(idempotency_key=key).first()
+        if prior and prior.status in {"sent", "delivered"}:
+            sent += 1
+            continue
+        try:
+            message = queue_branded_email(
+                account.email, subject, "admin_service", key,
+                "A service update from FityStores", [body], account_id=account.id,
+            )
+            db.session.add(FinancialAuditEvent(
+                admin=current_user, event_type="customer_service_email",
+                entity_type="CustomerAccount", entity_id=account.id,
+                note=f"EmailMessage {message.id}: {message.status}",
+            ))
+            db.session.commit()
+            if message.status in {"sent", "delivered"}:
+                sent += 1
+            else:
+                failed += 1
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception("Manual service email failed for customer account %s", account.id)
+            failed += 1
+    flash(f"Service update result: provider accepted {sent}; failed {failed}. Provider acceptance does not confirm inbox delivery.", "success" if sent and not failed else "warning")
     return redirect(url_for("admin.email_center"))
 
 
