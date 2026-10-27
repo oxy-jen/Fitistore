@@ -1,41 +1,16 @@
-name: BEI FITS marketing automation
+name: BEI FITS marketing automation (paused)
 
+# Intentionally has no schedule and no job. This workflow is retained so old
+# links remain understandable, but it cannot send mail in manual-only mode.
 on:
-  # Best-effort free cadence; abandoned-cart reminders may be up to six hours late.
-  schedule:
-    - cron: "23 */6 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: fity-marketing-automation
-  cancel-in-progress: false
-
 jobs:
-  run:
-    # Disabled unless explicitly enabled in repository Variables.
-    if: ${{ vars.RUN_MARKETING_AUTOMATION == 'true' }}
+  paused:
+    if: ${{ false }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
-      SECRET_KEY: ${{ secrets.APP_SECRET_KEY }}
-      MAIL_PROVIDER: brevo
-      BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
-      MAIL_FROM_ADDRESS: ${{ secrets.MAIL_FROM_ADDRESS }}
-      MAIL_FROM_NAME: FityStores
-      MAIL_FROM_VERIFIED: "1"
-      MAIL_REPLY_TO: ${{ secrets.MAIL_REPLY_TO }}
-      PUBLIC_BASE_URL: https://fitystore.top
     steps:
-      - name: Check out default branch
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install application requirements
-        run: python -m pip install --disable-pip-version-check -r requirements.txt
-      - name: Run due automation
-        run: python -m flask --app wsgi:app run-marketing-automation
+      - run: echo "Marketing automation is paused; no email was sent."

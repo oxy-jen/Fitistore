@@ -1,1 +1,98 @@
-{% extends "base.html" %}{% block content %}<section class="page-head admin-head"><div><h1>Customer email centre</h1><a href="/admin/email/automation">Email automation</a><p>{{ mail_note }}{% if test_address %}  -  Test recipient: {{ test_address }}{% else %}  -  MAIL_TEST_ADDRESS is not configured{% endif %}</p></div></section><nav class="admin-nav"><a href="{{ url_for('admin.email_campaigns') }}">Create campaign</a></nav><section class="form-card"><h2>Confirmed marketing subscribers ({{ subscribers.total }})</h2><form method="get"><label>Search subscribers<input name="q" value="{{ search }}" placeholder="Name or email"></label><button class="btn">Search</button></form><div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th><th>Consent confirmed</th></tr></thead><tbody>{% for account in subscribers.items %}<tr><td>{{ account.email }}</td><td>{{ account.display_name }}</td><td>{{ account.marketing_consent_at.strftime('%Y-%m-%d %H:%M') if account.marketing_consent_at else 'Date unavailable' }}</td></tr>{% else %}<tr><td colspan="3">No eligible confirmed subscribers.</td></tr>{% endfor %}</tbody></table></div>{% if subscribers.pages > 1 %}<p>Page {{ subscribers.page }} of {{ subscribers.pages }} {% if subscribers.has_prev %}<a href="{{ url_for('admin.email_center', page=subscribers.prev_num, q=search) }}">Previous</a>{% endif %} {% if subscribers.has_next %}<a href="{{ url_for('admin.email_center', page=subscribers.next_num, q=search) }}">Next</a>{% endif %}</p>{% endif %}</section><section class="form-card"><h2>Individual service message</h2><p>These messages go to one verified account and must concern account or service matters, not promotions.</p>{% for account in accounts %}{% if account.active and account.email_verified_at %}<details><summary>{{ account.display_name or 'Customer' }}  -  {{ account.email }}</summary><form method="post" action="{{ url_for('admin.email_customer_message', account_id=account.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Subject<input name="subject" maxlength="200" required></label><label>Message<textarea name="body" maxlength="5000" required></textarea></label><label class="check"><input type="checkbox" name="confirm_send" value="yes" required> Send this service message to this customer</label><button class="btn primary">Send individual message</button></form></details>{% endif %}{% endfor %}</section><section class="form-card"><h2>Campaign history</h2>{% for campaign in campaigns %}<p><a href="{{ url_for('admin.email_campaign_detail', campaign_id=campaign.id) }}">{{ campaign.name }}</a>  -  {{ campaign.status }}  -  {{ campaign.created_at.strftime('%Y-%m-%d') }}</p>{% else %}<p>No campaigns yet.</p>{% endfor %}</section><section class="form-card"><h2>Recent email status</h2><p>Sent means the provider accepted the request. Delivered and bounced appear only when a matching authenticated Brevo event is received.</p><div class="table-wrap"><table><thead><tr><th>Recipient</th><th>Type</th><th>Subject</th><th>Status</th><th>Failure detail</th><th>Attempt time (UTC)</th></tr></thead><tbody>{% for message in messages %}<tr><td>{{ message.recipient }}</td><td>{{ message.kind }}</td><td>{{ message.subject }}</td><td>{{ message.status }}</td><td>{{ message.failure_reason }}</td><td>{{ message.created_at.strftime('%Y-%m-%d %H:%M') if message.created_at else 'Unavailable' }}</td></tr>{% else %}<tr><td colspan="5">No email messages recorded.</td></tr>{% endfor %}</tbody></table></div></section><section class="form-card"><h2>Customer accounts</h2>{% for account in accounts %}<details><summary>{{ account.display_name or 'Customer' }}  -  {{ account.email }}  -  {{ 'active' if account.active else 'inactive' }}  -  {{ 'email verified' if account.email_verified_at else 'email not verified' }}  -  {{ account.marketing_status }}</summary>{% if account.marketing_status == 'subscribed' %}<form method="post" action="{{ url_for('admin.suppress_customer_marketing', account_id=account.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn">Suppress marketing (e.g. permanent bounce)</button></form>{% endif %}<form method="post" action="{{ url_for('admin.set_customer_active', account_id=account.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="active" value="{{ 'no' if account.active else 'yes' }}"><button class="btn">{{ 'Deactivate account' if account.active else 'Reactivate account' }}</button></form></details>{% endfor %}</section>{% endblock %}
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head admin-head">
+  <div>
+    <p class="eyebrow">Manual only</p>
+    <h1>Customer email centre</h1>
+    <p>{{ mail_note }}{% if test_address %} Test address: {{ test_address }}{% else %} No test address is configured.{% endif %}</p>
+  </div>
+</section>
+<section class="actions"><a class="btn primary" href="{{ url_for('admin.email_studio') }}">Open Email Studio</a><a class="btn" href="{{ url_for('admin.email_cart_activity') }}">View cart activity</a></section>
+<section class="form-card">
+  <h2>Find customers and orders</h2>
+  <form method="get" class="actions">
+    <label>Customer name, email, or linked order reference
+      <input name="q" value="{{ search }}" placeholder="Search customers or order reference">
+    </label>
+    <button class="btn">Search</button>
+  </form>
+</section>
+<section class="form-card">
+  <h2>Send a manual email</h2>
+  <p>Bulk email is limited to active, verified customers who subscribed to marketing. Sent means Brevo accepted the request; it does not confirm inbox delivery.</p>
+  <p id="manual-recipient-count" aria-live="polite">0 recipients selected. All eligible subscribers: {{ eligible_total }}.</p>
+  {% if not messages_available %}
+    <p class="status-warn">Sending is unavailable: the email history table is missing. No email will be sent until the existing customer email schema is available.</p>
+  {% endif %}
+  {% if not mail_configured %}<p class="status-warn">{{ mail_note }}</p>{% endif %}
+  <form method="post" action="{{ url_for('admin.send_manual_customer_email') }}" onsubmit="return this.confirm_send.value !== 'SEND' || confirm('Send this email to the selected eligible customers?')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="send_key" value="{{ send_key }}">
+    <label class="check"><input type="checkbox" name="all_eligible" value="yes"> Send to all eligible subscribers</label>
+    <fieldset><legend>Or select eligible recipients</legend>
+      {% for account in accounts if account.active and account.email_verified_at and account.marketing_status == 'subscribed' %}
+      <label class="check"><input type="checkbox" name="account_ids" value="{{ account.id }}"> {{ account.display_name or 'Customer' }} - {{ account.email }}</label>
+      {% else %}<p>No eligible subscribers match this search.</p>{% endfor %}
+    </fieldset>
+    <label>Subject<input name="subject" maxlength="200" required></label>
+    <label>Message<textarea name="body" maxlength="5000" rows="6" required></textarea></label>
+    <fieldset><legend>Include products (optional)</legend>
+      {% for product in products %}
+      <label class="check"><input type="checkbox" name="product_ids" value="{{ product.id }}"> {{ product.name }}{% if product.price_cents is not none %} - KSh {{ '%.2f'|format(product.price_cents / 100) }}{% endif %}</label>
+      {% else %}<p>No active products are available.</p>{% endfor %}
+    </fieldset>
+    <label>For multiple recipients, type the exact confirmation shown (for example SEND 3)<input name="confirm_send" maxlength="20" autocomplete="off"></label>
+    <button class="btn primary" {% if not mail_configured or not messages_available %}disabled{% endif %}>Send email</button>
+  </form>
+</section>
+<section class="form-card">
+  <h2>Registered customers</h2>
+  <p>Select individual subscribers above, or use "all eligible subscribers." Service messages remain individual and require an active, verified account.</p>
+  {% for account in accounts %}
+  <details>
+    <summary>{{ account.display_name or 'Customer' }} - {{ account.email }} - {{ account.marketing_status }} - {{ 'verified' if account.email_verified_at else 'email not verified' }}</summary>
+    {% if account.id in order_map %}
+    <h3>Linked orders</h3>
+    {% for order in order_map[account.id] %}
+      <p><a href="{{ url_for('admin.orders', q=order.reference) }}">{{ order.reference }}</a> | {{ order.status }} | {{ order.created_at.strftime('%Y-%m-%d') if order.created_at else 'Date unavailable' }}</p>
+      <ul>{% for item in order.items %}<li>{{ item.product_name }} x {{ item.quantity }}</li>{% else %}<li>No item details recorded.</li>{% endfor %}</ul>
+    {% else %}<p>No linked orders.</p>{% endfor %}
+    {% endif %}
+    {% if account.active and account.email_verified_at %}
+    <form method="post" action="{{ url_for('admin.email_customer_message', account_id=account.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="send_key" value="{{ send_key }}">
+      <label>Service message subject<input name="subject" maxlength="200" required></label>
+      <label>Service message<textarea name="body" maxlength="5000" required></textarea></label>
+      <label class="check"><input type="checkbox" name="confirm_send" value="yes" required> Send this individual service message</label>
+      <button class="btn">Send email</button>
+    </form>
+    {% endif %}
+  </details>
+  {% else %}<p>No matching customer accounts.</p>{% endfor %}
+</section>
+{% if messages_available %}
+<section class="form-card">
+  <h2>Recent email history</h2>
+  <p>Delivery events appear only after an authenticated provider event is received.</p>
+  <div class="table-wrap"><table><thead><tr><th>Recipient</th><th>Subject</th><th>Status</th><th>Result</th><th>Attempt (UTC)</th></tr></thead><tbody>
+  {% for message in messages %}<tr><td>{{ message.recipient }}</td><td>{{ message.subject }}</td><td>{{ message.status }}</td><td>{{ message.failure_reason or 'Provider request recorded' }}</td><td>{{ message.created_at.strftime('%Y-%m-%d %H:%M') if message.created_at else 'Unavailable' }}</td></tr>
+  {% else %}<tr><td colspan="5">No recorded email attempts.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endif %}
+<script>
+(() => {
+  const form = document.querySelector('form[action="{{ url_for("admin.send_manual_customer_email") }}"]');
+  const output = document.getElementById("manual-recipient-count");
+  if (!form || !output) return;
+  const update = () => {
+    const all = form.querySelector('[name="all_eligible"]');
+    const count = all.checked ? "{{ eligible_total }}" : form.querySelectorAll('[name="account_ids"]:checked').length;
+    output.textContent = (all.checked ? "All " : "") + count + " recipients selected. All eligible subscribers: {{ eligible_total }}.";
+  };
+  form.addEventListener("change", update);
+  update();
+})();
+</script>
+{% endblock %}

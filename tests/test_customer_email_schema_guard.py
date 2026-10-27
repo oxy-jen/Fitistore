@@ -1,10 +1,13 @@
 from pathlib import Path
+import base64
+import os
 import re
 import sys
 from types import ModuleType, SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 
 from app.extensions import db
 from app.models import Category, Product
@@ -13,7 +16,9 @@ from scripts.customer_email_schema_guard import (
     APPROVED_MISSING_COLUMNS,
     BACKUP_CONFIRMATION,
     CONFIRMATION,
+    EMAIL_STUDIO_TABLES,
     PREFLIGHT_CONFIRMATION,
+    PRE_EMAIL_STUDIO_TABLES,
     ColumnSpec,
     GuardError,
     IdentityCheckError,
@@ -91,13 +96,14 @@ def test_workflow_restricts_manual_trigger_and_target_branch():
     assert "CONFIRMATION_INPUT: ${{ inputs.confirmation }}" in migrate_job
     assert "BACKUP_CONFIRMATION_INPUT: ${{ inputs.backup_confirmation }}" in migrate_job
     assert "RUNNER_TEMP" not in migrate_job
-    assert "RENDER_DATABASE_CA_CERT" not in workflow
+    assert "RENDER_DATABASE_CA_CERT_PEM: ${{ secrets.RENDER_DATABASE_CA_CERT_PEM }}" in workflow
     assert "cleanup-ca" not in workflow
     command_step = migrate_job.split("- name: Apply the scoped customer email migration", 1)[1].split("- name:", 1)[0]
-    assert "python -m flask --app wsgi:app migrate-customer-email-schema >/dev/null 2>&1" in command_step
-    assert 'status=$?' in command_step and 'exit "$status"' in command_step
+    assert "run: " + migration_command in command_step
+    assert ">/dev/null" not in command_step
+    assert "2>&1" not in command_step
     assert "post-migration schema validation" in migrate_job
-    assert command_step.index("exit \"$status\"") < migrate_job.index("post-migration schema validation")
+    assert command_step.index(migration_command) < migrate_job.index("post-migration schema validation")
 
     # Model the job dependency/gates: only a successful preflight plus a migrate
     # operation on the fixed ref can make the migration job eligible.
@@ -164,35 +170,55 @@ def test_required_settings_needs_no_ca_secret_and_checks_expected_identity():
         required_settings(_database_settings(EXPECTED_DATABASE_HOST="wrong.example.invalid"))
 
 
-def test_engine_url_overrides_weaker_tls_query_settings():
+def test_engine_url_overrides_weaker_tls_query_settings(tmp_path, monkeypatch):
+    ca_file = tmp_path / "render-ca.pem"
+    ca_file.write_text("fixture", encoding="ascii")
+    monkeypatch.setenv("DATABASE_CA_CERT_FILE", str(ca_file))
     url = _engine_url(_database_settings()["DATABASE_URL"])
-    assert "sslmode=verify-full" in url
-    assert "sslrootcert=system" in url
-    assert "sslmode=disable" not in url
-    assert "/tmp/wrong.pem" not in url
+    query = make_url(url).query
+    assert query["sslmode"] == "verify-full"
+    assert query["sslrootcert"] == str(ca_file)
 
 
-def test_tls_environment_generation_uses_system_ca_without_creating_pem(tmp_path, monkeypatch, capsys):
+def test_engine_url_requires_explicit_trusted_provider_ca(monkeypatch):
+    monkeypatch.delenv("DATABASE_CA_CERT_FILE", raising=False)
+    with pytest.raises(GuardError, match="trusted PostgreSQL CA bundle"):
+        _engine_url(_database_settings()["DATABASE_URL"])
+
+
+def test_tls_environment_generation_uses_validated_provider_ca(tmp_path, monkeypatch, capsys):
+    from pathlib import Path
+
+    ca_pem = (
+        "-----BEGIN CERTIFICATE-----\n"
+        + base64.b64encode(b"fixture trusted CA").decode("ascii")
+        + "\n-----END CERTIFICATE-----\n"
+    )
     settings = _database_settings()
     for key, value in settings.items():
         monkeypatch.setenv(key, value)
+    monkeypatch.setenv("RENDER_DATABASE_CA_CERT_PEM", ca_pem)
     github_env = tmp_path / "github-env"
     github_env.write_text("", encoding="utf-8")
     monkeypatch.setenv("GITHUB_ENV", str(github_env))
-    monkeypatch.delenv("DATABASE_CA_CERT", raising=False)
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
 
     export_verified_migration_environment()
 
     contents = github_env.read_text(encoding="utf-8")
     assert "sslmode=verify-full" in contents
-    assert "sslrootcert=system" in contents
+    generated_url = contents.split("DATABASE_URL=", 1)[1].splitlines()[0]
+    assert make_url(generated_url).query["sslrootcert"] == str(tmp_path / "render-postgres-ca.pem")
     assert "PGSSLMODE=verify-full" in contents
-    assert "PGSSLROOTCERT=system" in contents
+    assert f"PGSSLROOTCERT={tmp_path / 'render-postgres-ca.pem'}" in contents
+    assert (tmp_path / "render-postgres-ca.pem").is_file()
+    assert ca_pem not in contents
+    if os.name == "posix":
+        assert (Path(tmp_path / "render-postgres-ca.pem").stat().st_mode & 0o777) == 0o600
     assert "unit-test-password" not in capsys.readouterr().out
-    assert not list(tmp_path.glob("*.pem"))
 
 
-def test_read_only_connect_uses_system_ca_and_verify_full(monkeypatch):
+def test_read_only_connect_uses_provider_ca_and_verify_full(tmp_path, monkeypatch):
     import sqlalchemy
 
     calls = {}
@@ -220,17 +246,21 @@ def test_read_only_connect_uses_system_ca_and_verify_full(monkeypatch):
         return FakeEngine()
 
     monkeypatch.setattr(sqlalchemy, "create_engine", fake_create_engine)
+    ca_file = tmp_path / "render-ca.pem"
+    ca_file.write_text("fixture", encoding="ascii")
+    monkeypatch.setenv("DATABASE_CA_CERT_FILE", str(ca_file))
     monkeypatch.setattr("scripts.customer_email_schema_guard.required_settings", lambda: (
         _database_settings()["DATABASE_URL"], "store_db", "public", "db.example.invalid"
     ))
 
     connection = _connect()
     assert calls["connect_args"] == {
-        "sslmode": "verify-full", "sslrootcert": "system",
+        "sslmode": "verify-full", "sslrootcert": str(ca_file),
         "options": "-c default_transaction_read_only=on",
     }
-    assert "sslmode=verify-full" in calls["url"]
-    assert "sslrootcert=system" in calls["url"]
+    query = make_url(calls["url"]).query
+    assert query["sslmode"] == "verify-full"
+    assert query["sslrootcert"] == str(ca_file)
 
 
 def test_preflight_error_reports_safe_driver_diagnostics_without_raw_error(monkeypatch):
@@ -391,6 +421,26 @@ def test_missing_parent_table_stops_preflight():
 def test_unexpected_partial_table_set_is_rejected():
     with pytest.raises(GuardError, match="ambiguous partial"):
         classify_tables({"customer_account"})
+
+
+def test_existing_customer_email_schema_without_new_studio_tables_is_upgradeable():
+    assert classify_tables(PRE_EMAIL_STUDIO_TABLES) == "upgradable"
+    assert classify_tables(PRE_EMAIL_STUDIO_TABLES | (EMAIL_STUDIO_TABLES - {"email_draft"})) == "upgradable"
+
+
+def test_preflight_accepts_prior_schema_and_identifies_missing_studio_migration(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'prior-email-schema.db'}")
+    legacy_tables = [table for table in db.metadata.sorted_tables if table.name not in EMAIL_STUDIO_TABLES]
+    db.metadata.create_all(engine, tables=legacy_tables)
+    try:
+        with engine.connect() as connection:
+            notes = validate_schema(connection, "public", allow_approved_missing=True)
+            assert any("approved missing table: email_template" in note for note in notes)
+            assert any("approved missing table: email_draft" in note for note in notes)
+            with pytest.raises(GuardError, match="Unexpected missing table"):
+                validate_schema(connection, "public", allow_approved_missing=False)
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.parametrize("table,column", sorted(APPROVED_MISSING_COLUMNS))

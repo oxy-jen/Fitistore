@@ -55,6 +55,14 @@ jobs:
           CONFIRMATION_INPUT: ${{ inputs.confirmation }}
           BACKUP_CONFIRMATION_INPUT: ${{ inputs.backup_confirmation }}
         run: python scripts/customer_email_schema_guard.py dispatch-check
+      - name: Prepare verified TLS using the trusted Render CA bundle
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+          EXPECTED_DATABASE_NAME: ${{ vars.RENDER_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
+          RENDER_DATABASE_CA_CERT_PEM: ${{ secrets.RENDER_DATABASE_CA_CERT_PEM }}
+        run: python scripts/customer_email_schema_guard.py tls-env
       - name: Validate connection settings without connecting
         env:
           DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
@@ -102,20 +110,12 @@ jobs:
           EXPECTED_DATABASE_NAME: ${{ vars.RENDER_DATABASE_NAME }}
           EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
           EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
+          RENDER_DATABASE_CA_CERT_PEM: ${{ secrets.RENDER_DATABASE_CA_CERT_PEM }}
         run: python scripts/customer_email_schema_guard.py tls-env
       - name: Apply the scoped customer email migration
         env:
           FLASK_APP: wsgi:app
-        shell: bash
-        run: |
-          set +e
-          python -m flask --app wsgi:app migrate-customer-email-schema >/dev/null 2>&1
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            echo "::error::Customer email schema migration failed; command output was suppressed."
-            exit "$status"
-          fi
-          echo "Customer email schema migration command completed."
+        run: python -m flask --app wsgi:app migrate-customer-email-schema
       - name: Strict post-migration schema validation
         env:
           DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}

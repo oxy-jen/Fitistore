@@ -782,6 +782,21 @@ def brevo_email_events():
     configured=(current_app.config.get("BREVO_WEBHOOK_TOKEN") or "").strip()
     supplied=(request.headers.get("X-Fity-Brevo-Token") or "").strip()
     if not configured or not hmac.compare_digest(configured,supplied):return jsonify({"ok":False}),403
+    from sqlalchemy import inspect
+    try:
+        inspector = inspect(db.engine)
+        required_models = (EmailMessage, CustomerAccount, CustomerConsentEvent, EmailCampaignRecipient)
+        for model in required_models:
+            table_name = model.__tablename__
+            if not inspector.has_table(table_name):
+                return jsonify({"ok": False, "error": "email schema unavailable"}), 503
+            actual_columns = {column["name"] for column in inspector.get_columns(table_name)}
+            expected_columns = {column.name for column in model.__table__.columns}
+            if not expected_columns <= actual_columns:
+                return jsonify({"ok": False, "error": "email schema unavailable"}), 503
+    except Exception:
+        db.session.rollback()
+        return jsonify({"ok": False, "error": "email schema unavailable"}), 503
     payload=request.get_json(silent=True) or {};events=payload if isinstance(payload,list) else [payload];suppressed=0
     for event in events[:100]:
         if not isinstance(event,dict):continue

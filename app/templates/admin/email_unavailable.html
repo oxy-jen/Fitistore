@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head"><p class="eyebrow">Manual email</p><h1>Customer email centre unavailable</h1>
+<p>The current database does not expose the customer account schema required to load recipients. No message was sent. The existing customer email schema must be reviewed and installed before this feature can work.</p>
+<a class="btn" href="{{ url_for('admin.dashboard') }}">Return to admin dashboard</a></section>
+{% endblock %}
