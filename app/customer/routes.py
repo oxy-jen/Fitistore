@@ -299,7 +299,7 @@ def register():
             return redirect(url_for("customer.login", next=next_url))
         if request.form.get("marketing_opt_in") == "yes":
             # The explicit, optional checkbox is the marketing consent.
-        _record_consent(account, "confirmed", "registration_checkbox")
+            _record_consent(account, "confirmed", "registration_checkbox")
         db.session.commit()
         result = _issue_and_send(account, "verify_email", next_url=next_url)
         flash(
