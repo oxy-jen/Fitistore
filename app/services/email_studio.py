@@ -119,7 +119,10 @@ def validate_email_blocks(raw, category):
             try:
                 item["product_id"] = int(block.get("product_id"))
             except (TypeError, ValueError):
-                raise EmailContentError("Choose a catalogue product image for each banner.") from None
+                if category == "cart_reminder":
+                    item["product_id"] = 0  # Replaced with the first current cart item at render time.
+                else:
+                    raise EmailContentError("Choose a catalogue product image for each banner.") from None
             item["alt"] = str(block.get("alt") or "")[:255]
             if not item["alt"].strip():
                 raise EmailContentError("Add alternative text for each image banner.")
@@ -132,7 +135,10 @@ def validate_email_blocks(raw, category):
                 try:
                     item["product_id"] = int(block.get("product_id"))
                 except (TypeError, ValueError):
-                    raise EmailContentError("Choose a catalogue product for the button destination.") from None
+                    if category == "cart_reminder":
+                        item["product_id"] = 0  # The destination follows the recipient's first cart item.
+                    else:
+                        raise EmailContentError("Choose a catalogue product for the button destination.") from None
         result.append(item)
     return result
 
