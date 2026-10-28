@@ -334,6 +334,9 @@ def register_email_studio_routes(admin_bp):
             )
             return redirect(url_for("admin.email_center"))
         category = request.values.get("category", "customer_service")
+        preview_size = request.values.get("preview_size", "desktop")
+        if preview_size not in {"desktop", "mobile"}:
+            preview_size = "desktop"
         raw_template_id = request.values.get("template_id", "").strip()
         try:
             requested_template_id = int(raw_template_id) if raw_template_id else None
@@ -572,7 +575,7 @@ def register_email_studio_routes(admin_bp):
                             else:
                                 key = f"email-studio:{operation_id}:{target.id}"
                             try:
-                                result = queue_email(target.email, payload_subject, kind, key, account_id=target.id, order_id=order.id if order else None, template_id=saved_template.id if saved_template else None, html_body=html, text_body=text)
+                                result = queue_email(target.email, payload_subject, kind, key, account_id=target.id, order_id=order.id if order else None, template_id=saved_template.id if saved_template else None, bypass_marketing_cooldown=bool(marketing_message and category != "cart_reminder"), html_body=html, text_body=text)
                             except Exception:
                                 db.session.rollback(); failed += 1; continue
                             if result.status in {"sent", "delivered"}: accepted += 1
@@ -663,6 +666,7 @@ def register_email_studio_routes(admin_bp):
             products=products, product_choices=product_choices, drafts=drafts, carts=carts, selected_products=set(map(str, product_selection)),
             selected_account_ids=set(map(str, selected_account_ids)),
             subject=subject, headline=headline, message=message, draft=draft, preview=preview,
+            preview_size=preview_size,
             configured=configured, provider_note=provider_note, operation_id=operation_id,
             product_search=search,
         )

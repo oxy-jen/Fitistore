@@ -87,13 +87,17 @@ def email_center():
             order_map.setdefault(link.account_id, []).append(link.order)
     campaigns = EmailCampaign.query.order_by(EmailCampaign.created_at.desc()).limit(25).all() if model_schema_ready(EmailCampaign, inspector) else []
     messages_available = model_schema_ready(EmailMessage, inspector)
+    templates_available = model_schema_ready(EmailTemplate, inspector)
+    email_templates = EmailTemplate.query.order_by(EmailTemplate.category, EmailTemplate.name, EmailTemplate.id).all() if templates_available else []
+    promotional_templates = [item for item in email_templates if item.category == "promotion"]
+    service_templates = [item for item in email_templates if item.category == "customer_service"]
     service_messages_available = messages_available and model_schema_ready(FinancialAuditEvent, inspector)
     messages = EmailMessage.query.order_by(EmailMessage.created_at.desc()).limit(30).all() if messages_available else []
     products = Product.query.filter_by(active=True).order_by(Product.name).all()
     configured, note = mail_configuration_status()
     eligible_total = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").count()
     service_eligible_total = CustomerAccount.query.filter_by(active=True).filter(CustomerAccount.email_verified_at.isnot(None)).count()
-    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, pending_opt_ins=pending_opt_ins, pending_opt_in_total=pending_opt_in_total, accounts=accounts, order_map=order_map, consent_events=consent_events, campaigns=campaigns, messages=messages, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex)
+    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, pending_opt_ins=pending_opt_ins, pending_opt_in_total=pending_opt_in_total, accounts=accounts, order_map=order_map, consent_events=consent_events, campaigns=campaigns, messages=messages, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex, promotional_templates=promotional_templates, service_templates=service_templates)
 
 
 @admin_bp.post("/email/send-manual")
@@ -202,7 +206,7 @@ def send_manual_customer_email():
         text_body = "\n".join([body, *[f"{item['name']}: {item['url']}" for item in products], *(["Unsubscribe: " + unsubscribe_url] if unsubscribe_url else [])])
         text_body = "\n".join([f"Hi {first_name},", "", body, *[f"{item['name']}: {item['url']}" for item in products], "", "Continue shopping: " + shop_url, "Contact FityStores: " + contact_url, "FityStores · Bei Fity, Fits Poa.", *( ["Unsubscribe: " + unsubscribe_url] if unsubscribe_url else [])])
         try:
-            message = queue_email(account.email, subject, "marketing_campaign", key, account_id=account.id, html_body=html_body, text_body=text_body)
+            message = queue_email(account.email, subject, "marketing_campaign", key, account_id=account.id, bypass_marketing_cooldown=True, html_body=html_body, text_body=text_body)
             if message.status in {"sent", "delivered"}:
                 batch_sent += 1
             else:

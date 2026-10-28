@@ -91,6 +91,10 @@ Free-tier hosting changes over time, so verify current limits before choosing a 
 
 Never enable debug mode in production, never commit `.env`, and back up the database before changes.
 
+## Customer Email
+
+Email Studio supports visual email blocks, saved templates, drafts, recipient previews, test sends, and manually confirmed customer sends. See the [Email Studio guide](docs/email-studio-guide.md) for the full workflow and the difference between saving, previewing, testing, and sending.
+
 ## Implementation Checklist
 
 - Complete app factory and module structure: done.

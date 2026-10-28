@@ -37,6 +37,7 @@
   <form method="post" action="{{ url_for('admin.send_manual_customer_email') }}" onsubmit="return this.confirm_send.value !== 'SEND' || confirm('Send this email to the selected eligible customers?')">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="send_key" value="{{ send_key }}">
+    {% if promotional_templates %}<label>Reuse a saved promotional template<select data-email-template><option value="">Choose promotional template</option>{% for item in promotional_templates %}<option data-subject="{{ item.subject }}" data-message="{{ item.message }}">{{ item.name }}</option>{% endfor %}</select></label><p>Loading a saved template fills the subject and message below. For its full visual design and product blocks, open it in Email Studio.</p>{% endif %}
     <label class="check"><input type="checkbox" name="all_eligible" value="yes"> Send to all eligible subscribers</label>
     <fieldset><legend>Or select eligible recipients</legend>
       {% for account in accounts if account.active and account.marketing_status == 'subscribed' %}
@@ -62,6 +63,7 @@
   <form method="post" action="{{ url_for('admin.send_service_customer_email') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="service_send_key" value="{{ service_send_key }}">
+    {% if service_templates %}<label>Reuse a saved service template<select data-email-template><option value="">Choose service template</option>{% for item in service_templates %}<option data-subject="{{ item.subject }}" data-message="{{ item.message }}">{{ item.name }}</option>{% endfor %}</select></label><p>Loading a template fills its subject and message. For the complete visual layout, open it in Email Studio.</p>{% endif %}
     {% if service_eligible_total <= 500 %}<label class="check"><input type="checkbox" name="service_all_eligible" value="yes"> Send to all active, verified accounts ({{ service_eligible_total }})</label>{% endif %}
     <fieldset><legend>Or select active, verified accounts</legend>
       {% for account in accounts if account.active and account.email_verified_at %}
@@ -113,6 +115,15 @@
 </section>
 {% endif %}
 <script>
+document.querySelectorAll('[data-email-template]').forEach(select => select.addEventListener('change', () => {
+  const option = select.selectedOptions[0];
+  if (!option?.dataset.subject) return;
+  const form = select.closest('form');
+  const subject = form.querySelector('[name="subject"], [name="service_subject"]');
+  const message = form.querySelector('[name="body"], [name="service_body"]');
+  if (subject) subject.value = option.dataset.subject;
+  if (message) message.value = option.dataset.message || '';
+}));
 (() => {
   const form = document.querySelector('form[action="{{ url_for("admin.send_manual_customer_email") }}"]');
   const output = document.getElementById("manual-recipient-count");

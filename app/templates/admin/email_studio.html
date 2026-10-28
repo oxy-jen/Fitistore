@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block content %}
 <section class="page-head admin-head"><div><p class="eyebrow">Manual sends only</p><h1>Email Studio</h1><p>Templates, drafts, previews, test emails and manual sends live here. Saving content or opening this page never sends email.</p></div><div class="actions"><a class="btn" href="{{ url_for('admin.email_center') }}">Customer email</a><a class="btn" href="{{ url_for('admin.email_cart_activity') }}">Cart activity</a></div></section>
-<section class="form-card"><h2>Choose a reusable template and customer context</h2>
+<section class="form-card"><h2>Choose a reusable template and customer context</h2><p><strong>Quick guide:</strong> choose the email purpose, load a customer, edit the text and add blocks. Desktop/Mobile preview only renders a preview. Save template stores it for reuse; it does not send. To send, select recipients, preview, then use Manual send and confirm the exact recipient count.</p>
   <form method="get" class="actions" action="{{ url_for('admin.email_studio') }}">
     <label>Email purpose<select name="category" id="email-purpose"><optgroup label="Promotional — consent required">{% for key, value in categories.items() if value.marketing %}<option value="{{ key }}" {% if key == category %}selected{% endif %}>{{ value.label }}</option>{% endfor %}</optgroup><optgroup label="Transactional and service — consent not required">{% for key, value in categories.items() if not value.marketing %}<option value="{{ key }}" {% if key == category %}selected{% endif %}>{{ value.label }}</option>{% endfor %}</optgroup></select></label>
     <label>Saved template<select name="template_id" id="email-template"><option value="">Use this category's current template/default</option>{% for item in templates %}<option value="{{ item.id }}" {% if selected_template and item.id == selected_template.id %}selected{% endif %}>{{ categories[item.category].label }} — {{ item.name }} (saved template)</option>{% endfor %}</select></label>
@@ -29,13 +29,14 @@
   <section class="form-card email-builder" id="email-builder" data-initial="{{ editor_blocks|tojson|forceescape }}">
     <h3>Visual email canvas</h3><p>Build the message with safe, email-ready blocks. Product images, prices and links are loaded from the catalogue. Banner images use an uploaded catalogue product image.</p>
     <div class="actions"><label>Add a content block<select id="email-block-kind"><option value="heading">Heading</option><option value="paragraph">Paragraph</option><option value="image_banner">Image banner</option><option value="product_grid">Product collection</option><option value="order_summary">Order summary</option><option value="button">Button</option><option value="divider">Divider</option><option value="spacer">Spacing</option><option value="contact">Contact section</option></select></label><button class="btn" type="button" id="email-add-block">Add block</button><button class="btn" type="button" data-preview-size="desktop">Desktop preview</button><button class="btn" type="button" data-preview-size="mobile">Mobile preview</button></div>
+    <input type="hidden" name="preview_size" id="email-preview-size" value="desktop">
     <div id="email-block-list" class="email-block-list" aria-live="polite"></div>
     <script type="application/json" id="email-product-data">{{ product_choices|tojson }}</script>
     <p class="account-muted">Use the catalogue selection above for product collections and banner media. A banner image must belong to a selected in-stock product.</p>
     <section class="form-card email-live-preview" id="email-live-preview" aria-live="polite">
       <h3>Rendered email preview</h3>
-      <p id="email-preview-status">Choose Desktop preview or Mobile preview to render this email with the selected customer context. No email will be sent.</p>
-      <iframe id="email-live-preview-frame" title="Rendered email preview" hidden style="width:100%;min-height:560px;border:1px solid #ddd;background:#fff"></iframe>
+      <p id="email-preview-status">Select a customer context. Preview updates as you edit; it never sends email.</p>
+      <iframe id="email-live-preview-frame" title="Rendered email preview" hidden style="width:100%;height:calc(100vh - 230px);min-height:460px;border:1px solid #ddd;background:#fff"></iframe>
     </section>
   </section>
   <details><summary>Supported variables</summary><p>Only these plain text tokens are substituted. User-provided text is escaped; arbitrary template code is never executed.</p><ul>{% for variable in categories[category].variables %}<li><code>{{ '{{ ' ~ variable ~ ' }}' }}</code> — {% if variable == 'customer_name' %}first name from the selected verified account{% elif variable == 'order_reference' %}reference of the selected linked order{% elif variable == 'order_date' %}recorded date of the selected order{% elif variable == 'order_total' %}recorded total of that order{% elif variable == 'order_subtotal' %}sum of the order's recorded item totals{% elif variable == 'discount_amount' %}discount recorded on the selected order{% elif variable == 'delivery_fee' %}delivery fee recorded on the selected order{% elif variable == 'payment_status' %}recorded payment status{% elif variable == 'order_status' %}recorded order status{% elif variable == 'fulfilment_method' %}recorded fulfilment method{% elif variable == 'fulfilment_instructions' %}instructions stored on that selected order, when present{% elif variable == 'cart_item_count' %}sum of validated quantities in the saved cart{% elif variable == 'cart_total' %}current validated cart total when all prices are known{% elif variable == 'unsubscribe_link' %}a secure unsubscribe link added for each eligible marketing recipient{% else %}context-specific information verified by the server before sending{% endif %}</li>{% endfor %}</ul></details>
@@ -48,10 +49,12 @@
 <section class="form-card"><h2>Reset reusable template</h2><form method="post" action="{{ url_for('admin.email_studio') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="category" value="{{ category }}"><label>Type RESET to restore the code-backed default<input name="confirm_reset" maxlength="5"></label><button class="btn" name="action" value="reset_template">Reset template</button></form></section>
 {% if draft %}<section class="form-card"><h2>Delete this draft</h2><form method="post" action="{{ url_for('admin.email_studio') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="category" value="{{ category }}"><input type="hidden" name="draft_id" value="{{ draft.id }}"><label>Type DELETE to confirm<input name="confirm_delete" maxlength="6"></label><button class="btn" name="action" value="delete_draft">Delete draft</button></form></section>{% endif %}
 <section class="form-card"><h2>Saved drafts</h2>{% for item in drafts %}<p><a href="{{ url_for('admin.email_studio', category=item.category, draft_id=item.id, account_id=account.id if account else '') }}">{{ item.name }} — {{ categories[item.category].label if item.category in categories else item.category }} — updated {{ item.updated_at.strftime('%Y-%m-%d %H:%M') if item.updated_at else 'unknown' }}</a></p>{% else %}<p>No saved drafts.</p>{% endfor %}</section>
-{% if preview %}<section class="form-card"><h2>Preview — no email was sent</h2><p><strong>Subject:</strong> {{ preview.subject }}</p><p>Current eligible recipient count: <strong>{{ preview.eligible_count }}</strong>. The server rechecks consent, order/cart ownership, product availability and prices immediately before sending.</p><p>HTML preview with real selected context:</p><iframe title="Email preview" srcdoc="{{ preview.html|e }}" style="width:100%;min-height:560px;border:1px solid #ddd;background:#fff"></iframe><h3>Plain-text version</h3><pre style="white-space:pre-wrap">{{ preview.text }}</pre></section>{% endif %}
+{% if preview %}<section class="form-card" id="server-email-preview"><h2>Rendered email preview — no email was sent</h2><p><strong>Subject:</strong> {{ preview.subject }}</p><p>Eligible recipient count: <strong>{{ preview.eligible_count }}</strong>. Consent and context are rechecked before sending.</p><iframe title="Email preview" class="email-preview-{{ preview_size }}" srcdoc="{{ preview.html|e }}" style="width:100%;min-height:560px;border:1px solid #ddd;background:#fff"></iframe><h3>Plain-text version</h3><pre style="white-space:pre-wrap">{{ preview.text }}</pre></section>{% endif %}
 <section class="form-card"><h2>Last delivery results</h2><p>See the customer email centre for provider states. “Sent” means provider acceptance, not confirmed inbox delivery.</p><a class="btn" href="{{ url_for('admin.email_center') }}">Open email history</a></section>
 <style>
 .email-block-list{display:grid;gap:12px;margin:16px 0}.email-block{border:1px solid #d9dde5;border-radius:10px;padding:14px;background:#fff}.email-block-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.email-block label{display:block;margin:10px 0}.email-block textarea,.email-block input,.email-block select{width:100%;box-sizing:border-box}.email-block textarea{min-height:80px}.email-preview-mobile{width:100%!important;max-width:375px!important;margin:auto;display:block}.email-preview-desktop{width:100%!important;max-width:720px!important;margin:auto;display:block}.email-message-source{display:none}
+@media(min-width:1100px){#email-live-preview{position:fixed;z-index:20;top:100px;right:2vw;width:44vw;height:calc(100vh - 120px);overflow:auto;box-sizing:border-box;margin:0;background:#fff;box-shadow:0 8px 28px #17212b24}#email-live-preview iframe{height:calc(100vh - 235px)!important;min-height:420px!important}}
+@media(max-width:1099px){#email-live-preview{position:static;width:auto;height:auto;max-height:none;overflow:visible}#email-live-preview iframe{height:65vh!important;min-height:420px!important}}
 </style>
 <script>
 document.getElementById('email-purpose')?.addEventListener('change', () => { const choice=document.getElementById('email-template'); if(choice) choice.value=''; });
@@ -114,39 +117,62 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
     if (type === 'image_banner') { block.product_id=products[0]?.id || ''; block.alt='Product banner'; }
     if (type === 'button') { block.text='Shop now'; block.target='shop'; }
     blocks.push(block); render();
+    const added = list.lastElementChild;
+    added?.scrollIntoView({behavior:'smooth', block:'center'});
+    added?.querySelector('[data-field]')?.focus({preventScroll:true});
   });
   render();
-  form.addEventListener('submit', () => sync());
-  const previewButtons = [...document.querySelectorAll('[data-preview-size]')];
   const previewFrame = document.getElementById('email-live-preview-frame');
   const previewStatus = document.getElementById('email-preview-status');
-  previewButtons.forEach(button => button.addEventListener('click', async () => {
-    previewButtons.forEach(item => { item.disabled = true; });
-    previewStatus.textContent = 'Rendering the email preview…';
+  const previewSize = document.getElementById('email-preview-size');
+  let previewTimer = null, previewRequest = 0;
+  const showServerPreview = () => {
+    const rendered = document.querySelector('#server-email-preview iframe[title="Email preview"]');
+    if (!rendered) return false;
+    previewFrame.srcdoc = rendered.getAttribute('srcdoc') || '';
+    previewFrame.hidden = false;
+    previewFrame.classList.toggle('email-preview-mobile', {{ 'true' if preview_size == 'mobile' else 'false' }});
+    previewStatus.textContent = 'Rendered preview. Changes update automatically; no email was sent.';
+    return true;
+  };
+  const updatePreview = async () => {
+    if (!form.querySelector('[name="account_id"]')?.value) {
+      previewStatus.textContent = 'Load a customer context above to preview personalized content.';
+      return;
+    }
     sync();
+    const requestNumber = ++previewRequest;
+    previewStatus.textContent = 'Updating preview…';
     const data = new FormData(form);
     data.set('action', 'preview');
     try {
-      const response = await fetch(form.action, {method: 'POST', body: data, credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest'}});
-      const html = await response.text();
-      const parsed = new DOMParser().parseFromString(html, 'text/html');
-      const rendered = parsed.querySelector('iframe[title="Email preview"]');
+      const response = await fetch(form.action, {method:'POST', body:data, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'}});
+      const parsed = new DOMParser().parseFromString(await response.text(), 'text/html');
+      if (requestNumber !== previewRequest) return;
+      const rendered = parsed.querySelector('#server-email-preview iframe[title="Email preview"]');
       if (!response.ok || !rendered) {
-        const message = parsed.querySelector('.flash, .alert, .status-error')?.textContent?.trim();
-        throw new Error(message || 'Preview could not be rendered. Check that a customer is selected and try again.');
+        const error = parsed.querySelector('.flash.error, .flash.warning')?.textContent?.trim();
+        previewStatus.textContent = error || 'Preview could not be rendered. Check the selected customer, order, and required product choices.';
+        return;
       }
       previewFrame.srcdoc = rendered.getAttribute('srcdoc') || '';
-      previewFrame.classList.toggle('email-preview-mobile', button.dataset.previewSize === 'mobile');
-      previewFrame.classList.toggle('email-preview-desktop', button.dataset.previewSize === 'desktop');
       previewFrame.hidden = false;
-      previewStatus.textContent = `${button.dataset.previewSize === 'mobile' ? 'Mobile' : 'Desktop'} preview. This is the server-rendered email; no email was sent.`;
-      document.getElementById('email-live-preview').scrollIntoView({behavior: 'smooth', block: 'start'});
-    } catch (error) {
-      previewStatus.textContent = error.message || 'Preview could not be rendered. Try again.';
-    } finally {
-      previewButtons.forEach(item => { item.disabled = false; });
+      previewFrame.classList.toggle('email-preview-mobile', previewSize.value === 'mobile');
+      previewStatus.textContent = `${previewSize.value === 'mobile' ? 'Mobile' : 'Desktop'} preview · updates automatically · not sent`;
+    } catch (_) {
+      if (requestNumber === previewRequest) previewStatus.textContent = 'Preview connection failed. Try again after checking the page connection.';
     }
+  };
+  const schedulePreview = () => { clearTimeout(previewTimer); previewTimer = setTimeout(updatePreview, 450); };
+  form.addEventListener('input', event => { if (!event.target.matches('[name="action"]')) schedulePreview(); });
+  form.addEventListener('change', event => { if (!event.target.matches('[name="action"]')) schedulePreview(); });
+  document.querySelectorAll('[data-preview-size]').forEach(button => button.addEventListener('click', () => {
+    previewSize.value = button.dataset.previewSize;
+    if (!previewFrame.hidden) previewFrame.classList.toggle('email-preview-mobile', previewSize.value === 'mobile');
+    else schedulePreview();
   }));
+  if (showServerPreview()) document.getElementById('server-email-preview').scrollIntoView({block:'start'});
+  else if (form.querySelector('[name="account_id"]')?.value) schedulePreview();
 })();
 </script>
 {% endblock %}
