@@ -155,7 +155,7 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
     const data = new FormData(form);
     data.set('action', 'preview');
     try {
-      const response = await fetch(form.action, {method:'POST', body:data, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'}});
+      const response = await fetch(form.getAttribute('action'), {method:'POST', body:data, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'}});
       const parsed = new DOMParser().parseFromString(await response.text(), 'text/html');
       if (requestNumber !== previewRequest) return;
       const rendered = parsed.querySelector('#server-email-preview iframe[title="Email preview"]');
