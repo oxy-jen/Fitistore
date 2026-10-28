@@ -98,15 +98,19 @@ def _account_for_preview(raw_id):
     if not raw_id:
         return None
     try:
-        return CustomerAccount.query.filter_by(id=int(raw_id), active=True).filter(CustomerAccount.email_verified_at.isnot(None)).first()
+        return CustomerAccount.query.filter_by(id=int(raw_id), active=True).first()
     except (TypeError, ValueError):
         return None
 
 
 def _render_for(category, form, account, *, test_mode=False, unsubscribe_url=""):
     """Re-fetch and validate all structured context from the database."""
-    if not account or not account.active or not account.email_verified_at:
-        raise EmailContentError("Choose an active customer with a verified email address for this preview/context.")
+    if not account or not account.active:
+        raise EmailContentError("Choose an active customer for this preview/context.")
+    if not account.email_verified_at and not (
+        category in {"promotion", "cart_reminder"} and account.marketing_status == "subscribed"
+    ):
+        raise EmailContentError("This email category requires a verified customer email address.")
 
     template = EMAIL_CATEGORIES[category]
     saved = None
@@ -532,12 +536,12 @@ def register_email_studio_routes(admin_bp):
                                 requested_ids = [selected_account.id]
                             targets = CustomerAccount.query.filter(
                                 CustomerAccount.id.in_(requested_ids), CustomerAccount.active.is_(True),
-                                CustomerAccount.email_verified_at.isnot(None), CustomerAccount.marketing_status == "subscribed",
+                                CustomerAccount.marketing_status == "subscribed",
                             ).order_by(CustomerAccount.id).all() if requested_ids else []
                         else:
                             targets = [selected_account] if selected_account and selected_account.active and selected_account.email_verified_at else []
                         if not targets:
-                            raise EmailContentError("Select at least one eligible recipient. Marketing recipients must be active, verified, and subscribed.")
+                            raise EmailContentError("Select at least one eligible recipient. Marketing recipients must be active and subscribed.")
                         phrase = f"SEND {len(targets)}"
                         if request.form.get("confirm_send", "").strip() != phrase:
                             raise EmailContentError(f"Review the preview and type {phrase} to confirm the exact recipient count.")
@@ -632,7 +636,7 @@ def register_email_studio_routes(admin_bp):
                             selected_ids = [selected_account.id]
                         targets = CustomerAccount.query.filter(
                             CustomerAccount.id.in_(selected_ids), CustomerAccount.active.is_(True),
-                            CustomerAccount.email_verified_at.isnot(None), CustomerAccount.marketing_status == "subscribed",
+                            CustomerAccount.marketing_status == "subscribed",
                         ).order_by(CustomerAccount.id).all() if selected_ids else []
                         eligible_count = 0
                         for target in targets:

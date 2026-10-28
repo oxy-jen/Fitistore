@@ -180,9 +180,7 @@ def _issue_unsubscribe(account):
 
 
 def _eligible_accounts():
-    return CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(
-        CustomerAccount.email_verified_at.isnot(None)
-    ).order_by(CustomerAccount.id)
+    return CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").order_by(CustomerAccount.id)
 
 
 def _recently_marketed(account_id, now):
@@ -196,7 +194,7 @@ def _recently_marketed(account_id, now):
 
 def _deliver_marketing(account, key, kind, subject, heading, intro, products, include_reviews=False):
     from app.models import MarketingCampaignRun
-    if not account.active or account.marketing_status != "subscribed" or not account.email_verified_at:
+    if not account.active or account.marketing_status != "subscribed":
         return "suppressed"
     if _recently_marketed(account.id, datetime.utcnow()):
         return "suppressed"
@@ -270,7 +268,7 @@ def _run_abandoned_carts(settings, now_utc):
     cutoff=now_utc-timedelta(minutes=settings.abandoned_cart_minutes)
     carts=CustomerCart.query.join(CustomerAccount).filter(
         CustomerCart.items_json!="[]",CustomerCart.updated_at<=cutoff,
-        CustomerAccount.active.is_(True),CustomerAccount.email_verified_at.isnot(None),
+        CustomerAccount.active.is_(True),
         CustomerAccount.marketing_status=="subscribed",
         (CustomerCart.checkout_until.is_(None)) | (CustomerCart.checkout_until<=now_utc),
         CustomerCart.reminder_sent_at.is_(None),
@@ -278,7 +276,7 @@ def _run_abandoned_carts(settings, now_utc):
     accepted=failed=suppressed=0
     for cart in carts:
         account=cart.account
-        if not account or not account.active or account.marketing_status!="subscribed" or not account.email_verified_at:
+        if not account or not account.active or account.marketing_status!="subscribed":
             suppressed+=1;continue
         if _recently_marketed(account.id,now_utc):
             suppressed+=1;continue

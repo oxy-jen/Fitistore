@@ -148,7 +148,7 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
     marketing = kind == "marketing_campaign" or kind.startswith("marketing_")
     if marketing and account_id:
         account = db.session.get(CustomerAccount, account_id)
-        allowed = bool(account and account.active and account.email_verified_at and account.marketing_status == "subscribed")
+        allowed = bool(account and account.active and account.marketing_status == "subscribed")
         if allowed and (not record or record.status != "sent"):
             recent = EmailMessage.query.filter(
                 EmailMessage.account_id == account.id,

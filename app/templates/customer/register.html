@@ -17,7 +17,7 @@
       <label>Confirm password<input type="password" name="confirm_password" minlength="12" maxlength="128" required autocomplete="new-password"></label>
       <label class="check account-consent account-consent-compact"><input type="checkbox" name="accept_terms" value="yes" required> I agree to the <a href="{{ url_for('public.terms') }}">Terms and Conditions</a> and acknowledge the <a href="{{ url_for('public.privacy_policy') }}">Privacy Notice</a>.</label>
       <small class="account-legal account-consent-note">FityStores may send essential account, security, and order messages.</small>
-      <label class="check account-consent account-consent-compact"><input type="checkbox" name="marketing_opt_in" value="yes"> I’d also like promotional emails about FityStores offers and new arrivals. Optional; confirm by email and unsubscribe anytime.</label>
+      <label class="check account-consent account-consent-compact"><input type="checkbox" name="marketing_opt_in" value="yes"> Email me offers</label>
       <button class="btn primary wide" type="submit">Create customer account</button>
     </form>
     <p class="account-inline-links">Already have an account? <a href="{{ url_for('customer.login') }}">Sign in</a></p>
