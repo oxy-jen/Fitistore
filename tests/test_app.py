@@ -974,6 +974,21 @@ def test_admin_email_center_shows_checkbox_opt_ins_as_eligible_without_account_e
     assert b"All eligible subscribers: 1" in response.data
 
 
+def test_admin_can_find_studio_messages_and_email_studio_from_admin_pages(client, app, app_context):
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    center = client.get("/admin/email")
+    assert center.status_code == 200
+    assert b"Studio messages" in center.data
+    assert b"Open Email Studio" in center.data
+    messages = client.get("/admin/email/studio-messages")
+    assert messages.status_code == 200
+    assert b"Reusable templates" in messages.data
+    assert b"Create in Email Studio" in messages.data
+    studio = client.get("/admin/email/studio")
+    assert studio.status_code == 200
+    assert b"Studio messages" in studio.data
+
+
 def test_customer_orders_are_account_scoped_and_admin_is_not_customer(client, app, app_context):
     from datetime import datetime
     first = CustomerAccount(email="first@example.com", display_name="First", password_hash=generate_password_hash("a-strong-test-password-123"), email_verified_at=datetime.utcnow())
@@ -1532,8 +1547,86 @@ def test_order_received_email_renders_real_cart_and_secure_tracking_link(app, ap
     assert "Total order amount" in html_body
     assert "Total paid" not in html_body
     assert f"https://fitystore.top/track/{order.reference}/{order.tracking_token}" in html_body
+    assert "The store will review the order and update its status." in html_body
+    assert 'class="desktop-progress"' in html_body
+    assert 'class="mobile-progress"' in html_body
+    assert "background:#0B8F52" in html_body
+    assert "background:#DCE3EA" in html_body
+    assert "SKU: SOCK-8" in html_body
+    assert "Unit price:" in html_body and "Quantity:" in html_body and "Line total:" in html_body
+    assert "<built-in method" not in html_body
+    assert "https://wa.me/254700000000?text=Hello%20FITY%2C%20I%20need%20help%20with%20order%20FITY-EMAIL-CART-1." in html_body
+    assert "Collection is not ready yet" in html_body
+    assert "Confirm the exact meeting spot" in html_body
+    assert "M-Pesa payment number" in html_body
     assert "Legacy product" in text_body
     assert "Awaiting payment" in text_body
+
+    order.payment_status = "Payment reported"
+    reported_html, _ = customer_mail._render_order_received_email(order, account)
+    assert "The seller still needs to verify it" in reported_html
+    assert "Total paid" not in reported_html
+    order.payment_status = "Paid"
+    paid_html, _ = customer_mail._render_order_received_email(order, account)
+    assert "Payment has been confirmed by the store" in paid_html
+    assert "Total paid" in paid_html
+    order.payment_status = "Not required"
+    no_payment_html, _ = customer_mail._render_order_received_email(order, account)
+    assert "No payment is required for this order" in no_payment_html
+
+    settings = ShopSettings.query.first()
+    settings.whatsapp_number = "abc123456789"
+    db.session.commit()
+    fallback_html, _ = customer_mail._render_order_received_email(order, account)
+    assert "Need help? Contact us" in fallback_html
+    assert 'href="https://fitystore.top/contact"' in fallback_html
+
+    order.fulfilment_method = "Nearby delivery"
+    order.instructions = "M-Pesa payer: private phone\nDelivery address: Othaya town"
+    delivery_html, _ = customer_mail._render_order_received_email(order, account)
+    assert "Delivery location: Othaya town" in delivery_html
+    assert "M-Pesa payer" not in delivery_html
+    assert "Delivery arrangements are awaiting confirmation" in delivery_html
+
+
+def test_order_status_and_completion_review_notifications_are_idempotent(app_context):
+    import app.services.customer_mail as customer_mail
+    account = CustomerAccount(email="status-email@example.com", display_name="Status Buyer", email_verified_at=datetime.utcnow())
+    order = Order(reference="FITY-STATUS-EMAIL", fulfilment_method="Collection", status="Ready for collection", payment_status="Paid")
+    db.session.add_all([account, order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+
+    first = customer_mail.notify_order_event(order, "order_status", "order-status:history-1")
+    second = customer_mail.notify_order_event(order, "order_status", "order-status:history-1")
+    assert first.id == second.id
+    assert first.kind == "order_status"
+    assert EmailMessage.query.filter_by(idempotency_key="order-status:history-1").count() == 1
+
+    assert customer_mail.notify_order_event(order, "review_request", "order-review-request:status-order") is None
+    order.status = "Completed"
+    review_email = customer_mail.notify_order_event(order, "review_request", "order-review-request:status-order")
+    duplicate = customer_mail.notify_order_event(order, "review_request", "order-review-request:status-order")
+    assert review_email.id == duplicate.id
+    assert EmailMessage.query.filter_by(kind="review_request", order_id=order.id).count() == 1
+
+
+def test_admin_completion_transition_sends_one_review_request(client, app_context):
+    account = CustomerAccount(email="completed-review@example.com", display_name="Completed Buyer", email_verified_at=datetime.utcnow())
+    order = Order(reference="FITY-COMPLETED-REVIEW", fulfilment_method="Collection", status="Ready for collection", payment_status="Paid")
+    db.session.add_all([account, order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    first = client.post(f"/admin/orders/{order.id}", data={"status": "Completed", "payment_status": "Paid", "notes": ""})
+    second = client.post(f"/admin/orders/{order.id}", data={"status": "Completed", "payment_status": "Paid", "notes": ""})
+    assert first.status_code == 302
+    assert second.status_code == 302
+    assert EmailMessage.query.filter_by(kind="order_status", order_id=order.id).count() == 1
+    assert EmailMessage.query.filter_by(kind="review_request", order_id=order.id).count() == 1
 
 
 def test_payment_confirmation_email_requires_paid_order(client, app_context, app, monkeypatch):
@@ -2274,13 +2367,14 @@ def test_email_studio_sends_saved_template_content_to_selected_unsubscribed_serv
         "message": "Saved template body for {{ customer_name }}.",
     }
     preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
-    assert preview.status_code == 200
+    assert preview.status_code == 200, [line for line in preview.get_data(as_text=True).splitlines() if 'flash ' in line]
+    assert b"flash error" not in preview.data, [line for line in preview.get_data(as_text=True).splitlines() if 'flash ' in line]
     result = client.post("/admin/email/studio", data={
         **payload, "action": "send", "confirm_send": "SEND 1",
         "operation_id": "12345678-1234-5678-1234-567812345678",
     }, follow_redirects=True)
     assert result.status_code == 200
-    assert len(sent) == 1
+    assert len(sent) == 1, [line for line in result.get_data(as_text=True).splitlines() if 'flash ' in line]
     recipient, subject, html, text = sent[0]
     assert recipient == account.email
     assert subject == "Service for Saved"
@@ -2332,6 +2426,7 @@ def test_email_studio_visual_template_duplicate_blocks_preview_and_send(client, 
     db.session.commit()
     client.post("/admin/login", data={"username": "owner", "password": "secret123"})
     blocks = [
+        {"type": "design", "hero_background": "#191919", "text_color": "#FDFDFD", "accent_color": "#127A45", "section_background": "#FAFAFA", "footer_note": "Test footer brand"},
         {"type": "heading", "text": "New for {{ customer_name }}", "align": "center"},
         {"type": "paragraph", "text": "A real catalogue selection."},
         {"type": "image_banner", "product_id": product.id, "alt": "New socks in the collection"},
@@ -2352,7 +2447,9 @@ def test_email_studio_visual_template_duplicate_blocks_preview_and_send(client, 
     saved = EmailTemplate.query.filter_by(name="New arrivals canvas").one()
     saved_blocks = json.loads(saved.blocks_json)
     assert [block["type"] for block in saved_blocks] == [block["type"] for block in blocks]
-    assert saved_blocks[2]["product_id"] == product.id
+    assert saved_blocks[0]["accent_color"] == "#127A45"
+    assert saved_blocks[3]["product_id"] == product.id
+    assert b"Design controls" in saved_response.data
     assert b"email-block-list" in saved_response.data
     assert b"Desktop preview" in saved_response.data and b"Mobile preview" in saved_response.data
 
@@ -2370,6 +2467,7 @@ def test_email_studio_visual_template_duplicate_blocks_preview_and_send(client, 
     assert preview.status_code == 200
     assert b"https://res.cloudinary.com/fity-test/image/upload/fity/banners/plain-socks" in preview.data
     assert b"New for Visual" in preview.data
+    assert b"#127A45" in preview.data and b"#191919" in preview.data
     result = client.post("/admin/email/studio", data={
         **payload, "action": "send", "confirm_send": "SEND 1",
         "operation_id": "87654321-1234-5678-1234-567812345678",

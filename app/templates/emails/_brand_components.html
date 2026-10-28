@@ -1,0 +1,19 @@
+{% macro email_header(site_url, logo_url) -%}
+<tr><td style="background:#111111;color:#FFFFFF;padding:10px 22px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px">&#10003;&nbsp; Fast &amp; Reliable <span style="color:#94A3B8;padding:0 8px">|</span> Bei Fity, Fits Poa</td></tr>
+<tr><td style="background:#FFFFFF;border-bottom:2px solid #ED1B2F;padding:15px 22px">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>
+    <td valign="middle"><a href="{{ site_url }}" style="color:#111111;text-decoration:none"><img src="{{ logo_url }}" width="52" height="52" alt="FITY logo" style="display:inline-block;width:52px;height:52px;vertical-align:middle;border:0"><strong style="display:inline-block;vertical-align:middle;padding-left:9px;font-size:20px">FITY</strong></a><div style="font-size:11px;color:#64748B;padding-left:61px">Bei Fity, Fits Poa</div></td>
+    <td align="right" style="font-size:11px;letter-spacing:.6px;color:#475569">FASHION&nbsp; | &nbsp;COMFORT&nbsp; | &nbsp;EVERYDAY ESSENTIALS</td>
+  </tr></table>
+</td></tr>
+{%- endmacro %}
+
+{% macro email_footer(site_url, contact_url, unsubscribe_url='', note='') -%}
+<tr><td style="background:#111111;border-top:4px solid #ED1B2F;padding:18px 22px;color:#FFFFFF;text-align:center;font-family:Arial,Helvetica,sans-serif">
+  <div style="font-size:19px;font-weight:bold;letter-spacing:2px">FITY</div>
+  <div style="font-size:12px;color:#CBD5E1;padding-top:3px">Bei Fity, Fits Poa</div>
+  {% if note %}<div style="font-size:12px;line-height:18px;color:#E5E7EB;padding-top:10px">{{ note }}</div>{% endif %}
+  <div style="font-size:12px;line-height:18px;padding-top:12px"><a href="{{ contact_url }}" style="color:#FFFFFF;text-decoration:underline">Contact FityStores</a></div>
+</td></tr>
+<tr><td align="center" style="background:#F3F5F7;padding:11px 12px;font:11px/17px Arial,Helvetica,sans-serif;color:#64748B">FityStores&nbsp; | &nbsp;Bei Fity, Fits Poa&nbsp; | &nbsp;<a href="{{ site_url }}" style="color:#475569;text-decoration:underline">{{ site_url }}</a>{% if unsubscribe_url %}<br><a href="{{ unsubscribe_url }}" style="color:#475569;text-decoration:underline">Unsubscribe from promotional emails</a>{% endif %}</td></tr>
+{%- endmacro %}

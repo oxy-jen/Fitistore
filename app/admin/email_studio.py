@@ -138,6 +138,8 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
         blocks = validate_email_blocks(blocks_source, category)
     except EmailContentError:
         raise
+    design = next((block for block in blocks if block["type"] == "design"), None)
+    blocks = [block for block in blocks if block["type"] != "design"]
     if category == "cart_reminder":
         # Cart items are one personalized section, not repeated for each image/grid
         # block saved in the visual template. Keep its first product-section position.
@@ -342,7 +344,8 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
         category, subject, headline, message, context, blocks=blocks, products=products,
         order_lines=order_lines, order_summary=order_summary, cart_summary=cart_summary,
         primary_url=primary_url, primary_label=primary_label, shop_url=shop_url, logo_url=logo_url,
-        unsubscribe_url=unsubscribe_url,
+        site_url=_public_url("/"), contact_url=_public_url(url_for("public.contact")),
+        unsubscribe_url=unsubscribe_url, design=design,
     )
     if test_mode:
         html = html.replace("<h1 style=", '<p style="padding:10px;background:#fff3cd;color:#664d03">TEST PREVIEW — this is not an order or payment notice.</p><h1 style=', 1)
@@ -351,6 +354,18 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
 
 
 def register_email_studio_routes(admin_bp):
+    @admin_bp.get("/email/studio-messages")
+    @login_required
+    def email_studio_messages():
+        from app.services.email_studio import EMAIL_CATEGORIES
+
+        templates = EmailTemplate.query.order_by(EmailTemplate.category, EmailTemplate.updated_at.desc(), EmailTemplate.id.desc()).all()
+        drafts = EmailDraft.query.filter_by(created_by_id=current_user.id, status="draft").order_by(EmailDraft.updated_at.desc(), EmailDraft.id.desc()).limit(100).all()
+        return render_template(
+            "admin/studio_messages.html", title="Studio messages",
+            categories=EMAIL_CATEGORIES, templates=templates, drafts=drafts,
+        )
+
     @admin_bp.route("/email/studio", methods=["GET", "POST"])
     @login_required
     def email_studio():
@@ -426,9 +441,11 @@ def register_email_studio_routes(admin_bp):
         message = request.values.get("message", draft.message if draft else saved_template.message if saved_template else defaults["message"])
         blocks_source = request.values.get("blocks_json", draft.blocks_json if draft else saved_template.blocks_json if saved_template else "[]")
         try:
-            editor_blocks = validate_email_blocks(blocks_source, category)
+            editor_document = validate_email_blocks(blocks_source, category)
         except EmailContentError:
-            editor_blocks = []
+            editor_document = []
+        editor_design = next((block for block in editor_document if block["type"] == "design"), {"type": "design", "hero_background": "#111111", "text_color": "#FFFFFF", "accent_color": "#ED1B2F", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"})
+        editor_blocks = [block for block in editor_document if block["type"] != "design"]
         if not editor_blocks:
             editor_blocks = [{"type": "heading", "text": headline, "align": "left"}, {"type": "paragraph", "text": message, "align": "left"}]
             if category == "promotion":
@@ -595,8 +612,9 @@ def register_email_studio_routes(admin_bp):
                         try: operation_id = str(UUID(request.form.get("operation_id", "")))
                         except (ValueError, TypeError, AttributeError):
                             raise EmailContentError("Refresh the Email Studio and try again; the send operation key is invalid.") from None
-                        accepted = failed = suppressed = 0
+                        accepted = failed = suppressed = duplicate = 0
                         suppression_reasons = []
+                        provider_failures = []
                         for target in targets:
                             if defaults["marketing"] and category == "cart_reminder":
                                 context_form = request.form.copy()
@@ -615,13 +633,19 @@ def register_email_studio_routes(admin_bp):
                                 key = f"cart-reminder:{cart.episode_key}" if cart else f"email-studio:{operation_id}:{target.id}"
                             else:
                                 key = f"email-studio:{operation_id}:{target.id}"
+                            prior_message = EmailMessage.query.filter_by(idempotency_key=key).first()
+                            prior_accepted = bool(prior_message and prior_message.status in {"sent", "delivered"})
                             try:
                                 result = queue_email(target.email, payload_subject, kind, key, account_id=target.id, order_id=order.id if order else None, template_id=saved_template.id if saved_template else None, bypass_marketing_cooldown=bool(marketing_message and category != "cart_reminder"), html_body=html, text_body=text)
                             except Exception:
                                 db.session.rollback(); failed += 1; continue
-                            if result.status in {"sent", "delivered"}: accepted += 1
+                            if result.status in {"sent", "delivered"} and prior_accepted: duplicate += 1
+                            elif result.status in {"sent", "delivered"}: accepted += 1
                             elif result.status == "suppressed": suppressed += 1
-                            else: failed += 1
+                            else:
+                                failed += 1
+                                if result.failure_reason:
+                                    provider_failures.append(f"{target.email}: {result.failure_reason[:180]}")
                             if category == "cart_reminder" and result.status in {"sent", "delivered"}:
                                 cart = CustomerCart.query.filter_by(account_id=target.id).first()
                                 if cart:
@@ -633,7 +657,9 @@ def register_email_studio_routes(admin_bp):
                                     db.session.expire(cart)
                                     db.session.commit()
                         suppression_detail = " Reasons: " + "; ".join(dict.fromkeys(suppression_reasons[:3])) if suppression_reasons else ""
-                        flash(f"Manual send result: provider accepted {accepted}; failed {failed}; suppressed {suppressed}.{suppression_detail} Provider acceptance is not inbox delivery.", "success" if accepted and not failed and not suppressed else "warning")
+                        delivery_detail = " Errors: " + "; ".join(dict.fromkeys(provider_failures[:3])) if provider_failures else ""
+                        duplicate_detail = f" {duplicate} already accepted earlier; no duplicate message was sent." if duplicate else ""
+                        flash(f"Manual send result: provider accepted {accepted}; failed {failed}; suppressed {suppressed}.{duplicate_detail}{suppression_detail}{delivery_detail} Provider acceptance is not inbox delivery.", "success" if accepted and not failed and not suppressed else "warning")
                         session.pop("email_studio_preview", None)
                         return redirect(url_for("admin.email_studio", category=category))
 
@@ -701,6 +727,7 @@ def register_email_studio_routes(admin_bp):
                             preview_notice = "Preview only: a reminder was already sent for this cart episode."
                     preview = {"subject": rendered_subject, "html": html, "text": text, "products": cards, "order": order, "eligible_count": eligible_count, "notice": preview_notice}
                     session["email_studio_preview"] = preview_fingerprint()
+                    print("EMAIL_PREVIEW_SET_DEBUG", action, session.get("email_studio_preview"))
                 else:
                     raise EmailContentError("Choose a supported Email Studio action.")
             except (EmailContentError, ValueError, TypeError) as exc:
@@ -714,6 +741,7 @@ def register_email_studio_routes(admin_bp):
             category=category, accounts=accounts, account=account, linked_orders=linked_orders,
             templates=saved_templates,
             selected_template=saved_template, editor_blocks=editor_blocks,
+            editor_design=editor_design,
             products=products, product_choices=product_choices, drafts=drafts, carts=carts, selected_products=set(map(str, product_selection)),
             selected_account_ids=set(map(str, selected_account_ids)),
             subject=subject, headline=headline, message=message, draft=draft, preview=preview,

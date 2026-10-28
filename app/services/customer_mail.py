@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import smtplib
 import ssl
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage as MimeMessage
 from email.utils import formataddr, parseaddr
+from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app, render_template, url_for
@@ -16,6 +18,15 @@ from app.extensions import db
 from app.models import CustomerAccount, EmailMessage
 
 logger = logging.getLogger(__name__)
+
+
+def _email_public_base_url() -> str:
+    candidate = (current_app.config.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    parsed = urlsplit(candidate)
+    if (parsed.scheme == "https" and parsed.netloc and not parsed.username and not parsed.password
+            and parsed.path in {"", "/"} and not parsed.query and not parsed.fragment):
+        return candidate
+    return "https://fitystore.top"
 
 def mail_configuration_status() -> tuple[bool, str]:
     cfg = current_app.config
@@ -241,27 +252,86 @@ def deliver_email(record: EmailMessage, html_body: str, text_body: str) -> bool:
     return True
 
 
-def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str = "", button_text: str = "", unsubscribe_url: str = "") -> tuple[str, str]:
+def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str = "", button_text: str = "", unsubscribe_url: str = "", kind: str = "", order_reference: str = "", order_progress=None) -> tuple[str, str]:
     paragraphs = [
         block.strip()
         for paragraph in paragraphs
         for block in paragraph.replace("\r\n", "\n").split("\n\n")
         if block.strip()
     ]
+    security_code = ""
+    if kind in {"verify_code", "login_code"}:
+        for paragraph in paragraphs:
+            match = re.search(r"(?<!\d)\d{6}(?!\d)", paragraph)
+            if match:
+                security_code = match.group(0)
+                break
+        if security_code:
+            paragraphs = [paragraph for paragraph in paragraphs if security_code not in paragraph]
     preview_text = (paragraphs[0] if paragraphs else heading).strip()[:180]
-    html_body = render_template("emails/base.html", heading=heading, paragraphs=paragraphs, preheader=preview_text, button_url=button_url, button_text=button_text, unsubscribe_url=unsubscribe_url)
+    site_url = _email_public_base_url()
+    logo_url = site_url + "/static/images/mainLogo-160.png"
+    contact_url = site_url + url_for("public.contact", _external=False)
+    accent_color = "#0B8F52" if kind == "payment_confirmed" else "#ED1B2F"
+    hero_background = "#0B8F52" if kind == "payment_confirmed" else "#111111"
+    footer_notes = {
+        "welcome": "Thanks for joining FITY. We’re glad you’re here.",
+        "account_security": "If you did not make this change, contact FityStores support immediately.",
+        "unsubscribe_confirmation": "Your promotional email preference has been updated. Essential account and order messages may still be sent.",
+        "verify_email": "This secure link is personal to you. Never forward it or share a verification code.",
+        "reset_password": "If you did not request a password reset, you can ignore this email and keep your current password.",
+        "verify_code": "For your security, never share this code with anyone.",
+        "login_code": "For your security, never share this code with anyone.",
+    }
+    html_body = render_template(
+        "emails/base_branded.html", heading=heading, paragraphs=paragraphs,
+        preheader=preview_text, button_url=button_url, button_text=button_text,
+        unsubscribe_url=unsubscribe_url, site_url=site_url, logo_url=logo_url,
+        contact_url=contact_url, footer_note=footer_notes.get(kind, ""),
+        security_code=security_code, accent_color=accent_color,
+        hero_background=hero_background,
+        hero_text_color="#FFFFFF", order_reference=order_reference,
+        order_progress=order_progress or (),
+    )
     lines = [heading, "", *paragraphs]
     if button_url:
         lines.extend(["", f"{button_text}: {button_url}"])
+    if order_reference:
+        lines.extend(["", f"Order reference: {order_reference}"])
+    if order_progress:
+        lines.extend(["", "Order progress:"] + [f"{stage['label']}: {stage['description']}" for stage in order_progress])
     if unsubscribe_url:
         lines.extend(["", f"Unsubscribe from promotional email: {unsubscribe_url}"])
     lines.extend(["", "FityStores", "Bei Fity, Fits Poa."])
     return html_body, "\n".join(lines)
 
 
-def queue_branded_email(recipient: str, subject: str, kind: str, idempotency_key: str, heading: str, paragraphs: list[str], *, account_id=None, order_id=None, campaign_id=None, button_url="", button_text="", unsubscribe_url="") -> EmailMessage:
-    html_body, text_body = render_branded_email(heading, paragraphs, button_url=button_url, button_text=button_text, unsubscribe_url=unsubscribe_url)
+def queue_branded_email(recipient: str, subject: str, kind: str, idempotency_key: str, heading: str, paragraphs: list[str], *, account_id=None, order_id=None, campaign_id=None, button_url="", button_text="", unsubscribe_url="", order_reference="", order_progress=None) -> EmailMessage:
+    html_body, text_body = render_branded_email(
+        heading, paragraphs, button_url=button_url, button_text=button_text,
+        unsubscribe_url=unsubscribe_url, kind=kind, order_reference=order_reference,
+        order_progress=order_progress,
+    )
     return queue_email(recipient, subject, kind, idempotency_key, account_id=account_id, order_id=order_id, campaign_id=campaign_id, html_body=html_body, text_body=text_body)
+
+
+def _order_progress_stages(order):
+    fulfillment = order.fulfilment_method or "To be confirmed"
+    fulfillment_stage = "Ready for collection" if fulfillment.lower() == "collection" else "Out for delivery"
+    reached_processing = order.status in {"Payment confirmed", "Preparing order", "Ready for collection", "Out for delivery", "Completed"}
+    reached_fulfillment = order.status in {fulfillment_stage, "Completed"}
+    stages = [
+        {"label": "Order received", "description": "We’ve received your order request.", "state": "current" if order.status == "Order received" else "done"},
+        {"label": "Processing", "description": "The store will review the order and update its status.", "state": "current" if reached_processing and order.status != "Completed" and not reached_fulfillment else "done" if reached_processing else "upcoming"},
+        {"label": fulfillment_stage, "description": "We’ll let you know when it is ready.", "state": "current" if reached_fulfillment and order.status != "Completed" else "done" if reached_fulfillment else "upcoming"},
+        {"label": "Completed", "description": "Enjoy your FITY items.", "state": "done" if order.status == "Completed" else "upcoming"},
+    ]
+    if order.status == "Cancelled":
+        return [
+            {"label": "Order received", "description": "We received the order request.", "state": "done"},
+            {"label": "Cancelled", "description": "The store cancelled this order.", "state": "current"},
+        ]
+    return stages
 
 
 def _render_order_received_email(order, account):
@@ -270,9 +340,7 @@ def _render_order_received_email(order, account):
     from app.services.settings import current_settings
 
     settings = current_settings()
-    base_url = (current_app.config.get("PUBLIC_BASE_URL") or "https://fitystore.top").rstrip("/")
-    if not base_url.startswith("https://"):
-        base_url = "https://fitystore.top"
+    base_url = _email_public_base_url()
     tracking_path = url_for("public.track_order_link", reference=order.reference, tracking_token=order.tracking_token, _external=False)
     tracking_url = base_url + tracking_path
 
@@ -298,10 +366,17 @@ def _render_order_received_email(order, account):
             if not image_url.startswith("https://"):
                 image_url = ""
             image_alt = product_image_alt(image, image_alt)
-        variant_details = [value for value in (item.variant_label, item.color, item.size, item.sku) if value]
+        variant_label = (item.variant_label or "").strip()
+        if not variant_label:
+            variant_label = " · ".join(
+                f"{label}: {value}"
+                for label, value in (("Colour", item.color), ("Size", item.size))
+                if value
+            )
         rows.append({
             "name": item.product_name,
-            "variant": " · ".join(dict.fromkeys(variant_details)),
+            "variant": variant_label,
+            "sku": (item.sku or (item.product.sku if item.product else "") or "").strip(),
             "image_url": image_url,
             "image_alt": image_alt,
             "quantity": item.quantity,
@@ -312,8 +387,6 @@ def _render_order_received_email(order, account):
     discount_cents = max(0, order.discount_cents or 0)
     delivery_cents = max(0, order.delivery_fee_cents or 0)
     total_cents = order.total_cents
-    if total_cents is None and subtotal_known and not order.has_unconfirmed_prices:
-        total_cents = subtotal_cents + delivery_cents - discount_cents
 
     try:
         local_zone = ZoneInfo(current_app.config.get("TIMEZONE", "Africa/Nairobi"))
@@ -336,21 +409,54 @@ def _render_order_received_email(order, account):
                 delivery_details = value.strip()
                 break
 
-    phone_digits = "".join(char for char in (settings.whatsapp_number or "") if char.isdigit())
-    support_url = f"https://wa.me/{phone_digits}" if len(phone_digits) >= 9 else base_url + url_for("public.contact")
+    from app.services.whatsapp import clean_phone
+    raw_phone = settings.whatsapp_number or ""
+    phone_digits = clean_phone(raw_phone) if not any(char.isalpha() for char in raw_phone) else ""
+    if 9 <= len(phone_digits) <= 15 and not phone_digits.startswith("0"):
+        support_url = f"https://wa.me/{phone_digits}?text=" + quote(f"Hello FITY, I need help with order {order.reference}.", safe="")
+        support_label = "Need help? WhatsApp"
+    else:
+        support_url = base_url + url_for("public.contact", _external=False)
+        support_label = "Need help? Contact us"
     customer_name = (order.customer_name or account.display_name or "Customer").strip()
 
-    fulfillment_stage = "Ready for collection" if fulfillment.lower() == "collection" else "Out for delivery"
-    reached_processing = order.status in {"Payment confirmed", "Preparing order", "Ready for collection", "Out for delivery", "Completed"}
-    reached_fulfillment = order.status in {fulfillment_stage, "Completed"}
-    stages = [
-        {"label": "Order received", "copy": "We’ve received your order request.", "state": "current" if order.status == "Order received" else "done"},
-        {"label": "Processing", "copy": "We’ll review the order and update its status.", "state": "current" if reached_processing and order.status != "Completed" and not reached_fulfillment else "done" if reached_processing else "upcoming"},
-        {"label": fulfillment_stage, "copy": "We’ll let you know when it is ready.", "state": "current" if reached_fulfillment and order.status != "Completed" else "done" if reached_fulfillment else "upcoming"},
-        {"label": "Completed", "copy": "Enjoy your FITY items.", "state": "done" if order.status == "Completed" else "upcoming"},
-    ]
-    if order.status == "Order received":
-        stages[0]["state"] = "current"
+    payment_status = order.payment_status or "Awaiting payment"
+    if payment_status == "Paid":
+        payment_guidance = "Payment has been confirmed by the store."
+    elif payment_status == "Payment reported":
+        payment_guidance = "We received your payment reference or proof. The seller still needs to verify it; a reference or screenshot alone is not payment confirmation. Please do not pay again until you have checked with the seller."
+    elif payment_status == "Awaiting payment":
+        if "m-pesa" in (payment_method or "").lower():
+            payment_guidance = (settings.payment_instructions or "Contact the store to confirm payment instructions before paying.") + " A submitted reference or screenshot is reviewed by the seller and does not itself confirm payment."
+        else:
+            payment_guidance = "Payment is still pending. The seller will confirm the next step for this order."
+    elif payment_status.lower() in {"not required", "no payment required"}:
+        payment_guidance = "No payment is required for this order at this time."
+    else:
+        payment_guidance = f"Payment status: {payment_status}. Contact the store if you need clarification."
+
+    if fulfillment.lower() == "collection":
+        delivery_heading = "Collection Information"
+        if order.status == "Ready for collection":
+            fulfillment_guidance = "Your order is ready for collection. Follow the instructions below and confirm the meeting point with the store before travelling."
+        elif order.status == "Completed":
+            fulfillment_guidance = "This order has been marked completed."
+        elif order.status == "Cancelled":
+            fulfillment_guidance = "This order has been cancelled. Contact the store if you need help."
+        else:
+            fulfillment_guidance = "Collection is not ready yet. Wait for the store to confirm that it is ready before travelling."
+    else:
+        delivery_heading = "Delivery Information"
+        if order.status == "Out for delivery":
+            fulfillment_guidance = "Your order is out for delivery. Keep your phone available for delivery coordination."
+        elif order.status == "Completed":
+            fulfillment_guidance = "This order has been marked completed."
+        elif order.status == "Cancelled":
+            fulfillment_guidance = "This order has been cancelled. Contact the store if you need help."
+        else:
+            fulfillment_guidance = "Delivery arrangements are awaiting confirmation from the store. No delivery date has been promised yet."
+
+    stages = _order_progress_stages(order)
 
     context = {
         "order": order,
@@ -367,13 +473,17 @@ def _render_order_received_email(order, account):
         "show_discount": discount_cents > 0,
         "show_delivery": delivery_cents > 0,
         "payment_method": payment_method,
-        "payment_status": order.payment_status or "Awaiting payment",
-        "paid": order.payment_status == "Paid",
+        "payment_status": payment_status,
+        "payment_guidance": payment_guidance,
+        "paid": payment_status == "Paid",
         "fulfillment": fulfillment,
+        "delivery_heading": delivery_heading,
         "delivery_details": delivery_details,
+        "fulfillment_guidance": fulfillment_guidance,
         "created_at": created_at,
         "tracking_url": tracking_url,
         "support_url": support_url,
+        "support_label": support_label,
         "stages": stages,
         "preheader": f"We received order {order.reference}. See your items, totals, and next steps.",
         "logo_url": base_url + "/static/images/mainLogo-160.png",
@@ -385,7 +495,12 @@ def _render_order_received_email(order, account):
         f"Order reference: {order.reference}", "", "YOUR ORDER",
     ]
     for item in rows:
-        text_lines.append(f"{item['name']} — {item['variant'] + ' — ' if item['variant'] else ''}{item['quantity']} × {item['unit_price']} = {item['line_total']}")
+        item_description = item["name"]
+        if item["variant"]:
+            item_description += " — " + item["variant"]
+        if item["sku"]:
+            item_description += " — SKU: " + item["sku"]
+        text_lines.append(f"{item_description} — {item['quantity']} × {item['unit_price']} = {item['line_total']}")
     text_lines.extend([
         "", f"Subtotal: {context['subtotal']}",
     ])
@@ -396,7 +511,9 @@ def _render_order_received_email(order, account):
     text_lines.extend([
         f"{'Total paid' if context['paid'] else 'Total order amount'}: {context['total']}",
         f"Payment: {context['payment_method']} — {context['payment_status']}",
-        f"Fulfilment: {fulfillment} — {delivery_details}",
+        payment_guidance,
+        f"{delivery_heading}: {fulfillment} — {delivery_details}",
+        fulfillment_guidance,
         f"Current order status: {order.status}", f"View order status: {tracking_url}",
         "", "FityStores | Bei Fity, Fits Poa.", base_url,
     ])
@@ -412,6 +529,7 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
         return None
     if event_name == "payment_confirmed" and order.payment_status != "Paid":
         return None
+    payment_method = "Not recorded"
     if event_name == "order_received":
         order = Order.query.options(
             selectinload(Order.items).selectinload(OrderItem.product).selectinload(Product.images),
@@ -429,15 +547,63 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
     elif event_name == "payment_confirmed":
         subject = "FityStores payment confirmed"
         heading = "Payment confirmed"
-        detail = "FityStores has recorded the payment as confirmed for this order."
+        payment_attempt = next(iter(order.payment_attempts or []), None)
+        payment_method = payment_attempt.payment_method if payment_attempt else "Not recorded"
+        from app.services.settings import current_settings
+        from app.services.formatting import money
+        detail = f"Payment for order {order.reference} has been verified by FityStores. Confirmed amount: {money(order.total_cents, current_settings().currency)}. Payment method: {payment_method}. Payment status: {order.payment_status}. The store will now continue with {('collection preparation' if (order.fulfilment_method or '').lower() == 'collection' else 'delivery preparation')}."
+    elif event_name == "review_request":
+        if order.status != "Completed" or order.payment_status != "Paid":
+            return None
+        subject = f"How was your FityStores order? | {order.reference}"
+        heading = "How was your order?"
+        detail = "Your order has been marked completed. If you would like, share an honest review of your experience. Reviews are optional and are not tied to a reward."
+        return queue_branded_email(
+            link.account.email, subject, event_name, idempotency_key,
+            heading, [f"Order reference: {order.reference}.", detail],
+            account_id=link.account.id, order_id=order.id,
+            button_url=(_email_public_base_url() + url_for("public.reviews", _external=False)),
+            button_text="Write a review",
+        )
+    elif event_name == "order_status":
+        payment_attempt = next(iter(order.payment_attempts or []), None)
+        payment_method = payment_attempt.payment_method if payment_attempt else "Not recorded"
+        status_copy = {
+            "Order received": ("We received your order", "Your order request is waiting for seller review."),
+            "Awaiting payment": ("Payment is pending", "The order is awaiting payment. Follow the payment instructions confirmed by the store; a reference or screenshot alone does not confirm payment."),
+            "Payment confirmed": ("Order update: payment confirmed", "The store recorded this order at the payment-confirmed stage."),
+            "Preparing order": ("Your order is being prepared", "The store has started preparing your order."),
+            "Ready for collection": ("Your order is ready for collection", "Your order is ready. Follow the collection instructions and confirm the meeting point before travelling."),
+            "Out for delivery": ("Your order is out for delivery", "Your order is out for delivery. Keep your phone available for delivery coordination."),
+            "Completed": ("Your order is complete", "The store has marked this order completed."),
+            "Cancelled": ("Your order was cancelled", "The store has marked this order cancelled. Contact us if you need help."),
+        }
+        heading, detail = status_copy.get(order.status, ("Your order status was updated", f"The current order status is {order.status}."))
+        subject = f"{heading}: {order.reference} | FITYStores"
+        if order.status == "Payment confirmed" and order.payment_status != "Paid":
+            heading = "Order status updated"
+            detail = f"The order status is Payment confirmed, while the recorded payment status remains {order.payment_status}. Contact the store if you need clarification."
     else:
         subject = f"FityStores order update: {order.status}"
         heading = "Your order status was updated"
         detail = f"The current order status is {order.status}."
+    if event_name == "order_status" and order.status == "Awaiting payment":
+        from app.services.settings import current_settings
+        configured_instructions = current_settings().payment_instructions
+        if configured_instructions and "m-pesa" in payment_method.lower():
+            detail += " " + configured_instructions
+    base_url = _email_public_base_url()
+    tracking_url = base_url + url_for("public.track_order_link", reference=order.reference, tracking_token=order.tracking_token, _external=False)
     return queue_branded_email(
         link.account.email, subject, event_name, idempotency_key,
-        heading, [f"Order reference: {order.reference}.", detail],
+        heading, [
+            f"Order reference: {order.reference}.", detail,
+            f"Payment method: {payment_method}. Payment status: {order.payment_status or 'Not recorded'}.",
+            f"Fulfilment method: {order.fulfilment_method or 'To be confirmed'}.",
+        ],
         account_id=link.account.id, order_id=order.id,
-        button_url="https://fitystore.top/account/",
+        button_url=tracking_url,
         button_text="View order status",
+        order_reference=order.reference,
+        order_progress=_order_progress_stages(order),
     )

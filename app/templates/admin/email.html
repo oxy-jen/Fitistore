@@ -7,7 +7,7 @@
     <p>{{ mail_note }}{% if test_address %} Test address: {{ test_address }}{% else %} No test address is configured.{% endif %}</p>
   </div>
 </section>
-<section class="actions"><a class="btn primary" href="{{ url_for('admin.email_studio') }}">Open Email Studio</a><a class="btn" href="{{ url_for('admin.email_cart_activity') }}">View cart activity</a></section>
+<section class="actions"><a class="btn primary" href="{{ url_for('admin.email_studio') }}">Open Email Studio</a><a class="btn" href="{{ url_for('admin.email_studio_messages') }}">Studio messages</a><a class="btn" href="{{ url_for('admin.email_cart_activity') }}">View cart activity</a></section>
 <section class="form-card">
   <h2>Find customers and orders</h2>
   <form method="get" class="actions">
