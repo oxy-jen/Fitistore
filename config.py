@@ -43,6 +43,8 @@ class Config:
     MAIL_TEST_ADDRESS = os.environ.get("MAIL_TEST_ADDRESS", "")
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
     PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://fitystore.top").strip().rstrip("/")
+    # Manual cart reminder idle time for the current testing window.
+    CART_REMINDER_IDLE_MINUTES = max(1, int(os.environ.get("CART_REMINDER_IDLE_MINUTES", "5")))
 
 class TestConfig(Config):
     TESTING = True

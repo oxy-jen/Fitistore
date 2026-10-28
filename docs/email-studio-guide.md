@@ -30,6 +30,6 @@ Email Studio lets an admin build, preview, save, and manually send customer emai
 4. Enter the exact confirmation shown, such as **SEND 2**, then choose **Send manually**. A preview is required for the exact content and recipient selection before the send is accepted.
 5. Check **Customer email → Recent email history** for provider status. “Provider accepted” means the email service accepted the request; it does not guarantee inbox delivery.
 
-Cart reminders can be previewed at any time, but sending is held while checkout is active, until the cart has been idle for two hours, and after a reminder has already been sent for that cart episode.
+Cart reminders can be previewed at any time, but sending is held while checkout is active, until the cart has been idle for the configured `CART_REMINDER_IDLE_MINUTES`, and after a reminder has already been sent for that cart episode. The current testing value is 5 minutes; set it to 120 minutes when the two-hour rule is restored.
 
 For a general promotional or service message that does not need visual blocks, use the matching form in **Customer email**. The Email Studio category picker is preferable for designed emails, order-specific messages, and saved visual templates.

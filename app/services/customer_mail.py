@@ -5,11 +5,12 @@ import logging
 import smtplib
 import ssl
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage as MimeMessage
 from email.utils import formataddr, parseaddr
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from flask import current_app, render_template
+from flask import current_app, render_template, url_for
 
 from app.extensions import db
 from app.models import CustomerAccount, EmailMessage
@@ -263,8 +264,148 @@ def queue_branded_email(recipient: str, subject: str, kind: str, idempotency_key
     return queue_email(recipient, subject, kind, idempotency_key, account_id=account_id, order_id=order_id, campaign_id=campaign_id, html_body=html_body, text_body=text_body)
 
 
+def _render_order_received_email(order, account):
+    from app.services.formatting import money
+    from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
+    from app.services.settings import current_settings
+
+    settings = current_settings()
+    base_url = (current_app.config.get("PUBLIC_BASE_URL") or "https://fitystore.top").rstrip("/")
+    if not base_url.startswith("https://"):
+        base_url = "https://fitystore.top"
+    tracking_path = url_for("public.track_order_link", reference=order.reference, tracking_token=order.tracking_token, _external=False)
+    tracking_url = base_url + tracking_path
+
+    rows = []
+    subtotal_cents = 0
+    subtotal_known = True
+    for item in order.items:
+        line_total = item.subtotal_cents
+        if line_total is None and item.price_cents is not None:
+            line_total = item.price_cents * item.quantity
+        if line_total is None:
+            subtotal_known = False
+        else:
+            subtotal_cents += line_total
+        image_url = ""
+        image_alt = f"Product image: {item.product_name}"
+        image = item.variant.image if item.variant and valid_product_image(item.variant.image) else None
+        if image is None and item.product:
+            image = product_display_image(item.product)
+        if image:
+            candidate = product_image_url(image)
+            image_url = base_url + candidate if candidate.startswith("/") else candidate
+            if not image_url.startswith("https://"):
+                image_url = ""
+            image_alt = product_image_alt(image, image_alt)
+        variant_details = [value for value in (item.variant_label, item.color, item.size, item.sku) if value]
+        rows.append({
+            "name": item.product_name,
+            "variant": " · ".join(dict.fromkeys(variant_details)),
+            "image_url": image_url,
+            "image_alt": image_alt,
+            "quantity": item.quantity,
+            "unit_price": money(item.price_cents, settings.currency),
+            "line_total": money(line_total, settings.currency),
+        })
+
+    discount_cents = max(0, order.discount_cents or 0)
+    delivery_cents = max(0, order.delivery_fee_cents or 0)
+    total_cents = order.total_cents
+    if total_cents is None and subtotal_known and not order.has_unconfirmed_prices:
+        total_cents = subtotal_cents + delivery_cents - discount_cents
+
+    try:
+        local_zone = ZoneInfo(current_app.config.get("TIMEZONE", "Africa/Nairobi"))
+    except (ZoneInfoNotFoundError, TypeError, ValueError):
+        local_zone = ZoneInfo("Africa/Nairobi")
+    created_at = order.created_at
+    if created_at:
+        created_at = (created_at.replace(tzinfo=timezone.utc) if created_at.tzinfo is None else created_at).astimezone(local_zone)
+
+    payment_attempts = list(order.payment_attempts or [])
+    payment_method = payment_attempts[0].payment_method if payment_attempts else "Manual M-Pesa"
+    fulfillment = order.fulfilment_method or "To be confirmed"
+    delivery_details = "The store will confirm the delivery details with you."
+    if fulfillment.lower() == "collection":
+        delivery_details = settings.collection_instructions or "The store will contact you with collection instructions."
+    else:
+        for instruction_line in (order.instructions or "").splitlines():
+            label, separator, value = instruction_line.partition(":")
+            if separator and label.strip().lower() == "delivery address" and value.strip():
+                delivery_details = value.strip()
+                break
+
+    phone_digits = "".join(char for char in (settings.whatsapp_number or "") if char.isdigit())
+    support_url = f"https://wa.me/{phone_digits}" if len(phone_digits) >= 9 else base_url + url_for("public.contact")
+    customer_name = (order.customer_name or account.display_name or "Customer").strip()
+
+    fulfillment_stage = "Ready for collection" if fulfillment.lower() == "collection" else "Out for delivery"
+    reached_processing = order.status in {"Payment confirmed", "Preparing order", "Ready for collection", "Out for delivery", "Completed"}
+    reached_fulfillment = order.status in {fulfillment_stage, "Completed"}
+    stages = [
+        {"label": "Order received", "copy": "We’ve received your order request.", "state": "current" if order.status == "Order received" else "done"},
+        {"label": "Processing", "copy": "We’ll review the order and update its status.", "state": "current" if reached_processing and order.status != "Completed" and not reached_fulfillment else "done" if reached_processing else "upcoming"},
+        {"label": fulfillment_stage, "copy": "We’ll let you know when it is ready.", "state": "current" if reached_fulfillment and order.status != "Completed" else "done" if reached_fulfillment else "upcoming"},
+        {"label": "Completed", "copy": "Enjoy your FITY items.", "state": "done" if order.status == "Completed" else "upcoming"},
+    ]
+    if order.status == "Order received":
+        stages[0]["state"] = "current"
+
+    context = {
+        "order": order,
+        "customer_name": customer_name,
+        "customer_email": account.email,
+        "customer_phone": order.customer_phone or "Not provided",
+        "items": rows,
+        "line_count": len(rows),
+        "item_count": sum(max(0, item.quantity or 0) for item in order.items),
+        "subtotal": money(subtotal_cents, settings.currency) if subtotal_known else "To be confirmed",
+        "discount": money(discount_cents, settings.currency),
+        "delivery_fee": money(delivery_cents, settings.currency),
+        "total": money(total_cents, settings.currency),
+        "show_discount": discount_cents > 0,
+        "show_delivery": delivery_cents > 0,
+        "payment_method": payment_method,
+        "payment_status": order.payment_status or "Awaiting payment",
+        "paid": order.payment_status == "Paid",
+        "fulfillment": fulfillment,
+        "delivery_details": delivery_details,
+        "created_at": created_at,
+        "tracking_url": tracking_url,
+        "support_url": support_url,
+        "stages": stages,
+        "preheader": f"We received order {order.reference}. See your items, totals, and next steps.",
+        "logo_url": base_url + "/static/images/mainLogo-160.png",
+        "site_url": base_url,
+    }
+    html_body = render_template("emails/order_received.html", **context)
+    text_lines = [
+        "Order Received!", f"Thank you for shopping with FITY, {customer_name}.",
+        f"Order reference: {order.reference}", "", "YOUR ORDER",
+    ]
+    for item in rows:
+        text_lines.append(f"{item['name']} — {item['variant'] + ' — ' if item['variant'] else ''}{item['quantity']} × {item['unit_price']} = {item['line_total']}")
+    text_lines.extend([
+        "", f"Subtotal: {context['subtotal']}",
+    ])
+    if context["show_discount"]:
+        text_lines.append(f"Discount: -{context['discount']}")
+    if context["show_delivery"]:
+        text_lines.append(f"Delivery fee: {context['delivery_fee']}")
+    text_lines.extend([
+        f"{'Total paid' if context['paid'] else 'Total order amount'}: {context['total']}",
+        f"Payment: {context['payment_method']} — {context['payment_status']}",
+        f"Fulfilment: {fulfillment} — {delivery_details}",
+        f"Current order status: {order.status}", f"View order status: {tracking_url}",
+        "", "FityStores | Bei Fity, Fits Poa.", base_url,
+    ])
+    return html_body, "\n".join(text_lines)
+
+
 def notify_order_event(order, event_name: str, idempotency_key: str):
-    from app.models import CustomerOrderLink
+    from sqlalchemy.orm import selectinload
+    from app.models import CustomerOrderLink, Order, OrderItem, Product, ProductVariant
     from app.services.customer_mail import queue_branded_email
     link = CustomerOrderLink.query.filter_by(order_id=order.id).first()
     if not link or not link.account.active or not link.account.email_verified_at:
@@ -272,9 +413,19 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
     if event_name == "payment_confirmed" and order.payment_status != "Paid":
         return None
     if event_name == "order_received":
-        subject = "We received your FityStores order"
-        heading = "We received your order"
-        detail = "Your order request is awaiting seller review. A payment reference or screenshot is not payment confirmation."
+        order = Order.query.options(
+            selectinload(Order.items).selectinload(OrderItem.product).selectinload(Product.images),
+            selectinload(Order.items).selectinload(OrderItem.variant).selectinload(ProductVariant.image),
+            selectinload(Order.payment_attempts),
+        ).filter_by(id=order.id).first() or order
+        link = CustomerOrderLink.query.filter_by(order_id=order.id).first() or link
+        subject = f"Order received: {order.reference} | FITYStores"
+        html_body, text_body = _render_order_received_email(order, link.account)
+        return queue_email(
+            link.account.email, subject, event_name, idempotency_key,
+            account_id=link.account.id, order_id=order.id,
+            html_body=html_body, text_body=text_body,
+        )
     elif event_name == "payment_confirmed":
         subject = "FityStores payment confirmed"
         heading = "Payment confirmed"
