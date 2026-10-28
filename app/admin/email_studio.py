@@ -198,11 +198,11 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
         cart = CustomerCart.query.filter_by(account_id=account.id).first()
         if not cart or not cart.items_json or cart.items_json == "[]":
             raise EmailContentError("This customer has no saved cart items.")
-        if cart.checkout_until and cart.checkout_until > datetime.utcnow():
+        if not test_mode and cart.checkout_until and cart.checkout_until > datetime.utcnow():
             raise EmailContentError("This customer's checkout is active; no cart reminder can be sent.")
-        if cart.updated_at and cart.updated_at > datetime.utcnow() - timedelta(hours=2):
+        if not test_mode and cart.updated_at and cart.updated_at > datetime.utcnow() - timedelta(hours=2):
             raise EmailContentError("This cart has been active within the last two hours.")
-        if cart.reminder_sent_at:
+        if not test_mode and cart.reminder_sent_at:
             raise EmailContentError("A reminder was already sent for this cart episode.")
         try:
             validation = validate_cart(json.loads(cart.items_json))
@@ -557,6 +557,7 @@ def register_email_studio_routes(admin_bp):
                         except (ValueError, TypeError, AttributeError):
                             raise EmailContentError("Refresh the Email Studio and try again; the send operation key is invalid.") from None
                         accepted = failed = suppressed = 0
+                        suppression_reasons = []
                         for target in targets:
                             if defaults["marketing"] and category == "cart_reminder":
                                 context_form = request.form.copy()
@@ -565,8 +566,9 @@ def register_email_studio_routes(admin_bp):
                                 context_form = request.form
                             try:
                                 payload_subject, html, text, order, _cards = _render_for(category, context_form, target)
-                            except EmailContentError:
+                            except EmailContentError as exc:
                                 suppressed += 1
+                                suppression_reasons.append(str(exc))
                                 continue
                             kind = "marketing_abandoned_cart" if category == "cart_reminder" else "marketing_campaign" if marketing_message else "admin_" + category
                             if category == "cart_reminder":
@@ -591,7 +593,8 @@ def register_email_studio_routes(admin_bp):
                                     }, synchronize_session=False)
                                     db.session.expire(cart)
                                     db.session.commit()
-                        flash(f"Manual send result: provider accepted {accepted}; failed {failed}; suppressed {suppressed}. Provider acceptance is not inbox delivery.", "success" if accepted and not failed and not suppressed else "warning")
+                        suppression_detail = " Reasons: " + "; ".join(dict.fromkeys(suppression_reasons[:3])) if suppression_reasons else ""
+                        flash(f"Manual send result: provider accepted {accepted}; failed {failed}; suppressed {suppressed}.{suppression_detail} Provider acceptance is not inbox delivery.", "success" if accepted and not failed and not suppressed else "warning")
                         session.pop("email_studio_preview", None)
                         return redirect(url_for("admin.email_studio", category=category))
 
@@ -648,7 +651,16 @@ def register_email_studio_routes(admin_bp):
                                 eligible_count += 1
                             except EmailContentError:
                                 continue
-                    preview = {"subject": rendered_subject, "html": html, "text": text, "products": cards, "order": order, "eligible_count": eligible_count}
+                    preview_notice = ""
+                    if category == "cart_reminder":
+                        preview_cart = CustomerCart.query.filter_by(account_id=selected_account.id).first()
+                        if preview_cart and preview_cart.checkout_until and preview_cart.checkout_until > datetime.utcnow():
+                            preview_notice = "Preview only: checkout is active for this cart, so it cannot be sent yet."
+                        elif preview_cart and preview_cart.updated_at and preview_cart.updated_at > datetime.utcnow() - timedelta(hours=2):
+                            preview_notice = "Preview only: this cart needs two hours without activity before a reminder can be sent."
+                        elif preview_cart and preview_cart.reminder_sent_at:
+                            preview_notice = "Preview only: a reminder was already sent for this cart episode."
+                    preview = {"subject": rendered_subject, "html": html, "text": text, "products": cards, "order": order, "eligible_count": eligible_count, "notice": preview_notice}
                     session["email_studio_preview"] = preview_fingerprint()
                 else:
                     raise EmailContentError("Choose a supported Email Studio action.")
