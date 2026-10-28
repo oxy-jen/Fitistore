@@ -198,12 +198,22 @@ def render_studio_message(category, subject, headline, message, context, *, bloc
         text_lines.extend(["", "Subtotal: " + order_summary["subtotal"], "Discounts: " + order_summary["discount"], "Delivery fee: " + order_summary["delivery"], "Order total: " + order_summary["total"]])
         if order_summary.get("instructions"):
             text_lines.extend(["Fulfilment/payment instructions recorded:", order_summary["instructions"]])
-    if cart_summary and (not resolved_blocks or any(block["type"] == "order_summary" for block in resolved_blocks)):
+    if category != "cart_reminder" and cart_summary and (not resolved_blocks or any(block["type"] == "order_summary" for block in resolved_blocks)):
         text_lines.extend(["", f"Cart items: {cart_summary['item_count']}"])
         if cart_summary["total"]:
             text_lines.append("Current cart total: " + cart_summary["total"])
-    for item in products if not resolved_blocks or any(block["type"] == "product_grid" for block in resolved_blocks) else ():
-        text_lines.extend(["", item["name"], item["price"], item["url"]])
+    has_product_grid = not resolved_blocks or any(block["type"] == "product_grid" for block in resolved_blocks)
+    if category == "cart_reminder" and has_product_grid:
+        text_lines.extend(["", "Your cart:"])
+        for item in products:
+            detail = item["name"] + (f" — {item['variant_label']}" if item.get("variant_label") else "")
+            text_lines.append(f"{detail} | Quantity {item.get('quantity', 1)} | {item.get('price', '')} each | Line total {item.get('line_total', item.get('price', ''))}")
+            text_lines.append(item["url"])
+        if cart_summary and cart_summary.get("total"):
+            text_lines.append("Current cart total: " + cart_summary["total"])
+    elif has_product_grid:
+        for item in products:
+            text_lines.extend(["", item["name"], item["price"], item["url"]])
     if primary_url:
         text_lines.extend(["", f"{primary_label}: {primary_url}"])
     if shop_url:
