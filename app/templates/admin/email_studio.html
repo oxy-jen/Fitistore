@@ -4,10 +4,10 @@
   <form method="get" class="actions" action="{{ url_for('admin.email_studio') }}">
     <label>Email purpose<select name="category" id="email-purpose"><optgroup label="Promotional — consent required">{% for key, value in categories.items() if value.marketing %}<option value="{{ key }}" {% if key == category %}selected{% endif %}>{{ value.label }}</option>{% endfor %}</optgroup><optgroup label="Transactional and service — consent not required">{% for key, value in categories.items() if not value.marketing %}<option value="{{ key }}" {% if key == category %}selected{% endif %}>{{ value.label }}</option>{% endfor %}</optgroup></select></label>
     <label>Saved template<select name="template_id" id="email-template"><option value="">Use this category's current template/default</option>{% for item in templates %}<option value="{{ item.id }}" {% if selected_template and item.id == selected_template.id %}selected{% endif %}>{{ categories[item.category].label }} — {{ item.name }} (saved template)</option>{% endfor %}</select></label>
-    <label>Load customer context<select name="account_id"><option value="">Choose a verified customer</option>{% for row in accounts if row.active and row.email_verified_at %}<option value="{{ row.id }}" {% if account and row.id == account.id %}selected{% endif %}>{{ row.display_name or 'Customer' }} — {{ row.email }} ({{ row.marketing_status }})</option>{% endfor %}</select></label>
+    <label>Load customer context<select name="account_id"><option value="">Choose a customer</option>{% for row in accounts if row.active %}<option value="{{ row.id }}" {% if account and row.id == account.id %}selected{% endif %}>{{ row.display_name or 'Customer' }} — {{ row.email }} ({{ row.marketing_status }})</option>{% endfor %}</select></label>
     <button class="btn">Load context</button>
   </form>
-  {% if account %}<p>Preview customer: <strong>{{ account.display_name or account.email }}</strong> ({{ account.email }}). Preview does not send.</p>{% else %}<p>Select and load a verified customer before previewing personalized content.</p>{% endif %}
+  {% if account %}<p>Preview customer: <strong>{{ account.display_name or account.email }}</strong> ({{ account.email }}). Preview does not send.</p>{% else %}<p>Select and load a customer before previewing personalized content.</p>{% endif %}
 </section>
 <section class="form-card"><h2>Live product picker</h2>
   <form method="get" action="{{ url_for('admin.email_studio') }}" class="actions">
@@ -20,11 +20,11 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="category" value="{{ category }}"><input type="hidden" name="template_id" value="{{ selected_template.id if selected_template else '' }}"><input type="hidden" name="blocks_json" id="email-blocks-json" value='{{ editor_blocks|tojson|forceescape }}'><input type="hidden" name="account_id" value="{{ account.id if account else '' }}"><input type="hidden" name="operation_id" value="{{ operation_id }}"><input type="hidden" name="product_search" value="{{ product_search }}">
   {% if draft %}<input type="hidden" name="draft_id" value="{{ draft.id }}"><p class="eyebrow">Editing draft: {{ draft.name }}</p>{% endif %}
   <h2>{{ categories[category].label }}</h2>
-  <p>{% if categories[category].marketing %}Marketing category. Only active, verified, subscribed customers can receive it; unsubscribe is checked at send time.{% else %}Service/transactional category. It can be sent without marketing consent when it contains only necessary service information. Promotional wording or catalogue blocks trigger marketing consent and unsubscribe safeguards.{% endif %}</p>
+  <p>{% if categories[category].marketing %}Marketing category. Only active, opted-in customers can receive it; unsubscribe is checked at send time.{% else %}Service/transactional category. It can be sent without marketing consent when it contains only necessary service information. Promotional wording or catalogue blocks trigger marketing consent and unsubscribe safeguards.{% endif %}</p>
   <div class="field-grid"><label>Subject<input name="subject" value="{{ subject }}" maxlength="200" required></label><label>Headline<input name="headline" value="{{ headline }}" maxlength="200"></label></div>
   <label class="email-message-source">Text fallback and block summary<textarea name="message" rows="3" maxlength="5000" required>{{ message }}</textarea></label>
   {% if account and linked_orders and category in ['order_confirmation','thank_you','order_status','customer_service'] %}<label>Order context<select name="order_id"><option value="">Choose a linked order{% if category in ['order_confirmation','thank_you','order_status'] %} (required){% endif %}</option>{% for order in linked_orders %}<option value="{{ order.id }}" {% if request.values.get('order_id') == order.id|string or draft and draft.order_id == order.id %}selected{% endif %}>{{ order.reference }} — {{ order.status }} — {{ order.payment_status }} — {{ order.created_at.strftime('%Y-%m-%d') if order.created_at else 'date unavailable' }}</option>{% endfor %}</select></label>{% elif category in ['order_confirmation','thank_you','order_status'] %}<p class="status-warn">No order is linked to this customer. Load a customer with a linked order.</p>{% endif %}
-  {% if category in ['promotion'] %}<fieldset><legend>Eligible marketing recipients</legend>{% for row in accounts if row.active and row.email_verified_at and row.marketing_status == 'subscribed' %}<label class="check"><input type="checkbox" name="account_ids" value="{{ row.id }}" {% if row.id|string in selected_account_ids %}checked{% endif %}>{{ row.display_name or 'Customer' }} — {{ row.email }}</label>{% else %}<p>No verified subscribers are available.</p>{% endfor %}</fieldset>{% elif category == 'cart_reminder' %}<fieldset><legend>Customers whose own current cart will be rechecked</legend>{% for cart in carts %}{% if cart.account.active and cart.account.email_verified_at and cart.account.marketing_status == 'subscribed' and cart.items_json != '[]' %}<label class="check"><input type="checkbox" name="account_ids" value="{{ cart.account.id }}" {% if cart.account.id|string in selected_account_ids %}checked{% endif %}>{{ cart.account.display_name or 'Customer' }} — {{ cart.account.email }} — activity {{ cart.updated_at.strftime('%Y-%m-%d %H:%M') if cart.updated_at else 'unknown' }}</label>{% endif %}{% else %}<p>No saved carts.</p>{% endfor %}<p>Each cart is fetched from that account, revalidated for current price/stock and checked for consent. This button never sends automatically.</p></fieldset>{% endif %}
+  {% if category in ['promotion'] %}<fieldset><legend>Eligible marketing recipients</legend>{% for row in accounts if row.active and row.marketing_status == 'subscribed' %}<label class="check"><input type="checkbox" name="account_ids" value="{{ row.id }}" {% if row.id|string in selected_account_ids %}checked{% endif %}>{{ row.display_name or 'Customer' }} — {{ row.email }}</label>{% else %}<p>No marketing subscribers are available.</p>{% endfor %}</fieldset>{% elif category == 'cart_reminder' %}<fieldset><legend>Customers whose own current cart will be rechecked</legend>{% for cart in carts %}{% if cart.account.active and cart.account.marketing_status == 'subscribed' and cart.items_json != '[]' %}<label class="check"><input type="checkbox" name="account_ids" value="{{ cart.account.id }}" {% if cart.account.id|string in selected_account_ids %}checked{% endif %}>{{ cart.account.display_name or 'Customer' }} — {{ cart.account.email }} — activity {{ cart.updated_at.strftime('%Y-%m-%d %H:%M') if cart.updated_at else 'unknown' }}</label>{% endif %}{% else %}<p>No saved carts.</p>{% endfor %}<p>Each cart is fetched from that account, revalidated for current price/stock and checked for consent. This button never sends automatically.</p></fieldset>{% endif %}
   {% if category == 'promotion' or category == 'customer_service' %}<fieldset><legend>Catalogue products</legend>{% for product in product_choices %}<label class="check" style="display:flex;align-items:center;gap:12px;padding:8px"><input type="checkbox" name="product_ids" value="{{ product.id }}" {% if product.id|string in selected_products %}checked{% endif %}>{% if product.image_url %}<img src="{{ product.image_url }}" alt="{{ product.image_alt }}" width="56" height="56" style="object-fit:cover">{% else %}<span aria-hidden="true" style="display:inline-flex;width:56px;height:56px;background:#f4f5f7;align-items:center;justify-content:center">Image unavailable</span>{% endif %}<span><a href="{{ product.url }}" target="_blank" rel="noopener">{{ product.name }}</a> — {{ product.price }}{% if product.discount %} (active catalogue sale price){% endif %}<br>SKU {{ product.sku or 'not recorded' }}{% if product.category %} · {{ product.category }}{% endif %}</span></label>{% else %}<p>No eligible products.</p>{% endfor %}</fieldset>{% endif %}
   <section class="form-card email-builder" id="email-builder" data-initial="{{ editor_blocks|tojson|forceescape }}">
     <h3>Visual email canvas</h3><p>Build the message with safe, email-ready blocks. Product images, prices and links are loaded from the catalogue. Banner images use an uploaded catalogue product image.</p>
@@ -32,6 +32,11 @@
     <div id="email-block-list" class="email-block-list" aria-live="polite"></div>
     <script type="application/json" id="email-product-data">{{ product_choices|tojson }}</script>
     <p class="account-muted">Use the catalogue selection above for product collections and banner media. A banner image must belong to a selected in-stock product.</p>
+    <section class="form-card email-live-preview" id="email-live-preview" aria-live="polite">
+      <h3>Rendered email preview</h3>
+      <p id="email-preview-status">Choose Desktop preview or Mobile preview to render this email with the selected customer context. No email will be sent.</p>
+      <iframe id="email-live-preview-frame" title="Rendered email preview" hidden style="width:100%;min-height:560px;border:1px solid #ddd;background:#fff"></iframe>
+    </section>
   </section>
   <details><summary>Supported variables</summary><p>Only these plain text tokens are substituted. User-provided text is escaped; arbitrary template code is never executed.</p><ul>{% for variable in categories[category].variables %}<li><code>{{ '{{ ' ~ variable ~ ' }}' }}</code> — {% if variable == 'customer_name' %}first name from the selected verified account{% elif variable == 'order_reference' %}reference of the selected linked order{% elif variable == 'order_date' %}recorded date of the selected order{% elif variable == 'order_total' %}recorded total of that order{% elif variable == 'order_subtotal' %}sum of the order's recorded item totals{% elif variable == 'discount_amount' %}discount recorded on the selected order{% elif variable == 'delivery_fee' %}delivery fee recorded on the selected order{% elif variable == 'payment_status' %}recorded payment status{% elif variable == 'order_status' %}recorded order status{% elif variable == 'fulfilment_method' %}recorded fulfilment method{% elif variable == 'fulfilment_instructions' %}instructions stored on that selected order, when present{% elif variable == 'cart_item_count' %}sum of validated quantities in the saved cart{% elif variable == 'cart_total' %}current validated cart total when all prices are known{% elif variable == 'unsubscribe_link' %}a secure unsubscribe link added for each eligible marketing recipient{% else %}context-specific information verified by the server before sending{% endif %}</li>{% endfor %}</ul></details>
   <label>Template name<input name="template_name" maxlength="120" value="{{ selected_template.name if selected_template else '' }}" placeholder="e.g. Spring arrivals"></label>
@@ -112,10 +117,35 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
   });
   render();
   form.addEventListener('submit', () => sync());
-  document.querySelectorAll('[data-preview-size]').forEach(button => button.addEventListener('click', () => {
-    const frame = document.querySelector('iframe[title="Email preview"]'); if (!frame) return;
-    frame.classList.toggle('email-preview-mobile', button.dataset.previewSize === 'mobile');
-    frame.classList.toggle('email-preview-desktop', button.dataset.previewSize === 'desktop');
+  const previewButtons = [...document.querySelectorAll('[data-preview-size]')];
+  const previewFrame = document.getElementById('email-live-preview-frame');
+  const previewStatus = document.getElementById('email-preview-status');
+  previewButtons.forEach(button => button.addEventListener('click', async () => {
+    previewButtons.forEach(item => { item.disabled = true; });
+    previewStatus.textContent = 'Rendering the email preview…';
+    sync();
+    const data = new FormData(form);
+    data.set('action', 'preview');
+    try {
+      const response = await fetch(form.action, {method: 'POST', body: data, credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest'}});
+      const html = await response.text();
+      const parsed = new DOMParser().parseFromString(html, 'text/html');
+      const rendered = parsed.querySelector('iframe[title="Email preview"]');
+      if (!response.ok || !rendered) {
+        const message = parsed.querySelector('.flash, .alert, .status-error')?.textContent?.trim();
+        throw new Error(message || 'Preview could not be rendered. Check that a customer is selected and try again.');
+      }
+      previewFrame.srcdoc = rendered.getAttribute('srcdoc') || '';
+      previewFrame.classList.toggle('email-preview-mobile', button.dataset.previewSize === 'mobile');
+      previewFrame.classList.toggle('email-preview-desktop', button.dataset.previewSize === 'desktop');
+      previewFrame.hidden = false;
+      previewStatus.textContent = `${button.dataset.previewSize === 'mobile' ? 'Mobile' : 'Desktop'} preview. This is the server-rendered email; no email was sent.`;
+      document.getElementById('email-live-preview').scrollIntoView({behavior: 'smooth', block: 'start'});
+    } catch (error) {
+      previewStatus.textContent = error.message || 'Preview could not be rendered. Try again.';
+    } finally {
+      previewButtons.forEach(item => { item.disabled = false; });
+    }
   }));
 })();
 </script>

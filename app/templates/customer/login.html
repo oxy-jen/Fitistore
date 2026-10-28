@@ -28,7 +28,7 @@
     {% if google_client_id %}
       <label class="check account-consent account-consent-compact"><input type="checkbox" name="accept_terms" value="yes" form="google-signin-form" required> Creating a new account: I agree to the <a href="{{ url_for('public.terms') }}">Terms and Conditions</a> and acknowledge the <a href="{{ url_for('public.privacy_policy') }}">Privacy Notice</a>.</label>
       <small class="account-legal account-consent-note">FityStores may send essential account, security, and order messages.</small>
-      <label class="check account-consent account-consent-compact"><input type="checkbox" name="marketing_opt_in" value="yes" form="google-signin-form"> I’d also like promotional emails about FityStores offers and new arrivals. Optional; confirm by email and unsubscribe anytime.</label>
+      <label class="check account-consent account-consent-compact"><input type="checkbox" name="marketing_opt_in" value="yes" form="google-signin-form"> Email me offers</label>
       <script src="https://accounts.google.com/gsi/client" async defer></script>
       <div id="g_id_onload" data-client_id="{{ google_client_id }}" data-login_uri="{{ google_login_uri }}" data-callback="onGoogleSignIn" data-ux_mode="popup" data-auto_prompt="false"></div>
       <div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="continue_with" data-shape="rectangular"></div>

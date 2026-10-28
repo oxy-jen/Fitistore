@@ -55,7 +55,7 @@ def email_center():
     if not model_schema_ready(CustomerAccount, inspector):
         flash("Customer email is unavailable because the customer account table is not present in this database.", "warning")
         return render_template("admin/email_unavailable.html", title="Customer email")
-    query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None))
+    query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed")
     account_query = CustomerAccount.query
     if search:
         term = f"%{search}%"
@@ -66,6 +66,12 @@ def email_center():
             customer_match = or_(customer_match, Order.reference.ilike(term))
         account_query = account_query.filter(customer_match)
     subscribers = query.order_by(CustomerAccount.marketing_consent_at.desc()).paginate(page=max(1, request.args.get("page", 1, type=int)), per_page=25, error_out=False)
+    pending_query = CustomerAccount.query.filter_by(active=True, marketing_status="pending")
+    if search:
+        term = f"%{search}%"
+        pending_query = pending_query.filter(or_(CustomerAccount.email.ilike(term), CustomerAccount.display_name.ilike(term)))
+    pending_opt_ins = pending_query.order_by(CustomerAccount.created_at.desc()).limit(100).all()
+    pending_opt_in_total = pending_query.count()
     accounts = account_query.order_by(CustomerAccount.created_at.desc()).distinct().limit(100).all()
     consent_events = {}
     if accounts and model_schema_ready(CustomerConsentEvent, inspector):
@@ -85,9 +91,9 @@ def email_center():
     messages = EmailMessage.query.order_by(EmailMessage.created_at.desc()).limit(30).all() if messages_available else []
     products = Product.query.filter_by(active=True).order_by(Product.name).all()
     configured, note = mail_configuration_status()
-    eligible_total = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None)).count()
+    eligible_total = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").count()
     service_eligible_total = CustomerAccount.query.filter_by(active=True).filter(CustomerAccount.email_verified_at.isnot(None)).count()
-    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, accounts=accounts, order_map=order_map, consent_events=consent_events, campaigns=campaigns, messages=messages, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex)
+    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, pending_opt_ins=pending_opt_ins, pending_opt_in_total=pending_opt_in_total, accounts=accounts, order_map=order_map, consent_events=consent_events, campaigns=campaigns, messages=messages, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex)
 
 
 @admin_bp.post("/email/send-manual")
@@ -116,7 +122,7 @@ def send_manual_customer_email():
     if len(selected_ids) > 500:
         flash("This manual send is limited to 500 recipients per request. Nothing was sent.", "error")
         return redirect(url_for("admin.email_center"))
-    eligible_query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(CustomerAccount.email_verified_at.isnot(None))
+    eligible_query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed")
     all_eligible = request.form.get("all_eligible") == "yes"
     if all_eligible:
         if eligible_query.count() > 500:
@@ -126,7 +132,7 @@ def send_manual_customer_email():
     else:
         accounts = eligible_query.filter(CustomerAccount.id.in_(selected_ids)).order_by(CustomerAccount.id).all() if selected_ids else []
     if not accounts:
-        flash("This is the promotional bulk sender. Choose an active, verified marketing subscriber, or use the non-promotional service update form for other verified accounts.", "error")
+        flash("This is the promotional bulk sender. Choose an active customer who explicitly subscribed to marketing, or use the non-promotional service update form for other verified accounts.", "error")
         return redirect(url_for("admin.email_center"))
     if len(accounts) > 1 and request.form.get("confirm_send", "").strip() != f"SEND {len(accounts)}":
         flash(f"Email not sent. Type SEND {len(accounts)} to confirm the exact recipient count.", "warning")

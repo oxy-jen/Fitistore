@@ -17,9 +17,18 @@
     <button class="btn">Search</button>
   </form>
 </section>
+<section class="form-card" aria-labelledby="pending-marketing-title">
+  <h2 id="pending-marketing-title">Opt-in requests awaiting confirmation</h2>
+  <p>{{ pending_opt_in_total }} legacy opt-in request{{ '' if pending_opt_in_total == 1 else 's' }} still await confirmation. New account opt-ins are recorded immediately when the optional checkbox is selected.</p>
+  {% if pending_opt_ins %}<ul>
+    {% for account in pending_opt_ins %}
+    <li><strong>{{ account.display_name or 'Customer' }}</strong> — {{ account.email }}; {% if account.email_verified_at %}email verified, promotional confirmation pending{% else %}email verification pending{% endif %}</li>
+    {% endfor %}
+  </ul>{% else %}<p>No pending opt-in requests{% if search %} match this search{% endif %}.</p>{% endif %}
+</section>
 <section class="form-card">
   <h2>Send a promotional email</h2>
-  <p>This bulk sender is for promotions and is limited to active, verified customers who subscribed to marketing. For a non-promotional message, use the service update form below. Provider acceptance does not confirm inbox delivery.</p>
+  <p>This bulk sender is for active customers who explicitly selected the optional marketing checkbox. Every promotional email includes an unsubscribe link. For a non-promotional message, use the service update form below. Provider acceptance does not confirm inbox delivery.</p>
   <p id="manual-recipient-count" aria-live="polite">0 recipients selected. All eligible subscribers: {{ eligible_total }}.</p>
   {% if not messages_available %}
     <p class="status-warn">Sending is unavailable: the email history table is missing. No email will be sent until the existing customer email schema is available.</p>
@@ -30,7 +39,7 @@
     <input type="hidden" name="send_key" value="{{ send_key }}">
     <label class="check"><input type="checkbox" name="all_eligible" value="yes"> Send to all eligible subscribers</label>
     <fieldset><legend>Or select eligible recipients</legend>
-      {% for account in accounts if account.active and account.email_verified_at and account.marketing_status == 'subscribed' %}
+      {% for account in accounts if account.active and account.marketing_status == 'subscribed' %}
       <label class="check"><input type="checkbox" name="account_ids" value="{{ account.id }}"> {{ account.display_name or 'Customer' }} - {{ account.email }}</label>
       {% else %}<p>No eligible subscribers match this search.</p>{% endfor %}
     </fieldset>

@@ -930,25 +930,18 @@ def test_password_reset_is_single_use_and_requires_verified_account(client, app,
     assert CustomerToken.query.filter_by(purpose="reset_password").count() == 1
 
 
-def test_marketing_double_opt_in_and_unsubscribe_history(client, app, app_context):
+def test_registration_checkbox_subscribes_immediately_and_unsubscribe_history(client, app, app_context):
     from datetime import datetime, timedelta
     import hashlib
     app.config["MAIL_PROVIDER"] = ""
     response = _register_customer(client, email="offers@example.com", marketing=True)
     assert response.status_code == 200
     account = CustomerAccount.query.filter_by(email="offers@example.com").one()
-    assert account.marketing_status == "pending"
-    assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="requested").count() == 1
-    account.email_verified_at = datetime.utcnow()
-    marketing = CustomerToken.query.filter_by(account_id=account.id, purpose="marketing_confirm").first()
-    token = "marketing-confirm-token"
-    marketing.token_hash = hashlib.sha256(token.encode()).hexdigest()
-    marketing.expires_at = datetime.utcnow() + timedelta(hours=1)
-    marketing.used_at = None
-    db.session.commit()
-    assert client.post(f"/account/marketing/confirm/{token}").status_code == 302
     assert account.marketing_status == "subscribed"
-    assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed").count() == 1
+    assert account.marketing_consent_at is not None
+    assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed", method="registration_checkbox").count() == 1
+    account.email_verified_at = datetime.utcnow()
+    assert CustomerToken.query.filter_by(account_id=account.id, purpose="marketing_confirm").count() == 0
     unsubscribe_token = "marketing-unsubscribe-token"
     db.session.add(CustomerToken(account_id=account.id, purpose="unsubscribe", token_hash=hashlib.sha256(unsubscribe_token.encode()).hexdigest(), expires_at=datetime.utcnow() + timedelta(days=365)))
     db.session.commit()
@@ -962,6 +955,23 @@ def test_marketing_double_opt_in_and_unsubscribe_history(client, app, app_contex
     assert b"Marketing consent:" in audience.data
     assert b"Marketing consent: <strong>unsubscribed</strong>" in audience.data
     assert b"withdrawn via unsubscribe_link" in audience.data
+
+
+def test_admin_email_center_shows_checkbox_opt_ins_as_eligible_without_account_email_verification(client, app, app_context):
+    opted_in = CustomerAccount(
+        email="checkbox-opt-in@example.test", display_name="Checkbox Subscriber",
+        password_hash=generate_password_hash("a-strong-test-password-123"),
+        marketing_status="subscribed", marketing_consent_at=datetime.utcnow(),
+    )
+    db.session.add(opted_in)
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+
+    response = client.get("/admin/email")
+
+    assert response.status_code == 200
+    assert b"Checkbox Subscriber" in response.data
+    assert b"All eligible subscribers: 1" in response.data
 
 
 def test_customer_orders_are_account_scoped_and_admin_is_not_customer(client, app, app_context):
@@ -2047,8 +2057,8 @@ def test_manual_bulk_send_requires_confirmation_and_only_sends_eligible_accounts
     sent = []
     monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html, text: sent.append(recipient) or "fake-provider-id")
     allowed = [
-        CustomerAccount(email=f"bulk-{index}@example.test", display_name="Bulk", email_verified_at=datetime.utcnow(), marketing_status="subscribed")
-        for index in range(2)
+        CustomerAccount(email="bulk-verified@example.test", display_name="Bulk", email_verified_at=datetime.utcnow(), marketing_status="subscribed"),
+        CustomerAccount(email="bulk-checkbox-opt-in@example.test", display_name="Bulk opt-in", marketing_status="subscribed"),
     ]
     refused = CustomerAccount(email="not-subscribed@example.test", display_name="Not Subscribed", email_verified_at=datetime.utcnow(), marketing_status="none")
     db.session.add_all([*allowed, refused]); db.session.commit()

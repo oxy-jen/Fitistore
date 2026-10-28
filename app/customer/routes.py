@@ -298,12 +298,10 @@ def register():
             flash("If this address can be registered, we will send the next steps to it.", "info")
             return redirect(url_for("customer.login", next=next_url))
         if request.form.get("marketing_opt_in") == "yes":
-            # Explicit opt-in is independent of account terms and is confirmed by email.
-            _record_consent(account, "requested", "registration_explicit_opt_in")
+            # The explicit, optional checkbox is the marketing consent.
+        _record_consent(account, "confirmed", "registration_checkbox")
         db.session.commit()
         result = _issue_and_send(account, "verify_email", next_url=next_url)
-        if account.marketing_status == "pending":
-            _issue_and_send(account, "marketing_confirm")
         flash(
             "Your FityStores account was created. " + _delivery_message(result),
             "success" if result and result.status == "sent" else "warning",
@@ -838,10 +836,8 @@ def google_signin():
         flash("A FityStores account already exists for that Google identity. Sign in with its existing method.", "warning")
         return redirect(url_for("customer.login", next=next_url))
     if request.form.get("marketing_opt_in") == "yes":
-        _record_consent(account, "requested", "google_registration")
+        _record_consent(account, "confirmed", "google_checkbox")
     db.session.commit()
-    if account.marketing_status == "pending":
-        _issue_and_send(account, "marketing_confirm")
     _login_customer(account)
     flash("Your Google account is verified and ready to use.", "success")
     return redirect(next_url)
