@@ -138,6 +138,22 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
         blocks = validate_email_blocks(blocks_source, category)
     except EmailContentError:
         raise
+    if category == "cart_reminder":
+        # Cart items are one personalized section, not repeated for each image/grid
+        # block saved in the visual template. Keep its first product-section position.
+        normalized_blocks = []
+        inserted_cart_items = False
+        for block in blocks:
+            if block["type"] in {"image_banner", "product_grid", "order_summary"}:
+                if not inserted_cart_items:
+                    normalized_blocks.append({"type": "product_grid"})
+                    inserted_cart_items = True
+                continue
+            normalized_blocks.append(block)
+        if not inserted_cart_items:
+            insert_at = next((index for index, block in enumerate(normalized_blocks) if block["type"] in {"order_summary", "button", "contact"}), len(normalized_blocks))
+            normalized_blocks.insert(insert_at, {"type": "product_grid"})
+        blocks = normalized_blocks
 
     order = None
     order_lines = []
@@ -210,15 +226,30 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
             raise EmailContentError("The saved cart could not be read safely.") from None
         if not validation.lines:
             raise EmailContentError("The saved cart has no currently available items.")
+        grouped_cart_products = {}
         for line in validation.lines:
             item = _product_card(line.product)
             item["price"] = money(line.unit_price_cents, current_settings().currency)
             item["quantity"] = line.quantity
             item["variant_label"] = line.variant_label
+            item["line_total"] = money(line.subtotal_cents, current_settings().currency) if line.subtotal_cents is not None else "Price to be confirmed"
+            item["_line_total_cents"] = line.subtotal_cents
             if line.variant:
                 item["discount"] = False
                 item["previous_price"] = ""
-            products.append(item)
+            grouping_key = (line.product.id, line.variant.id if line.variant else None)
+            existing = grouped_cart_products.get(grouping_key)
+            if existing:
+                existing["quantity"] += line.quantity
+                if existing["_line_total_cents"] is None or line.subtotal_cents is None:
+                    existing["_line_total_cents"] = None
+                    existing["line_total"] = "Price to be confirmed"
+                else:
+                    existing["_line_total_cents"] += line.subtotal_cents
+                    existing["line_total"] = money(existing["_line_total_cents"], current_settings().currency)
+            else:
+                grouped_cart_products[grouping_key] = item
+        products = list(grouped_cart_products.values())
         # A reminder must reflect the recipient's own cart. Visual product blocks
         # follow that live cart instead of retaining a stale template product ID.
         if products:
