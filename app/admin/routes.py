@@ -1279,13 +1279,13 @@ DATA_EXPORT_MAX_AGE_SECONDS = 24 * 60 * 60
 DATA_CLEAR_CONFIRMATION = "CLEAR OPERATIONAL DATA"
 DATA_CLEANUP_CATEGORIES = {
     "orders": {"label": "Orders and payment records", "tables": ("customer_order_link", "refund_request", "payment_transaction", "payment_attempt", "order_status_history", "order_item", "order")},
-    "customers": {"label": "Customer accounts and verification data", "tables": ("customer_token", "customer_consent_event", "customer_order_link", "email_campaign_recipient", "email_message", "referral_click", "customer_account", "customer_profile")},
+    "customers": {"label": "Customer accounts and verification data", "tables": ("customer_token", "customer_consent_event", "customer_order_link", "email_campaign_recipient", "email_message", "referral_click", "customer_cart", "marketing_product_exposure", "customer_account", "customer_profile")},
     "customer_activity": {"label": "Reviews, enquiries, suggestions, and restock alerts", "tables": ("review", "product_enquiry", "product_suggestion", "restock_alert")},
     "referrals_loyalty": {"label": "Referrals and loyalty history", "tables": ("referral_click", "referral", "loyalty_transaction")},
     "finance_inventory": {"label": "Expenses and inventory movements", "tables": ("expense", "inventory_movement")},
     "email": {"label": "Email campaigns and message logs", "tables": ("email_campaign_recipient", "email_message", "email_campaign")},
     "audit": {"label": "Previous audit history and temporary login limits", "tables": ("financial_audit_event", "auth_rate_limit")},
-    "products": {"label": "Product catalog, variants, and uploaded images", "tables": ("cart_add_count", "inventory_movement", "restock_alert", "product_variant", "product_image", "product")},
+    "products": {"label": "Product catalog, variants, uploaded images, and recommendation history", "tables": ("cart_add_count", "inventory_movement", "restock_alert", "marketing_product_exposure", "product_variant", "product_image", "product")},
 }
 
 
@@ -1548,10 +1548,10 @@ def clear_admin_data():
 
     from app.models import (
         AuthRateLimit, CartAddCount, CustomerAccount, CustomerConsentEvent, CustomerOrderLink,
-        CustomerProfile, CustomerToken, EmailCampaign, EmailCampaignRecipient,
-        EmailMessage, Expense, FinancialAuditEvent, InventoryMovement,
+        CustomerCart, CustomerProfile, CustomerToken, EmailCampaign, EmailCampaignRecipient,
+        EmailDraft, EmailMessage, Expense, FinancialAuditEvent, InventoryMovement,
         LoyaltyTransaction, Order, OrderItem, OrderStatusHistory, PaymentAttempt,
-        PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, Referral,
+        MarketingProductExposure, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, Referral,
         ReferralClick, RefundRequest, RestockAlert, Review,
     )
     try:
@@ -1566,8 +1566,9 @@ def clear_admin_data():
             return redirect(url_for("admin.data_management"))
 
         delete_models = [
-            CartAddCount, EmailCampaignRecipient, EmailMessage, CustomerToken, CustomerConsentEvent,
-            CustomerOrderLink, ReferralClick, RefundRequest, PaymentTransaction,
+            CartAddCount, CustomerCart, MarketingProductExposure, EmailCampaignRecipient,
+            EmailMessage, CustomerToken, CustomerConsentEvent, CustomerOrderLink,
+            ReferralClick, RefundRequest, PaymentTransaction,
             PaymentAttempt, OrderStatusHistory, OrderItem, Referral,
             LoyaltyTransaction, InventoryMovement, Review, ProductEnquiry,
             ProductSuggestion, RestockAlert, Expense, FinancialAuditEvent,
@@ -1579,6 +1580,9 @@ def clear_admin_data():
         if "orders" in selected_categories:
             order_ids = [row["id"] for row in export["records"].get("order", [])]
             if order_ids:
+                updated["email_draft_order_links_detached"] = EmailDraft.query.filter(EmailDraft.order_id.in_(order_ids)).update(
+                    {EmailDraft.order_id: None}, synchronize_session=False
+                )
                 updated["email_message_order_links_detached"] = EmailMessage.query.filter(EmailMessage.order_id.in_(order_ids)).update(
                     {EmailMessage.order_id: None}, synchronize_session=False
                 )
@@ -1591,6 +1595,14 @@ def clear_admin_data():
         if "customers" in selected_categories:
             account_ids = [row["id"] for row in export["records"].get("customer_account", [])]
             if account_ids:
+                cart_ids = [row["id"] for row in export["records"].get("customer_cart", [])]
+                if cart_ids:
+                    updated["email_draft_cart_links_detached"] = EmailDraft.query.filter(EmailDraft.cart_id.in_(cart_ids)).update(
+                        {EmailDraft.cart_id: None}, synchronize_session=False
+                    )
+                updated["email_draft_customer_recipients_cleared"] = EmailDraft.query.filter(EmailDraft.account_ids_json != "[]").update(
+                    {EmailDraft.account_ids_json: "[]"}, synchronize_session=False
+                )
                 updated["review_customer_links_detached"] = Review.query.filter(Review.customer_account_id.in_(account_ids)).update(
                     {Review.customer_account_id: None}, synchronize_session=False
                 )
