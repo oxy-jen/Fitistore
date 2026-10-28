@@ -1,4 +1,5 @@
 {% extends "base.html" %}{% block content %}
+<div id="email-studio-page">
 <section class="page-head admin-head"><div><p class="eyebrow">Manual sends only</p><h1>Email Studio</h1><p>Templates, drafts, previews, test emails and manual sends live here. Saving content or opening this page never sends email.</p></div><div class="actions"><a class="btn" href="{{ url_for('admin.email_center') }}">Customer email</a><a class="btn" href="{{ url_for('admin.email_cart_activity') }}">Cart activity</a></div></section>
 <section class="form-card"><h2>Choose a reusable template and customer context</h2><p><strong>Quick guide:</strong> choose the email purpose, load a customer, edit the text and add blocks. Desktop/Mobile preview only renders a preview. Save template stores it for reuse; it does not send. To send, select recipients, preview, then use Manual send and confirm the exact recipient count.</p>
   <form method="get" class="actions" action="{{ url_for('admin.email_studio') }}">
@@ -51,9 +52,10 @@
 <section class="form-card"><h2>Saved drafts</h2>{% for item in drafts %}<p><a href="{{ url_for('admin.email_studio', category=item.category, draft_id=item.id, account_id=account.id if account else '') }}">{{ item.name }} — {{ categories[item.category].label if item.category in categories else item.category }} — updated {{ item.updated_at.strftime('%Y-%m-%d %H:%M') if item.updated_at else 'unknown' }}</a></p>{% else %}<p>No saved drafts.</p>{% endfor %}</section>
 {% if preview %}<section class="form-card" id="server-email-preview"><h2>Rendered email preview — no email was sent</h2><p><strong>Subject:</strong> {{ preview.subject }}</p><p>Eligible recipient count: <strong>{{ preview.eligible_count }}</strong>. Consent and context are rechecked before sending.</p><iframe title="Email preview" class="email-preview-{{ preview_size }}" srcdoc="{{ preview.html|e }}" style="width:100%;min-height:560px;border:1px solid #ddd;background:#fff"></iframe><h3>Plain-text version</h3><pre style="white-space:pre-wrap">{{ preview.text }}</pre></section>{% endif %}
 <section class="form-card"><h2>Last delivery results</h2><p>See the customer email centre for provider states. “Sent” means provider acceptance, not confirmed inbox delivery.</p><a class="btn" href="{{ url_for('admin.email_center') }}">Open email history</a></section>
+</div>
 <style>
 .email-block-list{display:grid;gap:12px;margin:16px 0}.email-block{border:1px solid #d9dde5;border-radius:10px;padding:14px;background:#fff}.email-block-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.email-block label{display:block;margin:10px 0}.email-block textarea,.email-block input,.email-block select{width:100%;box-sizing:border-box}.email-block textarea{min-height:80px}.email-preview-mobile{width:100%!important;max-width:375px!important;margin:auto;display:block}.email-preview-desktop{width:100%!important;max-width:720px!important;margin:auto;display:block}.email-message-source{display:none}
-@media(min-width:1100px){ #email-live-preview{position:fixed;z-index:20;top:100px;right:2vw;width:44vw;height:calc(100vh - 120px);overflow:auto;box-sizing:border-box;margin:0;background:#fff;box-shadow:0 8px 28px #17212b24}#email-live-preview iframe{height:calc(100vh - 235px)!important;min-height:420px!important}}
+@media(min-width:1100px){ #email-studio-page>.page-head,#email-studio-page>section.form-card,#email-studio-page>form.form-card{box-sizing:border-box;width:48vw;max-width:700px;margin-left:clamp(24px,3.5vw,56px);margin-right:0}#email-live-preview{position:fixed;z-index:20;top:100px;right:2.5vw;width:44vw;max-width:760px;height:calc(100vh - 120px);overflow:auto;box-sizing:border-box;margin:0;background:#fff;box-shadow:0 8px 28px #17212b24}#email-live-preview iframe{height:calc(100vh - 235px)!important;min-height:420px!important}}
 @media(max-width:1099px){ #email-live-preview{position:static;width:auto;height:auto;max-height:none;overflow:visible}#email-live-preview iframe{height:65vh!important;min-height:420px!important}}
 </style>
 <script>
@@ -155,7 +157,7 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
     const data = new FormData(form);
     data.set('action', 'preview');
     try {
-      const response = await fetch(form.action, {method:'POST', body:data, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'}});
+      const response = await fetch(form.getAttribute('action'), {method:'POST', body:data, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest'}});
       const parsed = new DOMParser().parseFromString(await response.text(), 'text/html');
       if (requestNumber !== previewRequest) return;
       const rendered = parsed.querySelector('#server-email-preview iframe[title="Email preview"]');
