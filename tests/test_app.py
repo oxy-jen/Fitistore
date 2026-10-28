@@ -1507,6 +1507,35 @@ def test_checkout_requires_verified_account_and_links_order_to_it(client, app_co
     assert EmailMessage.query.filter_by(order_id=order.id, kind="order_received").one().status == "not_configured"
 
 
+def test_order_received_email_renders_real_cart_and_secure_tracking_link(app, app_context):
+    import app.services.customer_mail as customer_mail
+    account = CustomerAccount(email="order-email@example.com", display_name="Email Buyer", email_verified_at=datetime.utcnow())
+    product = Product.query.filter_by(slug="plain-socks").one()
+    db.session.add(account)
+    db.session.flush()
+    image = ProductImage(product_id=product.id, filename="", storage_backend="cloudinary", cloudinary_public_id="catalog/socks", alt_text="Black and white socks", is_primary=True)
+    product.images.append(image)
+    order = Order(reference="FITY-EMAIL-CART-1", customer_name="Email Buyer", customer_phone="0700123456", fulfilment_method="Collection", status="Order received", payment_status="Awaiting payment", total_cents=43000, delivery_fee_cents=4000, discount_cents=1000)
+    order.items.extend([
+        OrderItem(product=product, product_name=product.name, quantity=2, price_cents=15000, subtotal_cents=30000, variant_label="Black · Size 8", sku="SOCK-8"),
+        OrderItem(product_name="Legacy product", quantity=1, price_cents=10000, subtotal_cents=10000),
+    ])
+    db.session.add(order)
+    db.session.flush()
+    app.config.update(CLOUDINARY_CLOUD_NAME="fity-test", PUBLIC_BASE_URL="https://fitystore.top")
+    html_body, text_body = customer_mail._render_order_received_email(order, account)
+    assert "FITY-EMAIL-CART-1" in html_body
+    assert "https://res.cloudinary.com/fity-test/image/upload/catalog/socks" in html_body
+    assert "Image unavailable" in html_body
+    assert "Black · Size 8" in html_body
+    assert "KSh 430" in html_body
+    assert "Total order amount" in html_body
+    assert "Total paid" not in html_body
+    assert f"https://fitystore.top/track/{order.reference}/{order.tracking_token}" in html_body
+    assert "Legacy product" in text_body
+    assert "Awaiting payment" in text_body
+
+
 def test_payment_confirmation_email_requires_paid_order(client, app_context, app, monkeypatch):
     import app.services.customer_mail as customer_mail
     account = CustomerAccount(email="payment-owner@example.com", display_name="Payment", password_hash=generate_password_hash("a-strong-test-password-123"), email_verified_at=datetime.utcnow())

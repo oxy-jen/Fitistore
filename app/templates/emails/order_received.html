@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Order received | FITYStores</title>
+  <style>
+    @media screen and (max-width: 620px) {
+      .outer-pad { padding: 8px 0 !important; }
+      .main-pad { padding: 18px 14px !important; }
+      .hero-col { display: block !important; width: 100% !important; }
+      .hero-pad { padding: 24px 20px !important; }
+      .mobile-hide { display: none !important; }
+      .product-row { display: block !important; width: 100% !important; }
+      .product-cell { display: block !important; width: auto !important; padding: 10px 8px !important; text-align: left !important; }
+      .product-name { padding-bottom: 2px !important; }
+      .detail-panel { display: block !important; width: 100% !important; padding: 12px 0 !important; border-right: 0 !important; border-bottom: 1px solid #E5E7EB !important; }
+      .stage-cell { display: block !important; width: 100% !important; padding: 8px 0 !important; }
+      .stage-copy { display: inline-block !important; vertical-align: middle !important; text-align: left !important; padding-left: 8px !important; }
+      .summary-width { width: 100% !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background:#F4F6F8;color:#172033;font-family:Arial,Helvetica,sans-serif">
+  <div style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;mso-hide:all">{{ preheader }}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#F4F6F8">
+    <tr><td align="center" class="outer-pad" style="padding:22px 12px">
+      <table role="presentation" width="760" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:760px;background:#FFFFFF;border-radius:14px;overflow:hidden">
+        <tr><td style="background:#111111;color:#FFFFFF;padding:10px 24px;font-size:13px;line-height:20px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>
+            <td style="color:#FFFFFF">&#10003;&nbsp; Fast &amp; Reliable <span style="color:#64748B;padding:0 10px">|</span> Bei Fity, Fits Poa</td>
+            <td align="right"><a href="{{ support_url }}" style="color:#FFFFFF;text-decoration:none"><span style="color:#0BA65A">&#9679;</span>&nbsp; Need help? WhatsApp</a></td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#FFFFFF;border-bottom:2px solid #ED1B2F;padding:16px 28px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>
+            <td width="190" valign="middle"><a href="{{ site_url }}" style="color:#111111;text-decoration:none"><img src="{{ logo_url }}" width="58" height="58" alt="FITY — FityStores" style="display:inline-block;width:58px;height:58px;vertical-align:middle;border:0"><span style="display:inline-block;vertical-align:middle;padding-left:10px;font-size:20px;font-weight:bold">FITY</span></a><div style="font-size:11px;color:#64748B;padding-left:68px">Bei Fity, Fits Poa</div></td>
+            <td align="right" class="mobile-hide" style="font-size:12px;letter-spacing:1px;color:#475569">FASHION&nbsp;&nbsp; | &nbsp;&nbsp;COMFORT&nbsp;&nbsp; | &nbsp;&nbsp;EVERYDAY ESSENTIALS</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:0;background:#111111">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>
+            <td width="60%" class="hero-col hero-pad" valign="middle" style="padding:34px 30px;color:#FFFFFF;background:#111111">
+              <div style="font-size:15px;line-height:28px;color:#FFFFFF"><span style="display:inline-block;background:#0BA65A;color:#FFFFFF;width:28px;height:28px;text-align:center;border-radius:50%;font-size:20px;font-weight:bold;vertical-align:middle">&#10003;</span>&nbsp; <span style="font-size:28px;font-weight:bold;vertical-align:middle">Order Received!</span></div>
+              <p style="margin:15px 0 7px;font-size:17px;line-height:25px;color:#FFFFFF">Thank you for shopping with FITY, {{ customer_name }}.</p>
+              <p style="margin:0 0 20px;font-size:14px;line-height:21px;color:#E5E7EB">Your order request is in. We’ll keep you updated as it moves through review and fulfilment.</p>
+              <span style="display:inline-block;background:#ED1B2F;border-radius:22px;padding:10px 18px;color:#FFFFFF;font-size:14px;font-weight:bold">Order #{{ order.reference }}</span>
+            </td>
+            <td width="40%" class="hero-col hero-pad" valign="middle" align="center" style="padding:28px 18px;background:#ED1B2F;color:#FFFFFF">
+              <div style="font-size:13px;letter-spacing:2px;color:#FEE2E2">FITY&nbsp; STORES</div>
+              <div style="font-size:28px;line-height:34px;font-weight:bold;margin:12px 0">REAL PRODUCTS.<br>REAL STYLE.</div>
+              <div style="height:3px;width:62px;background:#0BA65A;margin:0 auto"></div>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td class="main-pad" style="padding:25px 28px 18px">
+          <h1 style="margin:0 0 7px;color:#172033;font-size:23px;line-height:30px">Your Order</h1>
+          <p style="margin:0 0 18px;color:#64748B;font-size:14px">{{ line_count }} order line{% if line_count != 1 %}s{% endif %} · {{ item_count }} item{% if item_count != 1 %}s{% endif %}</p>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse">
+            <tr class="mobile-hide" style="background:#F8FAFC;color:#64748B;font-size:11px;letter-spacing:.5px"><th align="left" colspan="2" style="padding:11px 8px">ITEM</th><th align="right" style="padding:11px 8px">PRICE</th><th align="center" style="padding:11px 8px">QTY</th><th align="right" style="padding:11px 8px">TOTAL</th></tr>
+            {% for item in items %}
+            <tr class="product-row" style="border-bottom:1px solid #E5E7EB">
+              <td class="product-cell" width="104" style="padding:12px 8px"><table role="presentation" width="88" height="88" cellspacing="0" cellpadding="0" border="0" style="width:88px;height:88px;background:#F1F5F9;border-radius:8px"><tr><td align="center" valign="middle">{% if item.image_url %}<img src="{{ item.image_url }}" width="88" height="88" alt="{{ item.image_alt }}" style="display:block;width:88px;height:88px;object-fit:contain;border:0;border-radius:8px">{% else %}<span style="font-size:11px;color:#64748B">Image unavailable</span>{% endif %}</td></tr></table></td>
+              <td class="product-cell product-name" valign="middle" style="padding:12px 8px"><strong style="font-size:15px;color:#172033">{{ item.name }}</strong>{% if item.variant %}<div style="padding-top:5px;font-size:12px;line-height:18px;color:#64748B">{{ item.variant }}</div>{% endif %}</td>
+              <td class="product-cell" align="right" valign="middle" style="padding:12px 8px;font-size:13px;color:#172033;white-space:nowrap">{{ item.unit_price }}</td>
+              <td class="product-cell" align="center" valign="middle" style="padding:12px 8px;font-size:13px;color:#172033">{{ item.quantity }}</td>
+              <td class="product-cell" align="right" valign="middle" style="padding:12px 8px;font-size:13px;font-weight:bold;color:#172033;white-space:nowrap">{{ item.line_total }}</td>
+            </tr>
+            {% else %}<tr><td colspan="5" style="padding:18px 8px;color:#64748B">Order items are unavailable. Use the order status page for details.</td></tr>{% endfor %}
+          </table>
+
+          <table role="presentation" class="summary-width" width="360" align="right" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:360px;margin:14px 0 18px;color:#172033;font-size:14px">
+            <tr><td style="padding:7px 12px">Subtotal</td><td align="right" style="padding:7px 12px">{{ subtotal }}</td></tr>
+            {% if show_discount %}<tr><td style="padding:7px 12px">Discount</td><td align="right" style="padding:7px 12px">−{{ discount }}</td></tr>{% endif %}
+            {% if show_delivery %}<tr><td style="padding:7px 12px">Delivery fee</td><td align="right" style="padding:7px 12px">{{ delivery_fee }}</td></tr>{% endif %}
+            <tr><td style="padding:12px;background:#ECFDF5;color:#07834A;font-weight:bold;font-size:16px">{{ 'Total paid' if paid else 'Total order amount' }}</td><td align="right" style="padding:12px;background:#ECFDF5;color:#07834A;font-weight:bold;font-size:18px">{{ total }}</td></tr>
+          </table>
+          <div style="clear:both;height:1px;line-height:1px;font-size:1px">&nbsp;</div>
+
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#F4F6F8;border-radius:10px;margin:12px 0 20px"><tr>
+            <td class="detail-panel" width="33%" valign="top" style="padding:16px 12px;border-right:1px solid #E5E7EB"><strong style="font-size:13px;color:#172033">Order Details</strong><div style="font-size:12px;line-height:20px;color:#475569;padding-top:9px">Order: {{ order.reference }}<br>Date: {{ created_at.strftime('%d %b %Y, %I:%M %p') if created_at else 'Not available' }}<br>Payment: {{ payment_method }}<br>Payment status: {{ payment_status }}<br>Order status: {{ order.status }}</div></td>
+            <td class="detail-panel" width="34%" valign="top" style="padding:16px 12px;border-right:1px solid #E5E7EB"><strong style="font-size:13px;color:#172033">Delivery Information</strong><div style="font-size:12px;line-height:20px;color:#475569;padding-top:9px">Method: {{ fulfillment }}<br>{{ delivery_details }}</div></td>
+            <td class="detail-panel" width="33%" valign="top" style="padding:16px 12px"><strong style="font-size:13px;color:#172033">Customer Information</strong><div style="font-size:12px;line-height:20px;color:#475569;padding-top:9px">Name: {{ customer_name }}<br>Email: {{ customer_email }}<br>Phone: {{ customer_phone }}</div></td>
+          </tr></table>
+
+          <h2 style="margin:8px 0 14px;font-size:17px;color:#172033">What Happens Next?</h2>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>
+            {% for stage in stages %}<td class="stage-cell" width="25%" align="center" valign="top" style="padding:4px 5px"><span style="display:inline-block;width:28px;height:28px;line-height:28px;border-radius:50%;font-size:14px;font-weight:bold;text-align:center;background:{{ '#0BA65A' if stage.state in ['current','done'] else '#E9EEF4' }};color:{{ '#FFFFFF' if stage.state in ['current','done'] else '#64748B' }}">{{ '&#10003;'|safe if stage.state == 'done' else loop.index }}</span><div class="stage-copy" style="padding-top:7px"><strong style="font-size:12px;color:#172033">{{ stage.label }}</strong><div style="font-size:11px;line-height:16px;color:#64748B;padding-top:3px">{{ stage.copy }}</div></div></td>{% endfor %}
+          </tr></table>
+          <p style="text-align:center;margin:24px 0 8px"><a href="{{ tracking_url }}" style="display:inline-block;background:#ED1B2F;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:bold;padding:14px 24px;border-radius:8px">View Order Status</a></p>
+          <p style="text-align:center;margin:8px 0 0;font-size:11px;line-height:17px;color:#64748B">The order status page has the latest update for your order.</p>
+        </td></tr>
+        <tr><td style="background:#111111;border-top:4px solid #ED1B2F;padding:18px 22px;color:#FFFFFF;text-align:center">
+          <div style="font-size:20px;font-weight:bold;letter-spacing:2px">FITY</div><div style="font-size:12px;color:#CBD5E1;padding-top:3px">Bei Fity, Fits Poa</div>
+          <div style="font-size:21px;font-weight:bold;font-style:italic;padding-top:13px">Thank You!</div>
+          <div style="font-size:12px;line-height:18px;color:#E5E7EB;padding-top:3px">For choosing FITY. You make our journey worthwhile!</div>
+        </td></tr>
+        <tr><td align="center" style="background:#F4F6F8;padding:12px;font-size:11px;line-height:17px;color:#64748B">FITYStores&nbsp; | &nbsp;Bei Fity, Fits Poa&nbsp; | &nbsp;<a href="{{ site_url }}" style="color:#475569;text-decoration:underline">{{ site_url }}</a></td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

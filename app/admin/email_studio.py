@@ -216,8 +216,9 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
             raise EmailContentError("This customer has no saved cart items.")
         if not test_mode and cart.checkout_until and cart.checkout_until > datetime.utcnow():
             raise EmailContentError("This customer's checkout is active; no cart reminder can be sent.")
-        if not test_mode and cart.updated_at and cart.updated_at > datetime.utcnow() - timedelta(hours=2):
-            raise EmailContentError("This cart has been active within the last two hours.")
+        idle_minutes = max(1, int(current_app.config.get("CART_REMINDER_IDLE_MINUTES", 5)))
+        if not test_mode and cart.updated_at and cart.updated_at > datetime.utcnow() - timedelta(minutes=idle_minutes):
+            raise EmailContentError(f"This cart has been active within the last {idle_minutes} minutes.")
         if not test_mode and cart.reminder_sent_at:
             raise EmailContentError("A reminder was already sent for this cart episode.")
         try:
@@ -694,8 +695,8 @@ def register_email_studio_routes(admin_bp):
                         preview_cart = CustomerCart.query.filter_by(account_id=selected_account.id).first()
                         if preview_cart and preview_cart.checkout_until and preview_cart.checkout_until > datetime.utcnow():
                             preview_notice = "Preview only: checkout is active for this cart, so it cannot be sent yet."
-                        elif preview_cart and preview_cart.updated_at and preview_cart.updated_at > datetime.utcnow() - timedelta(hours=2):
-                            preview_notice = "Preview only: this cart needs two hours without activity before a reminder can be sent."
+                        elif preview_cart and preview_cart.updated_at and preview_cart.updated_at > datetime.utcnow() - timedelta(minutes=max(1, int(current_app.config.get("CART_REMINDER_IDLE_MINUTES", 5)))):
+                            preview_notice = f"Preview only: this cart needs {max(1, int(current_app.config.get('CART_REMINDER_IDLE_MINUTES', 5)))} minutes without activity before a reminder can be sent."
                         elif preview_cart and preview_cart.reminder_sent_at:
                             preview_notice = "Preview only: a reminder was already sent for this cart episode."
                     preview = {"subject": rendered_subject, "html": html, "text": text, "products": cards, "order": order, "eligible_count": eligible_count, "notice": preview_notice}
@@ -751,7 +752,7 @@ def register_email_studio_routes(admin_bp):
             elif not cart.account.email_verified_at: reason = "Customer email is not verified."
             elif not cart.account.active: reason = "Customer account is inactive."
             elif cart.checkout_until and cart.checkout_until > datetime.utcnow(): reason = "Checkout is active."
-            elif age_hours is not None and age_hours < 2: reason = "Cart activity is less than two hours old."
+            elif cart.updated_at and cart.updated_at > datetime.utcnow() - timedelta(minutes=max(1, int(current_app.config.get("CART_REMINDER_IDLE_MINUTES", 5)))): reason = f"Cart activity is less than {max(1, int(current_app.config.get('CART_REMINDER_IDLE_MINUTES', 5)))} minutes old."
             elif not validation or not validation.lines: reason = "No currently available cart items."
             elif cart.reminder_sent_at: reason = "A reminder was previously sent for this cart episode."
             rows.append({"cart": cart, "validation": validation, "age_hours": age_hours, "reason": reason, "eligible": not reason})
