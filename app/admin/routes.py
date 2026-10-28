@@ -202,7 +202,7 @@ def send_manual_customer_email():
         shop_url = base_url + url_for("public.shop")
         contact_url = base_url + url_for("public.contact")
         logo_url = base_url + url_for("static", filename="images/mainLogo-160.png")
-        html_body = render_template("emails/manual_customer_email.html", subject=subject, body=body, first_name=first_name, products=products, unsubscribe_url=unsubscribe_url, shop_url=shop_url, contact_url=contact_url, logo_url=logo_url)
+        html_body = render_template("emails/manual_customer_email.html", subject=subject, body=body, first_name=first_name, products=products, unsubscribe_url=unsubscribe_url, shop_url=shop_url, contact_url=contact_url, logo_url=logo_url, site_url=base_url)
         text_body = "\n".join([body, *[f"{item['name']}: {item['url']}" for item in products], *(["Unsubscribe: " + unsubscribe_url] if unsubscribe_url else [])])
         text_body = "\n".join([f"Hi {first_name},", "", body, *[f"{item['name']}: {item['url']}" for item in products], "", "Continue shopping: " + shop_url, "Contact FityStores: " + contact_url, "FityStores · Bei Fity, Fits Poa.", *( ["Unsubscribe: " + unsubscribe_url] if unsubscribe_url else [])])
         try:
@@ -863,6 +863,12 @@ def update_order(order_id):
                 notify_order_event(order, "order_status", f"order-status:{event.id}" if event else f"order-status:{order.id}:{order.status}")
             except Exception:
                 current_app.logger.error("Order status notification could not be prepared for order %s", order.id)
+            if order.status == "Completed":
+                try:
+                    from app.services.customer_mail import notify_order_event
+                    notify_order_event(order, "review_request", f"order-review-request:{order.id}")
+                except Exception:
+                    current_app.logger.error("Order review request could not be prepared for order %s", order.id)
         flash("Order updated." if changes else "No status change was needed.", "success")
     except ValueError as exc:
         db.session.rollback()

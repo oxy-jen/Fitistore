@@ -1,9 +1,10 @@
+{% from "emails/_brand_components.html" import email_header, email_footer %}
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
 <body style="margin:0;background:#f4f5f7;color:#1b1d22;font-family:Arial,sans-serif">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f5f7;padding:24px 8px">
     <tr><td align="center"><table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;background:#fff;border-radius:12px;overflow:hidden">
-      <tr><td style="padding:24px 28px;background:#ed1b36;color:#fff"><img src="{{ logo_url }}" alt="FityStores logo" width="48" height="48" style="display:block;width:48px;height:48px;margin-bottom:8px;border:0"><strong>FityStores</strong><br><span>Bei Fity, Fits Poa.</span></td></tr>
+      {{ email_header(site_url, logo_url) }}
       <tr><td style="padding:28px"><p style="margin:0 0 10px">Hi {{ first_name }},</p><h1 style="font-size:22px;margin:0 0 18px">{{ subject }}</h1>
         <div style="font-size:16px;line-height:1.6;white-space:pre-wrap">{{ body }}</div>
         {% if products %}<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:20px"><tr><td><h2 style="font-size:18px">Products for you</h2></td></tr>
@@ -14,8 +15,8 @@
         </td></tr>{% endfor %}</table>{% endif %}
         <p style="margin:24px 0"><a href="{{ shop_url }}" style="display:inline-block;padding:13px 20px;background:#ed1b36;color:#fff;text-decoration:none;font-weight:bold;border-radius:5px">Continue shopping</a></p>
         <p style="font-size:13px;color:#5a6472">Questions? <a href="{{ contact_url }}" style="color:#c8102e">Contact FityStores</a>.</p>
-        {% if unsubscribe_url %}<p style="margin-top:28px;font-size:12px;color:#5a6472">Promotional email. <a href="{{ unsubscribe_url }}">Unsubscribe</a></p>{% endif %}
       </td></tr>
+      {{ email_footer(site_url, contact_url, unsubscribe_url) }}
     </table></td></tr>
   </table>
 </body></html>

@@ -1,0 +1,23 @@
+{% from "emails/_brand_components.html" import email_header, email_footer %}
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ heading|e }}</title>
+<style>@media screen and (max-width:620px){.email-pad{padding:18px 14px!important}.email-button a{display:block!important;text-align:center!important}}</style></head>
+<body style="margin:0;padding:0;background:#F3F5F7;color:#202124;font-family:Arial,Helvetica,sans-serif">
+  <div style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;mso-hide:all">{{ preheader|e }}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#F3F5F7"><tr><td align="center" style="padding:20px 10px">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:680px;background:#FFFFFF;border-radius:12px;overflow:hidden">
+      {{ email_header(site_url, logo_url) }}
+      <tr><td class="email-pad" style="padding:28px 30px 22px">
+        <div style="padding:14px 16px;background:{{ hero_background }};border-left:5px solid {{ accent_color }};color:{{ hero_text_color }}">
+          <h1 style="font-size:25px;line-height:1.25;margin:0">{{ heading|e }}</h1>
+          {% if order_reference %}<div style="padding-top:8px;font-size:13px;color:{{ hero_text_color }}">Order #{{ order_reference|e }}</div>{% endif %}
+        </div>
+        {% if security_code %}<div style="margin:22px 0 16px;padding:18px;text-align:center;background:#F3F5F7;border:1px solid #E2E8F0;border-radius:8px"><div style="font-size:12px;color:#64748B">YOUR ONE-TIME CODE</div><div style="padding-top:6px;color:#111111;font-size:32px;line-height:40px;font-weight:bold;letter-spacing:7px">{{ security_code|e }}</div></div>{% endif %}
+        {% for paragraph in paragraphs %}<p style="font-size:15px;line-height:1.65;margin:17px 0 0;color:#202124;white-space:pre-wrap;overflow-wrap:anywhere">{{ paragraph|e }}</p>{% endfor %}
+        {% if order_progress %}<h2 style="font-size:16px;margin:24px 0 10px;color:#202124">Order progress</h2><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>{% for stage in order_progress %}<td width="{{ 100 // (order_progress|length) }}%" align="center" style="padding:5px 0;border-top:3px solid {{ '#0B8F52' if stage['state'] in ['current','done'] else '#D8DEE7' }}"><span style="display:inline-block;margin-top:-15px;width:25px;height:25px;line-height:25px;border-radius:50%;font-size:12px;font-weight:bold;text-align:center;background:{{ '#0B8F52' if stage['state'] in ['current','done'] else '#E9EEF4' }};color:{{ '#FFFFFF' if stage['state'] in ['current','done'] else '#64748B' }}">{% if stage['state']=='done' %}&#10003;{% else %}{{ loop.index }}{% endif %}</span><div style="padding-top:5px;font-size:11px;color:{{ '#202124' if stage['state'] in ['current','done'] else '#64748B' }};font-weight:{{ 'bold' if stage['state']=='current' else 'normal' }}">{{ stage['label']|e }}</div></td>{% endfor %}</tr></table>{% endif %}
+        {% if button_url %}<p class="email-button" style="margin:24px 0 4px"><a href="{{ button_url|e }}" style="display:inline-block;background:{{ accent_color }};color:#FFFFFF;text-decoration:none;font-weight:bold;font-size:15px;padding:14px 22px;border-radius:7px">{{ button_text|e }}</a></p>{% endif %}
+      </td></tr>
+      {{ email_footer(site_url, contact_url, unsubscribe_url, footer_note) }}
+    </table>
+  </td></tr></table>
+</body></html>

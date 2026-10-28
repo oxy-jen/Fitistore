@@ -1,6 +1,6 @@
 {% extends "base.html" %}{% block content %}
 <div id="email-studio-page">
-<section class="page-head admin-head"><div><p class="eyebrow">Manual sends only</p><h1>Email Studio</h1><p>Templates, drafts, previews, test emails and manual sends live here. Saving content or opening this page never sends email.</p></div><div class="actions"><a class="btn" href="{{ url_for('admin.email_center') }}">Customer email</a><a class="btn" href="{{ url_for('admin.email_cart_activity') }}">Cart activity</a></div></section>
+<section class="page-head admin-head"><div><p class="eyebrow">Manual sends only</p><h1>Email Studio</h1><p>Templates, drafts, previews, test emails and manual sends live here. Saving content or opening this page never sends email.</p></div><div class="actions"><a class="btn" href="{{ url_for('admin.email_center') }}">Customer email</a><a class="btn" href="{{ url_for('admin.email_studio_messages') }}">Studio messages</a><a class="btn" href="{{ url_for('admin.email_cart_activity') }}">Cart activity</a></div></section>
 <section class="form-card"><h2>Choose a reusable template and customer context</h2><p><strong>Quick guide:</strong> choose the email purpose, load a customer, edit the text and add blocks. Desktop/Mobile preview only renders a preview. Save template stores it for reuse; it does not send. To send, select recipients, preview, then use Manual send and confirm the exact recipient count.</p>
   <form method="get" class="actions" action="{{ url_for('admin.email_studio') }}">
     <label>Email purpose<select name="category" id="email-purpose"><optgroup label="Promotional — consent required">{% for key, value in categories.items() if value.marketing %}<option value="{{ key }}" {% if key == category %}selected{% endif %}>{{ value.label }}</option>{% endfor %}</optgroup><optgroup label="Transactional and service — consent not required">{% for key, value in categories.items() if not value.marketing %}<option value="{{ key }}" {% if key == category %}selected{% endif %}>{{ value.label }}</option>{% endfor %}</optgroup></select></label>
@@ -27,9 +27,10 @@
   {% if account and linked_orders and category in ['order_confirmation','thank_you','order_status','customer_service'] %}<label>Order context<select name="order_id"><option value="">Choose a linked order{% if category in ['order_confirmation','thank_you','order_status'] %} (required){% endif %}</option>{% for order in linked_orders %}<option value="{{ order.id }}" {% if request.values.get('order_id') == order.id|string or draft and draft.order_id == order.id %}selected{% endif %}>{{ order.reference }} — {{ order.status }} — {{ order.payment_status }} — {{ order.created_at.strftime('%Y-%m-%d') if order.created_at else 'date unavailable' }}</option>{% endfor %}</select></label>{% elif category in ['order_confirmation','thank_you','order_status'] %}<p class="status-warn">No order is linked to this customer. Load a customer with a linked order.</p>{% endif %}
   {% if category in ['promotion'] %}<fieldset><legend>Eligible marketing recipients</legend>{% for row in accounts if row.active and row.marketing_status == 'subscribed' %}<label class="check"><input type="checkbox" name="account_ids" value="{{ row.id }}" {% if row.id|string in selected_account_ids %}checked{% endif %}>{{ row.display_name or 'Customer' }} — {{ row.email }}</label>{% else %}<p>No marketing subscribers are available.</p>{% endfor %}</fieldset>{% elif category == 'cart_reminder' %}<fieldset><legend>Customers whose own current cart will be rechecked</legend>{% for cart in carts %}{% if cart.account.active and cart.account.marketing_status == 'subscribed' and cart.items_json != '[]' %}<label class="check"><input type="checkbox" name="account_ids" value="{{ cart.account.id }}" {% if cart.account.id|string in selected_account_ids %}checked{% endif %}>{{ cart.account.display_name or 'Customer' }} — {{ cart.account.email }} — activity {{ cart.updated_at.strftime('%Y-%m-%d %H:%M') if cart.updated_at else 'unknown' }}</label>{% endif %}{% else %}<p>No saved carts.</p>{% endfor %}<p>Each cart is fetched from that account, revalidated for current price/stock and checked for consent. This button never sends automatically.</p></fieldset>{% endif %}
   {% if category == 'promotion' or category == 'customer_service' %}<fieldset><legend>Catalogue products</legend>{% for product in product_choices %}<label class="check" style="display:flex;align-items:center;gap:12px;padding:8px"><input type="checkbox" name="product_ids" value="{{ product.id }}" {% if product.id|string in selected_products %}checked{% endif %}>{% if product.image_url %}<img src="{{ product.image_url }}" alt="{{ product.image_alt }}" width="56" height="56" style="object-fit:cover">{% else %}<span aria-hidden="true" style="display:inline-flex;width:56px;height:56px;background:#f4f5f7;align-items:center;justify-content:center">Image unavailable</span>{% endif %}<span><a href="{{ product.url }}" target="_blank" rel="noopener">{{ product.name }}</a> — {{ product.price }}{% if product.discount %} (active catalogue sale price){% endif %}<br>SKU {{ product.sku or 'not recorded' }}{% if product.category %} · {{ product.category }}{% endif %}</span></label>{% else %}<p>No eligible products.</p>{% endfor %}</fieldset>{% endif %}
-  <section class="form-card email-builder" id="email-builder" data-initial="{{ editor_blocks|tojson|forceescape }}">
+  <section class="form-card email-builder" id="email-builder" data-initial="{{ editor_blocks|tojson|forceescape }}" data-design='{{ editor_design|tojson|forceescape }}'>
     <h3>Visual email canvas</h3><p>Build the message with safe, email-ready blocks. Product images, prices and links are loaded from the catalogue. Banner images use an uploaded catalogue product image.</p>{% if category == 'cart_reminder' %}<p class="account-muted">Cart reminders use the loaded customer’s current cart for product collections, banner images, and product buttons. The same design follows each selected recipient’s own cart when sent.</p>{% endif %}
     <div class="actions"><label>Add a content block<select id="email-block-kind"><option value="heading">Heading</option><option value="paragraph">Paragraph</option><option value="image_banner">Image banner</option><option value="product_grid">Product collection</option><option value="order_summary">Order summary</option><option value="button">Button</option><option value="divider">Divider</option><option value="spacer">Spacing</option><option value="contact">Contact section</option></select></label><button class="btn" type="button" id="email-add-block">Add block</button><button class="btn" type="button" data-preview-size="desktop">Desktop preview</button><button class="btn" type="button" data-preview-size="mobile">Mobile preview</button></div>
+    <fieldset class="email-design-controls"><legend>Design controls</legend><div class="field-grid"><label>Hero background<input type="color" data-design="hero_background" value="{{ editor_design.hero_background }}"></label><label>Text colour<input type="color" data-design="text_color" value="{{ editor_design.text_color }}"></label><label>Brand accent<input type="color" data-design="accent_color" value="{{ editor_design.accent_color }}"></label><label>Content background<input type="color" data-design="section_background" value="{{ editor_design.section_background }}"></label></div><label>Preheader text<input data-design="preheader" maxlength="180" value="{{ editor_design.preheader }}"></label><label>Footer note<input data-design="footer_note" maxlength="200" value="{{ editor_design.footer_note }}"></label></fieldset>
     <input type="hidden" name="preview_size" id="email-preview-size" value="desktop">
     <div id="email-block-list" class="email-block-list" aria-live="polite"></div>
     <script type="application/json" id="email-product-data">{{ product_choices|tojson }}</script>
@@ -69,6 +70,13 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
   const form = builder.closest('form');
   const choices = products.map(p => `<option value="${p.id}">${String(p.name).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</option>`).join('');
   let blocks = JSON.parse(builder.dataset.initial || '[]');
+  let design = {};
+  try { design = JSON.parse(builder.dataset.design || '{}'); } catch (_) { design = {}; }
+  builder.querySelectorAll('[data-design]').forEach(control => {
+    const key = control.dataset.design;
+    control.addEventListener('input', () => { design[key] = control.value; sync(); });
+    control.addEventListener('change', () => { design[key] = control.value; sync(); });
+  });
   const chooseProduct = id => {
     const checkbox = form.querySelector(`[name="product_ids"][value="${Number(id)}"]`);
     if (checkbox) checkbox.checked = true;
@@ -91,7 +99,7 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
       const title = block.type.replaceAll('_',' ');
       let fields = '';
       if (['heading','paragraph','contact'].includes(block.type)) fields += input('Text', block.text, 'textarea', 2000, 'text') + `<label>Alignment<select data-field="align"><option value="left" ${block.align !== 'center' ? 'selected' : ''}>Left</option><option value="center" ${block.align === 'center' ? 'selected' : ''}>Centered</option></select></label>`;
-      if (block.type === 'image_banner') fields += `<label>Catalogue image product<select data-field="product_id"><option value="">Choose a product image</option>${choices}</select></label>` + input('Alternative text', block.alt || '', 'text', 255, 'alt');
+      if (block.type === 'image_banner') fields += `<label>Catalogue image product<select data-field="product_id"><option value="">Choose a product image</option>${choices}</select></label>` + input('Alternative text', block.alt || '', 'text', 255, 'alt') + `<label>Image alignment<select data-field="align"><option value="left">Left</option><option value="center">Centered</option><option value="right">Right</option></select></label><label>Image width<select data-field="width"><option value="160">Small</option><option value="240">Medium</option><option value="360">Large</option><option value="552">Full width</option></select></label>`;
       if (block.type === 'button') fields += input('Button label', block.text || 'Shop now', 'text', 80, 'text') + `<label>Destination<select data-field="target"><option value="shop">Shop</option><option value="cart">Return to this customer’s cart</option><option value="order">Track this customer’s order</option><option value="product">Selected product</option></select></label><label class="product-destination">Destination product<select data-field="product_id"><option value="">Choose product</option>${choices}</select></label>`;
       const controls = `<button type="button" class="btn" data-move="-1" aria-label="Move block up">↑</button> <button type="button" class="btn" data-move="1" aria-label="Move block down">↓</button> <button type="button" class="btn" data-remove>Remove</button>`;
       card.innerHTML = `<div class="email-block-head"><strong>${title}</strong><div>${controls}</div></div>${fields}`;
@@ -99,12 +107,13 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
         const key = el.dataset.field;
         if (key === 'product_id') el.value = block.product_id || '';
         else if (key === 'target') el.value = block.target || 'shop';
-        else if (key === 'align') el.value = block.align || 'left';
+        else if (key === 'align') el.value = block.align || (block.type === 'image_banner' ? 'center' : 'left');
+        else if (key === 'width') el.value = block.width || 552;
         else if (key === 'text' && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) el.value = block.text || '';
         else if (key === 'alt') el.value = block.alt || '';
         const keyForBlock = key === 'alt' ? 'alt' : key;
-        el.addEventListener('input', () => { block[keyForBlock] = key === 'product_id' ? Number(el.value) : el.value; if (key === 'product_id') chooseProduct(el.value); sync(); });
-        el.addEventListener('change', () => { block[keyForBlock] = key === 'product_id' ? Number(el.value) : el.value; if (key === 'product_id') chooseProduct(el.value); sync(); });
+        el.addEventListener('input', () => { block[keyForBlock] = ['product_id','width'].includes(key) ? Number(el.value) : el.value; if (key === 'product_id') chooseProduct(el.value); sync(); });
+        el.addEventListener('change', () => { block[keyForBlock] = ['product_id','width'].includes(key) ? Number(el.value) : el.value; if (key === 'product_id') chooseProduct(el.value); sync(); });
       });
       const target = card.querySelector('[data-field="target"]');
       if (target) { const show = () => card.querySelector('.product-destination').hidden = target.value !== 'product'; show(); target.addEventListener('change', show); }
@@ -115,7 +124,7 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
     sync();
   }
   function sync() {
-    hidden.value = JSON.stringify(blocks);
+    hidden.value = JSON.stringify([{...design, type:'design'}, ...blocks]);
     const heading = blocks.find(b => b.type === 'heading');
     const headline = form.querySelector('[name="headline"]'); if (headline && heading) headline.value = heading.text || '';
     const body = form.querySelector('[name="message"]');

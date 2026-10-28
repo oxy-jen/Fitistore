@@ -1,0 +1,21 @@
+{% extends "base.html" %}{% block content %}
+<section class="page-head admin-head">
+  <div><p class="eyebrow">Saved content from Email Studio</p><h1>Studio messages</h1><p>Find reusable email designs and unfinished drafts here. Open any item in Email Studio to edit, preview, save, or send it.</p></div>
+  <div class="actions"><a class="btn primary" href="{{ url_for('admin.email_studio') }}">Create in Email Studio</a><a class="btn" href="{{ url_for('admin.email_center') }}">Customer email</a></div>
+</section>
+
+<section class="form-card">
+  <h2>Reusable templates</h2>
+  {% if templates %}<div class="stat-grid">{% for item in templates %}
+    <article class="studio-message-card"><p class="eyebrow">{{ categories[item.category].label if item.category in categories else item.category }}</p><h3>{{ item.name }}</h3><p><strong>Subject:</strong> {{ item.subject }}</p><p>{{ item.message|truncate(180) }}</p><p class="account-muted">Updated {{ item.updated_at.strftime('%Y-%m-%d %H:%M') if item.updated_at else 'date unavailable' }}</p><a class="btn" href="{{ url_for('admin.email_studio', category=item.category, template_id=item.id) }}">Open in Email Studio</a></article>
+  {% endfor %}</div>{% else %}<p>No saved Studio templates yet. Create a design in Email Studio and choose <strong>Save template</strong>.</p>{% endif %}
+</section>
+
+<section class="form-card">
+  <h2>Your drafts</h2>
+  {% if drafts %}<div class="stat-grid">{% for item in drafts %}
+    <article class="studio-message-card"><p class="eyebrow">{{ categories[item.category].label if item.category in categories else item.category }}</p><h3>{{ item.name }}</h3><p><strong>Subject:</strong> {{ item.subject }}</p><p>{{ item.message|truncate(180) }}</p><p class="account-muted">Updated {{ item.updated_at.strftime('%Y-%m-%d %H:%M') if item.updated_at else 'date unavailable' }}</p><a class="btn" href="{{ url_for('admin.email_studio', category=item.category, draft_id=item.id) }}">Continue editing</a></article>
+  {% endfor %}</div>{% else %}<p>No drafts saved by your admin account yet.</p>{% endif %}
+</section>
+<style>.studio-message-card{background:#fff;border:1px solid #d9dde5;border-radius:12px;padding:18px;min-width:0}.studio-message-card h3{margin:.2rem 0 .8rem}.studio-message-card p{overflow-wrap:anywhere}</style>
+{% endblock %}

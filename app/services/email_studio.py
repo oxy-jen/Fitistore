@@ -62,6 +62,15 @@ class EmailContentError(ValueError):
     pass
 
 
+def _contrast_ratio(first, second):
+    def luminance(color):
+        channels = [int(color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        linear = [value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4 for value in channels]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    values = sorted((luminance(first), luminance(second)))
+    return (values[1] + 0.05) / (values[0] + 0.05)
+
+
 def replace_variables(value, category, context):
     allowed = set(EMAIL_CATEGORIES[category]["variables"])
     value = value or ""
@@ -102,13 +111,20 @@ def validate_email_blocks(raw, category):
         raise EmailContentError("The visual email blocks could not be read. Rebuild the content and try again.") from None
     if not isinstance(blocks, list) or len(blocks) > 30:
         raise EmailContentError("Use no more than 30 visual content blocks.")
-    allowed_types = {"heading", "paragraph", "image_banner", "product_grid", "order_summary", "button", "divider", "spacer", "contact"}
+    allowed_types = {"design", "heading", "paragraph", "image_banner", "product_grid", "order_summary", "button", "divider", "spacer", "contact"}
     result = []
     for block in blocks:
         if not isinstance(block, dict) or block.get("type") not in allowed_types:
             raise EmailContentError("One of the visual email blocks is not supported.")
         item = {"type": block["type"]}
-        if item["type"] in {"heading", "paragraph", "contact"}:
+        if item["type"] == "design":
+            defaults = {"hero_background": "#111111", "text_color": "#FFFFFF", "accent_color": "#ED1B2F", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"}
+            for key, fallback in defaults.items():
+                value = str(block.get(key) or fallback)[:180 if key == "preheader" else 200]
+                if key in {"hero_background", "text_color", "accent_color", "section_background"} and not re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+                    raise EmailContentError("Choose valid six-digit hex colours for the email design.")
+                item[key] = value
+        elif item["type"] in {"heading", "paragraph", "contact"}:
             item["text"] = str(block.get("text") or "")[:2000]
             alignment = block.get("align", "left")
             if alignment not in {"left", "center"}:
@@ -126,6 +142,15 @@ def validate_email_blocks(raw, category):
             item["alt"] = str(block.get("alt") or "")[:255]
             if not item["alt"].strip():
                 raise EmailContentError("Add alternative text for each image banner.")
+            item["align"] = block.get("align", "center")
+            if item["align"] not in {"left", "center", "right"}:
+                raise EmailContentError("Choose left, centered, or right alignment for the banner image.")
+            try:
+                item["width"] = int(block.get("width", 552))
+            except (TypeError, ValueError):
+                item["width"] = 552
+            if item["width"] not in {160, 240, 360, 552}:
+                raise EmailContentError("Choose a supported banner image size.")
         elif item["type"] == "button":
             item["text"] = str(block.get("text") or "View details")[:80]
             item["target"] = block.get("target", "shop")
@@ -143,12 +168,18 @@ def validate_email_blocks(raw, category):
     return result
 
 
-def render_studio_message(category, subject, headline, message, context, *, blocks=(), products=(), order_lines=(), order_summary=None, cart_summary=None, primary_url="", primary_label="", shop_url="", logo_url="", unsubscribe_url=""):
+def render_studio_message(category, subject, headline, message, context, *, blocks=(), products=(), order_lines=(), order_summary=None, cart_summary=None, primary_url="", primary_label="", shop_url="", logo_url="", unsubscribe_url="", design=None, site_url="", contact_url="https://fitystore.top/contact"):
     if category not in EMAIL_CATEGORIES:
         raise EmailContentError("Choose a supported email category.")
     subject = replace_variables(subject, category, context).replace("\r", " ").replace("\n", " ").strip()[:200]
     headline = replace_variables(headline, category, context).strip()[:200]
     message = replace_variables(message, category, context).strip()[:5000]
+    design_defaults = {"hero_background": "#111111", "text_color": "#FFFFFF", "accent_color": "#ED1B2F", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"}
+    design = {**design_defaults, **(design or {})}
+    design = {key: value for key, value in design.items() if key in design_defaults}
+    if _contrast_ratio(design["text_color"], design["hero_background"]) < 4.5:
+        raise EmailContentError("Choose hero background and text colours with readable contrast.")
+    design["button_text_color"] = "#111111" if _contrast_ratio("#111111", design["accent_color"]) >= _contrast_ratio("#FFFFFF", design["accent_color"]) else "#FFFFFF"
     resolved_blocks = []
     for block in blocks:
         item = dict(block)
@@ -170,7 +201,8 @@ def render_studio_message(category, subject, headline, message, context, *, bloc
         message=message, blocks=resolved_blocks, products=products, order_lines=order_lines, order_summary=order_summary, cart_summary=cart_summary, shop_url=shop_url, logo_url=logo_url,
         primary_url=primary_url, primary_label=primary_label,
         order_date=context.get("order_date", ""), order_reference=context.get("order_reference", ""),
-        unsubscribe_url=unsubscribe_url,
+        unsubscribe_url=unsubscribe_url, design=design, site_url=site_url or shop_url,
+        contact_url=contact_url,
     )
     text_lines = [headline, "", message]
     if resolved_blocks:
