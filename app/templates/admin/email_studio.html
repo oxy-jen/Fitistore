@@ -53,8 +53,8 @@
 <section class="form-card"><h2>Last delivery results</h2><p>See the customer email centre for provider states. “Sent” means provider acceptance, not confirmed inbox delivery.</p><a class="btn" href="{{ url_for('admin.email_center') }}">Open email history</a></section>
 <style>
 .email-block-list{display:grid;gap:12px;margin:16px 0}.email-block{border:1px solid #d9dde5;border-radius:10px;padding:14px;background:#fff}.email-block-head{display:flex;justify-content:space-between;align-items:center;gap:8px}.email-block label{display:block;margin:10px 0}.email-block textarea,.email-block input,.email-block select{width:100%;box-sizing:border-box}.email-block textarea{min-height:80px}.email-preview-mobile{width:100%!important;max-width:375px!important;margin:auto;display:block}.email-preview-desktop{width:100%!important;max-width:720px!important;margin:auto;display:block}.email-message-source{display:none}
-@media(min-width:1100px){#email-live-preview{position:fixed;z-index:20;top:100px;right:2vw;width:44vw;height:calc(100vh - 120px);overflow:auto;box-sizing:border-box;margin:0;background:#fff;box-shadow:0 8px 28px #17212b24}#email-live-preview iframe{height:calc(100vh - 235px)!important;min-height:420px!important}}
-@media(max-width:1099px){#email-live-preview{position:static;width:auto;height:auto;max-height:none;overflow:visible}#email-live-preview iframe{height:65vh!important;min-height:420px!important}}
+@media(min-width:1100px){ #email-live-preview{position:fixed;z-index:20;top:100px;right:2vw;width:44vw;height:calc(100vh - 120px);overflow:auto;box-sizing:border-box;margin:0;background:#fff;box-shadow:0 8px 28px #17212b24}#email-live-preview iframe{height:calc(100vh - 235px)!important;min-height:420px!important}}
+@media(max-width:1099px){ #email-live-preview{position:static;width:auto;height:auto;max-height:none;overflow:visible}#email-live-preview iframe{height:65vh!important;min-height:420px!important}}
 </style>
 <script>
 document.getElementById('email-purpose')?.addEventListener('change', () => { const choice=document.getElementById('email-template'); if(choice) choice.value=''; });
