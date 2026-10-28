@@ -67,6 +67,15 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
   const form = builder.closest('form');
   const choices = products.map(p => `<option value="${p.id}">${String(p.name).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</option>`).join('');
   let blocks = JSON.parse(builder.dataset.initial || '[]');
+  const chooseProduct = id => {
+    const checkbox = form.querySelector(`[name="product_ids"][value="${Number(id)}"]`);
+    if (checkbox) checkbox.checked = true;
+  };
+  const linkedProducts = blocks.filter(block => block.type === 'image_banner' || block.type === 'button' && block.target === 'product').map(block => Number(block.product_id)).filter(Number.isFinite);
+  linkedProducts.forEach(chooseProduct);
+  if ({{ 'true' if category == 'promotion' else 'false' }} && blocks.some(block => block.type === 'product_grid') && !form.querySelector('[name="product_ids"]:checked')) {
+    products.slice(0, 3).forEach(product => chooseProduct(product.id));
+  }
   const input = (label, value, type='text', max=2000, field='text') => {
     const escaped = String(value || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
     return type === 'textarea'
@@ -92,8 +101,8 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
         else if (key === 'text' && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) el.value = block.text || '';
         else if (key === 'alt') el.value = block.alt || '';
         const keyForBlock = key === 'alt' ? 'alt' : key;
-        el.addEventListener('input', () => { block[keyForBlock] = key === 'product_id' ? Number(el.value) : el.value; sync(); });
-        el.addEventListener('change', () => { block[keyForBlock] = key === 'product_id' ? Number(el.value) : el.value; sync(); });
+        el.addEventListener('input', () => { block[keyForBlock] = key === 'product_id' ? Number(el.value) : el.value; if (key === 'product_id') chooseProduct(el.value); sync(); });
+        el.addEventListener('change', () => { block[keyForBlock] = key === 'product_id' ? Number(el.value) : el.value; if (key === 'product_id') chooseProduct(el.value); sync(); });
       });
       const target = card.querySelector('[data-field="target"]');
       if (target) { const show = () => card.querySelector('.product-destination').hidden = target.value !== 'product'; show(); target.addEventListener('change', show); }
@@ -114,7 +123,7 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
     const type = document.getElementById('email-block-kind').value;
     const block = {type};
     if (['heading','paragraph','contact'].includes(type)) { block.text = type === 'heading' ? 'New heading' : type === 'contact' ? 'Questions? Contact our team.' : 'Write your message here.'; block.align='left'; }
-    if (type === 'image_banner') { block.product_id=products[0]?.id || ''; block.alt='Product banner'; }
+    if (type === 'image_banner') { block.product_id=products[0]?.id || ''; block.alt='Product banner'; if (block.product_id) chooseProduct(block.product_id); }
     if (type === 'button') { block.text='Shop now'; block.target='shop'; }
     blocks.push(block); render();
     const added = list.lastElementChild;
