@@ -219,6 +219,13 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
                 item["discount"] = False
                 item["previous_price"] = ""
             products.append(item)
+        # A reminder must reflect the recipient's own cart. Visual product blocks
+        # follow that live cart instead of retaining a stale template product ID.
+        if products:
+            first_cart_product_id = products[0]["id"]
+            for block in blocks:
+                if block["type"] == "image_banner" or block["type"] == "button" and block.get("target") == "product":
+                    block["product_id"] = first_cart_product_id
         cart_lines = validation.lines
         cart_total = money(validation.total_cents, current_settings().currency) if validation.total_cents is not None else None
         cart_summary = {
@@ -294,7 +301,7 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
             product = product_map.get(block["product_id"])
             if not product:
                 raise EmailContentError("Add each banner or product-button item to the selected catalogue products before previewing.")
-            if block["type"] == "image_banner" and not product["image_url"]:
+            if block["type"] == "image_banner" and not product["image_url"] and category != "cart_reminder":
                 raise EmailContentError("That catalogue product has no accessible HTTPS image. Choose a product with an uploaded image.")
         if block["type"] == "order_summary" and not (order_summary or cart_summary):
             # Optional order/cart sections disappear when this recipient has no corresponding data.

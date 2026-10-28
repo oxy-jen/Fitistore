@@ -9,6 +9,7 @@ Email Studio lets an admin build, preview, save, and manually send customer emai
 3. Choose a saved template, if you want to start from one. Templates are scoped to their email purpose. You can change the subject, headline, and content before saving or sending.
 4. Load a customer context. The preview uses that customer's information. For order confirmations, order updates, and other order-specific messages, also choose one of that customer's linked orders.
 5. Add blocks using **Add a content block → Add block**. Edit the new block in the canvas. Use the up/down controls to reorder blocks and **Remove** to delete a block. Product collections and image banners use the catalogue selections; choose the products needed for those blocks.
+   - For cart reminders, product collections, banners, and product buttons automatically use the loaded customer's current cart items. Each recipient's own cart is used when the reminder is sent.
 6. On desktop, the preview stays in the right-side panel while you scroll. It refreshes as you edit. Use **Desktop preview** or **Mobile preview** to change its width. On a smaller screen, the preview appears in the page flow below the editor.
 7. Review the subject, rendered email, and plain-text version. If the preview reports a missing customer, order, or product choice, correct that context and it will refresh.
 
@@ -28,5 +29,7 @@ Email Studio lets an admin build, preview, save, and manually send customer emai
 3. For a real send, select the intended recipients in the relevant recipient list. Marketing recipients must be active and opted in; the server checks consent and unsubscribe status again when sending. Service messages go only to active, verified accounts and must not contain promotions.
 4. Enter the exact confirmation shown, such as **SEND 2**, then choose **Send manually**. A preview is required for the exact content and recipient selection before the send is accepted.
 5. Check **Customer email → Recent email history** for provider status. “Provider accepted” means the email service accepted the request; it does not guarantee inbox delivery.
+
+Cart reminders can be previewed at any time, but sending is held while checkout is active, until the cart has been idle for two hours, and after a reminder has already been sent for that cart episode.
 
 For a general promotional or service message that does not need visual blocks, use the matching form in **Customer email**. The Email Studio category picker is preferable for designed emails, order-specific messages, and saved visual templates.
