@@ -1,4 +1,4 @@
-<article class="product-card shop-product-card" data-product-card="{{ product.id }}" data-category-group="{{ category_group_key(product.category.name) or 'other' }}">
+<article class="product-card shop-product-card{% if compact_product_card|default(false) %} most-added-product-card{% endif %}" data-product-card="{{ product.id }}" data-category-group="{{ category_group_key(product.category.name) or 'other' }}">
   {% set image = product_display_image(product) %}
   {% set variant_count = product.active_variants|length %}
   {% set size_option_count = split_options(product.size_options)|length %}
@@ -25,14 +25,14 @@
     <p class="stock {{ 'bad' if display_stock == 0 else 'warn' if display_stock <= product.low_stock_threshold else '' }}">{% if display_stock > 0 %}{{ display_stock }} in stock{% if variant_count %} across options{% endif %}{% else %}Out of stock{% endif %}</p>
     <div class="shop-card-actions">
       {% if product.price_cents is none and not requires_option_choice %}
-        <a class="btn primary" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask for price</span></a>
+        {% if compact_product_card|default(false) %}<a class="btn primary" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>View product</span></a>{% else %}<a class="btn primary" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask for price</span></a>{% endif %}
       {% elif requires_option_choice %}
         <a class="btn primary" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>Choose option</span></a>
       {% else %}
         <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" {% if display_stock < 1 %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to Cart</span></button>
       {% endif %}
-      <a class="btn shop-whatsapp" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'buy') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask on WhatsApp</span></a>
+      {% if not compact_product_card|default(false) %}<a class="btn shop-whatsapp" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'buy') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask on WhatsApp</span></a>{% endif %}
     </div>
-    <div class="card-share shop-card-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ url_for('public.product_social_card', slug=product.slug) }}"><button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share product</button><button class="btn" type="button" data-share-facebook aria-label="Share {{ product.name }} on Facebook">Facebook</button><span class="share-status" data-share-status role="status" aria-live="polite"></span></div>
+    {% if not compact_product_card|default(false) %}<div class="card-share shop-card-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ url_for('public.product_social_card', slug=product.slug) }}"><button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share product</button><button class="btn" type="button" data-share-facebook aria-label="Share {{ product.name }} on Facebook">Facebook</button><span class="share-status" data-share-status role="status" aria-live="polite"></span></div>{% endif %}
   </div>
 </article>

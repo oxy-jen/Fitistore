@@ -238,8 +238,6 @@ document.addEventListener('DOMContentLoaded',()=>{
           dot.addEventListener('click',()=>showPage(index,{announce:true}));
           dots.appendChild(dot);
         });
-        const maxHeight=Math.max(0,...pages.map(page=>page.scrollHeight));
-        pages.forEach(page=>page.style.minHeight=`${maxHeight}px`);
         mostAdded.classList.add('is-ready');
         showPage(currentPage);
       };
