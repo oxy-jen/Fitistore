@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 from flask import Blueprint, Response, current_app, flash, jsonify, make_response, redirect, render_template, request, session, url_for
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
@@ -107,7 +107,7 @@ def helpers():
         for index in range(0, min(len(footer_products), 18), 3)
         if len(footer_products[index:index + 3]) == 3
     ]
-    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "footer_products": footer_products[:3], "footer_product_groups": footer_product_groups, "current_year": datetime.now().year}
+    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "category_group_key": category_group_key, "footer_products": footer_products[:3], "footer_product_groups": footer_product_groups, "current_year": datetime.now().year}
 
 def product_query():
     q = request.args.get("q", "").strip()
@@ -126,14 +126,22 @@ def product_query():
     elif category_group:
         category_ids = [category.id for category in Category.query.all() if category_group_key(category.name) == category_group["key"]]
         query = query.filter(Product.category_id.in_(category_ids or [-1]))
+    category_order = {
+        category.id: next(
+            (index for index, group in enumerate(CATEGORY_GROUPS) if category_group_key(category.name) == group["key"]),
+            len(CATEGORY_GROUPS),
+        )
+        for category in Category.query.all()
+    }
+    group_order = case(category_order, value=Product.category_id, else_=len(CATEGORY_GROUPS)).asc()
     if sort == "price-low":
-        query = query.order_by(Product.price_cents.is_(None), Product.price_cents.asc(), Product.name.asc())
+        query = query.order_by(group_order, Product.price_cents.is_(None), Product.price_cents.asc(), Product.name.asc())
     elif sort == "price-high":
-        query = query.order_by(Product.price_cents.is_(None), Product.price_cents.desc(), Product.name.asc())
+        query = query.order_by(group_order, Product.price_cents.is_(None), Product.price_cents.desc(), Product.name.asc())
     elif sort == "name":
-        query = query.order_by(Product.name.asc())
+        query = query.order_by(group_order, Product.name.asc())
     else:
-        query = query.order_by(Product.created_at.desc(), Product.id.desc())
+        query = query.order_by(group_order, Product.created_at.desc(), Product.id.desc())
     return query, active_category, q, sort
 
 def product_card_payload(product):

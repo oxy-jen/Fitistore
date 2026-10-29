@@ -9,6 +9,52 @@ document.addEventListener('DOMContentLoaded',()=>{
   const empty=document.getElementById('shop-empty');
   let loading=false;
   const seen=new Set(Array.from(document.querySelectorAll('[data-product-card]')).map(card=>card.dataset.productCard));
+  const categoryGroupNames=new Map(Array.from(document.querySelectorAll('.shop-category-chips [data-category-group-key]')).map(link=>[link.dataset.categoryGroupKey,link.dataset.categoryGroupName]));
+  function updateShopCategoryHeadings(){
+    if(!grid||!grid.classList.contains('shop-product-grid'))return;
+    grid.querySelectorAll('.shop-category-group-heading').forEach(heading=>heading.remove());
+    const cards=Array.from(grid.children).filter(child=>child.matches('[data-product-card]'));
+    let previousGroup='';
+    cards.forEach(card=>{
+      const key=card.dataset.categoryGroup||'other';
+      if(key===previousGroup)return;
+      previousGroup=key;
+      const name=categoryGroupNames.get(key)||'Other products';
+      const heading=document.createElement('div');
+      heading.className='shop-category-group-heading';
+      const title=document.createElement('h3');
+      title.textContent=name;
+      heading.appendChild(title);
+      if(categoryGroupNames.has(key)){
+        const form=document.createElement('form');
+        form.className='shop-group-search';
+        form.method='get';
+        form.action=grid.dataset.shopUrl||'/shop';
+        const input=document.createElement('input');
+        input.type='search';
+        input.name='q';
+        input.value=grid.dataset.shopQuery||'';
+        input.placeholder=`Search ${name}`;
+        input.setAttribute('aria-label',`Search ${name}`);
+        const group=document.createElement('input');
+        group.type='hidden';
+        group.name='category_group';
+        group.value=key;
+        const sort=document.createElement('input');
+        sort.type='hidden';
+        sort.name='sort';
+        sort.value=grid.dataset.shopSort||'newest';
+        const submit=document.createElement('button');
+        submit.type='submit';
+        submit.className='btn';
+        submit.textContent='Search';
+        form.append(input,group,sort,submit);
+        heading.appendChild(form);
+      }
+      grid.insertBefore(heading,card);
+    });
+  }
+  updateShopCategoryHeadings();
   async function loadProducts(){
     if(!grid||loading||grid.dataset.hasNext!=='true')return;
     loading=true;
@@ -26,6 +72,7 @@ document.addEventListener('DOMContentLoaded',()=>{
         seen.add(card.dataset.productCard);
         grid.appendChild(card);
       });
+      updateShopCategoryHeadings();
       grid.dataset.hasNext=data.has_next?'true':'false';
       grid.dataset.nextPage=data.next_page||'';
       if(empty)empty.hidden=grid.children.length>0;
