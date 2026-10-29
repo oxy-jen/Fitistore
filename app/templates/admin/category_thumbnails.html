@@ -1,0 +1,25 @@
+{% extends "base.html" %}{% block content %}
+<section class="page-head">
+  <div><p class="eyebrow">Homepage merchandising</p><h1>Category thumbnails</h1><p>Upload or replace the image shown on each of the five Shop by category cards. Clear a custom image to use the latest product photo from that group.</p></div>
+  <div class="actions"><a class="btn" href="{{ url_for('admin.products') }}">Manage products</a><a class="btn" href="{{ url_for('admin.dashboard') }}">Admin dashboard</a></div>
+</section>
+{% if not schema_ready %}
+  <section class="form-card"><h2>Thumbnail storage needs setup</h2><p>Run <code>flask --app wsgi:app migrate-category-thumbnails-schema</code> once, then reload this page.</p></section>
+{% else %}
+  <section class="category-thumb-admin-grid" aria-label="Edit category group images">
+    {% for card in cards %}{% set group = card.group %}{% set thumbnail = card.thumbnail %}{% set fallback_image = product_display_image(card.fallback_product) if card.fallback_product else none %}{% set fallback_src = product_image_url(fallback_image) if fallback_image else url_for('static', filename=group.default_image) %}
+    <article class="category-thumb-admin-card">
+      <div class="category-thumb-admin-preview"><img src="{{ product_image_url(thumbnail) if thumbnail and valid_product_image(thumbnail) else fallback_src }}" alt="{{ product_image_alt(thumbnail, group.name) if thumbnail and valid_product_image(thumbnail) else group.name }}" loading="lazy"></div>
+      <div class="category-thumb-admin-copy"><h2>{{ group.name }}</h2><p>{{ group.description }} {{ 'Custom thumbnail' if thumbnail else ('Using a product photo' if fallback_image else 'Using a sample image until products are added') }}</p></div>
+      <form method="post" action="{{ url_for('admin.save_category_thumbnail', group_key=group.key) }}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Choose thumbnail image<input type="file" name="image" accept="image/jpeg,image/png,image/webp,image/gif"></label>
+        <label>Image description<input type="text" name="alt_text" maxlength="255" value="{{ thumbnail.alt_text if thumbnail else group.name }}"></label>
+        <button class="btn primary" type="submit">Save thumbnail</button>
+      </form>
+      {% if thumbnail %}<form method="post" action="{{ url_for('admin.save_category_thumbnail', group_key=group.key) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit" name="remove_thumbnail" value="1">Use product photo</button></form>{% endif %}
+    </article>
+    {% else %}<div class="empty">Add categories in the catalogue to manage their homepage thumbnails.</div>{% endfor %}
+  </section>
+{% endif %}
+{% endblock %}

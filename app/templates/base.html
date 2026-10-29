@@ -30,16 +30,16 @@
   {% if og_image_alt %}<meta property="og:image:alt" content="{{ og_image_alt }}">{% endif %}
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=fitystores-consent-copy-20261027">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=shop-hero-text-animation-20261029">
   <script type="application/ld+json">
-  {{ {"@context": "https://schema.org", "@type": "Organization", "name": settings.shop_name, "url": "https://fitystore.top/", "logo": url_for('static', filename='images/mainLogo-160.png', _external=True)}|tojson }}
+  {{ {"@context": "https://schema.org", "@type": "Organization", "name": settings.shop_name, "url": "https://fitystore.top/", "logo": url_for('static', filename='images/mainLogo-160.png', _external=True), "owner": {"@type": "Organization", "name": "Oxy-Jen Tech"}}|tojson }}
   </script>
   {% if request.endpoint == 'public.home' %}<script type="application/ld+json">
   {{ {"@context": "https://schema.org", "@type": "WebSite", "name": settings.shop_name, "url": "https://fitystore.top/", "potentialAction": {"@type": "SearchAction", "target": "https://fitystore.top/shop?q={search_term_string}", "query-input": "required name=search_term_string"}}|tojson }}
   </script>{% endif %}
   <meta name="google-site-verification" content="ZfoAom6cq3cfHBQw4NOz6s2TA8_1rBkte9rLF7owC8c" />
   <script defer src="{{ url_for('static', filename='js/cart.js') }}?v=shop-hero-color-corner-20261022"></script>
-  <script defer src="{{ url_for('static', filename='js/app.js') }}?v=facebook-clickable-image-preview-20261024"></script>
+  <script defer src="{{ url_for('static', filename='js/app.js') }}?v=footer-product-rotation-20261029"></script>
 </head>
 <body>
 <svg class="icon-sprite" aria-hidden="true" focusable="false">
@@ -104,19 +104,25 @@
       <p>From comfy socks to stylish accessories, we bring you everyday essentials that fit your lifestyle.</p>
     </div>
     <div class="footer-showcase-products" aria-label="Shop customer favourites">
-      {% for index in range(3) %}
-        {% if footer_products|length > index %}
-          {% set footer_product = footer_products[index] %}{% set footer_image = product_display_image(footer_product) %}
-          <a class="footer-product-feature" href="{{ url_for('public.product_detail', slug=footer_product.slug) }}">
-            {% if footer_image %}<img src="{{ product_image_url(footer_image) }}" alt="{{ product_image_alt(footer_image, footer_product.name) }}" loading="lazy">{% else %}<span class="footer-feature-placeholder" aria-hidden="true">{{ footer_product.name[:1] }}</span>{% endif %}
-            <span class="footer-feature-name">{{ footer_product.category.name if footer_product.category else 'FityStores Pick' }}</span><strong>{{ footer_product.name }}</strong><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg>
-          </a>
+      <div class="footer-product-rotator" data-footer-rotator>
+        {% for product_group in footer_product_groups %}
+          <div class="footer-product-set{% if loop.first %} is-current{% endif %}" data-footer-slide aria-hidden="{{ 'false' if loop.first else 'true' }}"{% if not loop.first %} inert{% endif %}>
+            {% for footer_product in product_group %}
+              {% set footer_image = product_display_image(footer_product) %}
+              <a class="footer-product-feature" href="{{ url_for('public.product_detail', slug=footer_product.slug) }}">
+                {% if footer_image %}<img src="{{ product_image_url(footer_image) }}" alt="{{ product_image_alt(footer_image, footer_product.name) }}" loading="lazy">{% else %}<span class="footer-feature-placeholder" aria-hidden="true">{{ footer_product.name[:1] }}</span>{% endif %}
+                <span class="footer-feature-name">{{ footer_product.category.name if footer_product.category else 'FityStores Pick' }}</span><strong>{{ footer_product.name }}</strong><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg>
+              </a>
+            {% endfor %}
+          </div>
         {% else %}
-          {% set fallback_assets = ['images/shop-hero/hair_bonnet-removebg-preview.webp', 'images/shop-hero/hair_bands-removebg-preview.webp', 'images/shop-hero/shoe3.fitistores-removebg-preview.png'] %}
-          {% set fallback_names = ['Hair Bonnets', 'Hair Bands', 'Everyday Shoes'] %}
-          <a class="footer-product-feature" href="{{ url_for('public.shop') }}"><img src="{{ url_for('static', filename=fallback_assets[index]) }}" alt="{{ fallback_names[index] }} from FityStores" loading="lazy"><span class="footer-feature-name">FityStores essentials</span><strong>{{ fallback_names[index] }}</strong><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></a>
-        {% endif %}
-      {% endfor %}
+          {% set fallback_assets = ['images/shop-hero/hair_bonnet-removebg-preview.webp', 'images/shop-hero/hair_bands-removebg-preview.webp', 'images/shop-hero/haibands2-removebg-preview.webp'] %}
+          {% set fallback_names = ['Hair Bonnets', 'Hair Bands', 'Hair Accessories'] %}
+          <div class="footer-product-set is-current" data-footer-slide aria-hidden="false">
+            {% for index in range(3) %}<a class="footer-product-feature" href="{{ url_for('public.shop') }}"><img src="{{ url_for('static', filename=fallback_assets[index]) }}" alt="{{ fallback_names[index] }} from FityStores" loading="lazy"><span class="footer-feature-name">FityStores essentials</span><strong>{{ fallback_names[index] }}</strong><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></a>{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
       <a class="footer-fit-feature" href="{{ url_for('public.shop') }}">
         <span class="footer-fit-copy">Find<br>your fit.<svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></span>
         <img class="footer-fit-shoe" src="{{ url_for('static', filename='images/shop-hero/shoe3.fitistores-removebg-preview.png') }}" alt="White FityStores everyday shoe" loading="lazy">

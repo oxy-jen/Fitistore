@@ -29,6 +29,16 @@ class Category(TimestampMixin, db.Model):
     slug = db.Column(db.String(100), unique=True, nullable=False, index=True)
     products = db.relationship("Product", back_populates="category")
 
+
+class CategoryThumbnail(TimestampMixin, db.Model):
+    __tablename__ = "home_category_thumbnail"
+    id = db.Column(db.Integer, primary_key=True)
+    group_key = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    filename = db.Column(db.String(255), nullable=False, default="")
+    storage_backend = db.Column(db.String(20), nullable=False, default="local")
+    cloudinary_public_id = db.Column(db.String(255))
+    alt_text = db.Column(db.String(255), nullable=False, default="Category thumbnail")
+
 class CartAddCount(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey("product.id", ondelete="CASCADE"), primary_key=True)
     add_count = db.Column(db.Integer, nullable=False, default=0)
@@ -55,6 +65,7 @@ class Product(TimestampMixin, db.Model):
     images = db.relationship("ProductImage", back_populates="product", cascade="all, delete-orphan", order_by="ProductImage.sort_order")
     variants = db.relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan", order_by="ProductVariant.sort_order")
     reviews = db.relationship("Review", back_populates="product")
+    mamba_collection_item = db.relationship("MambaCollectionItem", back_populates="product", cascade="all, delete-orphan", uselist=False)
     __table_args__ = (
         CheckConstraint("stock_quantity >= 0", name="ck_product_stock_nonnegative"),
         CheckConstraint("reserved_quantity >= 0", name="ck_product_reserved_nonnegative"),
@@ -104,6 +115,19 @@ class Product(TimestampMixin, db.Model):
     def max_variant_price_cents(self):
         prices = self.active_variant_prices
         return max(prices) if prices else None
+
+
+class MambaCollection(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    is_configured = db.Column(db.Boolean, default=False, nullable=False)
+
+
+class MambaCollectionItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id", ondelete="CASCADE"), unique=True, nullable=False)
+    sort_order = db.Column(db.Integer, default=0, nullable=False)
+    product = db.relationship("Product", back_populates="mamba_collection_item")
+
 
 class ProductImage(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)

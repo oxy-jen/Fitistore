@@ -1,5 +1,5 @@
 {% extends "base.html" %}{% block content %}
-<section class="page-head"><div><h1>Products</h1><p>Search, filter, edit prices, and manage stock from one place.</p></div><a class="btn primary" href="{{ url_for('admin.product_form') }}">Add product</a></section>
+<section class="page-head"><div><h1>Products</h1><p>Search, filter, edit prices, and manage stock from one place.</p></div><div class="actions"><a class="btn" href="{{ url_for('admin.category_thumbnails') }}">Edit category thumbnails</a><a class="btn" href="{{ url_for('admin.mamba_collection') }}">Manage Mamba collection</a><a class="btn primary" href="{{ url_for('admin.product_form') }}">Add product</a></div></section>
 <section class="stat-grid compact"><article><span>Total</span><strong>{{ stats.total }}</strong></article><article><span>Active</span><strong>{{ stats.active }}</strong></article><article><span>Low stock</span><strong>{{ stats.low }}</strong></article><article><span>Out</span><strong>{{ stats.out }}</strong></article></section>
 <form class="filters" action="{{ url_for('admin.products') }}">
   <input name="q" value="{{ q }}" placeholder="Search name, SKU, description" aria-label="Search products">

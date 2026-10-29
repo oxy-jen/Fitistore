@@ -18,11 +18,13 @@ from sqlalchemy import func, or_, update
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 from app.extensions import db
-from app.models import AdminUser, CustomerAccount, CustomerCart, CustomerOrderLink, Category, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate
+from app.models import AdminUser, CustomerAccount, CustomerCart, CustomerOrderLink, Category, CategoryThumbnail, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, MambaCollection, MambaCollectionItem, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate
+from app.services.mamba_collection import MAMBA_CATEGORY_NAMES, mamba_collection_schema_ready
+from app.services.category_thumbnails import CATEGORY_GROUPS, CATEGORY_GROUPS_BY_KEY, category_group_key, category_thumbnails_schema_ready
 from app.services.formatting import parse_money
 from app.services.inventory import InventoryError, adjust_stock, adjust_variant_stock, low_stock_products
 from app.services.orders import FULFILMENT_STATUSES, PAYMENT_STATUSES, award_loyalty_for_order, refundable_cents, sales_summary, update_order_status
-from app.services.product_images import ImageStorageError, cloudinary_configured, cloudinary_public_id, delete_cloudinary_asset, upload_image_bytes
+from app.services.product_images import ImageStorageError, cloudinary_configured, cloudinary_public_id, delete_cloudinary_asset, legacy_local_image_path, upload_image_bytes
 
 admin_bp = Blueprint("admin", __name__, template_folder="../templates/admin")
 
@@ -699,6 +701,184 @@ def products():
     }
     categories = Category.query.order_by(Category.name).all()
     return render_template("admin/products.html", title="Products", products=products, categories=categories, q=q, category_id=category_id, status=status, stats=stats)
+
+
+@admin_bp.route("/mamba-collection", methods=["GET", "POST"])
+@login_required
+def mamba_collection():
+    schema_ready = mamba_collection_schema_ready()
+    if not schema_ready:
+        if request.method == "POST":
+            flash("Mamba collection storage is not installed yet. Run the mamba collection schema migration, then try again.", "error")
+            return redirect(url_for("admin.mamba_collection"))
+        return render_template(
+            "admin/mamba_collection.html", title="Mamba collection", schema_ready=False,
+            products=[], selected_ids=set(), position_by_id={},
+        )
+
+    collection = MambaCollection.query.order_by(MambaCollection.id.asc()).first()
+    if request.method == "POST":
+        try:
+            requested_ids = list(dict.fromkeys(int(raw_id) for raw_id in request.form.getlist("product_ids") if raw_id.isdigit()))
+            eligible_products = Product.query.join(Category).filter(
+                Product.id.in_(requested_ids or [-1]), Product.active.is_(True),
+                Category.name.in_(MAMBA_CATEGORY_NAMES),
+            ).all()
+            eligible_by_id = {product.id: product for product in eligible_products}
+            requested_ids = [product_id for product_id in requested_ids if product_id in eligible_by_id]
+            original_order = {product_id: index for index, product_id in enumerate(requested_ids)}
+            def collection_order(product_id):
+                try:
+                    position = int(request.form.get(f"position_{product_id}") or 0)
+                except (TypeError, ValueError):
+                    position = 0
+                return (position if position > 0 else 1000000, original_order[product_id])
+            requested_ids.sort(key=collection_order)
+            if not collection:
+                collection = MambaCollection()
+                db.session.add(collection)
+                db.session.flush()
+            MambaCollectionItem.query.delete(synchronize_session=False)
+            for position, product_id in enumerate(requested_ids, start=1):
+                db.session.add(MambaCollectionItem(product_id=product_id, sort_order=position))
+            collection.is_configured = True
+            db.session.commit()
+            flash(f"Mamba collection saved with {len(requested_ids)} product(s).", "success")
+        except Exception:
+            db.session.rollback()
+            flash("The Mamba collection could not be saved. Please review the selected products and try again.", "error")
+        return redirect(url_for("admin.mamba_collection"))
+
+    products = Product.query.join(Category).filter(
+        Category.name.in_(MAMBA_CATEGORY_NAMES),
+    ).order_by(Category.name.asc(), Product.name.asc(), Product.id.asc()).all()
+    selected_items = MambaCollectionItem.query.order_by(MambaCollectionItem.sort_order.asc(), MambaCollectionItem.id.asc()).all()
+    selected_ids = {item.product_id for item in selected_items}
+    position_by_id = {item.product_id: index for index, item in enumerate(selected_items, start=1)}
+    return render_template(
+        "admin/mamba_collection.html", title="Mamba collection", schema_ready=True,
+        products=products, selected_ids=selected_ids, position_by_id=position_by_id,
+    )
+
+
+@admin_bp.get("/category-thumbnails")
+@login_required
+def category_thumbnails():
+    schema_ready = category_thumbnails_schema_ready()
+    categories = Category.query.order_by(Category.name.asc()).all()
+    categories_by_group = {group["key"]: [category for category in categories if category_group_key(category.name) == group["key"]] for group in CATEGORY_GROUPS}
+    thumbnails = {}
+    if schema_ready:
+        thumbnails = {image.group_key: image for image in CategoryThumbnail.query.all()}
+    cards = []
+    for group in CATEGORY_GROUPS:
+        category_ids = [category.id for category in categories_by_group[group["key"]]]
+        fallback_product = Product.query.filter(Product.active.is_(True), Product.category_id.in_(category_ids or [-1])).order_by(Product.updated_at.desc(), Product.id.desc()).first()
+        cards.append({"group": group, "thumbnail": thumbnails.get(group["key"]), "fallback_product": fallback_product})
+    return render_template("admin/category_thumbnails.html", title="Category thumbnails", schema_ready=schema_ready, cards=cards)
+
+
+@admin_bp.post("/category-thumbnails/<group_key>")
+@login_required
+def save_category_thumbnail(group_key):
+    group = CATEGORY_GROUPS_BY_KEY.get(group_key)
+    if not group:
+        flash("Choose one of the homepage category groups.", "error")
+        return redirect(url_for("admin.category_thumbnails"))
+    if not category_thumbnails_schema_ready():
+        flash("Category thumbnail storage is not installed. Run the category thumbnail schema migration, then try again.", "error")
+        return redirect(url_for("admin.category_thumbnails"))
+
+    thumbnail = CategoryThumbnail.query.filter_by(group_key=group_key).first()
+    if request.form.get("remove_thumbnail"):
+        if thumbnail:
+            old_cloudinary_id = thumbnail.cloudinary_public_id
+            old_local_path = legacy_local_image_path(thumbnail)
+            db.session.delete(thumbnail)
+            db.session.commit()
+            if old_cloudinary_id:
+                try:
+                    delete_cloudinary_asset(old_cloudinary_id)
+                except ImageStorageError:
+                    current_app.logger.warning("Could not delete replaced category thumbnail asset %s", old_cloudinary_id)
+            if old_local_path and old_local_path.is_file():
+                try:
+                    old_local_path.unlink(missing_ok=True)
+                except OSError:
+                    current_app.logger.warning("Could not remove old local category thumbnail %s", old_local_path)
+            flash(f"Custom thumbnail removed for {group['name']}; the homepage will use a product photo instead.", "success")
+        return redirect(url_for("admin.category_thumbnails"))
+
+    image_file = request.files.get("image")
+    if not image_file or not image_file.filename:
+        flash("Choose an image file for this category first.", "error")
+        return redirect(url_for("admin.category_thumbnails"))
+    data = image_file.read(current_app.config["MAX_CONTENT_LENGTH"] + 1)
+    extension, error = validate_image_bytes(image_file.filename, data)
+    if error:
+        flash(error, "error")
+        return redirect(url_for("admin.category_thumbnails"))
+
+    old_cloudinary_id = thumbnail.cloudinary_public_id if thumbnail else ""
+    old_local_path = legacy_local_image_path(thumbnail) if thumbnail else None
+    new_cloudinary_id = ""
+    new_local_path = None
+    filename = ""
+    try:
+        if cloudinary_configured():
+            safe_stem = Path(secure_filename(image_file.filename) or "category").stem[:60]
+            new_cloudinary_id = f"fity/category-thumbnails/{group_key}/{uuid4().hex}-{safe_stem}"
+            upload_image_bytes(data, new_cloudinary_id)
+            filename = (secure_filename(image_file.filename) or f"{group_key}.{extension}")[:255]
+            storage_backend = "cloudinary"
+        else:
+            safe_name = secure_filename(image_file.filename) or f"{group_key}.{extension}"
+            filename = f"{uuid4().hex}-{safe_name}"[:255]
+            upload_folder = Path(current_app.config["UPLOAD_FOLDER"]).resolve()
+            upload_folder.mkdir(parents=True, exist_ok=True)
+            target = (upload_folder / filename).resolve()
+            if target.parent != upload_folder:
+                raise ValueError("Invalid image filename.")
+            target.write_bytes(data)
+            new_local_path = target
+            storage_backend = "local"
+
+        if not thumbnail:
+            thumbnail = CategoryThumbnail(group_key=group_key)
+            db.session.add(thumbnail)
+        thumbnail.filename = filename
+        thumbnail.storage_backend = storage_backend
+        thumbnail.cloudinary_public_id = new_cloudinary_id or None
+        thumbnail.alt_text = (request.form.get("alt_text") or "").strip()[:255] or group["name"]
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        if new_cloudinary_id:
+            try:
+                delete_cloudinary_asset(new_cloudinary_id)
+            except ImageStorageError:
+                current_app.logger.warning("Could not clean up failed category thumbnail upload %s", new_cloudinary_id)
+        if new_local_path and new_local_path.is_file():
+            try:
+                new_local_path.unlink(missing_ok=True)
+            except OSError:
+                current_app.logger.warning("Could not clean up failed local category thumbnail %s", new_local_path)
+        current_app.logger.warning("Category thumbnail upload failed for group %s: %s", group_key, exc)
+        flash("The category thumbnail could not be saved. Check the file and try again.", "error")
+        return redirect(url_for("admin.category_thumbnails"))
+
+    if old_cloudinary_id:
+        try:
+            delete_cloudinary_asset(old_cloudinary_id)
+        except ImageStorageError:
+            current_app.logger.warning("Could not delete replaced category thumbnail asset %s", old_cloudinary_id)
+    if old_local_path and old_local_path.is_file():
+        try:
+            old_local_path.unlink(missing_ok=True)
+        except OSError:
+            current_app.logger.warning("Could not remove old local category thumbnail %s", old_local_path)
+    flash(f"Thumbnail saved for {group['name']}.", "success")
+    return redirect(url_for("admin.category_thumbnails"))
 
 @admin_bp.route("/products/new", methods=["GET", "POST"])
 @admin_bp.route("/products/<int:product_id>/edit", methods=["GET", "POST"])

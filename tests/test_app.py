@@ -8,7 +8,7 @@ import app as app_module
 from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, AuthRateLimit, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, Order, OrderItem, OrderStatusHistory, Product, ProductImage, ProductSuggestion, Review, ShopSettings
+from app.models import AdminUser, AuthRateLimit, CartAddCount, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, Order, OrderItem, OrderStatusHistory, Product, ProductImage, ProductSuggestion, Review, ShopSettings
 from config import TestConfig
 
 @pytest.fixture()
@@ -44,7 +44,25 @@ def sign_in_verified_customer(client, email="verified-customer@example.com"):
 def test_homepage_renders(client):
     rv = client.get("/")
     assert rv.status_code == 200
-    assert b"Fresh essentials" in rv.data
+    assert b"Your Style." in rv.data
+
+def test_homepage_most_added_carousel_keeps_popularity_order_and_pagination_controls(client, app):
+    with app.app_context():
+        products = Product.query.order_by(Product.name).all()
+        db.session.add_all([
+            CartAddCount(product_id=products[0].id, add_count=3),
+            CartAddCount(product_id=products[1].id, add_count=9),
+        ])
+        db.session.commit()
+
+    rv = client.get("/")
+    assert rv.status_code == 200
+    section = rv.data[rv.data.index(b'id="most-added"'):rv.data.index(b'id="category-showcase"')]
+    assert b'data-most-added' in section
+    assert b'data-most-added-track' in section
+    assert b'data-most-added-prev' in section
+    assert b'data-most-added-next' in section
+    assert section.index(b"Unpriced Cap") < section.index(b"Plain Socks")
 
 def test_about_renders_live_categories_products_and_working_destinations(client):
     rv = client.get("/about")
