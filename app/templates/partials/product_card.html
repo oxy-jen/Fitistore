@@ -1,4 +1,4 @@
-<article class="product-card shop-product-card" data-product-card="{{ product.id }}">
+<article class="product-card shop-product-card" data-product-card="{{ product.id }}" data-category-group="{{ category_group_key(product.category.name) or 'other' }}">
   {% set image = product_display_image(product) %}
   {% set variant_count = product.active_variants|length %}
   {% set size_option_count = split_options(product.size_options)|length %}

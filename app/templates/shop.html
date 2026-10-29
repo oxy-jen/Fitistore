@@ -13,7 +13,7 @@
 
   <nav class="shop-category-chips" aria-label="Shop categories">
     <a class="shop-chip{% if not active_category and not active_category_group %} active{% endif %}" href="{{ url_for('public.shop', q=q, sort=sort) }}"{% if not active_category and not active_category_group %} aria-current="page"{% endif %}>All</a>
-    {% for group in category_groups %}<a class="shop-chip{% if active_category_group and active_category_group.key == group.key %} active{% endif %}" href="{{ url_for('public.shop', category_group=group.key, q=q, sort=sort) }}"{% if active_category_group and active_category_group.key == group.key %} aria-current="page"{% endif %}>{{ group.name }}</a>{% endfor %}
+    {% for group in category_groups %}<a class="shop-chip{% if active_category_group and active_category_group.key == group.key %} active{% endif %}" data-category-group-key="{{ group.key }}" data-category-group-name="{{ group.name }}" href="{{ url_for('public.shop', category_group=group.key, q=q, sort=sort) }}"{% if active_category_group and active_category_group.key == group.key %} aria-current="page"{% endif %}>{{ group.name }}</a>{% endfor %}
   </nav>
 
   <form class="shop-toolbar" action="{{ url_for('public.shop') }}" id="shop-filters">
@@ -24,7 +24,7 @@
   </form>
 
   <div class="shop-results-heading"><h2>{% if active_category %}{{ active_category.name }}{% elif active_category_group %}{{ active_category_group.name }}{% elif q %}Search results{% else %}Shop everyday essentials{% endif %}</h2><a href="{{ url_for('public.shop') }}">Clear filters</a></div>
-  <div id="product-grid" class="product-grid shop-product-grid" data-next-page="{{ page + 1 if has_next else '' }}" data-has-next="{{ 'true' if has_next else 'false' }}" data-api-url="{{ url_for('public.api_products') }}">{% for product in products %}{% include "partials/product_card.html" %}{% endfor %}</div>
+  <div id="product-grid" class="product-grid shop-product-grid" data-next-page="{{ page + 1 if has_next else '' }}" data-has-next="{{ 'true' if has_next else 'false' }}" data-api-url="{{ url_for('public.api_products') }}" data-shop-url="{{ url_for('public.shop') }}" data-shop-sort="{{ sort }}" data-shop-query="{{ q }}">{% for product in products %}{% include "partials/product_card.html" %}{% endfor %}</div>
   <div id="shop-empty" class="empty shop-empty" {% if products %}hidden{% endif %}>No active products match this search.</div>
   <div class="load-panel shop-load-panel"><p id="load-status" class="note small">{% if has_next %}More products will load as you scroll.{% else %}All matching products are loaded.{% endif %}</p><button id="load-more" class="btn" type="button" {% if not has_next %}hidden{% endif %}><svg class="icon"><use href="#icon-arrow"></use></svg><span>Load more</span></button></div>
 
