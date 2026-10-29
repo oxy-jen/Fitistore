@@ -12,10 +12,12 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
-from app.models import CartAddCount, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
+from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
+from app.services.mamba_collection import mamba_products_query
+from app.services.category_thumbnails import CATEGORY_GROUPS, CATEGORY_GROUPS_BY_KEY, category_group_key, category_thumbnails_schema_ready
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
 from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
 from app.services.referrals import get_or_create_profile, normalize_phone, record_referral_click
@@ -92,14 +94,25 @@ def save_payment_proof(file):
 @public_bp.app_context_processor
 def helpers():
     from app.services.formatting import money, split_options
-    footer_products = product_list_options(Product.query.filter_by(active=True)).order_by(
+    footer_candidates = product_list_options(Product.query.filter_by(active=True)).order_by(
         Product.featured.desc(), Product.updated_at.desc(), Product.id.desc()
-    ).limit(4).all()
-    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "footer_products": footer_products, "current_year": datetime.now().year}
+    ).limit(60).all()
+    footwear_terms = ("shoe", "sneaker", "footwear", "sandal", "slipper", "boot")
+    footer_products = [
+        product for product in footer_candidates
+        if not any(term in " ".join((product.name or "", product.category.name if product.category else "")).lower() for term in footwear_terms)
+    ]
+    footer_product_groups = [
+        footer_products[index:index + 3]
+        for index in range(0, min(len(footer_products), 18), 3)
+        if len(footer_products[index:index + 3]) == 3
+    ]
+    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "footer_products": footer_products[:3], "footer_product_groups": footer_product_groups, "current_year": datetime.now().year}
 
 def product_query():
     q = request.args.get("q", "").strip()
     category_slug = request.args.get("category", "").strip()
+    category_group = CATEGORY_GROUPS_BY_KEY.get(request.args.get("category_group", "").strip())
     sort = request.args.get("sort", "newest")
     query = product_list_options(Product.query.filter_by(active=True).join(Category))
     if q:
@@ -110,6 +123,9 @@ def product_query():
         active_category = Category.query.filter_by(slug=category_slug).first()
         if active_category:
             query = query.filter(Product.category == active_category)
+    elif category_group:
+        category_ids = [category.id for category in Category.query.all() if category_group_key(category.name) == category_group["key"]]
+        query = query.filter(Product.category_id.in_(category_ids or [-1]))
     if sort == "price-low":
         query = query.order_by(Product.price_cents.is_(None), Product.price_cents.asc(), Product.name.asc())
     elif sort == "price-high":
@@ -165,23 +181,35 @@ def home():
 
     categories = Category.query.join(Product).filter(Product.active.is_(True)).group_by(Category.id).order_by(Category.name).all()
     category_sections = []
-    for category in categories:
-        category_query = Product.query.filter_by(active=True, category=category).filter(Product.id.notin_(used_product_ids))
-        products = product_list_options(category_query).order_by(Product.updated_at.desc(), Product.id.desc()).limit(4).all()
-        if products:
-            category_sections.append({"category": category, "products": products})
-            used_product_ids.update(product.id for product in products)
+    category_thumbnails_ready = category_thumbnails_schema_ready()
+    thumbnails = {
+        thumbnail.group_key: thumbnail
+        for thumbnail in (CategoryThumbnail.query.all() if category_thumbnails_ready else [])
+    }
+    for group in CATEGORY_GROUPS:
+        category_ids = [category.id for category in categories if category_group_key(category.name) == group["key"]]
+        products = product_list_options(
+            Product.query.filter(Product.active.is_(True), Product.category_id.in_(category_ids or [-1]))
+        ).order_by(Product.updated_at.desc(), Product.id.desc()).limit(4).all()
+        thumbnail = thumbnails.get(group["key"])
+        if not valid_product_image(thumbnail):
+            thumbnail = product_display_image(products[0]) if products else None
+        thumbnail_url = product_image_url(thumbnail) if thumbnail else url_for("static", filename=group["default_image"])
+        thumbnail_alt = product_image_alt(thumbnail, group["name"]) if thumbnail else group["name"]
+        category_sections.append({
+            "group": group,
+            "products": products,
+            "thumbnail_url": thumbnail_url,
+            "thumbnail_alt": thumbnail_alt,
+        })
 
-    mamba_category_names = ["Boxers", "Shoes", "Vests", "Ankle socks", "Socks"]
-    # Mamba is a curated cross-category collection, so items may also appear
-    # in the earlier featured, arrival, and department sections.
-    mamba_query = Product.query.join(Category).filter(
-        Product.active.is_(True),
-        Category.name.in_(mamba_category_names),
-    )
-    mamba_products = product_list_options(mamba_query).order_by(Category.name.asc(), Product.updated_at.desc(), Product.id.desc()).all()
+    # Keep existing catalogue behavior until an admin saves a curated list.
+    mamba_query, mamba_collection_configured = mamba_products_query()
+    mamba_products = product_list_options(mamba_query).all()
     mamba_category_ids = {product.category_id for product in mamba_products}
     mamba_categories = [category for category in categories if category.id in mamba_category_ids]
+    mamba_filter_order = {"boxers": 0, "shoes": 1, "vests": 2, "ankle socks": 3, "socks": 3}
+    mamba_categories.sort(key=lambda category: (mamba_filter_order.get(category.name.strip().lower(), 4), category.name.lower()))
     home_share_specs = {
         "home": ("Everyday essentials. Fits poa.", "Shop everyday essentials with clear prices and quick WhatsApp support.", "SHOP NOW"),
         "featured": ("Fresh picks, fair prices.", "Explore featured FityStores products selected for everyday wear.", "VIEW PICKS"),
@@ -201,7 +229,7 @@ def home():
         "popular": product_list_options(Product.query.join(CartAddCount, CartAddCount.product_id == Product.id).filter(Product.active.is_(True)).order_by(CartAddCount.add_count.desc(), Product.name.asc())),
         "categories": product_list_options(Product.query.filter_by(active=True)).order_by(Product.category_id, Product.updated_at.desc(), Product.id.desc()),
         "offers": product_list_options(Product.query.filter(Product.active.is_(True), Product.previous_price_cents.isnot(None), Product.price_cents.isnot(None), Product.previous_price_cents > Product.price_cents)).order_by(Product.updated_at.desc(), Product.id.desc()),
-        "mamba": product_list_options(Product.query.join(Category).filter(Product.active.is_(True), Category.name.in_(mamba_category_names))).order_by(Product.updated_at.desc(), Product.id.desc()),
+        "mamba": product_list_options(mamba_products_query()[0]),
     }
     share_product = share_product_queries.get(requested_share, share_product_queries["home"]).first()
     home_og_image = url_for("public.home_share_card", section=requested_share, _external=True)
@@ -217,6 +245,7 @@ def home():
         og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=section_title + " at FityStores",
         fresh_arrivals=fresh_arrivals, featured=featured, top_added=top_added, discounted=discounted,
         category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories,
+        mamba_collection_configured=mamba_collection_configured,
         suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE,
         home_share_urls=home_share_urls, requested_share=requested_share,
     )
@@ -242,7 +271,7 @@ def home_social_card(section):
     if section=="featured":q=q.filter(Product.featured.is_(True))
     elif section=="popular":q=q.join(CartAddCount,CartAddCount.product_id==Product.id).order_by(CartAddCount.add_count.desc())
     elif section=="offers":q=q.filter(Product.previous_price_cents.isnot(None),Product.price_cents.isnot(None),Product.previous_price_cents>Product.price_cents)
-    elif section=="mamba":q=q.join(Category).filter(Category.name.in_(["Boxers","Shoes","Vests","Ankle socks","Socks"]))
+    elif section=="mamba":q=mamba_products_query()[0]
     product=product_list_options(q).order_by(Product.updated_at.desc(),Product.id.desc()).first()
     image=product_display_image(product) if product else None
     image_url=product_image_url(image) if image else ""
@@ -280,7 +309,7 @@ def home_share_card(section):
         "popular": product_list_options(Product.query.join(CartAddCount, CartAddCount.product_id == Product.id).filter(Product.active.is_(True)).order_by(CartAddCount.add_count.desc(), Product.name.asc())),
         "categories": product_list_options(Product.query.filter_by(active=True)).order_by(Product.category_id, Product.updated_at.desc(), Product.id.desc()),
         "offers": product_list_options(Product.query.filter(Product.active.is_(True), Product.previous_price_cents.isnot(None), Product.price_cents.isnot(None), Product.previous_price_cents > Product.price_cents)).order_by(Product.updated_at.desc(), Product.id.desc()),
-        "mamba": product_list_options(Product.query.join(Category).filter(Product.active.is_(True), Category.name.in_(["Boxers", "Shoes", "Vests", "Ankle socks", "Socks"]))).order_by(Product.updated_at.desc(), Product.id.desc()),
+        "mamba": product_list_options(mamba_products_query()[0]),
     }
     product = queries.get(section, queries["home"]).first()
     image = product_display_image(product) if product else None
@@ -523,10 +552,12 @@ def track_order_link(reference, tracking_token):
 @public_bp.route("/shop")
 def shop():
     query, active_category, q, sort = product_query()
+    active_category_group = CATEGORY_GROUPS_BY_KEY.get(request.args.get("category_group", "").strip())
     page = 1
     pagination = query.paginate(page=page, per_page=PRODUCTS_PER_PAGE, error_out=False)
     categories = Category.query.order_by(Category.name).all()
-    return render_template("shop.html", title="Shop", seo_title=((active_category.name + " | Shop at FityStores") if active_category else "Shop products | FityStores"), seo_description=("Browse available " + active_category.name + " products, check current listing details, and contact FityStores with questions." if active_category else "Browse available FityStores products, check current listing details, and contact the seller to confirm stock and fulfilment."), products=pagination.items, categories=categories, active_category=active_category, q=q, sort=sort, page=page, has_next=pagination.has_next)
+    active_title = active_category.name if active_category else (active_category_group["name"] if active_category_group else "Shop products")
+    return render_template("shop.html", title="Shop", seo_title=active_title + " | Shop at FityStores", seo_description=("Browse available " + active_title + " products, check current listing details, and contact FityStores with questions."), products=pagination.items, categories=categories, category_groups=CATEGORY_GROUPS, active_category=active_category, active_category_group=active_category_group, q=q, sort=sort, page=page, has_next=pagination.has_next)
 
 @public_bp.route("/api/products")
 def api_products():

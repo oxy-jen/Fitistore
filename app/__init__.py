@@ -10,7 +10,7 @@ from werkzeug.security import generate_password_hash
 
 from config import Config
 from .extensions import db, login_manager, csrf
-from .models import AdminUser, CartAddCount, Category, CustomerProfile, Order, OrderItem, Product, ProductImage, ReferralClick, ShopSettings
+from .models import AdminUser, CartAddCount, Category, CategoryThumbnail, CustomerProfile, MambaCollection, MambaCollectionItem, Order, OrderItem, Product, ProductImage, ReferralClick, ShopSettings
 from .services.product_images import ImageStorageError, legacy_local_image_path, upload_image_bytes
 
 DEFAULT_CATEGORIES = [
@@ -591,6 +591,40 @@ def register_cli(app: Flask):
         """Add the Cloudinary product image columns with safe, idempotent database-specific DDL."""
         ensure_cloudinary_image_columns()
         click.echo("Cloudinary product image schema is ready.")
+
+    @app.cli.command("migrate-mamba-collection-schema")
+    def migrate_mamba_collection_schema():
+        """Create the persistent Mamba collection tables without changing catalogue records."""
+        from sqlalchemy import inspect
+        if db.engine.dialect.name not in {"sqlite", "postgresql"}:
+            raise click.ClickException("Mamba collection migration supports SQLite and PostgreSQL only.")
+        if not inspect(db.engine).has_table("product"):
+            raise click.ClickException("The product table is missing. Initialize the store database first.")
+        try:
+            with db.engine.begin() as connection:
+                MambaCollection.__table__.create(bind=connection, checkfirst=True)
+                MambaCollectionItem.__table__.create(bind=connection, checkfirst=True)
+        except Exception as exc:
+            raise click.ClickException(
+                f"Mamba collection migration failed ({type(exc).__name__}); no catalogue records were changed."
+            ) from None
+        click.echo("Mamba collection schema is ready. No catalogue records were changed.")
+
+    @app.cli.command("migrate-category-thumbnails-schema")
+    def migrate_category_thumbnails_schema():
+        """Create the category thumbnail table without changing category or product records."""
+        from sqlalchemy import inspect
+        if db.engine.dialect.name not in {"sqlite", "postgresql"}:
+            raise click.ClickException("Category thumbnail migration supports SQLite and PostgreSQL only.")
+        if not inspect(db.engine).has_table("category"):
+            raise click.ClickException("The category table is missing. Initialize the store database first.")
+        try:
+            CategoryThumbnail.__table__.create(bind=db.engine, checkfirst=True)
+        except Exception as exc:
+            raise click.ClickException(
+                f"Category thumbnail migration failed ({type(exc).__name__}); no catalogue records were changed."
+            ) from None
+        click.echo("Category thumbnail schema is ready. No catalogue records were changed.")
 
     @app.cli.command("export-product-image-map")
     @click.option("--output", "output_path", type=click.Path(dir_okay=False, path_type=Path), help="Write CSV mapping to this file instead of stdout.")

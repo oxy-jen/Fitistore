@@ -1,0 +1,26 @@
+{% extends "base.html" %}{% block content %}
+<section class="page-head">
+  <div><p class="eyebrow">Homepage collection</p><h1>Manage Mamba collection</h1><p>Choose the active products that appear in Mamba and set their display order. Add products from the catalogue first, using Boxers, Shoes, Vests, Ankle socks, or Socks as the category.</p></div>
+  <div class="actions"><a class="btn" href="{{ url_for('admin.products') }}">Manage products</a><a class="btn" href="{{ url_for('admin.product_form') }}">Add product</a></div>
+</section>
+{% if not schema_ready %}
+  <section class="form-card"><h2>Collection storage needs setup</h2><p>The collection editor is ready, but its database tables have not been installed. Run <code>flask --app wsgi:app migrate-mamba-collection-schema</code> once, then reload this page.</p></section>
+{% else %}
+  <section class="form-card">
+    <h2>Select and order products</h2>
+    <p>Checked products appear on the homepage in position order. Inactive products are shown for reference and cannot be selected.</p>
+    <form method="post" action="{{ url_for('admin.mamba_collection') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="table-wrap"><table><thead><tr><th>Include</th><th>Position</th><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead><tbody>
+      {% for product in products %}<tr>
+        <td><input type="checkbox" name="product_ids" value="{{ product.id }}" aria-label="Include {{ product.name }}" {% if product.id in selected_ids %}checked{% endif %} {% if not product.active %}disabled{% endif %}></td>
+        <td><input type="number" min="1" max="999" name="position_{{ product.id }}" value="{{ position_by_id.get(product.id, loop.index) }}" aria-label="Position for {{ product.name }}"></td>
+        <td><strong>{{ product.name }}</strong>{% if product.sku %}<br><small>{{ product.sku }}</small>{% endif %}</td>
+        <td>{{ product.category.name }}</td><td>{{ money(product.price_cents, settings.currency) }}</td><td>{{ product.display_stock_quantity }}</td><td>{{ 'Active' if product.active else 'Inactive' }}</td>
+      </tr>{% else %}<tr><td colspan="7">No products are in the Mamba categories yet. Add products in the catalogue first.</td></tr>{% endfor %}
+      </tbody></table></div>
+      <div class="actions"><button class="btn primary" type="submit">Save Mamba collection</button><a class="btn" href="{{ url_for('admin.products') }}">Back to products</a></div>
+    </form>
+  </section>
+{% endif %}
+{% endblock %}
