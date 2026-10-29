@@ -13,9 +13,18 @@
   {% set share_message = "Check out " ~ product.name ~ " at FityStores! " ~ share_price ~ ". View it here: " ~ share_url %}
   <a href="{{ url_for('public.product_detail', slug=product.slug) }}" class="product-image" aria-label="View {{ product.name }}">
     <img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" loading="lazy" width="540" height="540">
-    {% if product.has_discount %}<span class="discount-ribbon" aria-label="{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% discount">Sale</span>{% elif requires_option_choice %}<span class="badge">Options</span>{% endif %}
+    {% if not compact_product_card|default(false) %}{% if product.has_discount %}<span class="discount-ribbon" aria-label="{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% discount">Sale</span>{% elif requires_option_choice %}<span class="badge">Options</span>{% endif %}{% endif %}
   </a>
   <div class="product-body">
+    {% if compact_product_card|default(false) %}
+      <span class="most-added-product-name" title="{{ product.name }}">{{ product.name }}</span>
+      <div class="most-added-price-actions">
+        <span class="most-added-price">{% if variant_count and product.min_variant_price_cents is not none %}{{ money(product.min_variant_price_cents, settings.currency) }}{% elif product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}Ask for price{% endif %}</span>
+        {% if product.price_cents is none and not requires_option_choice %}<a class="btn primary most-added-add" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>Add to Cart</span></a>
+        {% elif requires_option_choice %}<a class="btn primary most-added-add" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to Cart</span></a>
+        {% else %}<button class="btn primary add-cart most-added-add" data-product-id="{{ product.id }}" data-name="{{ product.name }}" {% if display_stock < 1 %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to Cart</span></button>{% endif %}
+      </div>
+    {% else %}
     <p class="category">{{ product.category.name }}</p>
     <h3><a href="{{ url_for('public.product_detail', slug=product.slug) }}">{{ product.name }}</a></h3>
     <p class="shop-card-description">{{ product.description|striptags|truncate(100, true) if product.description else "Everyday essentials from FityStores." }}</p>
@@ -33,6 +42,7 @@
       {% endif %}
       {% if not compact_product_card|default(false) %}<a class="btn shop-whatsapp" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'buy') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask on WhatsApp</span></a>{% endif %}
     </div>
-    {% if not compact_product_card|default(false) %}<div class="card-share shop-card-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ url_for('public.product_social_card', slug=product.slug) }}"><button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share product</button><button class="btn" type="button" data-share-facebook aria-label="Share {{ product.name }} on Facebook">Facebook</button><span class="share-status" data-share-status role="status" aria-live="polite"></span></div>{% endif %}
+    <div class="card-share shop-card-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ url_for('public.product_social_card', slug=product.slug) }}"><button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share product</button><button class="btn" type="button" data-share-facebook aria-label="Share {{ product.name }} on Facebook">Facebook</button><span class="share-status" data-share-status role="status" aria-live="polite"></span></div>
+    {% endif %}
   </div>
 </article>
