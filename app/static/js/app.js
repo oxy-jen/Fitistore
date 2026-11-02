@@ -266,13 +266,20 @@ document.addEventListener('DOMContentLoaded',()=>{
     const track=marquee.querySelector('.marquee-track');
     const firstGroup=track?.querySelector('.marquee-group:not([aria-hidden="true"])');
     if(!track||!firstGroup||!firstGroup.children.length)return;
+    const interactiveCopies=marquee.closest('.featured-showcase');
+    const makePointerInteractive=group=>{
+      group.setAttribute('aria-hidden','true');
+      if(!interactiveCopies){group.setAttribute('inert','');return}
+      group.removeAttribute('inert');
+      group.querySelectorAll('a,button,input,select,textarea,[tabindex]').forEach(element=>element.setAttribute('tabindex','-1'));
+    };
+    track.querySelectorAll('.marquee-group[aria-hidden="true"]').forEach(makePointerInteractive);
     marquee.classList.remove('marquee-static');
     let addedBatches=0;
     while(track.scrollWidth<marquee.clientWidth*1.4&&addedBatches<16){
       for(let copy=0;copy<4;copy++){
         const clone=firstGroup.cloneNode(true);
-        clone.setAttribute('aria-hidden','true');
-        clone.setAttribute('inert','');
+        makePointerInteractive(clone);
         clone.querySelectorAll('[id]').forEach(element=>element.removeAttribute('id'));
         clone.querySelectorAll('[for]').forEach(element=>element.removeAttribute('for'));
         track.appendChild(clone);
