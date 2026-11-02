@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="account-dashboard">
+<section class="account-dashboard" data-account-dashboard data-account-id="{{ account.id }}">
   <header class="account-dashboard-head account-profile-summary">
     <div class="account-profile-identity">
       <div class="account-avatar" aria-hidden="true">{{ (account.display_name or account.email).strip()[0]|upper }}</div>
@@ -16,7 +16,7 @@
       </div>
     </div>
     <div class="account-profile-actions">
-      <nav class="account-profile-nav" aria-label="Account sections"><a href="#account-orders">Orders</a><a href="#account-activity">Recent activity</a><a href="#account-details">Profile & security</a></nav>
+      <details class="account-menu"><summary><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Account menu</span><span class="account-menu-caret" aria-hidden="true">⌄</span></summary><nav class="account-profile-nav" aria-label="Account sections"><a href="#account-orders">Orders & tracking</a><a href="#account-activity">Recent activity</a><a href="#account-details">Profile & security</a><a href="#account-settings">Personal settings</a></nav></details>
       <div class="account-welcome-actions"><a class="btn primary" href="{{ url_for('public.shop') }}">Browse the shop</a><form method="post" action="{{ url_for('customer.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Sign out</button></form></div>
     </div>
   </header>
@@ -45,8 +45,15 @@
       {% else %}<div class="account-empty"><p>No orders are linked to this account yet.</p><a href="{{ url_for('public.shop') }}">Browse the shop</a><p class="account-muted">Orders placed while signed in to this verified account will appear here. For help finding an older order, contact the shop.</p></div>{% endfor %}
       <details class="account-link-order"><summary>Link an existing order</summary><p class="account-muted">Use the order reference and private tracking token from your tracking link. Only an unlinked order can be claimed.</p><form method="post" action="{{ url_for('customer.link_guest_order') }}" class="account-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Order reference<input name="reference" maxlength="24" autocomplete="off" required></label><label>Private tracking token<input name="tracking_token" type="password" maxlength="96" autocomplete="off" required></label><button class="btn" type="submit">Link order to my account</button></form></details>
     </section>
-    <section class="account-panel">
-      <p class="account-kicker">Your account benefits</p><h2>Shop at your pace</h2>
+    <section class="account-panel account-settings-panel" id="account-settings">
+      <p class="account-kicker">Personal settings</p><h2>Make your account yours</h2>
+      <p class="account-muted">Choose how this account dashboard looks on this device. Your settings are kept in this browser and are not shared with other accounts.</p>
+      <div class="account-user-settings" data-account-user-settings>
+        <label>Dashboard layout<select data-account-layout><option value="classic">Classic</option><option value="compact">Compact</option></select></label>
+        <label class="account-motion-setting"><input type="checkbox" data-account-reduce-motion> Reduce dashboard motion</label>
+        <p class="account-settings-saved" data-account-settings-status role="status" aria-live="polite">Settings are saved on this device.</p>
+      </div>
+      <h3 class="account-benefits-title">Account benefits</h3>
       <ul class="account-benefits"><li>See new arrivals and discounted items below without subscribing to promotional email.</li><li>Keep eligible orders linked to your account and open their tracking details here.</li><li>Update your display name and choose the sign-in options that work for you.</li></ul>
       {% if account.marketing_status == 'subscribed' %}<p class="account-muted">Promotional email: subscribed{% if account.marketing_consent_at %} since {{ account.marketing_consent_at.strftime('%Y-%m-%d') }}{% endif %}.</p><form method="post" action="{{ url_for('customer.unsubscribe_account') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Unsubscribe from promotional email</button></form>{% else %}<p class="account-muted">Promotional email is optional. Your access to arrivals and offers on this site is not affected by your email preference.</p>{% endif %}
     </section>
@@ -93,6 +100,37 @@
       });
     })
     .catch(() => { list.textContent = 'Recently viewed products could not be loaded right now.'; });
+})();
+</script>
+<script>
+(() => {
+  const dashboard = document.querySelector('[data-account-dashboard]');
+  const settings = dashboard?.querySelector('[data-account-user-settings]');
+  if (!dashboard || !settings) return;
+  const layout = settings.querySelector('[data-account-layout]');
+  const reduceMotion = settings.querySelector('[data-account-reduce-motion]');
+  const status = settings.querySelector('[data-account-settings-status]');
+  const key = `fity-account-settings:${dashboard.dataset.accountId}`;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (_) {}
+  const apply = () => {
+    dashboard.dataset.layout = layout.value === 'compact' ? 'compact' : 'classic';
+    dashboard.classList.toggle('account-reduce-motion', reduceMotion.checked);
+  };
+  layout.value = saved.layout === 'compact' ? 'compact' : 'classic';
+  reduceMotion.checked = saved.reduceMotion === true;
+  apply();
+  const save = () => {
+    apply();
+    try {
+      localStorage.setItem(key, JSON.stringify({layout: layout.value, reduceMotion: reduceMotion.checked}));
+      status.textContent = 'Your settings are saved on this device.';
+    } catch (_) {
+      status.textContent = 'This browser could not save your settings.';
+    }
+  };
+  layout.addEventListener('change', save);
+  reduceMotion.addEventListener('change', save);
 })();
 </script>
 {% endblock %}
