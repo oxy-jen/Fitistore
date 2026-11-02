@@ -1,5 +1,6 @@
+<!-- Jinja-only macro source stays hidden when the raw template is opened directly.
 {% macro promo_product_grid(products) %}
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;table-layout:fixed">
+<table role="presentation" class="product-grid" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;table-layout:fixed">
         {% for product_row in products|batch(3, none) %}
         <tr>
           {% for product in product_row %}
@@ -25,6 +26,7 @@
         {% endfor %}
 </table>
 {% endmacro %}
+-->
 <!doctype html>
 <html lang="en">
 <head>
@@ -36,8 +38,10 @@
     body,table,td,a{font-family:Arial,Helvetica,sans-serif}
     img{border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic}
     table{border-collapse:separate;border-spacing:0}
+    .email-wrap{width:100%;max-width:680px}
+    .product-grid{width:100%;table-layout:fixed}
     @media only screen and (max-width:680px){
-      .email-wrap{width:100%!important;max-width:100%!important}
+      .email-wrap{width:100%!important;max-width:680px!important}
       .outer-pad{padding:12px 8px!important}
       .announce-copy,.announce-action{width:50%!important;padding:8px 9px!important;font-size:9px!important;white-space:nowrap!important}
       .brand-cell,.nav-cell{display:table-cell!important;vertical-align:middle!important;text-align:left!important}
@@ -55,10 +59,12 @@
       .hero-title{margin:10px 0 5px!important;font-size:24px!important;line-height:1!important;letter-spacing:-.7px!important}
       .hero-description{margin:0 0 9px!important;font-size:10px!important;line-height:1.25!important}
       .hero-cta{padding:8px 10px!important;font-size:9px!important}
-      .product-col{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding:7px 0!important}
-      .product-col table{display:table!important;width:100%!important;max-width:100%!important}
-      .product-photo{height:180px!important;padding:8px!important}
-      .product-photo img{width:100%!important;max-width:280px!important;height:164px!important;object-fit:contain!important}
+      .product-grid,.product-grid tbody,.product-grid tr{display:block!important;width:100%!important;max-width:100%!important}
+      .product-col{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding:6px 0!important}
+      .product-col:empty{display:none!important}
+      .product-col table{display:table!important;width:100%!important;max-width:100%!important;height:auto!important;table-layout:fixed!important}
+      .product-photo{height:164px!important;padding:8px!important}
+      .product-photo img{width:100%!important;max-width:280px!important;height:148px!important;object-fit:contain!important}
       /* Preserve the reference's three horizontal footer rows on narrow screens. */
       .benefit-col{display:table-cell!important;width:25%!important;padding:5px 2px!important;vertical-align:middle!important;border-bottom:0!important}
       .benefit-icon{width:30px!important;height:30px!important}
@@ -67,12 +73,12 @@
       .benefit-col table{width:100%!important}.benefit-col table td:first-child{padding-right:3px!important}
       .benefit-col strong,.benefit-col span{white-space:normal!important}
       .footer-col{display:table-cell!important;text-align:center!important;padding:7px 3px!important;vertical-align:middle!important}
-      .footer-brand{width:30%!important}.footer-thanks{width:42%!important}.footer-social{width:28%!important}
+      .footer-brand{width:33%!important}.footer-thanks{width:36%!important}.footer-social{width:31%!important}
       .footer-divider{border-left:1px solid #cbd1df!important;border-top:0!important}
-      .footer-logo{width:32px!important;height:32px!important}.footer-brand-name{font-size:13px!important}.footer-tagline{font-size:8px!important}
+      .footer-logo{width:24px!important;height:24px!important}.footer-brand-name{font-size:11px!important}.footer-tagline{font-size:7px!important}
       .footer-thanks{font-size:9px!important;line-height:1.35!important}
-      .social-link{width:22px!important;height:22px!important;margin:1px!important}
-      .social-icon{width:11px!important;height:11px!important}
+      .social-link{width:18px!important;height:18px!important;margin:1px!important}
+      .social-icon{width:14px!important;height:14px!important}
       .wa-icon{display:table-cell!important;width:48px!important;padding:7px 0 7px 6px!important}
       .wa-brand-icon{width:34px!important;height:34px!important}
       .wa-copy{display:table-cell!important;padding:7px 4px!important;text-align:left!important}
@@ -86,7 +92,7 @@
   <div style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;mso-hide:all">{{ design.preheader|e }}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#f0f2f8">
     <tr><td align="center" class="outer-pad" style="padding:22px 14px">
-      <table role="presentation" class="email-wrap" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:960px;color:#182033">
+      <table role="presentation" class="email-wrap" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:680px;color:#182033">
         <tr><td colspan="3" style="padding:0 12px 12px">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#e9ebf4;border:1px solid #fff;border-radius:24px;box-shadow:5px 6px 14px #d3d6e1,-5px -5px 14px #fff">
             <tr><td class="announce-copy" style="padding:10px 22px;color:#43506b;font-size:13px;font-weight:bold"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e52335" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>Special Picks for You</td><td class="announce-action" align="right" style="padding:10px 22px;font-size:13px"><a href="{{ shop_url|e }}" style="color:#35415b;text-decoration:none;font-weight:bold">View in Browser&nbsp; &#8599;</a></td></tr>
