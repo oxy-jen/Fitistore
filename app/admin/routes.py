@@ -91,7 +91,8 @@ def email_center():
     messages_available = model_schema_ready(EmailMessage, inspector)
     templates_available = model_schema_ready(EmailTemplate, inspector)
     email_templates = EmailTemplate.query.order_by(EmailTemplate.category, EmailTemplate.name, EmailTemplate.id).all() if templates_available else []
-    promotional_templates = [item for item in email_templates if item.category == "promotion"]
+    promotional_templates = EmailTemplate.query.filter_by(category="promotion").order_by(EmailTemplate.updated_at.desc(), EmailTemplate.id.desc()).all() if templates_available else []
+    default_promotional_template_id = promotional_templates[0].id if promotional_templates else None
     service_templates = [item for item in email_templates if item.category == "customer_service"]
     service_messages_available = messages_available and model_schema_ready(FinancialAuditEvent, inspector)
     messages = EmailMessage.query.order_by(EmailMessage.created_at.desc()).limit(30).all() if messages_available else []
@@ -99,16 +100,18 @@ def email_center():
     configured, note = mail_configuration_status()
     eligible_total = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").count()
     service_eligible_total = CustomerAccount.query.filter_by(active=True).filter(CustomerAccount.email_verified_at.isnot(None)).count()
-    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, pending_opt_ins=pending_opt_ins, pending_opt_in_total=pending_opt_in_total, accounts=accounts, order_map=order_map, consent_events=consent_events, campaigns=campaigns, messages=messages, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex, promotional_templates=promotional_templates, service_templates=service_templates)
+    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, pending_opt_ins=pending_opt_ins, pending_opt_in_total=pending_opt_in_total, accounts=accounts, order_map=order_map, consent_events=consent_events, campaigns=campaigns, messages=messages, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex, promotional_templates=promotional_templates, default_promotional_template_id=default_promotional_template_id, service_templates=service_templates)
 
 
 @admin_bp.post("/email/send-manual")
 @login_required
 def send_manual_customer_email():
-    from uuid import UUID
     from sqlalchemy import inspect
+    from app.admin.email_studio import _product_card
     from app.services.customer_mail import mail_configuration_status, queue_email
-    from app.services.product_images import product_display_image, product_image_alt, product_image_url
+    from app.services.email_studio import EmailContentError, render_studio_message, validate_email_blocks, validate_variables
+    from app.services.settings import current_settings
+    from app.services.whatsapp import build_general_message, whatsapp_text_link
 
     inspector = inspect(db.engine)
     if not all(model_schema_ready(model, inspector) for model in (CustomerAccount, EmailMessage, CustomerToken)):
@@ -119,6 +122,7 @@ def send_manual_customer_email():
     except (ValueError, TypeError, AttributeError):
         flash("Email was not sent because its one-time send key was invalid. Refresh the email centre and try again.", "error")
         return redirect(url_for("admin.email_center"))
+
     selected_ids = set()
     for raw_id in request.form.getlist("account_ids"):
         try:
@@ -129,8 +133,7 @@ def send_manual_customer_email():
         flash("This manual send is limited to 500 recipients per request. Nothing was sent.", "error")
         return redirect(url_for("admin.email_center"))
     eligible_query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed")
-    all_eligible = request.form.get("all_eligible") == "yes"
-    if all_eligible:
+    if request.form.get("all_eligible") == "yes":
         if eligible_query.count() > 500:
             flash("This manual send is limited to 500 recipients. Use the Email Studio recipient picker to send a smaller confirmed batch.", "error")
             return redirect(url_for("admin.email_center"))
@@ -138,51 +141,111 @@ def send_manual_customer_email():
     else:
         accounts = eligible_query.filter(CustomerAccount.id.in_(selected_ids)).order_by(CustomerAccount.id).all() if selected_ids else []
     if not accounts:
-        flash("This is the promotional bulk sender. Choose an active customer who explicitly subscribed to marketing, or use the non-promotional service update form for other verified accounts.", "error")
+        flash("Choose active customers who explicitly subscribed to marketing before sending.", "error")
         return redirect(url_for("admin.email_center"))
     if len(accounts) > 1 and request.form.get("confirm_send", "").strip() != f"SEND {len(accounts)}":
         flash(f"Email not sent. Type SEND {len(accounts)} to confirm the exact recipient count.", "warning")
         return redirect(url_for("admin.email_center"))
-    subject = request.form.get("subject", "").strip()[:200]
-    body = request.form.get("body", "").strip()[:5000]
-    if not subject or not body:
-        flash("Email not sent. Enter both a subject and message.", "error")
+
+    selected_template = None
+    template_id_raw = request.form.get("template_id", "").strip()
+    if model_schema_ready(EmailTemplate, inspector):
+        if template_id_raw:
+            try:
+                selected_template = EmailTemplate.query.filter_by(id=int(template_id_raw), category="promotion").first()
+            except (TypeError, ValueError):
+                selected_template = None
+            if not selected_template:
+                flash("The selected promotional template is unavailable. Refresh the page and choose a saved template.", "error")
+                return redirect(url_for("admin.email_center"))
+        else:
+            selected_template = EmailTemplate.query.filter_by(category="promotion").order_by(EmailTemplate.updated_at.desc(), EmailTemplate.id.desc()).first()
+
+    subject = (request.form.get("subject", "").strip() or (selected_template.subject if selected_template else "Fresh picks from FityStores"))[:200]
+    headline = (request.form.get("headline", "").strip() or (selected_template.headline if selected_template else "Selected for you"))[:200]
+    body = (request.form.get("body", "").strip() or (selected_template.message if selected_template else "Discover current picks from the BEI FITS catalogue."))[:5000]
+    try:
+        blocks = validate_email_blocks(selected_template.blocks_json, "promotion") if selected_template else []
+    except EmailContentError as exc:
+        flash("The saved promotional template could not be loaded: " + str(exc), "error")
         return redirect(url_for("admin.email_center"))
+    if not blocks:
+        blocks = [
+            {"type": "heading", "text": headline, "align": "left"},
+            {"type": "paragraph", "text": body, "align": "left"},
+            {"type": "product_grid"},
+        ]
+    else:
+        heading_updated = paragraph_updated = False
+        for block in blocks:
+            if block["type"] == "heading" and not heading_updated:
+                block["text"], heading_updated = headline, True
+            elif block["type"] == "paragraph" and not paragraph_updated:
+                block["text"], paragraph_updated = body, True
+        if not heading_updated:
+            blocks.insert(0, {"type": "heading", "text": headline, "align": "left"})
+        if not paragraph_updated:
+            insert_at = 1 if blocks and blocks[0]["type"] == "heading" else 0
+            blocks.insert(insert_at, {"type": "paragraph", "text": body, "align": "left"})
+
+    try:
+        validate_variables(subject, "promotion")
+        validate_variables(headline, "promotion")
+        validate_variables(body, "promotion")
+        blocks = validate_email_blocks(blocks, "promotion")
+    except EmailContentError as exc:
+        flash("Email was not sent: " + str(exc), "error")
+        return redirect(url_for("admin.email_center"))
+
     configured, note = mail_configuration_status()
     if not configured:
         flash("Email was not sent: " + note, "error")
         return redirect(url_for("admin.email_center"))
-
-    products = []
-    from urllib.parse import urlparse
     base_url = (current_app.config.get("PUBLIC_BASE_URL") or "").rstrip("/")
     parsed_base = urlparse(base_url)
     if parsed_base.scheme != "https" or not parsed_base.netloc:
         flash("Email was not sent. Set PUBLIC_BASE_URL to the canonical HTTPS store origin first.", "error")
         return redirect(url_for("admin.email_center"))
-    if parsed_base.scheme == "https" and parsed_base.netloc:
-        for raw_id in request.form.getlist("product_ids"):
-            try:
-                product = Product.query.filter_by(id=int(raw_id), active=True).first()
-                if product and product.display_stock_quantity <= 0:
-                    product = None
-            except (TypeError, ValueError):
-                product = None
-            if not product:
-                continue
-            image = product_display_image(product)
-            image_url = product_image_url(image) if image else ""
-            if image_url.startswith("/"):
-                image_url = base_url + image_url
-            if not image_url.startswith("https://"):
-                image_url = ""
-            products.append({
-                "name": product.name,
-                "price": product.price_cents,
-                "image_url": image_url,
-                "image_alt": product_image_alt(image, f"Product image: {product.name}") if image else f"Product image: {product.name}",
-                "url": base_url + url_for("public.product_detail", slug=product.slug),
-            })
+
+    product_ids = []
+    for raw_id in request.form.getlist("product_ids"):
+        try:
+            product_ids.append(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    for block in blocks:
+        if block["type"] == "image_banner" or block["type"] == "button" and block.get("target") == "product":
+            if block.get("product_id"):
+                product_ids.append(int(block["product_id"]))
+    product_ids = list(dict.fromkeys(product_ids))
+    if len(product_ids) > 30:
+        flash("Choose no more than 30 products for one promotional email.", "error")
+        return redirect(url_for("admin.email_center"))
+    if any(block["type"] == "product_grid" for block in blocks) and not product_ids:
+        featured = Product.query.filter_by(active=True, featured=True).order_by(Product.name).limit(30).all()
+        product_ids = [product.id for product in featured if product.display_stock_quantity > 0][:3]
+        if not product_ids:
+            available = Product.query.filter_by(active=True).order_by(Product.name).limit(100).all()
+            product_ids = [product.id for product in available if product.display_stock_quantity > 0][:3]
+    if product_ids:
+        found = Product.query.filter(Product.id.in_(product_ids), Product.active.is_(True)).all()
+        product_map = {product.id: product for product in found}
+        if any(product_id not in product_map or product_map[product_id].display_stock_quantity <= 0 for product_id in product_ids):
+            flash("A product in this email is no longer active or in stock. Refresh the product list and try again.", "error")
+            return redirect(url_for("admin.email_center"))
+        products = [_product_card(product_map[product_id]) for product_id in product_ids]
+    else:
+        products = []
+        blocks = [block for block in blocks if block["type"] != "product_grid"]
+    if products and not any(block["type"] == "product_grid" for block in blocks):
+        blocks.append({"type": "product_grid"})
+
+    design = {}
+    for block in blocks:
+        if block["type"] == "design":
+            design = {key: block[key] for key in ("hero_background", "text_color", "accent_color", "section_background", "footer_note", "preheader") if key in block}
+            break
+
     batch_sent = batch_failed = 0
     for account in accounts:
         key = f"admin-manual:{batch_key}:{account.id}"
@@ -190,7 +253,6 @@ def send_manual_customer_email():
         if prior and prior.status in {"sent", "delivered"}:
             batch_sent += 1
             continue
-        # The raw token is intentionally never stored; issue a fresh token on retries.
         token = token_urlsafe(32)
         try:
             db.session.add(CustomerToken(account_id=account.id, purpose="unsubscribe", token_hash=hashlib.sha256(token.encode()).hexdigest(), expires_at=datetime.utcnow() + timedelta(days=3650)))
@@ -201,14 +263,33 @@ def send_manual_customer_email():
             continue
         unsubscribe_url = base_url + url_for("customer.unsubscribe", token=token)
         first_name = (account.display_name or account.email.partition("@")[0]).strip().split()[0]
+        settings = current_settings()
         shop_url = base_url + url_for("public.shop")
-        contact_url = base_url + url_for("public.contact")
-        logo_url = base_url + url_for("static", filename="images/mainLogo-160.png")
-        html_body = render_template("emails/manual_customer_email.html", subject=subject, body=body, first_name=first_name, products=products, unsubscribe_url=unsubscribe_url, shop_url=shop_url, contact_url=contact_url, logo_url=logo_url, site_url=base_url)
-        text_body = "\n".join([body, *[f"{item['name']}: {item['url']}" for item in products], *(["Unsubscribe: " + unsubscribe_url] if unsubscribe_url else [])])
-        text_body = "\n".join([f"Hi {first_name},", "", body, *[f"{item['name']}: {item['url']}" for item in products], "", "Continue shopping: " + shop_url, "Contact FityStores: " + contact_url, "FityStores · Bei Fity, Fits Poa.", *( ["Unsubscribe: " + unsubscribe_url] if unsubscribe_url else [])])
         try:
-            message = queue_email(account.email, subject, "marketing_campaign", key, account_id=account.id, bypass_marketing_cooldown=True, html_body=html_body, text_body=text_body)
+            rendered_subject, html_body, text_body = render_studio_message(
+                "promotion", subject, headline, body,
+                {"customer_name": first_name, "unsubscribe_link": unsubscribe_url},
+                blocks=blocks, products=products, primary_url=shop_url,
+                primary_label="Explore Collection", shop_url=shop_url,
+                logo_url=base_url + url_for("static", filename="images/mainLogo-160.png"),
+                unsubscribe_url=unsubscribe_url, site_url=base_url,
+                contact_url=base_url + url_for("public.contact"),
+                hero_image_url=base_url + url_for("static", filename="images/shop-hero/email-removebg-preview.png"),
+                about_url=base_url + url_for("public.about"),
+                preferences_url=base_url + url_for("customer.dashboard"),
+                whatsapp_url=whatsapp_text_link(settings, build_general_message(settings)),
+                social_icon_urls={name: base_url + url_for("static", filename=f"images/email-icons/fa-{name}.png") for name in ("facebook", "instagram", "tiktok", "whatsapp")},
+                design=design,
+            )
+        except EmailContentError as exc:
+            current_app.logger.warning("manual_promotion_render_failed template_id=%s reason=%s", selected_template.id if selected_template else None, exc)
+            db.session.rollback()
+            batch_failed += 1
+            continue
+        try:
+            message = queue_email(account.email, rendered_subject, "marketing_campaign", key,
+                                  account_id=account.id, template_id=selected_template.id if selected_template else None,
+                                  bypass_marketing_cooldown=True, html_body=html_body, text_body=text_body)
             if message.status in {"sent", "delivered"}:
                 batch_sent += 1
             else:

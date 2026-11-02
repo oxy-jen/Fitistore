@@ -37,7 +37,7 @@
   <form method="post" action="{{ url_for('admin.send_manual_customer_email') }}" onsubmit="return this.confirm_send.value !== 'SEND' || confirm('Send this email to the selected eligible customers?')">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="send_key" value="{{ send_key }}">
-    {% if promotional_templates %}<label>Reuse a saved promotional template<select data-email-template><option value="">Choose promotional template</option>{% for item in promotional_templates %}<option data-subject="{{ item.subject }}" data-message="{{ item.message }}">{{ item.name }}</option>{% endfor %}</select></label><p>Loading a saved template fills the subject and message below. For its full visual design and product blocks, open it in Email Studio.</p>{% endif %}
+    {% if promotional_templates %}<label>Promotional design<select data-email-template name="template_id">{% for item in promotional_templates %}<option value="{{ item.id }}" data-subject="{{ item.subject|e }}" data-headline="{{ item.headline|e }}" data-message="{{ item.message|e }}"{% if item.id == default_promotional_template_id %} selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label><p>The newest saved Email Studio design is selected by default. This sender now uses its full visual layout and content blocks. Edit the layout in Email Studio; choose the products to feature below.</p>{% else %}<input type="hidden" name="template_id" value=""><p>The BEI FITS promotional design will be used. Build and save a reusable version in Email Studio to customize its content blocks.</p>{% endif %}
     <label class="check"><input type="checkbox" name="all_eligible" value="yes"> Send to all eligible subscribers</label>
     <fieldset><legend>Or select eligible recipients</legend>
       {% for account in accounts if account.active and account.marketing_status == 'subscribed' %}
@@ -45,8 +45,9 @@
       {% else %}<p>No eligible subscribers match this search.</p>{% endfor %}
     </fieldset>
     <label>Subject<input name="subject" maxlength="200" required></label>
+    <label>Headline<input name="headline" maxlength="200" required></label>
     <label>Message<textarea name="body" maxlength="5000" rows="6" required></textarea></label>
-    <fieldset><legend>Include products (optional)</legend>
+    <fieldset><legend>Products to feature (optional)</legend><p>If none are checked, the current in-stock featured products are used.</p>
       {% for product in products %}
       <label class="check"><input type="checkbox" name="product_ids" value="{{ product.id }}"> {{ product.name }}{% if product.price_cents is not none %} - KSh {{ '%.2f'|format(product.price_cents / 100) }}{% endif %}</label>
       {% else %}<p>No active products are available.</p>{% endfor %}
@@ -121,9 +122,14 @@ document.querySelectorAll('[data-email-template]').forEach(select => select.addE
   const form = select.closest('form');
   const subject = form.querySelector('[name="subject"], [name="service_subject"]');
   const message = form.querySelector('[name="body"], [name="service_body"]');
-  if (subject) subject.value = option.dataset.subject;
-  if (message) message.value = option.dataset.message || '';
+  if (subject) subject.value = option.dataset.subject || subject.value;
+  const headline = form.querySelector('[name="headline"]');
+  if (headline && option.dataset.headline) headline.value = option.dataset.headline;
+  if (message) message.value = option.dataset.message || message.value;
 }));
+document.querySelectorAll('[data-email-template]').forEach(select => {
+  if (select.value) select.dispatchEvent(new Event('change'));
+});
 (() => {
   const form = document.querySelector('form[action="{{ url_for("admin.send_manual_customer_email") }}"]');
   const output = document.getElementById("manual-recipient-count");
