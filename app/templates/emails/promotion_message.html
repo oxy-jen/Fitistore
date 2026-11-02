@@ -1,0 +1,185 @@
+{% macro promo_product_grid(products) %}
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;table-layout:fixed">
+        {% for product_row in products|batch(3, none) %}
+        <tr>
+          {% for product in product_row %}
+          {% if product %}
+          <td class="product-col" width="33.33%" valign="top" style="width:33.33%;padding:7px 7px 12px;box-sizing:border-box">
+            <table role="presentation" class="product-card" data-promo-product-id="{{ product.id }}" width="100%" height="100%" cellspacing="0" cellpadding="0" border="0" style="height:100%;background:#f8f9fd;border:1px solid #fff;border-radius:20px;box-shadow:5px 6px 13px #d9dce6,-5px -5px 13px #fff">
+              <tr><td align="center" valign="middle" class="product-photo" height="190" style="height:190px;padding:12px 10px 7px">
+                {% if product.image_url %}<a href="{{ product.url|e }}"><img src="{{ product.image_url|e }}" width="220" height="180" alt="{{ product.image_alt|e }}" style="display:block;width:100%;max-width:220px;height:180px;object-fit:contain;margin:0 auto"></a>{% else %}<a href="{{ product.url|e }}" style="color:#35415b;text-decoration:none">View product</a>{% endif %}
+              </td></tr>
+              <tr><td valign="top" style="padding:5px 16px 16px">
+                {% if product.category %}<span style="display:inline-block;padding:4px 10px;border-radius:14px;background:#e7eaf5;color:#45516b;font-size:11px;font-weight:bold">{{ product.category|e }}</span>{% endif %}
+                <h3 style="margin:8px 0 5px;color:#1a2233;font-size:18px;line-height:1.25">{{ product.name|e }}</h3>
+                {% if product.description %}<p style="margin:0 0 9px;color:#69748a;font-size:13px;line-height:1.4">{{ product.description|striptags|truncate(94, true, '…') }}</p>{% endif %}
+                <p style="margin:0 0 4px;color:#171d29;font-size:21px;font-weight:bold">{{ product.price|e }}</p>
+                <p style="margin:0 0 12px;color:#078a4c;font-size:13px;font-weight:bold">&#9679;&nbsp; In stock{% if product.stock_quantity is not none %} ({{ product.stock_quantity }}){% endif %}</p>
+                <a href="{{ product.url|e }}" style="display:block;padding:11px 8px;border:1px solid #ff8993;border-radius:24px;background:#ed1b36;color:#fff;text-align:center;text-decoration:none;font-size:14px;font-weight:bold">Shop Now&nbsp; &#8594;</a>
+              </td></tr>
+            </table>
+          </td>
+          {% else %}<td class="product-col" width="33.33%" style="width:33.33%;padding:7px;box-sizing:border-box"></td>{% endif %}
+          {% endfor %}
+        </tr>
+        {% endfor %}
+</table>
+{% endmacro %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="x-apple-disable-message-reformatting">
+  <title>{{ subject|e }}</title>
+  <style>
+    body,table,td,a{font-family:Arial,Helvetica,sans-serif}
+    img{border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic}
+    table{border-collapse:separate;border-spacing:0}
+    @media only screen and (max-width:680px){
+      .email-wrap{width:100%!important;max-width:100%!important}
+      .outer-pad{padding:12px 8px!important}
+      .announce-copy,.announce-action{width:50%!important;padding:8px 9px!important;font-size:9px!important;white-space:nowrap!important}
+      .brand-cell,.nav-cell{display:table-cell!important;vertical-align:middle!important;text-align:left!important}
+      .brand-cell{width:39%!important;padding:7px 4px!important}
+      .brand-logo{width:27px!important;height:27px!important}
+      .brand-name{font-size:14px!important}.brand-tagline{font-size:8px!important}
+      .nav-cell{width:61%!important;padding:4px 2px!important;text-align:right!important}
+      .nav-link{padding:4px 2px!important;font-size:8px!important;line-height:1.1!important}
+      .nav-icon{width:15px!important;height:15px!important}
+      .hero-copy,.hero-image{display:table-cell!important;vertical-align:middle!important}
+      .hero-copy{width:58%!important;padding:14px 5px 14px 12px!important}
+      .hero-image{width:42%!important;padding:0 5px!important;text-align:center!important}
+      .hero-image img{width:100%!important;max-width:none!important;height:auto!important;max-height:190px!important;object-fit:contain!important}
+      .hero-badge{padding:5px 8px!important;font-size:8px!important}
+      .hero-title{margin:10px 0 5px!important;font-size:24px!important;line-height:1!important;letter-spacing:-.7px!important}
+      .hero-description{margin:0 0 9px!important;font-size:10px!important;line-height:1.25!important}
+      .hero-cta{padding:8px 10px!important;font-size:9px!important}
+      .product-col{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding:7px 0!important}
+      .product-col table{display:table!important;width:100%!important;max-width:100%!important}
+      .product-photo{height:180px!important;padding:8px!important}
+      .product-photo img{width:100%!important;max-width:280px!important;height:164px!important;object-fit:contain!important}
+      /* Preserve the reference's three horizontal footer rows on narrow screens. */
+      .benefit-col{display:table-cell!important;width:25%!important;padding:5px 2px!important;vertical-align:middle!important;border-bottom:0!important}
+      .benefit-icon{width:30px!important;height:30px!important}
+      .benefit-label{font-size:8px!important;line-height:1.15!important;white-space:normal!important}
+      .benefit-detail{font-size:7px!important;line-height:1.15!important;white-space:normal!important}
+      .benefit-col table{width:100%!important}.benefit-col table td:first-child{padding-right:3px!important}
+      .benefit-col strong,.benefit-col span{white-space:normal!important}
+      .footer-col{display:table-cell!important;text-align:center!important;padding:7px 3px!important;vertical-align:middle!important}
+      .footer-brand{width:30%!important}.footer-thanks{width:42%!important}.footer-social{width:28%!important}
+      .footer-divider{border-left:1px solid #cbd1df!important;border-top:0!important}
+      .footer-logo{width:32px!important;height:32px!important}.footer-brand-name{font-size:13px!important}.footer-tagline{font-size:8px!important}
+      .footer-thanks{font-size:9px!important;line-height:1.35!important}
+      .social-link{width:22px!important;height:22px!important;margin:1px!important}
+      .social-icon{width:11px!important;height:11px!important}
+      .wa-icon{display:table-cell!important;width:48px!important;padding:7px 0 7px 6px!important}
+      .wa-brand-icon{width:34px!important;height:34px!important}
+      .wa-copy{display:table-cell!important;padding:7px 4px!important;text-align:left!important}
+      .wa-title{font-size:15px!important;line-height:1.15!important}.wa-message{font-size:8px!important;line-height:1.2!important}
+      .wa-action{display:table-cell!important;width:90px!important;padding:6px 5px!important;text-align:center!important}
+      .wa-cta{min-width:0!important;padding:9px 7px!important;font-size:10px!important;white-space:nowrap!important}
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background:#f0f2f8;color:#182033;font-family:Arial,Helvetica,sans-serif">
+  <div style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;mso-hide:all">{{ design.preheader|e }}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#f0f2f8">
+    <tr><td align="center" class="outer-pad" style="padding:22px 14px">
+      <table role="presentation" class="email-wrap" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:960px;color:#182033">
+        <tr><td colspan="3" style="padding:0 12px 12px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#e9ebf4;border:1px solid #fff;border-radius:24px;box-shadow:5px 6px 14px #d3d6e1,-5px -5px 14px #fff">
+            <tr><td class="announce-copy" style="padding:10px 22px;color:#43506b;font-size:13px;font-weight:bold"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#e52335" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>Special Picks for You</td><td class="announce-action" align="right" style="padding:10px 22px;font-size:13px"><a href="{{ shop_url|e }}" style="color:#35415b;text-decoration:none;font-weight:bold">View in Browser&nbsp; &#8599;</a></td></tr>
+          </table>
+        </td></tr>
+        <tr><td colspan="3" style="padding:0 12px 14px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f8fc;border:1px solid #fff;border-radius:26px;box-shadow:6px 7px 16px #d5d8e2,-6px -6px 16px #fff">
+            <tr>
+              <td class="brand-cell" width="43%" valign="middle" style="padding:15px 20px">
+                <a href="{{ site_url|e }}" style="color:#121722;text-decoration:none"><img class="brand-logo" src="{{ logo_url|e }}" width="46" height="46" alt="FITY logo" style="display:inline-block;width:46px;height:46px;vertical-align:middle"><span style="display:inline-block;vertical-align:middle;padding-left:7px"><strong class="brand-name" style="display:block;font-size:25px;letter-spacing:.3px;line-height:1.05">BEI FITS</strong><span class="brand-tagline" style="font-size:12px;font-weight:bold;font-style:italic;color:#343d51">Bei Fity, Fits Poa</span></span></a>
+              </td>
+              <td class="nav-cell" align="right" valign="middle" style="padding:12px 12px">
+                <a class="nav-link" href="{{ shop_url|e }}" style="display:inline-block;padding:10px 12px;color:#20283b;text-decoration:none;font-size:12px;font-weight:bold"><svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#20283b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:0 auto 4px"><path d="m3 10 9-7 9 7"/><path d="M5 9v12h14V9"/><path d="M9 21v-8h6v8"/></svg>Shop</a>
+                <a class="nav-link" href="{{ about_url|e }}" style="display:inline-block;padding:10px 12px;color:#20283b;text-decoration:none;font-size:12px;font-weight:bold"><svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#20283b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:0 auto 4px"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>About</a>
+                <a class="nav-link" href="{{ contact_url|e }}" style="display:inline-block;padding:10px 12px;color:#20283b;text-decoration:none;font-size:12px;font-weight:bold"><svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#20283b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;margin:0 auto 4px"><path d="M3 11a9 9 0 0 1 18 0"/><path d="M3 11v5a2 2 0 0 0 2 2h2v-7H5a2 2 0 0 0-2 2Zm18 0v5a2 2 0 0 1-2 2h-2v-7h2a2 2 0 0 1 2 2Zm-9 10h3"/></svg>Support</a>
+                <a class="nav-link" href="{{ whatsapp_url|e }}" style="display:inline-block;padding:10px 12px;color:#078b4b;text-decoration:none;font-size:12px;font-weight:bold"><svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 448 512" role="img" aria-label="WhatsApp" style="display:block;margin:0 auto 4px;fill:#08a64a"><path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/></svg>Chat Us</a>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+        <tr><td colspan="3" style="padding:0 12px 19px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f0f2f8;background-image:radial-gradient(ellipse at 76% 48%,rgba(205,211,229,.76) 0%,rgba(205,211,229,.34) 27%,transparent 28%),radial-gradient(ellipse 45% 150% at 108% 45%,#ed1733 0%,#d90d29 63%,transparent 64%),linear-gradient(110deg,#fcfdff 0%,#eceff7 100%);border:2px solid #fff;border-radius:28px;box-shadow:8px 9px 20px #d2d5e0,-8px -8px 20px #fff;overflow:hidden">
+            <tr>
+              <td class="hero-copy" width="58%" valign="middle" style="padding:34px 14px 34px 42px">
+                <span class="hero-badge" style="display:inline-block;padding:8px 14px;border-radius:20px;background-color:#ed1b36;background-image:linear-gradient(115deg,#ff5668 0%,#ed1b36 55%,#cf102a 100%);color:#fff;font-size:13px;font-weight:bold;box-shadow:inset 0 1px 1px rgba(255,255,255,.65),0 5px 11px rgba(213,20,45,.28)">Limited Time Offer</span>
+                <h1 class="hero-title" style="margin:16px 0 8px;color:#172033;font-size:46px;line-height:1.04;letter-spacing:-1.5px">Shop Smart,<br><span style="color:#e52335">Look Great!</span></h1>
+                <p class="hero-description" style="margin:0 0 19px;color:#283248;font-size:18px;line-height:1.42">Discover trendy and affordable fashion at BEI FITS.</p>
+                <a class="hero-cta" href="{{ shop_url|e }}" style="display:inline-block;padding:13px 23px;border:1px solid #ff8791;border-radius:28px;background-color:#ed1b36;background-image:linear-gradient(115deg,#ff5366 0%,#ed1b36 52%,#cf102b 100%);color:#fff;text-decoration:none;font-size:15px;font-weight:bold;box-shadow:inset 0 1px 1px rgba(255,255,255,.65),0 7px 13px rgba(213,20,45,.32)">Explore Collection&nbsp; &#8594;</a>
+              </td>
+              <td class="hero-image" width="42%" align="center" valign="bottom" style="padding:8px 8px 0 0;background-color:transparent;background-image:none;border-radius:0 26px 26px 0">
+                <img src="{{ hero_image_url|e }}" width="390" alt="FITY customer with shopping bags" style="display:block;width:100%;max-width:390px;height:auto;max-height:340px;object-fit:contain">
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+        <tr><td colspan="3" align="center" style="padding:3px 12px 15px">
+          <h2 style="margin:0;color:#182033;font-size:32px;line-height:1.15">&#8212;&nbsp; Our Featured Products &nbsp;&#8212;</h2>
+          <p style="margin:3px 0 0;color:#34405a;font-size:17px">Top picks for you</p>
+        </td></tr>
+        {% if blocks %}
+          {% set render_state = namespace(product_grid=false) %}
+          {% for block in blocks %}
+            {% if block.type == 'heading' %}<tr><td colspan="3" style="padding:6px 12px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f8fc;border:1px solid #fff;border-radius:16px;box-shadow:5px 6px 13px #d9dce6,-5px -5px 13px #fff"><tr><td style="padding:13px 18px;border-left:4px solid #e52335"><h2 style="margin:0;color:#182033;font-size:22px;line-height:1.25;text-align:{{ block.align }}">{{ block.text|e }}</h2></td></tr></table></td></tr>
+            {% elif block.type == 'paragraph' %}<tr><td colspan="3" style="padding:5px 12px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f8fc;border:1px solid #fff;border-radius:15px;box-shadow:4px 5px 11px #d9dce6,-4px -4px 11px #fff"><tr><td style="padding:13px 16px"><p style="margin:0;color:#46516a;font-size:15px;line-height:1.55;text-align:{{ block.align }};white-space:pre-wrap">{{ block.text|e }}</p></td></tr></table></td></tr>
+            {% elif block.type == 'image_banner' and block.product and block.image_url %}<tr><td colspan="3" style="padding:6px 12px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f8fc;border:1px solid #fff;border-radius:18px;box-shadow:5px 6px 13px #d9dce6,-5px -5px 13px #fff"><tr><td align="{{ block.align }}" style="padding:10px"><a href="{{ block.url|e }}"><img src="{{ block.image_url|e }}" width="{{ block.width }}" alt="{{ block.alt|e }}" style="display:inline-block;width:100%;max-width:{{ block.width }}px;height:auto;border:0;border-radius:12px"></a></td></tr></table></td></tr>
+            {% elif block.type == 'product_grid' and not render_state.product_grid %}{% set render_state.product_grid = true %}<tr><td colspan="3" style="padding:0 5px">{{ promo_product_grid(products) }}</td></tr>
+            {% elif block.type == 'button' %}<tr><td colspan="3" align="center" style="padding:10px 20px"><a href="{{ block.url|e }}" style="display:inline-block;padding:12px 22px;border-radius:24px;background-color:#ed1b36;background-image:linear-gradient(115deg,#ff5366,#cf102b);color:#fff;text-decoration:none;font-size:14px;font-weight:bold">{{ block.text|e }}</a></td></tr>
+            {% elif block.type == 'divider' %}<tr><td colspan="3" style="padding:8px 24px"><div style="height:1px;background:#dce0ea;line-height:1px;font-size:1px">&nbsp;</div></td></tr>
+            {% elif block.type == 'spacer' %}<tr><td colspan="3" style="height:14px;line-height:14px;font-size:1px">&nbsp;</td></tr>
+            {% elif block.type == 'contact' %}<tr><td colspan="3" style="padding:6px 12px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f8fc;border:1px solid #fff;border-radius:14px;box-shadow:4px 5px 11px #d9dce6,-4px -4px 11px #fff"><tr><td align="{{ block.align }}" style="padding:12px 16px;color:#46516a;font-size:13px">{{ block.text|e }} <a href="{{ contact_url|e }}" style="color:#d91e35;font-weight:bold">Contact BEI FITS</a></td></tr></table></td></tr>{% endif %}
+          {% endfor %}
+          {% if not render_state.product_grid and products %}<tr><td colspan="3" style="padding:0 5px">{{ promo_product_grid(products) }}</td></tr>{% endif %}
+        {% else %}
+          <tr><td colspan="3" style="padding:0 24px 16px"><h2 style="margin:0 0 7px;color:#182033;font-size:19px">{{ headline|e }}</h2><p style="margin:0;color:#46516a;font-size:14px;line-height:1.55;white-space:pre-wrap">{{ message|e }}</p></td></tr>
+          {% if products %}<tr><td colspan="3" style="padding:0 5px">{{ promo_product_grid(products) }}</td></tr>{% endif %}
+        {% endif %}
+        <tr><td colspan="3" style="padding:8px 12px 12px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f8fc;border:2px solid #fff;border-radius:36px;box-shadow:9px 10px 22px #d2d6e2,-9px -9px 22px #fff">
+            <tr>
+              <td class="benefit-col" width="25%" align="center" style="padding:9px 8px;border-right:1px solid #aeb6ca"><table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center"><tr><td valign="middle" style="padding-right:8px"><span style="display:block;width:40px;height:40px;padding:6px;border-radius:50%;background:#e5f3ed;text-align:center"><svg class="benefit-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#078b4b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></span></td><td valign="middle" align="left"><strong class="benefit-label" style="color:#20283b;font-size:12px;white-space:nowrap">Secure shopping</strong><br><span class="benefit-detail" style="color:#6a7489;font-size:10px;white-space:nowrap">Trusted and verified</span></td></tr></table></td>
+              <td class="benefit-col" width="25%" align="center" style="padding:9px 8px;border-right:1px solid #aeb6ca"><table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center"><tr><td valign="middle" style="padding-right:8px"><span style="display:block;width:40px;height:40px;padding:6px;border-radius:50%;background:#e5f3ed;text-align:center"><svg class="benefit-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#20283b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg></span></td><td valign="middle" align="left"><strong class="benefit-label" style="color:#20283b;font-size:12px;white-space:nowrap">Fast delivery</strong><br><span class="benefit-detail" style="color:#6a7489;font-size:10px;white-space:nowrap">To your doorstep</span></td></tr></table></td>
+              <td class="benefit-col" width="25%" align="center" style="padding:9px 8px;border-right:1px solid #aeb6ca"><table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center"><tr><td valign="middle" style="padding-right:8px"><span style="display:block;width:40px;height:40px;padding:6px;border-radius:50%;background:#e5f3ed;text-align:center"><svg class="benefit-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#20283b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5Zm0 0a9 9 0 1 1 18 0m0 0v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3Z"/><path d="M21 16v2a4 4 0 0 1-4 4h-5"/></svg></span></td><td valign="middle" align="left"><strong class="benefit-label" style="color:#20283b;font-size:12px;white-space:nowrap">Customer support</strong><br><span class="benefit-detail" style="color:#6a7489;font-size:10px;white-space:nowrap">We&#8217;re here to help</span></td></tr></table></td>
+              <td class="benefit-col" width="25%" align="center" style="padding:9px 8px"><table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center"><tr><td valign="middle" style="padding-right:8px"><span style="display:block;width:40px;height:40px;padding:6px;border-radius:50%;background:#fde8ed;text-align:center"><svg class="benefit-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#e52335" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m16 9-5.5 5.5L8 12"/></svg></span></td><td valign="middle" align="left"><strong class="benefit-label" style="color:#20283b;font-size:12px;white-space:nowrap">Quality products</strong><br><span class="benefit-detail" style="color:#6a7489;font-size:10px;white-space:nowrap">FITY essentials</span></td></tr></table></td>
+            </tr>
+          </table>
+        </td></tr>
+        <tr><td colspan="3" style="padding:0 12px 12px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:rgb(37,211,102);background-image:linear-gradient(132deg,transparent 5%,rgba(255,255,255,.035) 13%,rgba(255,255,255,.18) 19%,rgba(255,255,255,.07) 24%,transparent 33%),linear-gradient(110deg,#25d366 0%,#25d366 100%);border:2px solid #9ae5bb;border-radius:42px;box-shadow:9px 10px 20px #cadbd2,-8px -8px 18px #fff">
+            <tr><td class="wa-icon" width="92" align="center" valign="middle" style="padding:12px 0 12px 14px"><svg class="wa-brand-icon" xmlns="http://www.w3.org/2000/svg" width="58" height="58" viewBox="0 0 448 512" aria-label="WhatsApp" role="img" style="display:block;fill:#fff"><path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/></svg></td><td class="wa-copy" style="padding:15px 12px;color:#fff"><strong class="wa-title" style="font-size:24px;line-height:1.2">Need Help?</strong><br><span class="wa-message" style="font-size:14px;line-height:1.5">Chat with us on WhatsApp for quick assistance.</span></td><td class="wa-action" width="190" align="center" style="padding:12px 18px"><a class="wa-cta" href="{{ whatsapp_url|e }}" style="display:inline-block;min-width:138px;padding:14px 18px;border:1px solid #effff6;border-radius:30px;background:#fff;color:#078b4b;text-align:center;text-decoration:none;font-size:15px;font-weight:bold;box-shadow:0 3px 8px #006733">Chat Now&nbsp; &#8594;</a></td></tr>
+          </table>
+        </td></tr>
+        <tr><td colspan="3" style="padding:0 12px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f8fc;border:2px solid #fff;border-radius:26px;box-shadow:8px 9px 18px #d5d8e2,-8px -8px 18px #fff">
+            <tr>
+              <td class="footer-col footer-brand" width="30%" align="center" valign="middle" style="padding:15px 10px"><a href="{{ site_url|e }}" style="color:#171d29;text-decoration:none"><img class="footer-logo" src="{{ logo_url|e }}" width="54" height="54" alt="FITY logo" style="display:inline-block;width:54px;height:54px;vertical-align:middle"><strong class="footer-brand-name" style="padding-left:7px;font-size:21px">BEI FITS</strong></a><br><span class="footer-tagline" style="color:#536078;font-size:12px;font-style:italic;font-weight:bold">Bei Fity, Fits Poa</span></td>
+              <td class="footer-col footer-divider footer-thanks" width="42%" align="center" valign="middle" style="padding:18px 12px;border-left:1px solid #cbd1df;color:#39445c;font-size:14px;line-height:1.6">Thank you for shopping with <strong>BEI FITS!</strong><br><em>Stay stylish. Stay comfortable.</em></td>
+              <td class="footer-col footer-divider footer-social" width="28%" align="center" valign="middle" style="padding:18px 6px;border-left:1px solid #cbd1df">
+                <a class="social-link" href="https://www.facebook.com/oxy.jen.975729" aria-label="Facebook" style="display:inline-block;width:30px;height:30px;margin:3px;border-radius:50%;text-decoration:none"><img class="social-icon" src="{{ social_icon_urls.facebook|e }}" width="30" height="30" alt="" style="display:block;width:30px;height:30px;border:0;border-radius:50%"></a>
+                <a class="social-link" href="https://www.instagram.com/fitystore.top/" aria-label="Instagram" style="display:inline-block;width:30px;height:30px;margin:3px;border-radius:50%;text-decoration:none"><img class="social-icon" src="{{ social_icon_urls.instagram|e }}" width="30" height="30" alt="" style="display:block;width:30px;height:30px;border:0;border-radius:50%"></a>
+                <a class="social-link" href="https://www.tiktok.com/@official_fitystore" aria-label="TikTok" style="display:inline-block;width:30px;height:30px;margin:3px;border-radius:50%;text-decoration:none"><img class="social-icon" src="{{ social_icon_urls.tiktok|e }}" width="30" height="30" alt="" style="display:block;width:30px;height:30px;border:0;border-radius:50%"></a>
+                <a class="social-link" href="{{ whatsapp_url|e }}" aria-label="WhatsApp" style="display:inline-block;width:30px;height:30px;margin:3px;border-radius:50%;text-decoration:none"><img class="social-icon" src="{{ social_icon_urls.whatsapp|e }}" width="30" height="30" alt="" style="display:block;width:30px;height:30px;border:0;border-radius:50%"></a>
+              </td>
+            </tr>
+          </table>
+        </td></tr>
+        <tr><td colspan="3" align="center" style="padding:17px 10px 6px;color:#4e5b73;font-size:11px;line-height:1.8">
+          {% if unsubscribe_url %}<a href="{{ unsubscribe_url|e }}" style="color:#46516a;text-decoration:underline">Unsubscribe</a>{% else %}<span>Unsubscribe link included when sent</span>{% endif %}
+          &nbsp; | &nbsp; <a href="{{ preferences_url|e }}" style="color:#46516a;text-decoration:underline">Manage Preferences</a>
+          &nbsp; | &nbsp; <a href="{{ contact_url|e }}" style="color:#46516a;text-decoration:underline">Contact Us</a>
+          <br><a href="{{ site_url|e }}" style="color:#64708a;text-decoration:none">BEI FITS&nbsp; | &nbsp;Bei Fity, Fits Poa&nbsp; | &nbsp;{{ site_url|e }}</a>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
