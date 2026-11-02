@@ -1,6 +1,7 @@
 import io
 import hashlib
 import json
+import re
 from datetime import datetime
 
 import pytest
@@ -45,6 +46,8 @@ def test_homepage_renders(client):
     rv = client.get("/")
     assert rv.status_code == 200
     assert b"Your Style." in rv.data
+    assert b"https://www.facebook.com/oxy.jen.975729" in rv.data
+    assert b"https://www.tiktok.com/@official_fitystore" in rv.data
 
 def test_homepage_most_added_carousel_keeps_popularity_order_and_pagination_controls(client, app):
     with app.app_context():
@@ -104,6 +107,85 @@ def test_shop_search_and_category_filter(client):
     product_grid = rv.data[grid_start:grid_end]
     assert b"Plain Socks" in product_grid
     assert b"Unpriced Cap" not in product_grid
+
+
+def _shop_product_card(client, product_id):
+    response = client.get("/shop")
+    marker = f'data-product-card="{product_id}"'.encode()
+    marker_position = response.data.index(marker)
+    start = response.data.rfind(b"<article", 0, marker_position)
+    end = response.data.index(b"</article>", marker_position) + len(b"</article>")
+    return response.data[start:end]
+
+
+def test_product_card_handles_long_copy_and_missing_image(client, app):
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").one()
+        product.name = "Everyday Performance Ankle Socks in Breathable Cotton Blend"
+        product.description = "A comfortable everyday pair with a soft finish. " * 8
+        product.images.append(ProductImage(filename="missing-card-test.webp", alt_text="Unavailable photo", is_primary=True))
+        product_id = product.id
+        db.session.commit()
+
+    card = _shop_product_card(client, product_id)
+    assert b"Everyday Performance Ankle Socks" in card
+    assert b"A comfortable everyday pair" in card
+    assert b'data-product-image-fallback' in card
+    assert b'data-fallback-src="/static/images/mainLogo-160.png"' in card
+    assert b'alt="Temporary product placeholder"' in card
+
+
+def test_product_card_disables_purchase_for_sold_out_product(client, app):
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").one()
+        product.stock_quantity = 0
+        product_id = product.id
+        db.session.commit()
+
+    card = _shop_product_card(client, product_id)
+    assert b"Out of stock" in card
+    assert b"disabled" in card
+    assert b'class="btn primary add-cart"' not in card
+
+
+def test_product_card_marks_sold_out_variants_and_keeps_available_options(client, app):
+    with app.app_context():
+        from app.models import ProductVariant
+        product = Product.query.filter_by(slug="plain-socks").one()
+        product.stock_quantity = 20
+        product.variants.extend([
+            ProductVariant(size="Small", color="Black", sku="SOCK-SOLD", price_cents=1000, stock_quantity=0, active=True),
+            ProductVariant(size="Large", color="Black", sku="SOCK-IN", price_cents=2000, stock_quantity=3, active=True),
+        ])
+        product_id = product.id
+        db.session.commit()
+
+    card = _shop_product_card(client, product_id)
+    assert b"Choose options" in card
+    assert b"3 in stock across options" in card
+    detail = client.get("/product/plain-socks")
+    assert b"SOCK-SOLD" in detail.data
+    assert b"SOCK-IN" in detail.data
+    assert re.search(rb'<option(?=[^>]*data-stock="0")(?=[^>]*disabled)[^>]*>[^<]*SOCK-SOLD', detail.data)
+    assert re.search(rb'<option(?=[^>]*data-stock="3")[^>]*>[^<]*SOCK-IN', detail.data)
+
+
+def test_product_card_disables_action_when_every_variant_is_sold_out(client, app):
+    with app.app_context():
+        from app.models import ProductVariant
+        product = Product.query.filter_by(slug="plain-socks").one()
+        product.stock_quantity = 20
+        product.variants.extend([
+            ProductVariant(size="Small", color="Black", sku="SOCK-SOLD-S", price_cents=1000, stock_quantity=0, active=True),
+            ProductVariant(size="Large", color="Black", sku="SOCK-SOLD-L", price_cents=2000, stock_quantity=0, active=True),
+        ])
+        product_id = product.id
+        db.session.commit()
+
+    card = _shop_product_card(client, product_id)
+    assert b"Out of stock" in card
+    assert b"Choose options" not in card
+    assert b'class="btn primary add-cart"' not in card
 
 def test_product_detail(client):
     rv = client.get("/product/plain-socks")
@@ -2545,6 +2627,14 @@ def test_email_studio_promotion_requires_preview_consent_and_real_catalogue_item
         "category": "promotion", "account_id": str(account.id), "account_ids": [str(account.id), str(denied.id)],
         "product_ids": [str(product.id)], "subject": "Current picks", "headline": "For {{ customer_name }}",
         "message": "See {{ customer_name }}'s selection. {{ unsubscribe_link }}",
+        "blocks_json": json.dumps([
+            {"type": "heading", "text": "Picked for you"},
+            {"type": "paragraph", "text": "A few catalogue favourites."},
+            {"type": "product_grid"},
+            {"type": "image_banner", "product_id": product.id, "alt": "Plain Socks"},
+            {"type": "product_grid"},
+            {"type": "image_banner", "product_id": product.id, "alt": "Plain Socks"},
+        ]),
     }
     preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
     assert preview.status_code == 200 and sent == []
@@ -2553,6 +2643,23 @@ def test_email_studio_promotion_requires_preview_consent_and_real_catalogue_item
     assert len(sent) == 1 and sent[0][0] == account.email
     assert "https://fitystore.top/product/plain-socks" in sent[0][2]
     assert "https://res.cloudinary.com/fity-test/image/upload/fity/products/catalog" in sent[0][2]
+    assert sent[0][2].count(f'data-promo-product-id="{product.id}"') == 1
+    assert "Our Featured Products" in sent[0][2]
+    assert "In stock" in sent[0][2]
+    assert "email-removebg-preview.png" in sent[0][2]
+    assert 'viewBox="0 0 24 24"' in sent[0][2]
+    assert 'viewBox="0 0 448 512"' in sent[0][2]
+    assert 'class="benefit-col"' in sent[0][2]
+    assert 'class="wa-icon"' in sent[0][2]
+    assert 'footer-social' in sent[0][2]
+    assert 'colspan="3" style="padding:0 12px 12px"' in sent[0][2]
+    assert 'display:table-cell!important;width:25%!important' in sent[0][2]
+    for brand in ("facebook", "instagram", "tiktok", "whatsapp"):
+        assert f"/static/images/email-icons/fa-{brand}.png" in sent[0][2]
+    assert "https://wa.me/" in sent[0][2]
+    assert "https://www.facebook.com/oxy.jen.975729" in sent[0][2]
+    assert "https://www.instagram.com/fitystore.top/" in sent[0][2]
+    assert "https://www.tiktok.com/@official_fitystore" in sent[0][2]
     assert "/account/unsubscribe/" in sent[0][2]
     assert "studio-denied@example.test" not in sent[0][2]
     assert CustomerToken.query.filter_by(account_id=account.id, purpose="unsubscribe").count() == 1

@@ -1,3 +1,12 @@
+document.addEventListener('error',event=>{
+  const image=event.target;
+  if(!(image instanceof HTMLImageElement)||!image.hasAttribute('data-product-image-fallback')||image.dataset.fallbackApplied)return;
+  const fallback=image.dataset.fallbackSrc;
+  if(!fallback||image.src===fallback)return;
+  image.dataset.fallbackApplied='true';
+  image.src=fallback;
+},true);
+
 document.addEventListener('DOMContentLoaded',()=>{
   const button=document.querySelector('.menu-toggle');
   const nav=document.getElementById('nav');

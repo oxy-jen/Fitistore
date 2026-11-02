@@ -33,7 +33,7 @@ EMAIL_CATEGORIES = {
         "label": "Promotions and new arrivals",
         "subject": "Fresh finds from FityStores",
         "headline": "Selected for you",
-        "message": "Hi {{ customer_name }}, take a look at these selected products from our current catalogue.\n\n{{ unsubscribe_link }}",
+        "message": "Hi {{ customer_name }}, take a look at these selected products from our current catalogue.",
         "variables": ("customer_name", "unsubscribe_link"),
         "marketing": True,
     },
@@ -168,7 +168,7 @@ def validate_email_blocks(raw, category):
     return result
 
 
-def render_studio_message(category, subject, headline, message, context, *, blocks=(), products=(), order_lines=(), order_summary=None, cart_summary=None, primary_url="", primary_label="", shop_url="", logo_url="", unsubscribe_url="", design=None, site_url="", contact_url="https://fitystore.top/contact"):
+def render_studio_message(category, subject, headline, message, context, *, blocks=(), products=(), order_lines=(), order_summary=None, cart_summary=None, primary_url="", primary_label="", shop_url="", logo_url="", unsubscribe_url="", design=None, site_url="", contact_url="https://fitystore.top/contact", hero_image_url="", about_url="", preferences_url="", whatsapp_url="", social_icon_urls=None):
     if category not in EMAIL_CATEGORIES:
         raise EmailContentError("Choose a supported email category.")
     subject = replace_variables(subject, category, context).replace("\r", " ").replace("\n", " ").strip()[:200]
@@ -180,6 +180,17 @@ def render_studio_message(category, subject, headline, message, context, *, bloc
     if _contrast_ratio(design["text_color"], design["hero_background"]) < 4.5:
         raise EmailContentError("Choose hero background and text colours with readable contrast.")
     design["button_text_color"] = "#111111" if _contrast_ratio("#111111", design["accent_color"]) >= _contrast_ratio("#FFFFFF", design["accent_color"]) else "#FFFFFF"
+    # Guard all callers against repeated catalogue IDs so each item appears once.
+    unique_products = []
+    seen_product_ids = set()
+    for product in products:
+        product_id = product.get("id")
+        if product_id is not None and product_id in seen_product_ids:
+            continue
+        if product_id is not None:
+            seen_product_ids.add(product_id)
+        unique_products.append(product)
+    products = unique_products
     resolved_blocks = []
     for block in blocks:
         item = dict(block)
@@ -196,13 +207,16 @@ def render_studio_message(category, subject, headline, message, context, *, bloc
             if not item["url"]:
                 raise EmailContentError("The selected button destination is unavailable for this recipient.")
         resolved_blocks.append(item)
+    template_name = "emails/promotion_message.html" if category == "promotion" else "emails/studio_message.html"
     html = render_template(
-        "emails/studio_message.html", category=category, subject=subject, headline=headline,
+        template_name, category=category, subject=subject, headline=headline,
         message=message, blocks=resolved_blocks, products=products, order_lines=order_lines, order_summary=order_summary, cart_summary=cart_summary, shop_url=shop_url, logo_url=logo_url,
         primary_url=primary_url, primary_label=primary_label,
         order_date=context.get("order_date", ""), order_reference=context.get("order_reference", ""),
         unsubscribe_url=unsubscribe_url, design=design, site_url=site_url or shop_url,
-        contact_url=contact_url,
+        contact_url=contact_url, hero_image_url=hero_image_url, about_url=about_url,
+        preferences_url=preferences_url, whatsapp_url=whatsapp_url,
+        social_icon_urls=social_icon_urls or {},
     )
     text_lines = [headline, "", message]
     if resolved_blocks:

@@ -23,6 +23,7 @@ from app.services.email_studio import EMAIL_CATEGORIES, EmailContentError, rende
 from app.services.formatting import money
 from app.services.product_images import product_display_image, product_image_alt, product_image_url
 from app.services.settings import current_settings
+from app.services.whatsapp import build_general_message, whatsapp_text_link
 
 _PROMOTIONAL_COPY = re.compile(
     r"\b(?:discounts?|sales?|offers?|promotions?|coupons?|vouchers?|deals?|"
@@ -79,6 +80,8 @@ def _product_card(product):
         "image_alt": product_image_alt(image, f"Product image: {product.name}") if image else f"Product image: {product.name}",
         "url": _public_url(url_for("public.product_detail", slug=product.slug)),
         "category": product.category.name if product.category else "",
+        "description": (product.description or "").strip(),
+        "stock_quantity": product.display_stock_quantity,
         "sku": product.sku or "",
     }
 
@@ -123,7 +126,7 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
         if not saved:
             raise EmailContentError("Choose a saved template from the selected email category.")
     if not saved:
-        saved = EmailTemplate.query.filter_by(category=category).order_by(EmailTemplate.id).first()
+        saved = EmailTemplate.query.filter_by(category=category, name="BEI FITS Promotional Default").first() if category == "promotion" else EmailTemplate.query.filter_by(category=category).order_by(EmailTemplate.id).first()
     default = template
     subject = (form.get("subject") if "subject" in form else (saved.subject if saved else default["subject"])) or ""
     headline = (form.get("headline") if "headline" in form else (saved.headline if saved else default["headline"])) or ""
@@ -318,6 +321,7 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
     primary_url = _public_url(url_for("public.shop"))
     shop_url = _public_url(url_for("public.shop"))
     logo_url = _public_url(url_for("static", filename="images/mainLogo-160.png"))
+    hero_image_url = _public_url(url_for("static", filename="images/shop-hero/email-removebg-preview.png"))
     primary_label = "Continue shopping"
     if order:
         primary_url = _public_url(url_for("public.track_order_link", reference=order.reference, tracking_token=order.tracking_token))
@@ -346,6 +350,11 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
         primary_url=primary_url, primary_label=primary_label, shop_url=shop_url, logo_url=logo_url,
         site_url=_public_url("/"), contact_url=_public_url(url_for("public.contact")),
         unsubscribe_url=unsubscribe_url, design=design,
+        hero_image_url=hero_image_url,
+        about_url=_public_url(url_for("public.about")),
+        preferences_url=_public_url(url_for("customer.dashboard")),
+        whatsapp_url=whatsapp_text_link(current_settings(), build_general_message(current_settings())),
+        social_icon_urls={name: _public_url(url_for("static", filename=f"images/email-icons/fa-{name}.png")) for name in ("facebook", "instagram", "tiktok", "whatsapp")},
     )
     if test_mode:
         html = html.replace("<h1 style=", '<p style="padding:10px;background:#fff3cd;color:#664d03">TEST PREVIEW — this is not an order or payment notice.</p><h1 style=', 1)
@@ -410,11 +419,15 @@ def register_email_studio_routes(admin_bp):
                 flash("Choose a supported Email Studio category. Nothing was sent.", "error")
                 return redirect(url_for("admin.email_studio"))
             category = "customer_service"
+        if not selected_template and category == "promotion":
+            selected_template = EmailTemplate.query.filter_by(
+                category="promotion", name="BEI FITS Promotional Default"
+            ).first()
         search = request.values.get("product_search", "").strip()[:100]
         account_id = request.values.get("account_id", "").strip()
         accounts = CustomerAccount.query.order_by(CustomerAccount.display_name, CustomerAccount.email).limit(500).all()
         saved_templates = EmailTemplate.query.order_by(EmailTemplate.category, EmailTemplate.name, EmailTemplate.id).all()
-        saved_template = selected_template or EmailTemplate.query.filter_by(category=category).order_by(EmailTemplate.id).first()
+        saved_template = selected_template or (EmailTemplate.query.filter_by(category=category, name="BEI FITS Promotional Default").first() if category == "promotion" else EmailTemplate.query.filter_by(category=category).order_by(EmailTemplate.id).first())
         defaults = EMAIL_CATEGORIES[category]
         draft_id = request.values.get("draft_id", "").strip()
         draft = None
@@ -499,7 +512,7 @@ def register_email_studio_routes(admin_bp):
                     if not subject.strip() or not message.strip():
                         raise EmailContentError("A reusable template needs both a subject and message.")
                     template_name = request.form.get("template_name", "").strip()[:120]
-                    row = selected_template or saved_template or EmailTemplate(category=category)
+                    row = selected_template or saved_template or EmailTemplate(category=category, name="BEI FITS Promotional Default" if category == "promotion" else "Saved template")
                     row.category = category
                     if template_name:
                         row.name = template_name

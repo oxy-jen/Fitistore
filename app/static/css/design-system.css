@@ -1,0 +1,195 @@
+/* BEI FITS centralized neumorphic design system. Loaded after the legacy stylesheet
+   so shared primitives are the single adjustment point for the storefront shell. */
+:root {
+  --brand-red: #e52335;
+  --brand-green: #08a64a;
+  --brand-black: #17191d;
+  --brand-white: #ffffff;
+  --neu-canvas: #eef0f3;
+  --neu-surface: #eef0f3;
+  --neu-surface-strong: #f5f6f8;
+  --neu-text: #252a32;
+  --neu-muted: #68717d;
+  --neu-border: #dfe3e9;
+  --neu-shadow-light: rgba(255,255,255,.92);
+  --neu-shadow-dark: rgba(35,44,58,.13);
+  --neu-dark-raised: 5px 5px 11px rgba(0,0,0,.48), -4px -4px 10px rgba(70,74,82,.12);
+  --neu-dark-inset: inset 4px 4px 9px rgba(0,0,0,.48), inset -3px -3px 8px rgba(70,74,82,.1);
+  --neu-red-raised: 4px 5px 10px rgba(125,12,24,.28), -3px -3px 8px rgba(255,91,105,.4);
+  --neu-green-raised: 4px 5px 10px rgba(2,81,37,.22), -3px -3px 8px rgba(105,224,151,.34);
+  --neu-green-inset: inset 3px 3px 7px rgba(2,81,37,.09), inset -3px -3px 8px rgba(105,224,151,.2);
+  --neu-control-raised: var(--neu-raised-shadow-sm);
+  --neu-control-hover: var(--neu-raised-shadow);
+  --neu-control-inset: var(--neu-inset-shadow);
+  --neu-raised-shadow: 6px 6px 14px var(--neu-shadow-dark), -6px -6px 14px var(--neu-shadow-light);
+  --neu-raised-shadow-sm: 3px 3px 8px rgba(35,44,58,.11), -3px -3px 8px rgba(255,255,255,.9);
+  --neu-inset-shadow: inset 3px 3px 7px rgba(35,44,58,.12), inset -3px -3px 7px rgba(255,255,255,.92);
+  --neu-focus: 0 0 0 3px rgba(229,35,53,.23);
+  --neu-radius-sm: 10px;
+  --neu-radius-md: 16px;
+  --neu-radius-lg: 22px;
+  --neu-space-1: .35rem;
+  --neu-space-2: .65rem;
+  --neu-space-3: 1rem;
+  --neu-space-4: 1.4rem;
+  --neu-space-5: 2rem;
+  --neu-duration-fast: 140ms;
+  --neu-duration: 200ms;
+  --neu-ease: cubic-bezier(.2,.7,.25,1);
+
+  /* Existing project token aliases keep old components on the same palette. */
+  --radius: var(--neu-radius-md);
+  --radius-card: var(--neu-radius-md);
+  --radius-control: var(--neu-radius-sm);
+  --bg: var(--neu-canvas);
+  --text: var(--neu-text);
+  --red: var(--brand-red);
+  --white: var(--brand-white);
+  --muted: var(--neu-muted);
+  --green: var(--brand-green);
+  --border-subtle: rgba(37,42,50,.11);
+  --shadow-card: var(--neu-raised-shadow-sm);
+  --shadow-card-hover: var(--neu-raised-shadow);
+  --shadow-elevated: 8px 10px 22px rgba(35,44,58,.16), -4px -4px 12px rgba(255,255,255,.82);
+  --shadow-focus: var(--neu-focus);
+  --shadow: var(--neu-raised-shadow-sm);
+  --inset: var(--neu-inset-shadow);
+}
+
+/* Primitive classes are available to templates that need explicit treatment. */
+.neu-raised { background: var(--neu-surface); border: 1px solid rgba(255,255,255,.78); box-shadow: var(--neu-raised-shadow-sm); }
+.neu-inset { background: var(--neu-canvas); border: 1px solid rgba(35,44,58,.05); box-shadow: var(--neu-inset-shadow); }
+.neu-card,.neu-panel { background: var(--neu-surface); border: 1px solid rgba(255,255,255,.86); border-radius: var(--neu-radius-md); box-shadow: var(--neu-raised-shadow-sm); }
+.neu-button,.neu-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; min-height: 42px; border: 1px solid rgba(255,255,255,.8); border-radius: var(--neu-radius-sm); background: var(--neu-surface); color: var(--neu-text); box-shadow: var(--neu-control-raised); transition: box-shadow var(--neu-duration) var(--neu-ease), transform var(--neu-duration-fast) var(--neu-ease), background var(--neu-duration) var(--neu-ease); cursor: pointer; }
+.neu-button { padding: .65rem 1rem; font-weight: 750; }
+.neu-icon-button { width: 42px; padding: .45rem; }
+.neu-button:hover:not(:disabled),.neu-icon-button:hover:not(:disabled) { box-shadow: var(--neu-control-hover); transform: translateY(-1px); }
+.neu-button:active:not(:disabled),.neu-icon-button:active:not(:disabled) { box-shadow: var(--neu-control-inset); transform: none; }
+.neu-button.primary { border-color: var(--brand-red); background: var(--brand-red); color: #fff; box-shadow: var(--neu-red-raised); }
+.neu-button.positive { border-color: rgba(8,166,74,.28); color: #087b3d; }
+.neu-input { min-height: 42px; border: 1px solid rgba(35,44,58,.08); border-radius: var(--neu-radius-sm); background: var(--neu-canvas); color: var(--neu-text); box-shadow: var(--neu-inset-shadow); }
+.neu-navigation { background: rgba(238,240,243,.94); border-bottom: 1px solid rgba(35,44,58,.08); box-shadow: 0 4px 12px rgba(35,44,58,.07); }
+.neu-badge { display: inline-flex; align-items: center; min-height: 24px; padding: .25rem .6rem; border: 1px solid var(--neu-border); border-radius: 999px; background: var(--neu-surface-strong); color: var(--neu-text); font-size: .76rem; font-weight: 750; }
+
+/* Shared semantic components mapped onto the primitives without changing markup or behavior. */
+.site-header,.admin-header { background: rgba(238,240,243,.94); box-shadow: 0 4px 12px rgba(35,44,58,.07); border-bottom: 1px solid rgba(35,44,58,.08); }
+.nav a,.nav-more summary,.admin-nav a { transition: background var(--neu-duration) var(--neu-ease), box-shadow var(--neu-duration) var(--neu-ease), color var(--neu-duration) var(--neu-ease); }
+.nav a:hover,.nav-more summary:hover,.admin-nav a:hover { background: var(--neu-surface); box-shadow: var(--neu-raised-shadow-sm); }
+.nav-more-menu,.nav-profile-menu { border-color: var(--neu-border); border-radius: var(--neu-radius-md); background: var(--neu-surface); box-shadow: var(--neu-raised-shadow); }
+.product-card,.shop-product-card,.department-card,.upcoming-grid article,.upcoming-page-grid article,.home-info article,.form-card,.cart-panel,.order-card,.tracking-card,.review-card,.info-card,.account-card,.account-panel,.stat-grid article,.admin-panel,.admin-card,.email-panel,.email-studio-card { border-color: rgba(255,255,255,.88); border-radius: var(--neu-radius-md); box-shadow: var(--neu-raised-shadow-sm); }
+input:not([type=checkbox]):not([type=radio]):not([type=submit]),select,textarea { border-color: rgba(35,44,58,.1); border-radius: var(--neu-radius-sm); box-shadow: var(--neu-inset-shadow); }
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline-color: var(--brand-red); box-shadow: var(--neu-focus); }
+.btn,.button,button[type=submit] { transition: transform var(--neu-duration-fast) var(--neu-ease), box-shadow var(--neu-duration) var(--neu-ease), background-color var(--neu-duration) var(--neu-ease); }
+.btn:not(.primary):not(:disabled),.button:not(.primary):not(:disabled) { box-shadow: var(--neu-control-raised); }
+.btn:not(:disabled):active,.button:not(:disabled):active { box-shadow: var(--neu-control-inset); transform: translateY(1px); }
+.btn.primary,.button.primary { background: var(--brand-red); border-color: var(--brand-red); color: #fff; box-shadow: var(--neu-red-raised); }
+.shop-whatsapp,.btn.whatsapp,.button.whatsapp { color: #087b3d; box-shadow: var(--neu-green-raised); }
+input:disabled,select:disabled,textarea:disabled,button:disabled { cursor: not-allowed; }
+
+
+
+/* Surface-aware relief: each control gets light/dark or brand-tinted shadows
+   from its actual surface context, so dark controls never glow white. */
+.neu-dark-surface,.home-banner,.home-banner .home-track-button,.home-banner .home-share-button,.mamba-browser .mamba-filter-row .chip,.footer .btn:not(.primary),.footer .button:not(.primary) {
+  --neu-control-raised: var(--neu-dark-raised);
+  --neu-control-hover: var(--neu-dark-raised);
+  --neu-control-inset: var(--neu-dark-inset);
+}
+.home-banner .home-track-button,.home-banner .home-share-button {
+  border-color: rgba(0,0,0,.65);
+  background: #101112;
+  color: #fff;
+}
+.home-banner .home-track-button:hover,.home-banner .home-share-button:hover {
+  background: #151719;
+  border-color: rgba(62,66,72,.55);
+}
+.mamba-browser .mamba-product,.mamba-browser .mamba-product .product-image {
+  --neu-control-raised: var(--neu-raised-shadow-sm);
+  --neu-control-hover: var(--neu-raised-shadow);
+  --neu-control-inset: var(--neu-inset-shadow);
+}
+.btn.primary,.button.primary,.neu-button.primary { box-shadow: var(--neu-red-raised); }
+.shop-whatsapp,.btn.whatsapp,.button.whatsapp,.neu-button.positive { box-shadow: var(--neu-green-raised); }
+.neu-surface-black { background: #101112; color: #fff; box-shadow: var(--neu-dark-raised); }
+.neu-surface-black:active { box-shadow: var(--neu-dark-inset); }
+.neu-surface-red { background: var(--brand-red); color: #fff; box-shadow: var(--neu-red-raised); }
+.neu-surface-green { background: var(--brand-green); color: #fff; box-shadow: var(--neu-green-raised); }
+/* Site-wide migration: shared commerce, account, admin and editorial surfaces. */
+.hero-panel,.text-panel,.form-card,.cart-panel,.empty,.info-grid article,.product-card,.order-card,.stat-grid article,.account-order,.account-empty,.account-discovery,.account-recent-product,.checkout-fulfilment,.checkout-guidance,.request-grid .mini-form,.tracking-card,.review-receipt>div,.review-items,.admin-nav a,.table-wrap,.table-card,.data-panel,.metric-card,.settings-panel,.email-center-panel,.studio-message-card {
+  background-color: var(--neu-surface);
+  border-color: rgba(255,255,255,.86);
+  border-radius: var(--neu-radius-md);
+  box-shadow: var(--neu-raised-shadow-sm);
+}
+.product-detail .detail-image,.product-detail .detail-copy,.detail-copy .variant-option,.detail-copy .product-thumb {
+  border: 1px solid rgba(255,255,255,.86);
+  border-radius: var(--neu-radius-md);
+  background-color: var(--neu-surface);
+  box-shadow: var(--neu-raised-shadow-sm);
+}
+.product-detail .detail-copy { padding: clamp(1rem,2.5vw,1.5rem); }
+.product-detail .detail-image { padding: .4rem; }
+.shop-product-card .product-image,.product-card .product-image {
+  border: 1px solid rgba(255,255,255,.9);
+  background: var(--neu-surface-strong);
+  box-shadow: var(--neu-inset-shadow);
+}
+.checkout-fulfilment label,.account-order>div,.account-details>div,.review-receipt>div,.cart-line,.cart-item,.order-line,.tracking-event,.admin-stat,.table-wrap table td,.table-wrap table th {
+  border-color: rgba(35,44,58,.09);
+}
+.checkout-fulfilment label,.cart-line,.cart-item,.order-line,.tracking-event,.admin-stat {
+  border: 1px solid rgba(255,255,255,.85);
+  border-radius: var(--neu-radius-sm);
+  background: var(--neu-surface);
+  box-shadow: var(--neu-raised-shadow-sm);
+}
+.checkout-payment,.fulfilment-motion,.success-panel,.notice.success {
+  border: 1px solid rgba(8,166,74,.2);
+  border-radius: var(--neu-radius-md);
+  background: #f1f8f3;
+  box-shadow: var(--neu-green-inset);
+}
+.mpesa-number { box-shadow: var(--neu-raised-shadow-sm); }
+.flash { border-radius: var(--neu-radius-sm); box-shadow: var(--neu-raised-shadow-sm); }
+.flash.error,.flash.danger,.notice.error,.form-error,.field-error { border-left-color: var(--brand-red); color: #8f1421; }
+.flash.success,.notice.success { border-left-color: var(--brand-green); color: #12683a; box-shadow: var(--neu-green-raised); }
+
+/* Tables use restrained row separation for scanability instead of raised cells. */
+.table-wrap { overflow: auto; }
+.table-wrap table { border-collapse: separate; border-spacing: 0 .4rem; }
+.table-wrap th { color: var(--neu-muted); font-size: .78rem; letter-spacing: .035em; text-transform: uppercase; }
+.table-wrap td { background: #fff; }
+.table-wrap tbody tr { box-shadow: 0 2px 7px rgba(35,44,58,.055); }
+.table-wrap tbody td:first-child { border-radius: var(--neu-radius-sm) 0 0 var(--neu-radius-sm); }
+.table-wrap tbody td:last-child { border-radius: 0 var(--neu-radius-sm) var(--neu-radius-sm) 0; }
+.table-wrap input,.table-wrap select,.inline input,.inline select { min-height: 38px; }
+
+/* Keep brand-led dark areas recognizable while giving them the same depth language. */
+.account-dashboard-head,.upcoming-head,.mamba-browser,.footer,.footer-showcase {
+  border: 1px solid rgba(255,255,255,.1);
+  box-shadow: 0 10px 24px rgba(19,22,27,.16), inset 1px 1px rgba(255,255,255,.07);
+}
+.account-dashboard-head { border-radius: var(--neu-radius-lg); }
+.footer { border-radius: var(--neu-radius-lg) var(--neu-radius-lg) 0 0; }
+.nav-profile-menu a,.nav-more-menu a,.dropdown-menu a,.menu-panel a { border-radius: var(--neu-radius-sm); }
+.nav-profile-menu a:hover,.dropdown-menu a:hover,.menu-panel a:hover { background: var(--neu-surface-strong); box-shadow: var(--neu-inset-shadow); }
+.icon-button,.product-thumb,.variant-option,.chip,.shop-chip,.filter-chip,.nav-profile summary,.nav-more summary {
+  transition: box-shadow var(--neu-duration) var(--neu-ease), background-color var(--neu-duration) var(--neu-ease), border-color var(--neu-duration) var(--neu-ease), transform var(--neu-duration-fast) var(--neu-ease);
+}
+.variant-option:not(:disabled):hover,.product-thumb:hover,.chip:hover,.shop-chip:hover,.filter-chip:hover { box-shadow: var(--neu-control-raised); }
+.variant-option.active,.product-thumb.active,.chip.active,.shop-chip.active,.filter-chip.active { border-color: var(--brand-red); box-shadow: var(--neu-focus); }
+.shop-card-share .btn { box-shadow: none!important; }
+
+@media (max-width: 720px) {
+  :root { --neu-raised-shadow: 3px 3px 8px rgba(35,44,58,.1), -3px -3px 8px rgba(255,255,255,.82); --neu-raised-shadow-sm: 2px 2px 5px rgba(35,44,58,.09), -2px -2px 5px rgba(255,255,255,.82); --neu-inset-shadow: inset 2px 2px 5px rgba(35,44,58,.1), inset -2px -2px 5px rgba(255,255,255,.85); --neu-radius-md: 14px; --neu-radius-lg: 18px; }
+  .product-detail .detail-copy { padding: .9rem; }
+  .table-wrap { box-shadow: none; }
+}
+@media (max-width: 380px) {
+  :root { --neu-radius-sm: 8px; --neu-radius-md: 12px; --neu-radius-lg: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .neu-button,.neu-icon-button,.nav a,.nav-more summary,.admin-nav a,.btn,.button { transition: none; }
+  .neu-button:hover,.neu-icon-button:hover,.btn:not(:disabled):active,.button:not(:disabled):active { transform: none; }
+}
