@@ -118,19 +118,22 @@ def _send_token_email(account, purpose, raw, next_url=None):
         path = "customer.verify_email"
         subject = "Verify your FityStores email"
         heading = "Verify your email address"
-        text = "Use this one-time link to verify your FityStores account. It expires in 24 hours."
+        text = "This link verifies your FityStores email address and expires in 24 hours. If you did not create this account, you can ignore this email."
+        button_text = "Verify email address"
         minutes = 24 * 60
     elif purpose == "reset_password":
         path = "customer.reset_password"
         subject = "Reset your FityStores password"
         heading = "Reset your password"
-        text = "Use this one-time link to choose a new password. It expires in 30 minutes."
+        text = "Use this one-time link to choose a new password; it expires in 30 minutes. If you did not request a reset, ignore this email; your password has not changed."
+        button_text = "Choose a new password"
         minutes = 30
     else:
         path = "customer.confirm_marketing"
         subject = "Confirm FityStores email offers"
         heading = "Confirm promotional email preferences"
-        text = "Confirm that you would like to receive occasional FityStores offers, new arrivals, and promotions by email."
+        text = "Confirm only if you want occasional FityStores offers and new-arrival emails. You will not be subscribed unless you confirm."
+        button_text = "Confirm email preferences"
         minutes = 24 * 60
     url_values = {"token": raw}
     if purpose == "verify_email" and next_url:
@@ -139,7 +142,7 @@ def _send_token_email(account, purpose, raw, next_url=None):
     event_key = hashlib.sha256(raw.encode()).hexdigest()[:24]
     return queue_branded_email(
         account.email, subject, purpose, f"{purpose}:{event_key}", heading, [text], account_id=account.id,
-        button_url=url, button_text="Continue securely",
+        button_url=url, button_text=button_text,
     )
 
 
@@ -189,10 +192,10 @@ def _start_email_code(account, purpose):
     db.session.commit()
     heading = "Verify your FityStores account" if purpose == "verify_code" else "Your FityStores sign-in code"
     subject = "Your FityStores verification code" if purpose == "verify_code" else "Your FityStores sign-in code"
+    code_copy = "Enter this code within 10 minutes; tap and hold it to copy. Never share it, even with FityStores."
     result = queue_branded_email(
         account.email, subject, purpose, f"{purpose}:{row.id}", heading,
-        [f"Your one-time code is {code}.", "Enter this code on the FityStores page. It expires in 10 minutes and can only be used once."],
-        account_id=account.id,
+        [code_copy], account_id=account.id, security_code=code,
     )
     now = datetime.utcnow()
     if result.status == "sent":

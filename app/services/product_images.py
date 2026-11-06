@@ -58,7 +58,7 @@ def optimize_image_bytes(data: bytes) -> bytes:
             return optimized if len(optimized) < len(data) else data
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
         return data
-def upload_image_bytes(data: bytes, public_id: str, resource_type: str = "image") -> dict:
+def upload_image_bytes(data: bytes, public_id: str, resource_type: str = "image", overwrite: bool = False) -> dict:
     if resource_type == "image":
         data = optimize_image_bytes(data)
     configure_cloudinary()
@@ -69,7 +69,7 @@ def upload_image_bytes(data: bytes, public_id: str, resource_type: str = "image"
             data,
             public_id=public_id,
             resource_type=resource_type,
-            overwrite=False,
+            overwrite=overwrite,
             unique_filename=False,
             secure=True,
         )
@@ -115,7 +115,10 @@ def valid_product_image(image) -> bool:
     if not image:
         return False
     if getattr(image, "cloudinary_public_id", ""):
-        return bool(cloudinary_image_url(image))
+        # Cloudinary may be configured on one environment but absent on another.
+        # In that case use the retained local upload instead of hiding a valid image.
+        if cloudinary_image_url(image):
+            return True
     image_path = legacy_local_image_path(image)
     return bool(image_path and image_path.is_file())
 

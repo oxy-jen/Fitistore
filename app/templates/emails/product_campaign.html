@@ -1,7 +1,7 @@
 {% from "emails/_brand_components.html" import email_header, email_footer %}
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ subject }}</title></head>
-<body style="margin:0;background:#f2f2f2;color:#252525;font-family:Arial,Helvetica,sans-serif">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light"><title>{{ subject }}</title></head>
+<body style="margin:0;background:#f2f2f2;color:#252525;color-scheme:light only;font-family:Arial,Helvetica,sans-serif">
 <div style="display:none!important;max-height:0;overflow:hidden">{{ intro|e }}</div>
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f2f2f2;padding:20px 8px"><tr><td align="center">
 <table role="presentation" width="620" cellspacing="0" cellpadding="0" style="width:100%;max-width:620px;background:#fff;border-radius:12px;overflow:hidden">

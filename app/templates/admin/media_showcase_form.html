@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block content %}
+{% set fd = form_data %}
+{% macro color_control(label, name, value, transparent=false) -%}
+<div class="media-color-control" data-color-control data-transparent="{{ 'true' if transparent else 'false' }}">
+  <span class="media-color-label">{{ label }}</span>
+  <div class="media-color-inputs">
+    <select data-color-preset aria-label="{{ label }} named colour">
+      <option value="#ffffff">White</option><option value="#000000">Black</option>
+      <option value="#e52335">Fity red</option><option value="#008000">Green</option>
+      <option value="#808080">Grey</option><option value="#d3d3d3">Light grey</option>
+      <option value="#404040">Dark grey</option>
+      {% if transparent %}<option value="transparent">Transparent</option>{% endif %}
+      <option value="custom">Custom colour…</option>
+    </select>
+    <input type="color" data-color-picker aria-label="Custom {{ label }}">
+    <input type="hidden" name="{{ name }}" data-color-value value="{{ value }}">
+  </div>
+  <span class="media-color-swatch" data-color-swatch aria-hidden="true"></span>
+</div>
+{%- endmacro %}
+
+<section class="page-head admin-head media-admin-heading">
+  <div><p class="eyebrow">Storefront content</p><h1>{{ 'Edit' if showcase else 'Create' }} media showcase</h1><p>Build a responsive media section with existing assets, new uploads, or supported links.</p></div>
+  <a class="btn" href="{{ url_for('admin.media_showcases') }}">Back to showcases</a>
+</section>
+
+<div class="media-admin-workspace">
+<form method="post" class="showcase-editor media-admin-form" data-library-url="{{ url_for('admin.media_showcase_library') }}" data-upload-url="{{ url_for('admin.media_showcase_upload') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <details class="media-admin-section" open>
+    <summary><span><strong>1. Showcase details</strong><small>Name, placement and customer-facing copy</small></span></summary>
+    <div class="showcase-fields">
+      <label>Internal name<input required maxlength="120" name="name" value="{{ fd.get('name', showcase.name if showcase else '') }}"></label>
+      <label>Public heading<input maxlength="160" name="title" value="{{ fd.get('title', showcase.title if showcase else '') }}"></label>
+      <label>Subtitle<input maxlength="200" name="subtitle" value="{{ fd.get('subtitle', showcase.subtitle if showcase else '') }}"></label>
+      <label>Page<select required name="page" id="showcase-page">{% for page, slots in pages.items() %}<option value="{{ page }}"{% if fd.get('page', showcase.page_identifier if showcase else 'home')==page %} selected{% endif %}>{{ page|title }}</option>{% endfor %}</select></label>
+      <label>Placement<select required name="placement" id="showcase-placement">{% for page, slots in pages.items() %}{% for key,label in slots.items() %}<option data-page="{{ page }}" value="{{ key }}"{% if fd.get('placement', showcase.placement_identifier if showcase else 'home_after_hero')==key %} selected{% endif %}>{{ label }}</option>{% endfor %}{% endfor %}</select></label>
+      <label class="span-two">Description<textarea name="description" rows="3" maxlength="3000">{{ fd.get('description', showcase.description if showcase else '') }}</textarea></label>
+    </div>
+  </details>
+
+  <details class="media-admin-section" open>
+    <summary><span><strong>2. Layout and colours</strong><small>Responsive presentation and brand styling</small></span></summary>
+    <div class="showcase-fields">
+      <label>Layout<select name="layout">{% for key,label in layouts.items() %}<option value="{{ key }}"{% if fd.get('layout', showcase.layout if showcase else 'carousel')==key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label>Density<select name="density">{% for key,label in densities.items() %}<option value="{{ key }}"{% if fd.get('density', showcase.density if showcase else 'compact')==key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label>Cards on mobile<input type="number" min="1" max="4" name="visible_cards_mobile" value="{{ fd.get('visible_cards_mobile', showcase.visible_cards_mobile if showcase else 2) }}"></label>
+      <label>Cards on tablet<input type="number" min="1" max="5" name="visible_cards_tablet" value="{{ fd.get('visible_cards_tablet', showcase.visible_cards_tablet if showcase else 3) }}"></label>
+      <label>Cards on desktop<input type="number" min="1" max="6" name="visible_cards_desktop" value="{{ fd.get('visible_cards_desktop', showcase.visible_cards_desktop if showcase else 4) }}"></label>
+      <label>Section padding (px)<input type="number" min="0" max="40" name="section_padding_px" placeholder="Density default" value="{{ fd.get('section_padding_px', showcase.section_padding_px if showcase and showcase.section_padding_px is not none else '') }}"></label>
+      <label>Card gap (px)<input type="number" min="0" max="40" name="card_gap_px" placeholder="Density default" value="{{ fd.get('card_gap_px', showcase.card_gap_px if showcase and showcase.card_gap_px is not none else '') }}"></label>
+    </div>
+    <p class="showcase-help">Compact carousel defaults: 2 cards on mobile, 3 on tablet and 4 on desktop. Blank spacing values use the selected density.</p>
+    <div class="media-colour-grid">
+      {{ color_control('Section background', 'background_color', fd.get('background_color', (showcase.background_color or '#ffffff') if showcase else '#ffffff'), true) }}
+      {{ color_control('Heading colour', 'heading_color', fd.get('heading_color', showcase.heading_color if showcase else '#252525')) }}
+      {{ color_control('Description colour', 'description_color', fd.get('description_color', showcase.description_color if showcase else '#666666')) }}
+      {{ color_control('Accent colour', 'accent_color', fd.get('accent_color', showcase.accent_color if showcase else '#e52335')) }}
+      {{ color_control('Card background', 'card_background_color', fd.get('card_background_color', showcase.card_background_color if showcase else '#ffffff'), true) }}
+      {{ color_control('Border colour', 'border_color', fd.get('border_color', showcase.border_color if showcase else '#e8e8eb'), true) }}
+      {{ color_control('Button background', 'button_background_color', fd.get('button_background_color', showcase.button_background_color if showcase else '#e52335')) }}
+      {{ color_control('Button text', 'button_text_color', fd.get('button_text_color', showcase.button_text_color if showcase else '#ffffff')) }}
+    </div>
+    <p class="media-colour-warning" data-colour-warning aria-live="polite"></p>
+  </details>
+
+  <details class="media-admin-section" open>
+    <summary><span><strong>3. Media items</strong><small>Browse, upload or paste a media link</small></span></summary>
+    <p class="showcase-help">Reuse existing assets without copying them. Uploads are limited to 3.5 MB to fit the app’s 4 MB request limit and use Cloudinary when configured. Local uploads are only used for local SQLite development; hosted uploads require Cloudinary. External URLs are previewed in your browser and are never downloaded by the server.</p>
+    <div class="media-source-toolbar"><button class="btn" type="button" data-library-open>Browse media library</button><button class="btn" type="button" data-add-showcase-item>Add media item</button><label class="btn media-upload-button">Upload multiple files<input type="file" multiple accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.m4v,.mov,.webm" class="media-file-input" data-bulk-upload aria-label="Choose multiple media files"></label><span data-bulk-upload-status role="status" aria-live="polite"></span><span data-media-library-status role="status" aria-live="polite"></span></div>
+    <label class="media-bulk-links">Add multiple media links, one per line<textarea rows="3" data-bulk-links placeholder="Paste direct image, GIF, video, Cloudinary, YouTube or Vimeo URLs"></textarea></label><button class="btn" type="button" data-add-bulk-links>Add links</button>
+    <div class="media-item-list" data-showcase-item-list></div>
+  </details>
+
+  <details class="media-admin-section">
+    <summary><span><strong>4. Schedule and publish</strong><small>Choose when the showcase is visible</small></span></summary>
+    <div class="showcase-fields">
+      <label>Starts at (UTC)<input type="datetime-local" name="starts_at" value="{{ fd.get('starts_at', showcase.starts_at.strftime('%Y-%m-%dT%H:%M') if showcase and showcase.starts_at else '') }}"></label>
+      <label>Expires at (UTC)<input type="datetime-local" name="expires_at" value="{{ fd.get('expires_at', showcase.expires_at.strftime('%Y-%m-%dT%H:%M') if showcase and showcase.expires_at else '') }}"></label>
+      <label class="check"><input type="checkbox" name="is_published" value="1"{% if fd.get('is_published', showcase.is_published if showcase else false) %} checked{% endif %}> Published</label>
+      <label class="check"><input type="checkbox" name="is_enabled" value="1"{% if fd.get('is_enabled', showcase.is_enabled if showcase else true) %} checked{% endif %}> Enabled</label>
+    </div>
+  </details>
+
+  <details class="json-help"><summary>Advanced JSON editor</summary><p>Use this only if you prefer editing the item data directly.</p><textarea class="items-json" name="items_json" rows="18" spellcheck="false">{{ items_json }}</textarea></details>
+  <div class="form-actions media-form-actions"><button class="btn" type="submit" name="publish_action" value="keep">{{ 'Save changes' if showcase else 'Save draft' }}</button><button class="btn" type="submit" name="publish_action" value="draft">Save as draft</button><button class="btn primary" type="submit" name="publish_action" value="publish">{{ 'Publish / update' if showcase else 'Publish now' }}</button>{% if showcase %}<a class="btn" href="{{ url_for('admin.media_showcase_preview', showcase_id=showcase.id) }}">Open full preview</a>{% endif %}</div>
+</form>
+
+<aside class="media-live-preview-panel">
+  <div class="media-preview-title"><div><p class="eyebrow">Live preview</p><h2>Storefront appearance</h2></div><div class="media-preview-sizes"><button type="button" data-live-width="390">Mobile</button><button type="button" data-live-width="768">Tablet</button><button type="button" data-live-width="1200">Desktop</button></div></div>
+  <div class="media-live-preview-frame" data-live-preview aria-live="polite"><p class="media-preview-empty">Add media to preview your showcase.</p></div>
+</aside>
+</div>
+
+<dialog class="media-library-dialog" data-media-library aria-labelledby="media-library-title">
+  <div class="media-library-head"><div><p class="eyebrow">Reuse an existing asset</p><h2 id="media-library-title">Media library</h2></div><button class="btn" type="button" data-library-close aria-label="Close media library">Close</button></div>
+  <label>Filter assets<input type="search" data-library-search placeholder="Search by filename or type"></label>
+  <p class="showcase-help" data-library-notice aria-live="polite"></p>
+  <div class="media-library-grid" data-library-grid></div>
+  <div class="media-library-selection"><span data-library-selection-count>0 selected</span><button class="btn primary" type="button" data-library-add-selected>Add selected media</button></div>
+</dialog>
+
+<script type="application/json" id="showcase-items-data">{{ items_json|tojson }}</script>
+<script type="application/json" id="showcase-products-data">{{ products_data|tojson }}</script>
+<script type="application/json" id="showcase-categories-data">{{ categories_data|tojson }}</script>
+<script>(function(){const p=document.getElementById('showcase-page'),s=document.getElementById('showcase-placement');function sync(){const opts=[...s.options];opts.forEach(o=>o.hidden=o.dataset.page!==p.value);if(s.selectedOptions[0]?.dataset.page!==p.value)s.value=opts.find(o=>o.dataset.page===p.value)?.value||''}p.addEventListener('change',sync);sync()})();</script>
+<script src="{{ url_for('static', filename='js/media-showcase-editor.js') }}?v=media-library-json-fix-20261106" defer></script>
+{% endblock %}

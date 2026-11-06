@@ -117,6 +117,105 @@ class Product(TimestampMixin, db.Model):
         return max(prices) if prices else None
 
 
+class UpcomingProduct(TimestampMixin, db.Model):
+    """Admin-managed editorial tiles for the Upcoming page (not stock promises)."""
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(140), nullable=False)
+    category_label = db.Column(db.String(80), nullable=False, default="")
+    description = db.Column(db.Text, nullable=False, default="")
+    image_url = db.Column(db.String(1000), nullable=False, default="")
+    image_alt = db.Column(db.String(255), nullable=False, default="")
+    card_size = db.Column(db.String(16), nullable=False, default="tall")
+    display_order = db.Column(db.Integer, nullable=False, default=0)
+    is_enabled = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    __table_args__ = (
+        CheckConstraint("card_size IN ('compact','standard','tall','wide','featured')", name="ck_upcoming_product_card_size"),
+        CheckConstraint("display_order >= 0", name="ck_upcoming_product_display_order"),
+    )
+
+
+class MediaShowcase(TimestampMixin, db.Model):
+    """Admin-managed content rendered only into the explicit slots in SHOWCASE_PLACEMENTS."""
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False, index=True)
+    title = db.Column(db.String(160), nullable=False, default="")
+    subtitle = db.Column(db.String(200), nullable=False, default="")
+    description = db.Column(db.Text, nullable=False, default="")
+    slug = db.Column(db.String(150), unique=True, nullable=False, index=True)
+    page_identifier = db.Column(db.String(40), nullable=False, index=True)
+    placement_identifier = db.Column(db.String(80), nullable=False, index=True)
+    layout = db.Column(db.String(40), nullable=False, default="carousel")
+    density = db.Column(db.String(16), nullable=False, default="compact")
+    card_aspect_ratio = db.Column(db.String(8), nullable=False, default="4:3")
+    visible_cards_mobile = db.Column(db.Integer, nullable=False, default=2)
+    visible_cards_tablet = db.Column(db.Integer, nullable=False, default=3)
+    visible_cards_desktop = db.Column(db.Integer, nullable=False, default=4)
+    section_padding_px = db.Column(db.Integer)
+    card_gap_px = db.Column(db.Integer)
+    heading_color = db.Column(db.String(20), nullable=False, default="#252525")
+    description_color = db.Column(db.String(20), nullable=False, default="#666666")
+    accent_color = db.Column(db.String(20), nullable=False, default="#e52335")
+    card_background_color = db.Column(db.String(20), nullable=False, default="#ffffff")
+    border_color = db.Column(db.String(20), nullable=False, default="#e8e8eb")
+    button_background_color = db.Column(db.String(20), nullable=False, default="#e52335")
+    button_text_color = db.Column(db.String(20), nullable=False, default="#ffffff")
+    display_order = db.Column(db.Integer, nullable=False, default=0)
+    is_published = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    is_enabled = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    starts_at = db.Column(db.DateTime)
+    expires_at = db.Column(db.DateTime)
+    background_color = db.Column(db.String(20), nullable=False, default="")
+    created_by_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="SET NULL"))
+    items = db.relationship("MediaShowcaseItem", back_populates="showcase", cascade="all, delete-orphan", order_by="MediaShowcaseItem.display_order, MediaShowcaseItem.id")
+    created_by = db.relationship("AdminUser")
+    __table_args__ = (
+        CheckConstraint("display_order >= 0", name="ck_media_showcase_order_nonnegative"),
+        CheckConstraint("layout IN ('carousel','banner','grid','featured','mixed','single','split')", name="ck_media_showcase_layout"),
+        CheckConstraint("density IN ('compact','balanced','spacious')", name="ck_media_showcase_density"),
+        CheckConstraint("card_aspect_ratio IN ('1:1','4:3','3:2','16:9')", name="ck_media_showcase_aspect_ratio"),
+        CheckConstraint("visible_cards_mobile BETWEEN 1 AND 4", name="ck_media_showcase_mobile_count"),
+        CheckConstraint("visible_cards_tablet BETWEEN 1 AND 5", name="ck_media_showcase_tablet_count"),
+        CheckConstraint("visible_cards_desktop BETWEEN 1 AND 6", name="ck_media_showcase_desktop_count"),
+        CheckConstraint("section_padding_px IS NULL OR section_padding_px BETWEEN 0 AND 40", name="ck_media_showcase_padding"),
+        CheckConstraint("card_gap_px IS NULL OR card_gap_px BETWEEN 0 AND 40", name="ck_media_showcase_gap"),
+    )
+
+
+class MediaShowcaseItem(TimestampMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    showcase_id = db.Column(db.Integer, db.ForeignKey("media_showcase.id", ondelete="CASCADE"), nullable=False, index=True)
+    media_type = db.Column(db.String(20), nullable=False)
+    source_type = db.Column(db.String(20), nullable=False, default="external_url")
+    source_filename = db.Column(db.String(255), nullable=False, default="")
+    file_size_bytes = db.Column(db.Integer)
+    media_width = db.Column(db.Integer)
+    media_height = db.Column(db.Integer)
+    duration_seconds = db.Column(db.Float)
+    title = db.Column(db.String(160), nullable=False, default="")
+    description = db.Column(db.Text, nullable=False, default="")
+    media_url = db.Column(db.String(1000), nullable=False, default="")
+    poster_url = db.Column(db.String(1000), nullable=False, default="")
+    thumbnail_url = db.Column(db.String(1000), nullable=False, default="")
+    destination_url = db.Column(db.String(1000), nullable=False, default="")
+    linked_product_id = db.Column(db.Integer, db.ForeignKey("product.id", ondelete="SET NULL"))
+    cta_label = db.Column(db.String(60), nullable=False, default="")
+    alt_text = db.Column(db.String(255), nullable=False, default="")
+    display_order = db.Column(db.Integer, nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    autoplay = db.Column(db.Boolean, nullable=False, default=True)
+    muted = db.Column(db.Boolean, nullable=False, default=True)
+    loop = db.Column(db.Boolean, nullable=False, default=True)
+    show_controls = db.Column(db.Boolean, nullable=False, default=False)
+    presentation_mode = db.Column(db.String(16), nullable=False, default="original")
+    aspect_ratio = db.Column(db.String(24), nullable=False, default="")
+    showcase = db.relationship("MediaShowcase", back_populates="items")
+    linked_product = db.relationship("Product")
+    __table_args__ = (
+        CheckConstraint("media_type IN ('video','gif','image','link')", name="ck_media_showcase_item_type"),
+        CheckConstraint("display_order >= 0", name="ck_media_showcase_item_order_nonnegative"),
+        CheckConstraint("presentation_mode IN ('original','contain','cover')", name="ck_media_showcase_item_presentation"),
+    )
+
 class MambaCollection(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     is_configured = db.Column(db.Boolean, default=False, nullable=False)

@@ -10,7 +10,7 @@ from werkzeug.security import generate_password_hash
 
 from config import Config
 from .extensions import db, login_manager, csrf
-from .models import AdminUser, CartAddCount, Category, CategoryThumbnail, CustomerProfile, MambaCollection, MambaCollectionItem, Order, OrderItem, Product, ProductImage, ReferralClick, ShopSettings
+from .models import AdminUser, CartAddCount, Category, CategoryThumbnail, CustomerProfile, MediaShowcase, MediaShowcaseItem, MambaCollection, MambaCollectionItem, Order, OrderItem, Product, ProductImage, ReferralClick, ShopSettings, UpcomingProduct
 from .services.product_images import ImageStorageError, legacy_local_image_path, upload_image_bytes
 
 DEFAULT_CATEGORIES = [
@@ -355,6 +355,8 @@ def register_cli(app: Flask):
             raise click.ClickException("init-db is reserved for local SQLite setup. Use migrate-cloudinary-schema for the production Cloudinary columns.")
         db.create_all()
         ensure_columns()
+        if not MediaShowcase.query.filter_by(slug="fitystores-tv").first():
+            db.session.add(MediaShowcase(name="FityStores TV", title="FityStores TV", subtitle="See it. Love it. Shop it.", slug="fitystores-tv", page_identifier="home", placement_identifier="home_after_hero", layout="carousel", display_order=0, is_published=False, is_enabled=True))
         ensure_sample_images(app)
         categories = ensure_categories()
         ensure_starter_products(categories)
@@ -585,6 +587,133 @@ def register_cli(app: Flask):
                 "the transaction was rolled back."
             ) from None
         click.echo("PostgreSQL referral, review, and cart-counter schema is ready.")
+
+    @app.cli.command("migrate-media-showcases")
+    def migrate_media_showcases():
+        """Create the additive Media Showcases tables; this command never seeds or resets store data."""
+        from sqlalchemy import inspect, text
+        tables = [MediaShowcase.__table__, MediaShowcaseItem.__table__]
+        required_base = {"admin_user", "product"}
+
+        def validate(connection):
+            inspector = inspect(connection)
+            problems = []
+            for table in tables:
+                columns = {column["name"] for column in inspector.get_columns(table.name)}
+                missing_columns = {column.name for column in table.columns} - columns
+                indexes = {index["name"] for index in inspector.get_indexes(table.name)}
+                missing_indexes = {index.name for index in table.indexes} - indexes
+                if missing_columns or missing_indexes:
+                    parts = []
+                    if missing_columns:
+                        parts.append("columns: " + ", ".join(sorted(missing_columns)))
+                    if missing_indexes:
+                        parts.append("indexes: " + ", ".join(sorted(missing_indexes)))
+                    problems.append(table.name + " (missing " + "; ".join(parts) + ")")
+            if problems:
+                raise click.ClickException("Media Showcases schema is incomplete: " + "; ".join(problems) + ". No partial repair was attempted.")
+
+        try:
+            if db.engine.dialect.name == "sqlite":
+                with db.engine.connect() as connection:
+                    transaction = connection.begin()
+                    try:
+                        connection.exec_driver_sql("BEGIN IMMEDIATE")
+                        names = set(inspect(connection).get_table_names())
+                        missing = required_base - names
+                        if missing:
+                            raise click.ClickException("Required base table(s) missing: " + ", ".join(sorted(missing)) + ". Initialize the local store first.")
+                        feature_names = {"media_showcase", "media_showcase_item"}
+                        present = feature_names & names
+                        if present and present != feature_names:
+                            raise click.ClickException("A partial Media Showcases schema already exists. No changes were applied; inspect it before continuing.")
+                        db.metadata.create_all(bind=connection, tables=tables, checkfirst=True)
+                        existing_showcase_columns = {column["name"] for column in inspect(connection).get_columns("media_showcase")}
+                        additive_columns = {
+                            "density": "VARCHAR(16) NOT NULL DEFAULT 'compact'",
+                            "card_aspect_ratio": "VARCHAR(8) NOT NULL DEFAULT '4:3'",
+                            "visible_cards_mobile": "INTEGER NOT NULL DEFAULT 2",
+                            "visible_cards_tablet": "INTEGER NOT NULL DEFAULT 3",
+                            "visible_cards_desktop": "INTEGER NOT NULL DEFAULT 4",
+                            "section_padding_px": "INTEGER",
+                            "card_gap_px": "INTEGER",
+                            "heading_color": "VARCHAR(20) NOT NULL DEFAULT '#252525'",
+                            "description_color": "VARCHAR(20) NOT NULL DEFAULT '#666666'",
+                            "accent_color": "VARCHAR(20) NOT NULL DEFAULT '#e52335'",
+                            "card_background_color": "VARCHAR(20) NOT NULL DEFAULT '#ffffff'",
+                            "border_color": "VARCHAR(20) NOT NULL DEFAULT '#e8e8eb'",
+                            "button_background_color": "VARCHAR(20) NOT NULL DEFAULT '#e52335'",
+                            "button_text_color": "VARCHAR(20) NOT NULL DEFAULT '#ffffff'",
+                        }
+                        for column_name, column_ddl in additive_columns.items():
+                            if column_name not in existing_showcase_columns:
+                                connection.exec_driver_sql(f"ALTER TABLE media_showcase ADD COLUMN {column_name} {column_ddl}")
+                        existing_item_columns = {column["name"] for column in inspect(connection).get_columns("media_showcase_item")}
+                        item_additive_columns = {
+                            "presentation_mode": "VARCHAR(16) NOT NULL DEFAULT 'original'",
+                            "aspect_ratio": "VARCHAR(24) NOT NULL DEFAULT ''",
+                            "source_type": "VARCHAR(20) NOT NULL DEFAULT 'external_url'",
+                            "source_filename": "VARCHAR(255) NOT NULL DEFAULT ''",
+                            "file_size_bytes": "INTEGER",
+                            "media_width": "INTEGER",
+                            "media_height": "INTEGER",
+                            "duration_seconds": "FLOAT",
+                        }
+                        for column_name, column_ddl in item_additive_columns.items():
+                            if column_name not in existing_item_columns:
+                                connection.exec_driver_sql(f"ALTER TABLE media_showcase_item ADD COLUMN {column_name} {column_ddl}")
+                        connection.exec_driver_sql("UPDATE media_showcase_item SET source_type = 'library' WHERE media_url LIKE '/static/%'")
+                        connection.exec_driver_sql("UPDATE media_showcase_item SET source_type = 'upload' WHERE media_url LIKE '/static/uploads/media-showcases/%'")
+                        connection.exec_driver_sql("UPDATE media_showcase_item SET source_type = 'cloudinary' WHERE media_url LIKE '%res.cloudinary.com/%'")
+                        validate(connection)
+                        transaction.commit()
+                    except Exception:
+                        transaction.rollback()
+                        raise
+            elif db.engine.dialect.name == "postgresql":
+                migration = Path(__file__).resolve().parent.parent / "migrations" / "20261106_media_showcases_postgresql.sql"
+                with db.engine.begin() as connection:
+                    connection.execute(text("SELECT pg_advisory_xact_lock(724930119)"))
+                    names = set(inspect(connection).get_table_names())
+                    missing = required_base - names
+                    if missing:
+                        raise click.ClickException("Required base table(s) missing: " + ", ".join(sorted(missing)) + ". Run the base schema migrations first.")
+                    feature_names = {"media_showcase", "media_showcase_item"}
+                    present = feature_names & names
+                    if present and present != feature_names:
+                        raise click.ClickException("A partial Media Showcases schema already exists. No changes were applied; inspect it before continuing.")
+                    migration_sql = "\n".join(line for line in migration.read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("--"))
+                    for statement in migration_sql.split(";"):
+                        statement = statement.strip()
+                        if statement:
+                            connection.execute(text(statement))
+                    validate(connection)
+            else:
+                raise click.ClickException("Media Showcases migration supports SQLite and PostgreSQL only.")
+            if not MediaShowcase.query.filter_by(slug="fitystores-tv").first():
+                db.session.add(MediaShowcase(name="FityStores TV", title="FityStores TV", subtitle="See it. Love it. Shop it.", slug="fitystores-tv", page_identifier="home", placement_identifier="home_after_hero", layout="carousel", display_order=0, is_published=False, is_enabled=True))
+                db.session.commit()
+            click.echo("Media Showcases database tables are ready. Existing store records were not changed.")
+        except click.ClickException:
+            raise
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(f"Media Showcases migration failed ({type(exc).__name__}); transactional changes were rolled back where supported.") from None
+
+    @app.cli.command("migrate-upcoming-products")
+    def migrate_upcoming_products():
+        """Create the additive Upcoming Products table without sample merchandise."""
+        from sqlalchemy import inspect
+        if db.engine.dialect.name not in {"sqlite", "postgresql"}:
+            raise click.ClickException("Upcoming Products migration supports SQLite and PostgreSQL only.")
+        if not inspect(db.engine).has_table("product"):
+            raise click.ClickException("The product table is missing. Initialize the store schema first.")
+        try:
+            db.metadata.create_all(bind=db.engine, tables=[UpcomingProduct.__table__], checkfirst=True)
+            click.echo("Upcoming Products table is ready. Add new products and their own images from the admin panel.")
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(f"Upcoming Products migration failed ({type(exc).__name__}); no catalogue records were changed.") from None
 
     @app.cli.command("migrate-cloudinary-schema")
     def migrate_cloudinary_schema():
