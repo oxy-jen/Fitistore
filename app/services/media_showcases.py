@@ -1,5 +1,8 @@
 from datetime import datetime
 
+from flask import current_app
+from sqlalchemy import inspect
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
@@ -30,15 +33,51 @@ DENSITIES = {"compact": "Compact", "balanced": "Balanced", "spacious": "Spacious
 CARD_ASPECT_RATIOS = {"1:1": "Square (1:1)", "4:3": "Classic (4:3)", "3:2": "Photo (3:2)", "16:9": "Widescreen (16:9)"}
 
 
+def showcase_schema_ready():
+    """Check the complete feature schema before running showcase ORM queries."""
+    try:
+        inspector = inspect(db.engine)
+        for model in (MediaShowcase, MediaShowcaseItem):
+            if not inspector.has_table(model.__tablename__):
+                current_app.logger.error("Media showcases are unavailable because table %s is missing; run migrate-media-showcases.", model.__tablename__)
+                return False
+            available_columns = {column["name"] for column in inspector.get_columns(model.__tablename__)}
+            missing_columns = {column.name for column in model.__table__.columns} - available_columns
+            if missing_columns:
+                current_app.logger.error("Media showcases are unavailable because table %s is incomplete; run migrate-media-showcases.", model.__tablename__)
+                return False
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error(
+            "Media showcase schema check failed (%s).",
+            type(exc).__name__,
+        )
+        return False
+    return True
+
+
 def active_showcases(page):
     """Load active, scheduled showcases for one public page in two queries."""
+    # Showcase migrations are deliberately run as an explicit deployment step.
+    # Keep public storefront routes available while production is waiting for it.
+    if not showcase_schema_ready():
+        return []
+
     now = datetime.utcnow()
-    return (MediaShowcase.query.options(selectinload(MediaShowcase.items).selectinload(MediaShowcaseItem.linked_product))
-            .filter_by(page_identifier=page, is_enabled=True, is_published=True)
-            .filter(MediaShowcase.items.any(MediaShowcaseItem.is_active.is_(True)))
-            .filter((MediaShowcase.starts_at.is_(None)) | (MediaShowcase.starts_at <= now))
-            .filter((MediaShowcase.expires_at.is_(None)) | (MediaShowcase.expires_at > now))
-            .order_by(MediaShowcase.placement_identifier, MediaShowcase.display_order, MediaShowcase.id).all())
+    try:
+        return (MediaShowcase.query.options(selectinload(MediaShowcase.items).selectinload(MediaShowcaseItem.linked_product))
+                .filter_by(page_identifier=page, is_enabled=True, is_published=True)
+                .filter(MediaShowcase.items.any(MediaShowcaseItem.is_active.is_(True)))
+                .filter((MediaShowcase.starts_at.is_(None)) | (MediaShowcase.starts_at <= now))
+                .filter((MediaShowcase.expires_at.is_(None)) | (MediaShowcase.expires_at > now))
+                .order_by(MediaShowcase.placement_identifier, MediaShowcase.display_order, MediaShowcase.id).all())
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error(
+            "Media showcases are hidden because their query failed (%s); check the feature migration.",
+            type(exc).__name__,
+        )
+        return []
 
 
 def showcases_by_placement(page):

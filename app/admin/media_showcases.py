@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.extensions import db
 from app.models import Category, MediaShowcase, MediaShowcaseItem, Product
-from app.services.media_showcases import CARD_ASPECT_RATIOS, DENSITIES, LAYOUTS, SHOWCASE_PLACEMENTS
+from app.services.media_showcases import CARD_ASPECT_RATIOS, DENSITIES, LAYOUTS, SHOWCASE_PLACEMENTS, showcase_schema_ready
 from app.services.showcase_media import existing_media_assets, inspect_media_upload, store_showcase_upload
 
 
@@ -309,6 +309,10 @@ def _form(showcase=None):
 
 
 def register_media_showcase_routes(admin_bp):
+    def migration_required():
+        flash("Media Showcase management needs its database migration. Run `python -m flask --app wsgi:app migrate-media-showcases` in the deployment shell.", "warning")
+        return redirect(url_for("admin.media_showcases"))
+
     @admin_bp.route("/media-showcases/library")
     @login_required
     def media_showcase_library():
@@ -339,6 +343,9 @@ def register_media_showcase_routes(admin_bp):
     @admin_bp.route("/media-showcases")
     @login_required
     def media_showcases():
+        if not showcase_schema_ready():
+            flash("Media Showcases are not set up in this database yet. Run `python -m flask --app wsgi:app migrate-media-showcases` in the deployment shell.", "warning")
+            return render_template("admin/media_showcases.html", showcases=[], pages=SHOWCASE_PLACEMENTS, now=datetime.utcnow(), statuses=("published", "draft", "scheduled", "expired", "disabled"))
         query = MediaShowcase.query.options(selectinload(MediaShowcase.items)).order_by(MediaShowcase.page_identifier, MediaShowcase.display_order, MediaShowcase.id)
         page = request.args.get("page", "")
         status = request.args.get("status", "")
@@ -359,6 +366,8 @@ def register_media_showcase_routes(admin_bp):
     @admin_bp.route("/media-showcases/new", methods=["GET", "POST"])
     @login_required
     def media_showcase_new():
+        if not showcase_schema_ready():
+            return migration_required()
         items_json = "[]"
         if request.method == "POST":
             payload, error = _form()
@@ -386,6 +395,8 @@ def register_media_showcase_routes(admin_bp):
     @admin_bp.route("/media-showcases/<int:showcase_id>/edit", methods=["GET", "POST"])
     @login_required
     def media_showcase_edit(showcase_id):
+        if not showcase_schema_ready():
+            return migration_required()
         showcase = MediaShowcase.query.options(selectinload(MediaShowcase.items)).get_or_404(showcase_id)
         if request.method == "POST":
             payload, error = _form(showcase)
@@ -411,12 +422,16 @@ def register_media_showcase_routes(admin_bp):
     @admin_bp.route("/media-showcases/<int:showcase_id>/preview")
     @login_required
     def media_showcase_preview(showcase_id):
+        if not showcase_schema_ready():
+            return migration_required()
         showcase = MediaShowcase.query.options(selectinload(MediaShowcase.items).selectinload(MediaShowcaseItem.linked_product)).get_or_404(showcase_id)
         return render_template("admin/media_showcase_preview.html", showcase=showcase)
 
     @admin_bp.route("/media-showcases/<int:showcase_id>/duplicate", methods=["POST"])
     @login_required
     def media_showcase_duplicate(showcase_id):
+        if not showcase_schema_ready():
+            return migration_required()
         source = MediaShowcase.query.options(selectinload(MediaShowcase.items)).get_or_404(showcase_id)
         copy = MediaShowcase(name=f"{source.name} copy"[:120], title=source.title, subtitle=source.subtitle, description=source.description,
             slug=_slug(source.slug + "-copy-" + token_hex(4)), page_identifier=source.page_identifier,
@@ -444,6 +459,8 @@ def register_media_showcase_routes(admin_bp):
     @admin_bp.route("/media-showcases/<int:showcase_id>/action", methods=["POST"])
     @login_required
     def media_showcase_action(showcase_id):
+        if not showcase_schema_ready():
+            return migration_required()
         showcase = MediaShowcase.query.get_or_404(showcase_id)
         action = request.form.get("action")
         if action == "delete":

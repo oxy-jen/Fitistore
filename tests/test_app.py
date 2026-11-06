@@ -290,6 +290,22 @@ def test_upcoming_dashboard_uses_saved_requests_and_cart_activity(client, app):
     assert response.data.count(b'name="product_name"') == 1
 
 
+def test_public_pages_remain_available_before_media_showcase_migration(client, app):
+    with app.app_context():
+        db.session.remove()
+        MediaShowcaseItem.__table__.drop(db.engine)
+        MediaShowcase.__table__.drop(db.engine)
+
+    for path in ("/", "/shop", "/about", "/upcoming"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+
+    _sign_in_admin(client, app)
+    response = client.get("/admin/media-showcases")
+    assert response.status_code == 200
+    assert b"migrate-media-showcases" in response.data
+
+
 def test_admin_can_manage_upcoming_product_cards(client, app):
     _sign_in_admin(client, app)
     form = client.get("/admin/upcoming-products/new")
