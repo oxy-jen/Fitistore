@@ -1,19 +1,66 @@
 {% extends "base.html" %}{% block content %}
-<section class="page-head upcoming-head"><p class="eyebrow">Coming next</p><h1>Upcoming merchandise, goods, and fits</h1><p>Preview the next FityStores stock ideas and request the items, colours, and sizes you want the owner to prioritize.</p></section>
-<section class="upcoming-page-grid">
-  {% for item in upcoming_merchandise %}<article><span>{{ item.category }}</span><h2>{{ item.name }}</h2><p>{{ item.detail }}</p><a class="btn" href="{{ whatsapp_text_link(settings, 'Hi FityStores, I want to request upcoming stock for: ' ~ item.name) }}" target="_blank" rel="noopener">Request this</a></article>{% endfor %}
-</section>
-<section class="mamba-collection" id="upcoming-request">
-  <div class="mamba-copy"><p class="eyebrow">Request stock</p><h2>Ask for a specific item</h2><p>Share the product, colour, size, style, or price range you want. Requests help decide future stock.</p></div>
-  <form class="mamba-form" method="post" action="{{ url_for('public.mamba_suggestion') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label class="hp-field">Leave this field empty<input name="website_url" tabindex="-1" autocomplete="off"></label>
-    <label>Product or item name<input name="product_name" maxlength="140" placeholder="Example: white sneakers size 42" required></label>
-    <label>Category<select name="category" required><option value="">Choose category</option>{% for category in suggestion_categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</select></label>
-    <label>Preferred colour, size, or style<input name="preferences" maxlength="255" placeholder="Optional"></label>
-    <label>Suggested price range<input name="price_range" maxlength="80" placeholder="Optional"></label>
-    <label>Additional details<textarea name="details" rows="4" maxlength="1000" placeholder="Optional"></textarea></label>
-    <div class="mamba-actions"><button class="btn primary" type="submit">Submit request</button><button class="btn" type="submit" formaction="{{ url_for('public.mamba_suggestion_whatsapp') }}" formtarget="_blank">Send on WhatsApp</button></div>
-  </form>
-</section>
+<div class="upcoming-dashboard">
+  <div class="upcoming-page-layout">
+    <main class="upcoming-main-column">
+      <section class="upcoming-landing-hero" aria-labelledby="upcoming-page-title">
+        <div class="upcoming-landing-copy">
+          <span class="upcoming-dash-kicker">FityStores Upcoming</span>
+          <h1 id="upcoming-page-title">Something Good Is Coming</h1>
+          <p>Preview new products that are not in the FityStores catalogue yet. Tell us what you would like to see.</p>
+          <div class="upcoming-hero-actions"><a class="upcoming-dash-button upcoming-dash-button-primary" href="#upcoming-products">Explore upcoming</a><a class="upcoming-dash-button upcoming-dash-button-secondary" href="#upcoming-request">Request a product</a></div>
+        </div>
+        <div class="upcoming-hero-note"><span aria-hidden="true">✦</span><strong>Product sneak peek</strong><small>New arrivals appear here after the FityStores team adds them.</small></div>
+      </section>
+
+      <section class="upcoming-light-panel upcoming-featured-section" aria-labelledby="upcoming-featured-title">
+        <div class="upcoming-light-heading"><div><span class="upcoming-dash-kicker">New, not in the shop yet</span><h2 id="upcoming-featured-title">Featured collections</h2></div>{% if current_user.is_authenticated and current_user.is_admin %}<a class="upcoming-dash-text-link" href="{{ url_for('admin.upcoming_products') }}">Manage upcoming products &rarr;</a>{% endif %}</div>
+        {% if upcoming_products %}<div class="upcoming-featured-grid">{% for item in upcoming_products[:3] %}<article class="upcoming-featured-card"><div class="upcoming-featured-image">{% if item.image_url %}<img src="{{ item.image_url }}" alt="{{ item.image_alt or item.name }}" loading="lazy">{% else %}<span class="upcoming-image-pending">Image coming soon</span>{% endif %}</div><div class="upcoming-featured-copy"><span>{{ item.category_label or 'Upcoming' }}</span><h3>{{ item.name }}</h3><p>{{ item.description }}</p></div></article>{% endfor %}</div>{% else %}<div class="upcoming-light-empty"><strong>New collections will be announced here.</strong><span>Only admin-added future products appear on this page.</span></div>{% endif %}
+      </section>
+
+      {% for showcase_group in media_showcases.upcoming_before_products %}{% include "partials/media_showcase_group.html" %}{% endfor %}
+
+      <section class="upcoming-light-panel" id="upcoming-products" aria-labelledby="upcoming-products-title">
+        <div class="upcoming-light-heading"><div><span class="upcoming-dash-kicker">Not available in the shop yet</span><h2 id="upcoming-products-title">Upcoming product grid</h2><p>These are previews of future products, not current stock.</p></div></div>
+        {% if upcoming_products %}<div class="upcoming-products-carousel manual-carousel" data-carousel data-home-scroll-rail="Upcoming product previews"><button class="carousel-arrow" type="button" data-carousel-direction="-1" aria-label="Scroll upcoming products left">&#8249;</button><div class="upcoming-products-scroll" data-carousel-track data-home-scroll-track tabindex="0" aria-label="Scroll through upcoming product cards"><div class="upcoming-products-track">{% for item in upcoming_products %}<div class="upcoming-product-slide"><article class="upcoming-product-card upcoming-product-card--{{ item.card_size }}"><div class="upcoming-product-card-image">{% if item.image_url %}<img src="{{ item.image_url }}" alt="{{ item.image_alt or item.name }}" loading="lazy">{% else %}<span class="upcoming-image-pending">Image coming soon</span>{% endif %}</div><div class="upcoming-product-card-copy"><span class="upcoming-dash-idea-category">{{ item.category_label or 'Upcoming' }}</span><h3>{{ item.name }}</h3><p>{{ item.description }}</p><a href="{{ whatsapp_text_link(settings, 'Hi FityStores, I would like to ask about upcoming item: ' ~ item.name) }}" target="_blank" rel="noopener">Ask about this item <span aria-hidden="true">&rarr;</span></a></div></article></div>{% endfor %}</div></div><button class="carousel-arrow" type="button" data-carousel-direction="1" aria-label="Scroll upcoming products right">&#8250;</button><nav class="home-scroll-dots" data-home-scroll-dots aria-label="Upcoming products scrolling"></nav></div>{% else %}<div class="upcoming-light-empty"><strong>No upcoming products have been added yet.</strong><span>The team can add a future product and its own image from the admin panel.</span></div>{% endif %}
+      </section>
+
+      <section class="upcoming-light-panel upcoming-request-activity" id="upcoming-recent-requests">
+        <div class="upcoming-light-heading"><div><span class="upcoming-dash-kicker">Community requests</span><h2>What shoppers asked for</h2></div><span class="upcoming-dash-count">{{ total_suggestions }} request{{ '' if total_suggestions == 1 else 's' }}</span></div>
+        {% if request_activity %}<div class="upcoming-light-request-list">{% for row in request_activity[:5] %}<div><span><strong>{{ row.category }}</strong><small>{{ row.count }} saved request{{ '' if row.count == 1 else 's' }}</small></span><i><b style="width:{{ row.share }}%"></b></i></div>{% endfor %}</div>{% else %}<p class="upcoming-light-muted">No product requests have been submitted yet.</p>{% endif %}
+        {% if recent_requests %}<h3 class="upcoming-recent-heading">Recent requests</h3><ul class="upcoming-dash-recent-list">{% for suggestion in recent_requests %}<li><span><strong>{{ suggestion.category }}</strong><small>Item request received</small></span><time datetime="{{ suggestion.created_at.isoformat() }}">{{ suggestion.created_at.strftime('%d %b') }}</time></li>{% endfor %}</ul>{% endif %}
+      </section>
+
+      {% for showcase_group in media_showcases.upcoming_before_footer %}{% include "partials/media_showcase_group.html" %}{% endfor %}
+    </main>
+
+    <aside class="upcoming-side-column">
+      <section class="upcoming-light-panel upcoming-spotlight" data-upcoming-spotlight data-interval="5000" aria-label="Product sneak peek">
+        <div class="upcoming-spotlight-heading"><div><span class="upcoming-dash-kicker">Product sneak peek</span><span class="upcoming-spotlight-count">{{ upcoming_products|length }} preview{{ '' if upcoming_products|length == 1 else 's' }}</span></div>{% if current_user.is_authenticated and current_user.is_admin %}<a href="{{ url_for('admin.upcoming_products') }}">Manage &rarr;</a>{% endif %}</div>
+        {% if upcoming_products %}<div class="upcoming-spotlight-slides">{% for item in upcoming_products %}<article class="upcoming-spotlight-slide" data-upcoming-spotlight-slide {% if not loop.first %}hidden inert aria-hidden="true"{% else %}aria-hidden="false"{% endif %}><div class="upcoming-spotlight-image">{% if item.image_url %}<img src="{{ item.image_url }}" alt="{{ item.image_alt or item.name }}" loading="lazy">{% else %}<span class="upcoming-image-pending">Image will be added by the team</span>{% endif %}</div><div class="upcoming-spotlight-copy"><small>{{ item.category_label or 'Upcoming' }}</small><h2>{{ item.name }}</h2><p>{{ item.description }}</p></div></article>{% endfor %}</div><div class="upcoming-spotlight-controls"><button type="button" data-upcoming-spotlight-prev aria-label="Previous product preview" {% if upcoming_products|length < 2 %}disabled{% endif %}>&lsaquo;</button><span data-upcoming-spotlight-status aria-live="polite">1 / {{ upcoming_products|length }}</span><button type="button" data-upcoming-spotlight-next aria-label="Next product preview" {% if upcoming_products|length < 2 %}disabled{% endif %}>&rsaquo;</button></div>{% else %}<div class="upcoming-spotlight-empty"><strong>No sneak peeks yet</strong><span>Admins can add an upcoming product here.</span>{% if current_user.is_authenticated and current_user.is_admin %}<a href="{{ url_for('admin.upcoming_products') }}">Add upcoming products</a>{% endif %}</div>{% endif %}
+      </section>
+
+      <section class="upcoming-light-panel upcoming-request-panel" id="upcoming-request">
+        <div class="upcoming-light-heading"><div><span class="upcoming-dash-kicker">Most requested</span><h2>Can't Find What You're Looking For?</h2></div></div>
+        <p class="upcoming-request-intro">Tell us what you'd like us to consider bringing in.</p>
+        <form class="upcoming-dash-form" method="post" action="{{ url_for('public.mamba_suggestion') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="upcoming">
+          <label class="hp-field">Leave this field empty<input name="website_url" tabindex="-1" autocomplete="off"></label>
+          <label>Product or item name<input name="product_name" maxlength="140" placeholder="Example: trail running shoes" required></label>
+          <label>Category<select name="category" required><option value="">Choose category</option>{% for category in suggestion_categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</select></label>
+          <div class="upcoming-request-two-fields"><label>Preferred colour, size, or style<input name="preferences" maxlength="255" placeholder="Optional"></label><label>Suggested price range<input name="price_range" maxlength="80" placeholder="Optional"></label></div>
+          <label>Additional details<textarea name="details" rows="3" maxlength="1000" placeholder="Optional details"></textarea></label>
+          <div class="upcoming-dash-form-actions"><button class="upcoming-dash-button upcoming-dash-button-primary" type="submit">Submit request</button><button class="upcoming-dash-button upcoming-dash-button-whatsapp" type="submit" formaction="{{ url_for('public.mamba_suggestion_whatsapp') }}" formtarget="_blank">Send on WhatsApp</button></div>
+        </form>
+      </section>
+
+      <section class="upcoming-light-panel upcoming-global-trend" id="global-trend-watch" aria-labelledby="global-trend-title">
+        <div class="upcoming-light-heading"><div><span class="upcoming-dash-kicker">Global trend watch</span><h2 id="global-trend-title">Merchandise people are watching</h2><p>Real FityStores cart activity, alongside our social channels for wider style inspiration.</p></div></div>
+        <div class="upcoming-global-social" aria-label="Explore merchandise trends on social media"><a href="https://www.instagram.com/fitystore.top/" target="_blank" rel="me noopener noreferrer"><span aria-hidden="true">◎</span> Explore Instagram</a><a href="https://www.tiktok.com/@official_fitystore" target="_blank" rel="me noopener noreferrer"><span aria-hidden="true">♪</span> Explore TikTok</a></div>
+        <h3 class="upcoming-global-subheading">Popular in the FityStores shop</h3>
+        {% if shopper_picks %}<div class="upcoming-global-product-list">{% for pick in shopper_picks %}{% set product = pick.product %}{% set image = product_display_image(product) %}<a class="upcoming-global-product" href="{{ url_for('public.product_detail', slug=product.slug) }}"><span class="upcoming-global-product-image">{% if image %}<img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" loading="lazy">{% else %}<span>Image unavailable</span>{% endif %}</span><span class="upcoming-global-product-copy"><small>{{ product.category.name if product.category else 'Shop favourite' }}</small><strong>{{ product.name }}</strong><span>{% if product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% elif product.min_variant_price_cents is not none %}From {{ money(product.min_variant_price_cents, settings.currency) }}{% else %}Ask for price{% endif %}</span><em>{{ pick.add_count }} cart addition{{ '' if pick.add_count == 1 else 's' }}</em></span></a>{% endfor %}</div>{% else %}<p class="upcoming-light-muted">Shopper activity will appear here as items are added to carts.</p>{% endif %}
+        <a class="upcoming-dash-text-link upcoming-global-browse" href="{{ url_for('public.shop') }}">Browse the shop &rarr;</a>
+      </section>
+    </aside>
+  </div>
+</div>
 {% endblock %}

@@ -11,6 +11,7 @@
     </div>
   </section>
 
+  {% for showcase_group in media_showcases.shop_before_products %}{% include "partials/media_showcase_group.html" %}{% endfor %}
   <nav class="shop-category-chips" aria-label="Shop categories">
     <a class="shop-chip{% if not active_category and not active_category_group %} active{% endif %}" href="{{ url_for('public.shop', q=q, sort=sort) }}"{% if not active_category and not active_category_group %} aria-current="page"{% endif %}>All</a>
     {% for group in category_groups %}<a class="shop-chip{% if active_category_group and active_category_group.key == group.key %} active{% endif %}" data-category-group-key="{{ group.key }}" data-category-group-name="{{ group.name }}" href="{{ url_for('public.shop', category_group=group.key, q=q, sort=sort) }}"{% if active_category_group and active_category_group.key == group.key %} aria-current="page"{% endif %}>{{ group.name }}</a>{% endfor %}
@@ -34,5 +35,6 @@
     <article><svg class="icon" aria-hidden="true"><use href="#icon-truck"></use></svg><div><strong>Collection & nearby delivery</strong><span>Ask us what works for your order.</span></div></article>
     <article><svg class="icon" aria-hidden="true"><use href="#icon-message"></use></svg><div><strong>WhatsApp support</strong><span>Ask about sizes, stock, and details.</span></div></article>
   </section>
+  {% for showcase_group in media_showcases.shop_before_footer %}{% include "partials/media_showcase_group.html" %}{% endfor %}
 </div>
 {% endblock %}

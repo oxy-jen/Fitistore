@@ -12,11 +12,12 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
-from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review
+from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review, UpcomingProduct
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
 from app.services.mamba_collection import mamba_products_query
+from app.services.media_showcases import showcases_by_placement
 from app.services.category_thumbnails import CATEGORY_GROUPS, CATEGORY_GROUPS_BY_KEY, category_group_key, category_thumbnails_schema_ready
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
 from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
@@ -247,6 +248,7 @@ def home():
         key: url_for("public.home", share=key, _anchor={"featured": "featured-picks", "popular": "most-added", "categories": "category-showcase", "offers": "discounted-goods", "mamba": "mamba-collection", "upcoming": "upcoming-strip"}.get(key, ""), _external=True)
         for key in home_share_specs if key != "home"
     }
+    media_showcases = showcases_by_placement("home")
     return render_template(
         "home.html", title="FityStores essentials", seo_title=section_title + " | FityStores",
         seo_description=section_description, canonical_url=home_canonical, og_image=home_og_image,
@@ -255,7 +257,7 @@ def home():
         category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories,
         mamba_collection_configured=mamba_collection_configured,
         suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE,
-        home_share_urls=home_share_urls, requested_share=requested_share,
+        home_share_urls=home_share_urls, requested_share=requested_share, media_showcases=media_showcases,
     )
 
 
@@ -393,7 +395,49 @@ def referral_visit(code):
 
 @public_bp.route("/upcoming")
 def upcoming():
-    return render_template("upcoming.html", title="Upcoming merchandise", upcoming_merchandise=UPCOMING_MERCHANDISE, suggestion_categories=SUGGESTION_CATEGORIES)
+    upcoming_products = (UpcomingProduct.query
+                         .filter_by(is_enabled=True)
+                         .order_by(UpcomingProduct.display_order, UpcomingProduct.id).all())
+    available_catalogue = product_list_options(
+        Product.query.filter_by(active=True)
+    ).order_by(Product.featured.desc(), Product.updated_at.desc(), Product.id.desc()).all()
+    recent_requests = (ProductSuggestion.query
+                       .order_by(ProductSuggestion.created_at.desc(), ProductSuggestion.id.desc())
+                       .limit(4).all())
+    request_rows = (db.session.query(ProductSuggestion.category, func.count(ProductSuggestion.id))
+                    .group_by(ProductSuggestion.category)
+                    .order_by(func.count(ProductSuggestion.id).desc(), ProductSuggestion.category.asc()).all())
+    total_suggestions = sum(count for _category, count in request_rows)
+    request_image_terms = {
+        "Boxers": ("boxer",), "Men's shoes and sneakers": ("shoe", "sneaker"),
+        "Vests": ("vest",), "Socks": ("sock",), "Slippers": ("slipper",),
+        "Other men's accessories": ("accessory", "cap", "hair band", "shower cap"),
+    }
+    request_activity = [{
+        "category": category, "count": count,
+        "share": round(count * 100 / total_suggestions) if total_suggestions else 0,
+        "sample_product": next((product for product in available_catalogue
+                                 if product_display_image(product)
+                                 and any(term in f"{product.name} {product.category.name if product.category else ''}".lower()
+                                         for term in request_image_terms.get(category, ()))), None),
+    } for category, count in request_rows[:5]]
+    popular_rows = product_list_options(
+        db.session.query(Product, CartAddCount.add_count)
+        .join(CartAddCount, CartAddCount.product_id == Product.id)
+        .filter(Product.active.is_(True), CartAddCount.add_count > 0)
+        .order_by(CartAddCount.add_count.desc(), Product.name.asc())
+    ).limit(8).all()
+    shopper_picks = [
+        {"product": product, "add_count": add_count}
+        for product, add_count in popular_rows if product.display_stock_quantity > 0
+    ][:4]
+    return render_template(
+        "upcoming.html", title="Upcoming merchandise", upcoming_products=upcoming_products,
+        suggestion_categories=SUGGESTION_CATEGORIES, request_activity=request_activity,
+        total_suggestions=total_suggestions, shopper_picks=shopper_picks,
+        recent_requests=recent_requests,
+        media_showcases=showcases_by_placement("upcoming"),
+    )
 
 SUGGESTION_CATEGORIES = ["Boxers", "Men's shoes and sneakers", "Vests", "Socks", "Slippers", "Other men's accessories"]
 
@@ -432,6 +476,12 @@ def suggestion_ip_hash():
     return hashlib.sha256((request.remote_addr or "unknown").encode()).hexdigest()
 
 
+def suggestion_return_url():
+    if request.form.get("return_to") == "upcoming":
+        return url_for("public.upcoming") + "#upcoming-request"
+    return url_for("public.home") + "#mamba-suggestions"
+
+
 def validate_enquiry_payload(data):
     errors = []
     if data["website_url"]:
@@ -459,7 +509,7 @@ def mamba_suggestion():
     if errors:
         for error in errors:
             flash(error, "error")
-        return redirect(url_for("public.home") + "#mamba-suggestions")
+        return redirect(suggestion_return_url())
     suggestion = ProductSuggestion(
         product_name=data["product_name"][:140],
         category=data["category"],
@@ -475,9 +525,9 @@ def mamba_suggestion():
         db.session.rollback()
         current_app.logger.exception("Could not save Mamba Collection suggestion")
         flash("We could not save your suggestion right now. Please try again or use WhatsApp.", "error")
-        return redirect(url_for("public.home") + "#mamba-suggestions")
+        return redirect(suggestion_return_url())
     flash("Thanks. Your Mamba Collection suggestion has been saved for review.", "success")
-    return redirect(url_for("public.home") + "#mamba-suggestions")
+    return redirect(suggestion_return_url())
 
 
 @public_bp.route("/mamba-suggestion/whatsapp", methods=["POST"])
@@ -487,7 +537,7 @@ def mamba_suggestion_whatsapp():
     if errors:
         for error in errors:
             flash(error, "error")
-        return redirect(url_for("public.home") + "#mamba-suggestions")
+        return redirect(suggestion_return_url())
     message = build_mamba_suggestion_message(data["product_name"], data["category"], data["preferences"], data["price_range"], data["details"])
     return redirect(whatsapp_text_link(current_settings(), message))
 
@@ -565,7 +615,7 @@ def shop():
     pagination = query.paginate(page=page, per_page=PRODUCTS_PER_PAGE, error_out=False)
     categories = Category.query.order_by(Category.name).all()
     active_title = active_category.name if active_category else (active_category_group["name"] if active_category_group else "Shop products")
-    return render_template("shop.html", title="Shop", seo_title=active_title + " | Shop at FityStores", seo_description=("Browse available " + active_title + " products, check current listing details, and contact FityStores with questions."), products=pagination.items, categories=categories, category_groups=CATEGORY_GROUPS, active_category=active_category, active_category_group=active_category_group, q=q, sort=sort, page=page, has_next=pagination.has_next)
+    return render_template("shop.html", title="Shop", seo_title=active_title + " | Shop at FityStores", seo_description=("Browse available " + active_title + " products, check current listing details, and contact FityStores with questions."), products=pagination.items, categories=categories, category_groups=CATEGORY_GROUPS, active_category=active_category, active_category_group=active_category_group, q=q, sort=sort, page=page, has_next=pagination.has_next, media_showcases=showcases_by_placement("shop"))
 
 @public_bp.route("/api/products")
 def api_products():
@@ -913,7 +963,12 @@ def about():
         active_products.order_by(Product.featured.desc(), Product.created_at.desc(), Product.id.desc())
     ).all()
     category_images = {}
+    category_product_counts = {}
+    in_stock_product_count = 0
     for product in category_products:
+        category_product_counts[product.category_id] = category_product_counts.get(product.category_id, 0) + 1
+        if product.display_stock_quantity > 0:
+            in_stock_product_count += 1
         if product.category_id not in category_images and product_display_image(product):
             category_images[product.category_id] = product
     response = make_response(render_template(
@@ -924,6 +979,10 @@ def about():
         featured_products=featured_products,
         categories=categories,
         category_images=category_images,
+        category_product_counts=category_product_counts,
+        active_product_count=len(category_products),
+        in_stock_product_count=in_stock_product_count,
+        media_showcases=showcases_by_placement("about"),
     ))
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response

@@ -9,7 +9,7 @@ import app as app_module
 from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, AuthRateLimit, CartAddCount, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, Order, OrderItem, OrderStatusHistory, Product, ProductImage, ProductSuggestion, Review, ShopSettings
+from app.models import AdminUser, AuthRateLimit, CartAddCount, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, MediaShowcase, MediaShowcaseItem, Order, OrderItem, OrderStatusHistory, Product, ProductImage, ProductSuggestion, Review, ShopSettings, UpcomingProduct
 from config import TestConfig
 
 @pytest.fixture()
@@ -49,6 +49,292 @@ def test_homepage_renders(client):
     assert b"https://www.facebook.com/oxy.jen.975729" in rv.data
     assert b"https://www.tiktok.com/@official_fitystore" in rv.data
 
+
+def _sign_in_admin(client, app):
+    with app.app_context():
+        user_id = str(AdminUser.query.filter_by(username="owner").one().get_id())
+    with client.session_transaction() as browser_session:
+        browser_session["_user_id"] = user_id
+        browser_session["_fresh"] = True
+
+
+def test_media_showcase_auth_creation_and_homepage_slot(client, app):
+    assert client.get("/admin/media-showcases").status_code == 302
+    _sign_in_admin(client, app)
+    item = [{"type": "image", "title": "Store feature", "url": "https://cdn.example.test/feature.jpg", "alt": "Store feature", "presentation": "contain", "aspect_ratio": "9:16"}]
+    response = client.post("/admin/media-showcases/new", data={
+        "name": "FityStores TV", "title": "See it. Love it. Shop it.", "page": "home",
+        "placement": "home_after_hero", "layout": "carousel", "is_published": "1", "is_enabled": "1",
+        "items_json": json.dumps(item),
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Media showcase created" in response.data
+    page = client.get("/")
+    assert page.status_code == 200
+    media_position = page.data.find(b'id="media-showcase-fitystores-tv"')
+    featured_position = page.data.find(b'id="category-showcase"')
+    assert media_position >= 0, page.data[page.data.find(b"FityStores TV") - 100:page.data.find(b"FityStores TV") + 300]
+    assert featured_position >= 0
+    assert media_position < featured_position
+    assert b"See it. Love it. Shop it." in page.data
+    assert b"media-showcase-items-single" in page.data
+    assert b"media-presentation-contain" in page.data
+    assert b'data-aspect-ratio="9:16"' in page.data
+    assert b"data-showcase-scroll" not in page.data
+    with app.app_context():
+        saved = MediaShowcase.query.filter_by(slug="fitystores-tv").one().items[0]
+        assert saved.presentation_mode == "contain"
+        assert saved.aspect_ratio == "9:16"
+
+
+def test_media_showcase_editor_offers_fields_and_existing_products(client, app):
+    _sign_in_admin(client, app)
+    response = client.get("/admin/media-showcases/new")
+    assert response.status_code == 200
+    assert b"data-add-showcase-item" in response.data
+    assert b"showcase-products-data" in response.data
+    assert b"Plain Socks" in response.data
+    assert b"media-showcase-editor.js" in response.data
+    assert b'name="publish_action" value="publish"' in response.data
+    assert b'data-bulk-upload' in response.data
+    assert b'data-bulk-links' in response.data
+
+
+def test_media_showcases_sharing_a_slot_render_as_one_carousel(client, app):
+    _sign_in_admin(client, app)
+    for name in ("Shared first", "Shared second"):
+        client.post("/admin/media-showcases/new", data={
+            "name": name, "page": "home", "placement": "home_after_hero", "layout": "split",
+            "publish_action": "publish", "is_enabled": "1",
+            "items_json": json.dumps([{"type": "image", "title": name, "url": f"https://cdn.example.test/{name.replace(' ', '').lower()}.jpg"}]),
+        })
+    page = client.get("/")
+    assert page.status_code == 200
+    assert page.data.count(b'data-showcase-count="2"') == 1
+    assert page.data.count(b'class="media-showcase-card"') >= 2
+    assert b"Shared first" in page.data and b"Shared second" in page.data
+    assert b"media-layout-carousel" in page.data
+
+
+def test_media_showcase_list_has_publish_and_unpublish_actions(client, app):
+    _sign_in_admin(client, app)
+    client.post("/admin/media-showcases/new", data={
+        "name": "Draft publish control", "page": "home", "placement": "home_after_hero",
+        "items_json": json.dumps([{"type": "image", "title": "Draft", "url": "https://cdn.example.test/draft.jpg"}]),
+    })
+    response = client.get("/admin/media-showcases")
+    assert response.status_code == 200
+    assert b"Publish now" in response.data
+    with app.app_context():
+        showcase_id = MediaShowcase.query.filter_by(name="Draft publish control").one().id
+    client.post(f"/admin/media-showcases/{showcase_id}/action", data={"action": "publish"})
+    with app.app_context():
+        assert db.session.get(MediaShowcase, showcase_id).is_published is True
+
+
+def test_media_showcase_library_upload_embed_colours_and_safe_asset_retention(client, app):
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+    from PIL import Image
+
+    _sign_in_admin(client, app)
+    library = client.get("/admin/media-showcases/library")
+    assert library.status_code == 200
+    assert library.json["cloudinary"] == "not_configured"
+    assert "items" in library.json
+
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (18, 32), "red").save(image_bytes, format="GIF")
+    payload_bytes = image_bytes.getvalue()
+    static_root = Path(app.static_folder)
+    with TemporaryDirectory(prefix="test-showcase-uploads-", dir=static_root) as upload_root:
+        app.config["UPLOAD_FOLDER"] = upload_root
+        first_upload = client.post("/admin/media-showcases/upload", data={"media": (io.BytesIO(payload_bytes), "portrait.gif")}, content_type="multipart/form-data")
+        second_upload = client.post("/admin/media-showcases/upload", data={"media": (io.BytesIO(payload_bytes), "portrait.gif")}, content_type="multipart/form-data")
+        assert first_upload.status_code == second_upload.status_code == 200
+        uploaded = first_upload.json
+        assert uploaded["source"] == "upload"
+        assert uploaded["type"] == "gif"
+        assert uploaded["width"] == 18 and uploaded["height"] == 32
+        assert first_upload.json["url"] == second_upload.json["url"]
+        assert client.get(uploaded["url"]).status_code == 200
+        stored_files = list((Path(upload_root) / "media-showcases").iterdir())
+        assert len(stored_files) == 1
+
+        invalid_upload = client.post("/admin/media-showcases/upload", data={"media": (io.BytesIO(b"not an image"), "bad.gif")}, content_type="multipart/form-data")
+        assert invalid_upload.status_code == 400
+
+        items = [
+            {"type": "gif", "title": "Uploaded portrait", "url": uploaded["url"], "source": uploaded["source"], "filename": uploaded["filename"], "size": uploaded["size"], "width": uploaded["width"], "height": uploaded["height"], "presentation": "contain", "aspect_ratio": "9:16"},
+            {"type": "video", "title": "YouTube sample", "url": "https://www.youtube.com/watch?v=7cjVj1ZyzyE", "source": "video_embed", "active": True},
+        ]
+        saved = client.post("/admin/media-showcases/new", data={
+            "name": "Media studio flow", "title": "Mixed media", "page": "home", "placement": "home_after_hero",
+            "layout": "carousel", "is_published": "1", "is_enabled": "1", "background_color": "#ffffff",
+            "heading_color": "#252525", "description_color": "#666666", "accent_color": "#e52335",
+            "card_background_color": "#ffffff", "border_color": "transparent", "button_background_color": "#e52335",
+            "button_text_color": "#ffffff", "items_json": json.dumps(items),
+        }, follow_redirects=True)
+        assert saved.status_code == 200 and b"Media showcase created" in saved.data
+        page = client.get("/")
+        assert b"youtube-nocookie.com/embed/7cjVj1ZyzyE" in page.data
+        assert b"media-presentation-contain" in page.data
+        with app.app_context():
+            showcase = MediaShowcase.query.filter_by(slug="media-studio-flow").one()
+            assert showcase.background_color == "#ffffff"
+            assert showcase.items[0].source_type == "upload"
+            assert showcase.items[0].media_width == 18 and showcase.items[0].media_height == 32
+            assert showcase.items[1].source_type == "video_embed"
+            showcase_id = showcase.id
+        deleted = client.post(f"/admin/media-showcases/{showcase_id}/action", data={"action": "delete"}, follow_redirects=True)
+        assert deleted.status_code == 200
+        assert stored_files[0].exists(), "Deleting showcase records must preserve shared media files."
+
+
+def test_media_showcase_accepts_existing_local_static_gif_and_rejects_traversal(client, app):
+    _sign_in_admin(client, app)
+    payload = [{"type": "gif", "title": "GIF sample", "url": "/static/gifexample/hurry.gif"}]
+    response = client.post("/admin/media-showcases/new", data={
+        "name": "Local GIF sample", "page": "home", "placement": "home_after_hero",
+        "layout": "single", "items_json": json.dumps(payload),
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Media showcase created" in response.data
+    with app.app_context():
+        showcase_id = MediaShowcase.query.filter_by(slug="local-gif-sample").one().id
+    preview = client.get(f"/admin/media-showcases/{showcase_id}/preview")
+    assert b'src="/static/gifexample/hurry.gif"' in preview.data
+    invalid = client.post("/admin/media-showcases/new", data={
+        "name": "Traversal", "page": "home", "placement": "home_after_hero", "layout": "single",
+        "items_json": json.dumps([{"type": "gif", "title": "Bad", "url": "/static/../app.py"}]),
+    })
+    with app.app_context():
+        assert MediaShowcase.query.filter_by(name="Traversal").first() is None
+
+
+def test_media_showcase_rejects_unsafe_media_url_and_customer_is_forbidden(client, app):
+    sign_in_verified_customer(client)
+    assert client.get("/admin/media-showcases").status_code == 403
+    client.get("/admin/logout")
+    _sign_in_admin(client, app)
+    response = client.post("/admin/media-showcases/new", data={
+        "name": "Unsafe", "page": "home", "placement": "home_after_hero", "layout": "carousel",
+        "items_json": json.dumps([{"type": "video", "title": "Bad", "url": "javascript:alert(1)"}]),
+    })
+    assert response.status_code == 200
+    assert b"Use a valid http or https URL" in response.data
+    with app.app_context():
+        assert MediaShowcase.query.count() == 0
+
+
+def test_media_showcase_duplicate_disable_and_schedule_visibility(client, app):
+    _sign_in_admin(client, app)
+    item = [{"type": "gif", "title": "Animated card", "url": "https://cdn.example.test/card.gif"}]
+    client.post("/admin/media-showcases/new", data={"name": "Cards", "page": "about", "placement": "about_after_banner", "layout": "grid", "is_published": "1", "is_enabled": "1", "items_json": json.dumps(item)})
+    with app.app_context():
+        original = MediaShowcase.query.one()
+        original_id = original.id
+    client.post(f"/admin/media-showcases/{original_id}/duplicate")
+    with app.app_context():
+        copies = MediaShowcase.query.order_by(MediaShowcase.id).all()
+        assert len(copies) == 2
+        assert copies[1].is_published is False
+        duplicate_id = copies[1].id
+        original_id = copies[0].id
+    client.post(f"/admin/media-showcases/{duplicate_id}/action", data={"action": "up"})
+    with app.app_context():
+        assert MediaShowcase.query.get(duplicate_id).display_order == 0
+        assert MediaShowcase.query.get(original_id).display_order == 1
+    client.post(f"/admin/media-showcases/{duplicate_id}/action", data={"action": "toggle"})
+    with app.app_context():
+        assert MediaShowcase.query.get(duplicate_id).is_enabled is False
+    page = client.get("/about")
+    assert b"Animated card" in page.data
+
+
+def test_media_showcase_supports_registered_shop_and_upcoming_slots(client, app):
+    _sign_in_admin(client, app)
+    for page, placement in (("shop", "shop_before_products"), ("upcoming", "upcoming_before_products")):
+        client.post("/admin/media-showcases/new", data={
+            "name": f"{page} showcase", "title": f"Feature on {page}", "page": page,
+            "placement": placement, "layout": "grid", "is_published": "1", "is_enabled": "1",
+            "items_json": json.dumps([{"type": "link", "title": f"{page} link", "destination": "https://example.test/campaign"}]),
+        })
+    assert b"Feature on shop" in client.get("/shop").data
+    assert b"Feature on upcoming" in client.get("/upcoming").data
+    upcoming_page = client.get("/upcoming").data
+    assert b"upcoming-page-layout" in upcoming_page
+    assert b"Feature on upcoming" in upcoming_page
+
+
+def test_upcoming_dashboard_uses_saved_requests_and_cart_activity(client, app):
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        db.session.add_all([
+            ProductSuggestion(product_name="Crew socks", category="Socks"),
+            ProductSuggestion(product_name="Crew socks", category="Socks"),
+            ProductSuggestion(product_name="Slides", category="Slippers"),
+            CartAddCount(product_id=product.id, add_count=7),
+        ])
+        db.session.commit()
+
+    response = client.get("/upcoming")
+    assert response.status_code == 200
+    assert b"Something Good Is Coming" in response.data
+    assert b"Upcoming product grid" in response.data
+    assert b"Socks" in response.data and b"2 saved requests" in response.data
+    assert b"Merchandise people are watching" in response.data
+    assert b"Recent requests" in response.data and b"Global trend watch" in response.data
+    assert b"Plain Socks" in response.data and b"7 cart additions" in response.data
+    assert b'name="return_to" value="upcoming"' in response.data
+    assert response.data.count(b'name="product_name"') == 1
+
+
+def test_admin_can_manage_upcoming_product_cards(client, app):
+    _sign_in_admin(client, app)
+    form = client.get("/admin/upcoming-products/new")
+    assert form.status_code == 200
+    assert b'name="product_id"' not in form.data
+
+    response = client.post("/admin/upcoming-products/new", data={
+        "name": "Campus fits", "category_label": "Outfit bundles",
+        "description": "A new collection announcement.",
+        "card_size": "wide", "display_order": "0", "is_enabled": "1",
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Upcoming product card added" in response.data
+    assert b"Campus fits" in client.get("/upcoming").data
+    assert b"upcoming-product-card--wide" in client.get("/upcoming").data
+    assert b"Image coming soon" in client.get("/upcoming").data
+    assert client.get("/admin/upcoming-products").status_code == 200
+    with app.app_context():
+        item = UpcomingProduct.query.filter_by(name="Campus fits").one()
+        item_id = item.id
+        assert not item.image_url
+    client.post(f"/admin/upcoming-products/{item_id}/action", data={"action": "toggle"})
+    assert b"Campus fits" not in client.get("/upcoming").data
+
+
+def test_upcoming_suggestion_returns_to_request_form(client):
+    response = client.post("/mamba-suggestion", data={
+        "product_name": "Canvas sneakers", "category": "Men's shoes and sneakers",
+        "return_to": "upcoming",
+    })
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/upcoming#upcoming-request")
+
+
+def test_media_showcase_schedule_and_sqlite_migration_command(client, app):
+    _sign_in_admin(client, app)
+    client.post("/admin/media-showcases/new", data={
+        "name": "Scheduled", "title": "Future feature", "page": "home", "placement": "home_after_hero",
+        "layout": "single", "is_published": "1", "is_enabled": "1", "starts_at": "2099-01-01T00:00",
+        "items_json": json.dumps([{"type": "image", "title": "Future", "url": "https://cdn.example.test/future.webp"}]),
+    })
+    assert b"Future feature" not in client.get("/").data
+    result = app.test_cli_runner().invoke(args=["migrate-media-showcases"])
+    assert result.exit_code == 0, result.output
+
 def test_homepage_most_added_carousel_keeps_popularity_order_and_pagination_controls(client, app):
     with app.app_context():
         products = Product.query.order_by(Product.name).all()
@@ -78,6 +364,11 @@ def test_about_renders_live_categories_products_and_working_destinations(client)
     assert b'href="/shop?category=ankle-socks"' in rv.data
     assert b'href="/contact"' in rv.data
     assert b'href="#about-help"' in rv.data
+    assert b"Affordable choices" in rv.data
+    assert b"Honest service" in rv.data
+    assert b"Suggest a product" in rv.data
+    assert b"Looking for something out of stock?" in rv.data
+    assert b"Helpful answers" in rv.data
 
 def test_about_handles_an_empty_catalogue(client, app):
     with app.app_context():
@@ -572,6 +863,18 @@ def test_cloudinary_url_and_legacy_fallback_helpers(app):
         missing = ProductImage(filename="missing.jpg", alt_text="Missing")
         assert valid_product_image(missing) is False
         assert product_image_url(missing).endswith("/static/images/mainLogo-160.png")
+
+
+def test_local_product_image_remains_visible_when_cloudinary_is_unconfigured(app):
+    from app.services.product_images import product_image_url, valid_product_image
+    app.config.update(CLOUDINARY_CLOUD_NAME="")
+    image = ProductImage(
+        filename="sample-ankle-socks.svg", cloudinary_public_id="fity/legacy/local-sock",
+        storage_backend="cloudinary", alt_text="Sock", is_primary=True,
+    )
+    with app.test_request_context():
+        assert valid_product_image(image) is True
+        assert product_image_url(image).endswith("/static/uploads/sample-ankle-socks.svg")
 
 
 def test_cloudinary_image_delete_failure_keeps_record(client, app, monkeypatch):
@@ -2166,6 +2469,19 @@ def test_marketing_email_renders_absolute_product_image_and_link(app, app_contex
     assert "https://fitystore.top/static/images/mainLogo-160.png" in html
     assert "Plain Socks" in html and "Plain Socks" in text
     assert "unsubscribe/test" in html
+    assert 'name="color-scheme" content="light only"' in html
+
+
+def test_promotion_studio_email_preserves_light_brand_in_dark_mode(app, app_context):
+    from app.services.email_studio import render_studio_message
+    _subject, html, _text = render_studio_message(
+        "promotion", "Offer", "Special picks", "A note for you", {},
+        shop_url="https://fitystore.top/shop", logo_url="https://fitystore.top/logo.png",
+        hero_image_url="https://fitystore.top/hero.png", whatsapp_url="https://wa.me/254700000000",
+    )
+    assert 'name="color-scheme" content="light only"' in html
+    assert "prefers-color-scheme:dark" in html
+    assert "#f0f2f8" in html and "#182033" in html
 
 
 def test_weekly_popular_ranking_uses_only_paid_completed_sales(app, app_context):

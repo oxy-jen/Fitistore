@@ -27,6 +27,10 @@ from app.services.orders import FULFILMENT_STATUSES, PAYMENT_STATUSES, award_loy
 from app.services.product_images import ImageStorageError, cloudinary_configured, cloudinary_public_id, delete_cloudinary_asset, legacy_local_image_path, upload_image_bytes
 
 admin_bp = Blueprint("admin", __name__, template_folder="../templates/admin")
+from app.admin.media_showcases import register_media_showcase_routes
+register_media_showcase_routes(admin_bp)
+from app.admin.upcoming_products import register_upcoming_product_routes
+register_upcoming_product_routes(admin_bp)
 
 
 def model_schema_ready(model, inspector=None):

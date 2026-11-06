@@ -15,10 +15,12 @@
     </div>
   </section>
 
+  {% for showcase_group in media_showcases.home_after_hero %}{% include "partials/media_showcase_group.html" %}{% endfor %}
   {% if featured %}<section class="deal-strip featured-showcase" id="featured-picks"><div class="section-title"><div><p class="eyebrow">Featured picks</p><h2>Top deals and fresh arrivals</h2></div><span class="home-social-share" data-social-share data-share-url="{{ home_share_urls['featured'] }}" data-share-image="{{ url_for('public.home_share_card', section='featured') }}"><button class="btn" type="button" data-share-facebook>Share picks</button></span><a href="{{ url_for('public.shop') }}">See all</a></div><div class="product-marquee" aria-label="Featured products"><div class="marquee-track">{% for copy in range(4) %}<div class="marquee-group"{% if copy %} aria-hidden="true"{% endif %}>{% for product in featured %}<div class="marquee-item">{% include "partials/product_card.html" %}</div>{% endfor %}</div>{% endfor %}</div></div></section>{% endif %}
 
   {% if top_added %}<section class="deal-strip top-added-showcase" id="most-added"><div class="section-title"><div><p class="eyebrow">Customer favourites</p><h2>Most added to cart</h2><p>Popular picks shoppers are adding right now.</p></div><a href="{{ url_for('public.shop') }}">Shop all</a></div><div class="most-added-carousel" data-most-added><button class="carousel-arrow" type="button" data-most-added-prev aria-label="Previous Most Added to Cart page" disabled>‹</button><div class="most-added-viewport"><div class="most-added-track" data-most-added-track>{% for product in top_added %}<div class="marquee-item">{% with compact_product_card=true %}{% include "partials/product_card.html" %}{% endwith %}</div>{% endfor %}</div></div><button class="carousel-arrow" type="button" data-most-added-next aria-label="Next Most Added to Cart page">›</button><nav class="most-added-dots" data-most-added-dots aria-label="Most Added to Cart pages"></nav><span class="sr-only" data-most-added-status aria-live="polite"></span></div></section>{% endif %}
 
+  {% for showcase_group in media_showcases.home_before_departments %}{% include "partials/media_showcase_group.html" %}{% endfor %}
   <section class="category-showcase" id="category-showcase">
     <div class="section-title"><div><p class="eyebrow">Departments</p><h2>Shop by category</h2><p>Find what you need faster.</p></div><span class="home-social-share" data-social-share data-share-url="{{ home_share_urls['categories'] }}" data-share-image="{{ url_for('public.home_share_card', section='categories') }}"><button class="btn" type="button" data-share-facebook>Share categories</button></span><a href="{{ url_for('public.shop') }}">View all products <span aria-hidden="true">→</span></a></div>
     <div class="department-scroll" data-home-scroll-rail="shop categories" tabindex="0" aria-label="Scroll through shop categories"><div class="department-grid">{% for section in category_sections %}<article class="department-card"><a class="department-image-link" href="{{ url_for('public.shop', category_group=section.group.key) }}" aria-label="Shop {{ section.group.name }}"><img src="{{ section.thumbnail_url }}" alt="{{ section.thumbnail_alt }}" loading="lazy"></a><div class="department-card-copy"><div><h3>{{ section.group.name }}</h3><p>{{ section.group.description }}</p></div>{% if section.products %}<a class="department-shop-link" href="{{ url_for('public.shop', category_group=section.group.key) }}">Shop now <span aria-hidden="true">→</span></a>{% else %}<span class="department-coming-soon">Coming soon</span>{% endif %}</div></article>{% endfor %}</div></div><nav class="home-scroll-dots" data-home-scroll-dots aria-label="Shop categories scrolling"></nav>
@@ -26,6 +28,7 @@
 
   {% if discounted %}<section class="product-section promo-showcase" id="discounted-goods"><div class="section-title"><div><p class="eyebrow">Offers</p><h2>Discounted goods</h2></div><span class="home-social-share" data-social-share data-share-url="{{ home_share_urls['offers'] }}" data-share-image="{{ url_for('public.home_share_card', section='offers') }}"><button class="btn" type="button" data-share-facebook>Share offers</button></span><a href="{{ url_for('public.shop', sort='price-low') }}">Browse offers</a></div><div class="product-marquee" aria-label="Discounted promotional products"><div class="marquee-track">{% for copy in range(4) %}<div class="marquee-group"{% if copy %} aria-hidden="true" inert{% endif %}>{% for product in discounted %}<div class="marquee-item">{% include "partials/product_card.html" %}</div>{% endfor %}</div>{% endfor %}</div></div></section>{% endif %}
 
+  {% for showcase_group in media_showcases.home_before_mamba %}{% include "partials/media_showcase_group.html" %}{% endfor %}
   <section class="mamba-browser" id="mamba-collection">
     <div class="mamba-layout">
       <div class="mamba-feature">
@@ -39,6 +42,7 @@
     </div>
   </section>
 
+  {% for showcase_group in media_showcases.home_before_upcoming %}{% include "partials/media_showcase_group.html" %}{% endfor %}
   <section class="upcoming-strip" id="upcoming-strip" aria-labelledby="upcoming-title">
     <div class="upcoming-feature-layout">
       <a class="upcoming-banner-image" href="{{ url_for('public.upcoming') }}" aria-label="Explore what's coming next"><img src="{{ url_for('static', filename='images/shop-hero/comingup.jpg') }}" alt="Coming soon footwear preview" loading="lazy"></a>
@@ -72,6 +76,7 @@
     </form>
   </section>
 
+  {% for showcase_group in media_showcases.home_before_footer %}{% include "partials/media_showcase_group.html" %}{% endfor %}
   <section class="info-grid home-info home-answers" aria-label="Quick answers">
     <article class="home-answer home-delivery-answer"><div class="delivery-stage" aria-hidden="true"><svg class="delivery-car" viewBox="0 0 96 56"><path d="M13 34h6l7-13h34l12 13h8a5 5 0 0 1 5 5v7H10v-7a5 5 0 0 1 3-5Z"/><path class="car-window" d="m30 24-5 10h19V24Zm18 0v10h19l-9-10Z"/><circle class="car-wheel" cx="25" cy="45" r="6"/><circle class="car-wheel" cx="72" cy="45" r="6"/></svg><svg class="delivery-bike" viewBox="0 0 100 60"><circle class="bike-wheel" cx="22" cy="46" r="9"/><circle class="bike-wheel" cx="78" cy="46" r="9"/><path class="bike-frame" d="M22 46h23l16-22h13l12 22H58L45 30h16"/><circle class="bike-rider-head" cx="51" cy="9" r="6"/><path class="bike-rider" d="m49 17-8 12 14 4 8-8m-21 4-10 10m23-10 10 9"/></svg></div><div class="delivery-copy"><h3>Can you deliver?</h3><p>{{ settings.delivery_area or "Ask us about nearby delivery." }}</p></div></article>
     <article class="home-answer"><div class="answer-motion walker-motion" aria-hidden="true"><svg viewBox="0 0 64 64" role="presentation"><circle cx="33" cy="9" r="6"/><path class="walker-body" d="m31 18 9 17-8 6-11-13 4-9Z"/><path class="walker-arm" d="m27 21-11 8-5 11"/><path class="walker-arm" d="m37 22 11 8 4 8"/><path class="walker-leg-a" d="m32 39-9 12-7 8"/><path class="walker-leg-b" d="m33 40 9 10 10 3"/></svg></div><div><h3>Can I collect in person?</h3><p>{{ settings.collection_instructions or "Call us to confirm the collection point." }}</p></div></article>

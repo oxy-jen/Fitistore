@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head admin-head media-admin-heading">
+  <div><p class="eyebrow">Storefront content</p><h1>Media Showcases</h1><p>Manage FityStores TV and the media sections placed across your store. Showcases with the same page and placement share one compact, scrollable storefront rail.</p></div>
+  <a class="btn primary" href="{{ url_for('admin.media_showcase_new') }}">Create showcase</a>
+</section>
+<form class="showcase-filters media-showcase-filter" method="get" role="search" aria-label="Filter showcases">
+  <input name="q" value="{{ request.args.get('q','') }}" placeholder="Search showcase name" aria-label="Search showcase name">
+  <select name="page" aria-label="Filter by page"><option value="">All pages</option>{% for key, placements in pages.items() %}<option value="{{ key }}"{% if request.args.get('page')==key %} selected{% endif %}>{{ key|title }}</option>{% endfor %}</select>
+  <select name="status" aria-label="Filter by status"><option value="">All statuses</option>{% for value in statuses %}<option value="{{ value }}"{% if request.args.get('status')==value %} selected{% endif %}>{{ value|title }}</option>{% endfor %}</select>
+  <select name="media_type" aria-label="Filter by media type"><option value="">All media</option>{% for value in ["video","gif","image","link"] %}<option value="{{ value }}"{% if request.args.get('media_type')==value %} selected{% endif %}>{{ value|title }}</option>{% endfor %}</select>
+  <button class="btn">Apply filters</button>
+</form>
+<section class="media-showcase-admin-list" aria-label="Showcases">
+{% for item in showcases %}
+  {% set status = 'Disabled' if not item.is_enabled else ('Expired' if item.expires_at and item.expires_at <= now else ('Scheduled' if item.starts_at and item.starts_at > now else ('Published' if item.is_published else 'Draft'))) %}
+  <article class="media-showcase-admin-card">
+    <div class="media-admin-card-visual">
+      {% set first = item.items|selectattr('is_active')|first %}
+      {% if first and first.media_type in ['gif','image'] %}<img src="{{ first.thumbnail_url or first.poster_url or first.media_url }}" alt="" loading="lazy" decoding="async">
+      {% elif first %}<span>{{ 'EMBED' if first.source_type == 'video_embed' else first.media_type|upper }}</span>
+      {% else %}<span>NO MEDIA</span>{% endif %}
+    </div>
+    <div class="media-admin-card-main">
+      <div class="media-admin-card-title"><div><h2>{{ item.name }}</h2><p>{{ item.title or 'No public heading' }}</p></div><span class="media-status-pill media-status-{{ status|lower }}">{{ status }}</span></div>
+      <div class="media-admin-card-meta"><span>{{ item.page_identifier|title }} · {{ pages.get(item.page_identifier,{}).get(item.placement_identifier,'Unsupported placement') }}</span><span>{{ item.layout|title }} · {{ item.density|title }}</span><span>{{ item.items|length }} media item{{ '' if item.items|length == 1 else 's' }}</span></div>
+      <p class="media-admin-card-schedule">Starts: {{ item.starts_at.strftime('%Y-%m-%d %H:%M') if item.starts_at else 'Now' }} UTC · Ends: {{ item.expires_at.strftime('%Y-%m-%d %H:%M') if item.expires_at else 'No expiry' }}</p>
+      <div class="media-showcase-card-actions">
+        <a class="btn primary" href="{{ url_for('admin.media_showcase_edit', showcase_id=item.id) }}">Edit</a>
+        <a class="btn" href="{{ url_for('admin.media_showcase_preview', showcase_id=item.id) }}">Preview</a>
+        <form method="post" action="{{ url_for('admin.media_showcase_action', showcase_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="{{ 'primary' if not item.is_published else '' }}" name="action" value="{{ 'unpublish' if item.is_published else 'publish' }}">{{ 'Unpublish' if item.is_published else 'Publish now' }}</button></form>
+        <form method="post" action="{{ url_for('admin.media_showcase_action', showcase_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button name="action" value="up" aria-label="Move {{ item.name }} up">Move up</button><button name="action" value="down" aria-label="Move {{ item.name }} down">Move down</button></form>
+        <form method="post" action="{{ url_for('admin.media_showcase_duplicate', showcase_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button>Duplicate draft</button></form>
+        <form method="post" action="{{ url_for('admin.media_showcase_action', showcase_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button name="action" value="toggle">{{ 'Disable' if item.is_enabled else 'Enable' }}</button></form>
+        <form method="post" action="{{ url_for('admin.media_showcase_action', showcase_id=item.id) }}" onsubmit="return confirm('Delete this showcase and its item records? Stored media files and Cloudinary assets will remain untouched.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="danger" name="action" value="delete">Delete showcase</button></form>
+      </div>
+    </div>
+  </article>
+{% else %}
+  <div class="media-admin-empty"><span aria-hidden="true">▧</span><h2>No showcases yet</h2><p>Create a compact media carousel or a larger campaign feature. Your existing products and store sections remain in place.</p><a class="btn primary" href="{{ url_for('admin.media_showcase_new') }}">Create your first showcase</a></div>
+{% endfor %}
+</section>
+{% endblock %}

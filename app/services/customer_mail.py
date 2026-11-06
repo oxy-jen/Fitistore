@@ -252,20 +252,21 @@ def deliver_email(record: EmailMessage, html_body: str, text_body: str) -> bool:
     return True
 
 
-def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str = "", button_text: str = "", unsubscribe_url: str = "", kind: str = "", order_reference: str = "", order_progress=None) -> tuple[str, str]:
+def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str = "", button_text: str = "", unsubscribe_url: str = "", kind: str = "", order_reference: str = "", order_progress=None, security_code: str = "") -> tuple[str, str]:
     paragraphs = [
         block.strip()
         for paragraph in paragraphs
         for block in paragraph.replace("\r\n", "\n").split("\n\n")
         if block.strip()
     ]
-    security_code = ""
     if kind in {"verify_code", "login_code"}:
-        for paragraph in paragraphs:
-            match = re.search(r"(?<!\d)\d{6}(?!\d)", paragraph)
-            if match:
-                security_code = match.group(0)
-                break
+        security_code = security_code if re.fullmatch(r"\d{6}", security_code or "") else ""
+        if not security_code:
+            for paragraph in paragraphs:
+                match = re.search(r"(?<!\d)\d{6}(?!\d)", paragraph)
+                if match:
+                    security_code = match.group(0)
+                    break
         if security_code:
             paragraphs = [paragraph for paragraph in paragraphs if security_code not in paragraph]
     preview_text = (paragraphs[0] if paragraphs else heading).strip()[:180]
@@ -273,15 +274,15 @@ def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str
     logo_url = site_url + "/static/images/mainLogo-160.png"
     contact_url = site_url + url_for("public.contact", _external=False)
     accent_color = "#0B8F52" if kind == "payment_confirmed" else "#ED1B2F"
-    hero_background = "#0B8F52" if kind == "payment_confirmed" else "#111111"
+    hero_background = "#E8F7EF" if kind == "payment_confirmed" else "#F7F8FC"
     footer_notes = {
         "welcome": "Thanks for joining FITY. We’re glad you’re here.",
-        "account_security": "If you did not make this change, contact FityStores support immediately.",
-        "unsubscribe_confirmation": "Your promotional email preference has been updated. Essential account and order messages may still be sent.",
-        "verify_email": "This secure link is personal to you. Never forward it or share a verification code.",
-        "reset_password": "If you did not request a password reset, you can ignore this email and keep your current password.",
-        "verify_code": "For your security, never share this code with anyone.",
-        "login_code": "For your security, never share this code with anyone.",
+        "account_security": "",
+        "unsubscribe_confirmation": "",
+        "verify_email": "",
+        "reset_password": "",
+        "verify_code": "",
+        "login_code": "",
     }
     html_body = render_template(
         "emails/base_branded.html", heading=heading, paragraphs=paragraphs,
@@ -290,10 +291,13 @@ def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str
         contact_url=contact_url, footer_note=footer_notes.get(kind, ""),
         security_code=security_code, accent_color=accent_color,
         hero_background=hero_background,
-        hero_text_color="#FFFFFF", order_reference=order_reference,
+        hero_text_color="#252525", order_reference=order_reference,
         order_progress=order_progress or (),
     )
-    lines = [heading, "", *paragraphs]
+    lines = [heading, ""]
+    if security_code:
+        lines.extend(["Your one-time code (tap and hold to copy):", security_code, ""])
+    lines.extend(paragraphs)
     if button_url:
         lines.extend(["", f"{button_text}: {button_url}"])
     if order_reference:
@@ -306,11 +310,11 @@ def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str
     return html_body, "\n".join(lines)
 
 
-def queue_branded_email(recipient: str, subject: str, kind: str, idempotency_key: str, heading: str, paragraphs: list[str], *, account_id=None, order_id=None, campaign_id=None, button_url="", button_text="", unsubscribe_url="", order_reference="", order_progress=None) -> EmailMessage:
+def queue_branded_email(recipient: str, subject: str, kind: str, idempotency_key: str, heading: str, paragraphs: list[str], *, account_id=None, order_id=None, campaign_id=None, button_url="", button_text="", unsubscribe_url="", order_reference="", order_progress=None, security_code="") -> EmailMessage:
     html_body, text_body = render_branded_email(
         heading, paragraphs, button_url=button_url, button_text=button_text,
         unsubscribe_url=unsubscribe_url, kind=kind, order_reference=order_reference,
-        order_progress=order_progress,
+        order_progress=order_progress, security_code=security_code,
     )
     return queue_email(recipient, subject, kind, idempotency_key, account_id=account_id, order_id=order_id, campaign_id=campaign_id, html_body=html_body, text_body=text_body)
 

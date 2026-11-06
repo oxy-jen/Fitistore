@@ -1,0 +1,23 @@
+{% extends "base.html" %}{% block content %}
+{% set fd = form_data or {} %}
+<main class="upcoming-admin">
+  <header class="upcoming-admin-head"><div><p class="eyebrow">Upcoming page</p><h1>{{ 'Edit upcoming product' if item else 'Add upcoming product' }}</h1><p>Add new products planned for the Upcoming page. Add their own image when it is ready; no catalogue product or photo is required.</p></div><a class="btn" href="{{ url_for('admin.upcoming_products') }}">Back to upcoming products</a></header>
+  <form class="upcoming-admin-form" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <section class="upcoming-admin-form-section"><h2>Card content</h2><div class="upcoming-admin-fields">
+      <label>Product or idea name<input name="name" maxlength="140" required value="{{ fd.get('name', item.name if item else '') }}" placeholder="e.g. Sneaker drops"></label>
+      <label>Category label<input name="category_label" maxlength="80" value="{{ fd.get('category_label', item.category_label if item else '') }}" placeholder="e.g. Shoes"></label>
+      <label class="field-wide">Description<textarea name="description" rows="3" maxlength="2000" placeholder="Short description for the Upcoming card">{{ fd.get('description', item.description if item else '') }}</textarea></label>
+      <label>Card size<select name="card_size">{% for value,label in card_sizes.items() %}<option value="{{ value }}" {% if fd.get('card_size', item.card_size if item else 'tall') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label>Display order<input name="display_order" type="number" min="0" step="1" value="{{ fd.get('display_order', item.display_order if item else 0) }}"></label>
+    </div></section>
+    <section class="upcoming-admin-form-section"><h2>Card image</h2><div class="upcoming-admin-fields">
+      <label class="field-wide">Image URL (optional)<input type="url" name="image_url" value="{{ fd.get('image_url', item.image_url if item else '') }}" placeholder="https://res.cloudinary.com/.../image/upload/...jpg"><small>Paste this upcoming product’s own image link. Direct HTTPS image links and Cloudinary image links are supported.</small></label>
+      <label class="field-wide">Or upload this product’s image<input type="file" name="image_file" accept=".jpg,.jpeg,.png,.webp,.gif"><small>JPEG, PNG, WebP, or GIF up to 3.5 MB. You can add the image later; the card will show “Image coming soon”.</small></label>
+      <label class="field-wide">Image description<input name="image_alt" maxlength="255" value="{{ fd.get('image_alt', item.image_alt if item else '') }}" placeholder="Describe the product image"></label>
+    </div></section>
+    <section class="upcoming-admin-form-section"><h2>Visibility</h2><label class="upcoming-admin-toggle"><input type="checkbox" name="is_enabled" value="1" {% if fd.get('is_enabled') == '1' or (not fd and (not item or item.is_enabled)) %}checked{% endif %}> Show this card on the Upcoming page</label></section>
+    <div class="upcoming-admin-form-actions"><button class="btn primary" type="submit">{{ 'Save changes' if item else 'Add upcoming card' }}</button><a class="btn" href="{{ url_for('admin.upcoming_products') }}">Cancel</a></div>
+  </form>
+</main>
+{% endblock %}
