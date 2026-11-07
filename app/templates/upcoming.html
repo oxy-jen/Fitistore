@@ -41,15 +41,15 @@
 
       <section class="upcoming-light-panel upcoming-request-panel" id="upcoming-request">
         <div class="upcoming-light-heading"><div><span class="upcoming-dash-kicker">Most requested</span><h2>Can't Find What You're Looking For?</h2></div></div>
-        <p class="upcoming-request-intro">Tell us what you'd like us to consider bringing in.</p>
-        <form class="upcoming-dash-form" method="post" action="{{ url_for('public.mamba_suggestion') }}">
+        <p class="upcoming-request-intro">Everyone is welcome to suggest future products, regardless of gender. This page covers the full FityStores range, separate from the Mamba Collection.</p>
+        <form class="upcoming-dash-form" method="post" action="{{ url_for('public.upcoming_suggestion') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="upcoming">
           <label class="hp-field">Leave this field empty<input name="website_url" tabindex="-1" autocomplete="off"></label>
           <label>Product or item name<input name="product_name" maxlength="140" placeholder="Example: trail running shoes" required></label>
           <label>Category<select name="category" required><option value="">Choose category</option>{% for category in suggestion_categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}</select></label>
           <div class="upcoming-request-two-fields"><label>Preferred colour, size, or style<input name="preferences" maxlength="255" placeholder="Optional"></label><label>Suggested price range<input name="price_range" maxlength="80" placeholder="Optional"></label></div>
           <label>Additional details<textarea name="details" rows="3" maxlength="1000" placeholder="Optional details"></textarea></label>
-          <div class="upcoming-dash-form-actions"><button class="upcoming-dash-button upcoming-dash-button-primary" type="submit">Submit request</button><button class="upcoming-dash-button upcoming-dash-button-whatsapp" type="submit" formaction="{{ url_for('public.mamba_suggestion_whatsapp') }}" formtarget="_blank">Send on WhatsApp</button></div>
+          <div class="upcoming-dash-form-actions"><button class="upcoming-dash-button upcoming-dash-button-primary" type="submit">Submit product request</button><button class="upcoming-dash-button upcoming-dash-button-whatsapp" type="submit" formaction="{{ url_for('public.upcoming_suggestion_whatsapp') }}" formtarget="_blank">Send on WhatsApp</button></div>
         </form>
       </section>
 

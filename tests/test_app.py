@@ -271,9 +271,9 @@ def test_upcoming_dashboard_uses_saved_requests_and_cart_activity(client, app):
     with app.app_context():
         product = Product.query.filter_by(slug="plain-socks").first()
         db.session.add_all([
-            ProductSuggestion(product_name="Crew socks", category="Socks"),
-            ProductSuggestion(product_name="Crew socks", category="Socks"),
-            ProductSuggestion(product_name="Slides", category="Slippers"),
+            ProductSuggestion(product_name="Crew socks", category="Accessories"),
+            ProductSuggestion(product_name="Crew socks", category="Accessories"),
+            ProductSuggestion(product_name="Slides", category="Shoes"),
             CartAddCount(product_id=product.id, add_count=7),
         ])
         db.session.commit()
@@ -282,7 +282,7 @@ def test_upcoming_dashboard_uses_saved_requests_and_cart_activity(client, app):
     assert response.status_code == 200
     assert b"Something Good Is Coming" in response.data
     assert b"Upcoming product grid" in response.data
-    assert b"Socks" in response.data and b"2 saved requests" in response.data
+    assert b"Accessories" in response.data and b"2 saved requests" in response.data
     assert b"Merchandise people are watching" in response.data
     assert b"Recent requests" in response.data and b"Global trend watch" in response.data
     assert b"Plain Socks" in response.data and b"7 cart additions" in response.data
@@ -600,6 +600,53 @@ def test_upcoming_suggestion_returns_to_request_form(client):
     })
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/upcoming#upcoming-request")
+
+
+def test_upcoming_suggestions_use_all_gender_categories_and_generic_confirmation(client, app):
+    page = client.get("/upcoming")
+    assert page.status_code == 200
+    assert b"Everyone is welcome to suggest future products, regardless of gender" in page.data
+    assert b'action="/upcoming-suggestion"' in page.data
+    assert b"Men&#39;s shoes and sneakers" not in page.data
+    client.post("/mamba-suggestion", data={
+        "product_name": "Mamba boxer", "category": "Boxers",
+    }, follow_redirects=True)
+    response = client.post("/upcoming-suggestion", data={
+        "product_name": "Everyday jacket", "category": "Clothing",
+        "preferences": "Unisex fit", "return_to": "upcoming",
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Your product request has been sent to FityStores for review" in response.data
+    assert b"Mamba Collection suggestion has been saved" not in response.data
+    assert b"Clothing" in response.data
+    with app.app_context():
+        suggestion = ProductSuggestion.query.filter_by(product_name="Everyday jacket").one()
+        assert suggestion.category == "Clothing"
+        assert suggestion.status == "pending"
+    invalid = client.post("/upcoming-suggestion", data={
+        "product_name": "Another item", "category": "Men's shoes and sneakers",
+    }, follow_redirects=True)
+    assert b"Choose a valid category for your all-gender product request" in invalid.data
+    _sign_in_admin(client, app)
+    admin_requests = client.get("/admin/suggestions")
+    assert b"Upcoming page - all genders" in admin_requests.data
+    assert b"Mamba Collection" in admin_requests.data
+
+
+def test_upcoming_suggestion_whatsapp_copy_is_not_mamba_specific(client, monkeypatch):
+    from app.public import routes as public_routes
+
+    messages = []
+    monkeypatch.setattr(public_routes, "whatsapp_text_link", lambda _settings, message: messages.append(message) or "/test-whatsapp")
+    response = client.post("/upcoming-suggestion/whatsapp", data={
+        "product_name": "Everyday shoes", "category": "Shoes",
+        "preferences": "Any gender", "return_to": "upcoming",
+    })
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/test-whatsapp"
+    assert "Upcoming page" in messages[0]
+    assert "all-gender range" in messages[0]
+    assert "Mamba Collection" not in messages[0]
 
 
 def test_media_showcase_schedule_and_sqlite_migration_command(client, app):
