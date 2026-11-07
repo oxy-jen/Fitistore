@@ -391,7 +391,7 @@ def register_email_studio_routes(admin_bp):
                 "Email Studio is unavailable because the active database is missing: "
                 + ", ".join(missing)
                 + ". After confirming the database and a restorable backup, run "
-                "python -m flask --app wsgi:app migrate-customer-email-schema, then run "
+                "python -m flask --app manage:app migrate-customer-email-schema, then run "
                 "check-customer-email-schema. No migration runs from this page.",
                 "error",
             )

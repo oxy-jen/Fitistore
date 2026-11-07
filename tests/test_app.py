@@ -303,7 +303,209 @@ def test_public_pages_remain_available_before_media_showcase_migration(client, a
     _sign_in_admin(client, app)
     response = client.get("/admin/media-showcases")
     assert response.status_code == 200
-    assert b"migrate-media-showcases" in response.data
+    assert b"setup is pending or failed" in response.data
+
+
+def test_showcase_schema_initialization_is_idempotent_and_preserves_existing_rows(app):
+    from sqlalchemy import inspect
+    from app.services.media_showcases import ensure_media_showcase_schema
+
+    with app.app_context():
+        db.session.add(MediaShowcase(
+            name="Existing draft", title="Keep this", slug="existing-draft",
+            page_identifier="home", placement_identifier="home_after_hero",
+        ))
+        db.session.commit()
+        before_business = {
+            "products": [(row.id, row.name, row.stock_quantity, row.price_cents) for row in Product.query.order_by(Product.id)],
+            "categories": [(row.id, row.name, row.slug) for row in Category.query.order_by(Category.id)],
+            "admins": [(row.id, row.username) for row in AdminUser.query.order_by(AdminUser.id)],
+        }
+        before_feature = [(row.id, row.slug, row.title, row.is_published) for row in MediaShowcase.query.order_by(MediaShowcase.id)]
+        inspector = inspect(db.engine)
+        before_tables = set(inspector.get_table_names())
+        before_indexes = {
+            table.name: {index["name"] for index in inspector.get_indexes(table.name)}
+            for table in (MediaShowcase.__table__, MediaShowcaseItem.__table__)
+        }
+
+        assert ensure_media_showcase_schema() is True
+        assert ensure_media_showcase_schema() is True
+
+        # An individually missing supporting index is repaired without touching
+        # the existing showcase row or any business table.
+        db.session.remove()
+        missing_index = sorted(MediaShowcase.__table__.indexes, key=lambda index: index.name)[0]
+        missing_index.drop(bind=db.engine)
+        assert ensure_media_showcase_schema() is True
+
+        inspector = inspect(db.engine)
+        assert set(inspector.get_table_names()) == before_tables
+        after_indexes = {
+            table.name: {index["name"] for index in inspector.get_indexes(table.name)}
+            for table in (MediaShowcase.__table__, MediaShowcaseItem.__table__)
+        }
+        after_business = {
+            "products": [(row.id, row.name, row.stock_quantity, row.price_cents) for row in Product.query.order_by(Product.id)],
+            "categories": [(row.id, row.name, row.slug) for row in Category.query.order_by(Category.id)],
+            "admins": [(row.id, row.username) for row in AdminUser.query.order_by(AdminUser.id)],
+        }
+        after_feature = [(row.id, row.slug, row.title, row.is_published) for row in MediaShowcase.query.order_by(MediaShowcase.id)]
+        assert after_business == before_business
+        assert after_feature == before_feature
+        assert after_indexes == before_indexes
+
+
+def test_startup_initializes_missing_showcase_tables_and_retries_after_failure(tmp_path, monkeypatch):
+    from sqlalchemy import inspect
+    from app import create_web_app
+    from app.services import media_showcases as showcase_service
+
+    database_uri = f"sqlite:///{(tmp_path / 'startup-showcases.sqlite').as_posix()}"
+    bootstrap_config = type("ShowcaseBootstrapConfig", (TestConfig,), {
+        "TESTING": True, "SQLALCHEMY_DATABASE_URI": database_uri,
+    })
+    startup_config = type("ShowcaseStartupConfig", (TestConfig,), {
+        "TESTING": False, "SQLALCHEMY_DATABASE_URI": database_uri,
+    })
+    bootstrap_app = create_app(bootstrap_config)
+    showcase_names = {MediaShowcase.__tablename__, MediaShowcaseItem.__tablename__}
+    base_tables = [table for table in db.metadata.sorted_tables if table.name not in showcase_names]
+    with bootstrap_app.app_context():
+        db.metadata.create_all(bind=db.engine, tables=base_tables)
+        before_tables = set(inspect(db.engine).get_table_names())
+        category = Category(name="Startup category", slug="startup-category")
+        admin = AdminUser(username="owner", password_hash="test-hash")
+        db.session.add_all([category, admin, ShopSettings(shop_name="Startup store")])
+        db.session.flush()
+        product = Product(name="Preserved item", slug="preserved-item", category=category, price_cents=12500, stock_quantity=9)
+        db.session.add(product)
+        db.session.commit()
+        product_id = product.id
+        admin_id = admin.id
+
+    def fail_initialization():
+        raise RuntimeError("database details must not reach the public page")
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(showcase_service, "ensure_media_showcase_schema", fail_initialization)
+        failed_app = create_web_app(startup_config)
+        assert failed_app.extensions["media_showcase_schema_ready"] is False
+        failed_client = failed_app.test_client()
+        assert failed_client.get("/").status_code == 200
+        _sign_in_admin(failed_client, failed_app)
+        admin_status = failed_client.get("/admin/media-showcases")
+        assert admin_status.status_code == 200
+        assert b"setup is pending or failed" in admin_status.data
+
+    initialization_calls = []
+    real_initializer = showcase_service.ensure_media_showcase_schema
+
+    def counted_initializer():
+        initialization_calls.append(True)
+        return real_initializer()
+
+    monkeypatch.setattr(showcase_service, "ensure_media_showcase_schema", counted_initializer)
+    ready_app = create_web_app(startup_config)
+    assert ready_app.extensions["media_showcase_schema_ready"] is True
+    assert initialization_calls == [True]
+    with ready_app.app_context():
+        inspector = inspect(db.engine)
+        assert inspector.has_table("media_showcase")
+        assert inspector.has_table("media_showcase_item")
+        assert set(inspector.get_table_names()) - before_tables == showcase_names
+        assert db.session.get(Product, product_id).stock_quantity == 9
+        assert db.session.get(Product, product_id).price_cents == 12500
+        assert db.session.get(AdminUser, admin_id).username == "owner"
+        assert MediaShowcase.query.count() == 0
+        showcase = MediaShowcase(
+            name="Startup feature", title="Startup feature", slug="startup-feature",
+            page_identifier="home", placement_identifier="home_after_hero",
+            layout="single", is_published=True, is_enabled=True,
+        )
+        showcase.items.append(MediaShowcaseItem(
+            media_type="image", title="Feature image", media_url="https://cdn.example.test/feature.jpg",
+        ))
+        db.session.add(showcase)
+        db.session.commit()
+    page = ready_app.test_client().get("/")
+    assert page.status_code == 200
+    assert b"Startup feature" in page.data
+    assert ready_app.test_client().get("/shop").status_code == 200
+    assert initialization_calls == [True]
+    ready_client = ready_app.test_client()
+    _sign_in_admin(ready_client, ready_app)
+    admin_page = ready_client.get("/admin/media-showcases")
+    assert admin_page.status_code == 200
+    assert b"setup is pending or failed" not in admin_page.data
+
+
+def test_cli_app_skips_web_only_showcase_initialization(tmp_path, monkeypatch):
+    from sqlalchemy import inspect
+    from app import create_cli_app
+    from app.services import media_showcases as showcase_service
+
+    database_uri = f"sqlite:///{(tmp_path / 'cli-no-showcase-init.sqlite').as_posix()}"
+    config = type("ShowcaseCliConfig", (TestConfig,), {
+        "TESTING": False, "SQLALCHEMY_DATABASE_URI": database_uri,
+    })
+    bootstrap_app = create_cli_app(config)
+    showcase_names = {MediaShowcase.__tablename__, MediaShowcaseItem.__tablename__}
+    base_tables = [table for table in db.metadata.sorted_tables if table.name not in showcase_names]
+    with bootstrap_app.app_context():
+        db.metadata.create_all(bind=db.engine, tables=base_tables)
+
+    def unexpected_initialization():
+        raise AssertionError("web-only showcase initialization ran during CLI loading")
+
+    monkeypatch.setattr(showcase_service, "ensure_media_showcase_schema", unexpected_initialization)
+    cli_app = create_cli_app(config)
+    assert cli_app.extensions["media_showcase_schema_ready"] is None
+    result = cli_app.test_cli_runner().invoke(args=["migrate-upcoming-products"])
+    assert result.exit_code == 0, result.output
+    with cli_app.app_context():
+        inspector = inspect(db.engine)
+        assert not any(inspector.has_table(name) for name in showcase_names)
+        assert inspector.has_table("upcoming_product")
+
+
+def test_concurrent_showcase_initialization_serializes_and_completes(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy import create_engine, inspect
+    from app.services.media_showcases import ensure_media_showcase_schema
+
+    engine = create_engine(f"sqlite:///{(tmp_path / 'concurrent-showcases.sqlite').as_posix()}", connect_args={"timeout": 20})
+    showcase_names = {MediaShowcase.__tablename__, MediaShowcaseItem.__tablename__}
+    base_tables = [table for table in db.metadata.sorted_tables if table.name not in showcase_names]
+    db.metadata.create_all(bind=engine, tables=base_tables)
+    try:
+        with ThreadPoolExecutor(max_workers=4) as workers:
+            results = list(workers.map(lambda _index: ensure_media_showcase_schema(engine), range(4)))
+        assert results == [True, True, True, True]
+        inspector = inspect(engine)
+        assert inspector.has_table("media_showcase")
+        assert inspector.has_table("media_showcase_item")
+        assert {index["name"] for index in inspector.get_indexes("media_showcase_item")} >= {"ix_media_showcase_item_showcase_id"}
+    finally:
+        engine.dispose()
+
+
+def test_postgresql_setup_uses_transaction_scoped_advisory_lock():
+    from app.services.media_showcases import SHOWCASE_POSTGRES_ADVISORY_LOCK, _acquire_postgres_showcase_lock
+
+    class RecordingConnection:
+        def __init__(self):
+            self.statement = None
+            self.parameters = None
+
+        def execute(self, statement, parameters):
+            self.statement = str(statement)
+            self.parameters = parameters
+
+    connection = RecordingConnection()
+    _acquire_postgres_showcase_lock(connection)
+    assert "pg_advisory_xact_lock" in connection.statement
+    assert connection.parameters == {"lock_id": SHOWCASE_POSTGRES_ADVISORY_LOCK}
 
 
 def test_admin_can_manage_upcoming_product_cards(client, app):

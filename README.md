@@ -23,7 +23,8 @@ FityStores/
   tests/                     Pytest tests
   config.py                  Development and test configuration
   requirements.txt           Python dependencies
-  wsgi.py                    Production entry point
+  wsgi.py                    Gunicorn web entry point
+  manage.py                  Flask CLI entry point (no web-only initialization)
 ```
 
 ## Database Design
@@ -56,13 +57,13 @@ Edit `.env` and set a private `SECRET_KEY`, `ADMIN_USERNAME`, and `ADMIN_PASSWOR
 Initialize the database:
 
 ```powershell
-flask --app wsgi.py init-db
+flask --app manage.py init-db
 ```
 
 Create an admin manually instead of storing a password in `.env`:
 
 ```powershell
-flask --app wsgi.py create-admin owner
+flask --app manage.py create-admin owner
 ```
 
 Run locally:
@@ -112,7 +113,7 @@ Email Studio supports visual email blocks, saved templates, drafts, recipient pr
 Run the initializer after pulling these changes so existing SQLite databases receive the `sku` column, starter categories/products, and local sample product artwork:
 
 ```powershell
-flask --app wsgi.py init-db
+flask --app manage.py init-db
 ```
 
 The starter catalogue uses confirmed prices only: bonnet KSh 120, ankle socks KSh 40, and hair bands at KSh 10, KSh 50, and KSh 60. Shower caps, underwear/panties, vests, boxers, and shoes are created as inactive owner-completion drafts so their prices are not invented.
@@ -138,14 +139,14 @@ Set the Render Start Command to:
 gunicorn wsgi:app
 ```
 
-Do not use `flask --app wsgi init-db && gunicorn wsgi:app` in production. `init-db` is only for local SQLite setup, and production migrations should be run as explicit one-off commands so startup never seeds or resets production data.
+Do not use `flask --app manage init-db && gunicorn wsgi:app` in production. `init-db` is only for local SQLite setup. The `wsgi:app` web entry point initializes the Media Showcase feature at web-server startup. Flask CLI commands use `manage:app` and skip that web-only initializer. It creates only missing showcase tables and indexes under a PostgreSQL advisory lock, without seeding or resetting production data.
 
 The app needs two compatible columns on `product_image`: `storage_backend` and `cloudinary_public_id`. Existing filename records remain readable. New admin uploads and online image imports require Cloudinary to be configured; otherwise the admin receives a clear error and the product is not falsely saved with a missing image.
 
 Production PostgreSQL schema changes are not run automatically during Gunicorn startup. After backing up the Render database and deploying the code, apply the focused Cloudinary schema migration once. The migration is idempotent and safe to rerun:
 
 ```bash
-cd /opt/render/project/src && python -m flask --app wsgi:app migrate-cloudinary-schema
+cd /opt/render/project/src && python -m flask --app manage:app migrate-cloudinary-schema
 ```
 
 If Render Shell is not available, run the SQL in `migrations/20261013_cloudinary_product_image_columns.sql` through Render's PostgreSQL query console or another trusted PostgreSQL client connected to the production database:
@@ -163,7 +164,7 @@ Do not run `init-db` against production PostgreSQL. It is reserved for local SQL
 To migrate legacy local image files that are still present on the machine running the command, run this explicit one-off command after the schema migration:
 
 ```bash
-cd /opt/render/project/src && python -m flask --app wsgi:app migrate-product-images
+cd /opt/render/project/src && python -m flask --app manage:app migrate-product-images
 ```
 
 The migration skips sample images and records already migrated, uploads only files it can actually read from `UPLOAD_FOLDER`, and updates each database record only after Cloudinary upload succeeds. It does not delete local originals. If Render no longer has the old uploaded files, the original image bytes cannot be recovered from the saved filename alone; those products remain identifiable in the command output and should be re-uploaded manually from the admin product form.
@@ -172,19 +173,19 @@ If product photos were migrated on a local database but the live Render site sti
 1. On the database that already has the correct Cloudinary IDs, export a mapping:
 
 ```powershell
-python -m flask --app wsgi:app export-product-image-map --output product-image-map.csv
+python -m flask --app manage:app export-product-image-map --output product-image-map.csv
 ```
 
 2. Put that mapping file somewhere available to the Render environment or run the command from a trusted machine configured with Render's production `DATABASE_URL` and Cloudinary env vars. First run a dry run:
 
 ```bash
-python -m flask --app wsgi:app backfill-cloudinary-image-ids --mapping product-image-map.csv --ignore-filename
+python -m flask --app manage:app backfill-cloudinary-image-ids --mapping product-image-map.csv --ignore-filename
 ```
 
 3. If the dry run reports the expected rows and no unexpected failures, apply it:
 
 ```bash
-python -m flask --app wsgi:app backfill-cloudinary-image-ids --mapping product-image-map.csv --ignore-filename --apply
+python -m flask --app manage:app backfill-cloudinary-image-ids --mapping product-image-map.csv --ignore-filename --apply
 ```
 
 The backfill command updates only `product_image.cloudinary_public_id` and `product_image.storage_backend`. It does not upload assets, delete records, seed products, change prices, change stock, or touch orders/customers. It is idempotent: already-mapped rows are skipped. Use `--ignore-filename` when production still has `sample-*.svg` filenames but the mapping came from a local database with real uploaded filenames. If a mapping row matches multiple production image rows, it fails that row instead of guessing.
@@ -216,12 +217,12 @@ The existing `AdminUser` table and admin authentication remain separate. Custome
 
 ### Database setup
 
-Creating the Flask app does not create or alter database tables. For a new local SQLite store, run `python -m flask --app wsgi:app init-db` explicitly; this command can seed starter data and is for a fresh local store only. Do not run it on Render. The customer/email migration creates the customer/account, consent, cart, outbox, Email Studio template and draft tables and adds the required account, outbox, and retry fields. `check-customer-email-schema` is read-only and reports missing tables, columns, indexes, uniqueness constraints, and foreign keys. The migration validates the resulting schema; SQLite uses a transaction, while PostgreSQL uses an advisory lock and transaction. An incomplete existing feature table causes an error rather than a destructive repair.
+The CLI app (`manage:app`) does not create or alter database tables automatically. For a new local SQLite store, run `python -m flask --app manage:app init-db` explicitly; this command can seed starter data and is for a fresh local store only. Do not run it on Render. The customer/email migration creates the customer/account, consent, cart, outbox, Email Studio template and draft tables and adds the required account, outbox, and retry fields. `check-customer-email-schema` is read-only and reports missing tables, columns, indexes, uniqueness constraints, and foreign keys. The migration validates the resulting schema; SQLite uses a transaction, while PostgreSQL uses an advisory lock and transaction. An incomplete existing feature table causes an error rather than a destructive repair.
 
 For Render PostgreSQL, use the existing migration command as the web service's **Build Command** so the schema is ready before the new app version starts. Set **Settings > Build & Deploy > Build Command** to:
 
 ```text
-pip install -r requirements.txt && python -m flask --app wsgi:app migrate-customer-email-schema
+pip install -r requirements.txt && python -m flask --app manage:app migrate-customer-email-schema
 ```
 
 This uses the same existing `DATABASE_URL` as the app; no external URL, additional CA variable, GitHub secret, shell session, or per-worker startup migration is required. The command is schema-only: it does not send email, seed products, or reset data. It takes a PostgreSQL advisory lock, applies the project's dated idempotent SQL inside a transaction, and checks every required table, column, index, uniqueness constraint, and foreign key before succeeding. If the database URL is missing or points to SQLite on Render, the build fails instead of silently initializing an ephemeral database. A failed migration fails the build and prevents that deploy; if a later deploy step fails after the additive transaction committed, the prior app version can continue using the preserved existing data and the next build safely rechecks the schema.
@@ -319,6 +320,6 @@ Supported explicit placements are registered in `app/services/media_showcases.py
 - Shop: before the product browse controls; after the shopping information strip.
 - Upcoming: after the page banner/before the product ideas; before the request section.
 
-For a fresh local SQLite store, `init-db` creates the new tables and an unpublished **FityStores TV** homepage draft with the requested placement. For an existing SQLite or PostgreSQL store, run `python -m flask --app wsgi:app migrate-media-showcases` once with the intended database configured. The command creates the showcase tables or adds the needed presentation, colour and source metadata columns; existing customer, product, order, image, payment and admin records remain untouched. PostgreSQL DDL is documented in `migrations/20261106_media_showcases_postgresql.sql`. Do not run `init-db` against production. Back up and use the explicit migration command in a controlled production maintenance/release step, then deploy the application code.
+The Gunicorn web entry point `wsgi:app` runs `ensure_media_showcase_schema()` once when the web application starts. The separate `manage:app` Flask CLI entry point never runs web-only showcase initialization, so customer/email migration workflows remain isolated. PostgreSQL workers serialize setup with a transaction-scoped advisory lock; SQLite uses an immediate transaction. The initializer creates only missing showcase tables and missing supporting indexes, validates the resulting feature schema, and never seeds a draft or alters business records. If setup fails, it logs a safe diagnostic, disables only showcase rendering for that process, leaves public pages available, and retries automatically on the next application startup. The admin showcase page reports a pending/failed setup state. No Render Shell command or external workflow is required.
 
 The media library lists local static assets, product/category images and (when configured) public Cloudinary assets. It shows filenames, known dimensions, sizes and references; missing local showcase files are flagged. Reusing an asset stores a reference and never copies or deletes the original. New JPEG, PNG, WebP, GIF, MP4, MOV, M4V and WebM uploads are limited to 3.5 MB; actual image contents and video container signatures are checked. Configured Cloudinary is used for uploads. On local SQLite development only, files use the existing static upload folder; hosted storage without Cloudinary rejects uploads instead of writing to an ephemeral disk. No media bytes are stored in the database. Direct media links are previewed in the admin browser and are not downloaded by the server. YouTube links use the privacy-enhanced embed host; Vimeo links use the official player host. Arbitrary embed HTML is not accepted. Links can target products, categories, pages and the Mamba collection. Remote URL availability is not verified server-side. The feature adds no paid provider or dependency.
