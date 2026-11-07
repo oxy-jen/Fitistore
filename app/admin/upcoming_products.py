@@ -6,6 +6,7 @@ from flask_login import login_required
 from app.extensions import db
 from app.models import UpcomingProduct
 from app.services.product_images import ImageStorageError
+from app.services.upcoming_products import upcoming_product_schema_ready
 from app.services.showcase_media import inspect_media_upload, store_showcase_upload
 
 
@@ -89,12 +90,17 @@ def register_upcoming_product_routes(admin_bp):
     @admin_bp.route("/upcoming-products")
     @login_required
     def upcoming_products():
+        if not upcoming_product_schema_ready():
+            return render_template("admin/upcoming_products.html", items=[], schema_ready=False)
         items = UpcomingProduct.query.order_by(UpcomingProduct.display_order, UpcomingProduct.id).all()
-        return render_template("admin/upcoming_products.html", items=items)
+        return render_template("admin/upcoming_products.html", items=items, schema_ready=True)
 
     @admin_bp.route("/upcoming-products/new", methods=["GET", "POST"])
     @login_required
     def upcoming_product_new():
+        if not upcoming_product_schema_ready():
+            flash("Upcoming product storage is unavailable. Automatic setup will retry when the web app restarts.", "error")
+            return redirect(url_for("admin.upcoming_products"))
         if request.method == "POST":
             try:
                 payload = _form_payload()
@@ -118,6 +124,9 @@ def register_upcoming_product_routes(admin_bp):
     @admin_bp.route("/upcoming-products/<int:item_id>/edit", methods=["GET", "POST"])
     @login_required
     def upcoming_product_edit(item_id):
+        if not upcoming_product_schema_ready():
+            flash("Upcoming product storage is unavailable. Automatic setup will retry when the web app restarts.", "error")
+            return redirect(url_for("admin.upcoming_products"))
         item = UpcomingProduct.query.get_or_404(item_id)
         if request.method == "POST":
             try:
@@ -143,6 +152,9 @@ def register_upcoming_product_routes(admin_bp):
     @admin_bp.route("/upcoming-products/<int:item_id>/action", methods=["POST"])
     @login_required
     def upcoming_product_action(item_id):
+        if not upcoming_product_schema_ready():
+            flash("Upcoming product storage is unavailable. Automatic setup will retry when the web app restarts.", "error")
+            return redirect(url_for("admin.upcoming_products"))
         item = UpcomingProduct.query.get_or_404(item_id)
         action = request.form.get("action", "")
         if action == "toggle":

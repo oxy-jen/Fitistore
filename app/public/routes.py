@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 from flask import Blueprint, Response, current_app, flash, jsonify, make_response, redirect, render_template, request, session, url_for
 from sqlalchemy import case, func, or_
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
@@ -18,6 +19,7 @@ from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
 from app.services.mamba_collection import mamba_products_query
 from app.services.media_showcases import showcases_by_placement
+from app.services.upcoming_products import upcoming_product_schema_ready
 from app.services.category_thumbnails import CATEGORY_GROUPS, CATEGORY_GROUPS_BY_KEY, category_group_key, category_thumbnails_schema_ready
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
 from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
@@ -395,9 +397,15 @@ def referral_visit(code):
 
 @public_bp.route("/upcoming")
 def upcoming():
-    upcoming_products = (UpcomingProduct.query
-                         .filter_by(is_enabled=True)
-                         .order_by(UpcomingProduct.display_order, UpcomingProduct.id).all())
+    upcoming_products = []
+    if upcoming_product_schema_ready():
+        try:
+            upcoming_products = (UpcomingProduct.query
+                                 .filter_by(is_enabled=True)
+                                 .order_by(UpcomingProduct.display_order, UpcomingProduct.id).all())
+        except SQLAlchemyError as exc:
+            db.session.rollback()
+            current_app.logger.error("Upcoming product previews are hidden because their query failed (%s).", type(exc).__name__)
     available_catalogue = product_list_options(
         Product.query.filter_by(active=True)
     ).order_by(Product.featured.desc(), Product.updated_at.desc(), Product.id.desc()).all()

@@ -370,7 +370,8 @@ def test_startup_initializes_missing_showcase_tables_and_retries_after_failure(t
     })
     bootstrap_app = create_app(bootstrap_config)
     showcase_names = {MediaShowcase.__tablename__, MediaShowcaseItem.__tablename__}
-    base_tables = [table for table in db.metadata.sorted_tables if table.name not in showcase_names]
+    startup_feature_names = showcase_names | {UpcomingProduct.__tablename__}
+    base_tables = [table for table in db.metadata.sorted_tables if table.name not in startup_feature_names]
     with bootstrap_app.app_context():
         db.metadata.create_all(bind=db.engine, tables=base_tables)
         before_tables = set(inspect(db.engine).get_table_names())
@@ -413,7 +414,9 @@ def test_startup_initializes_missing_showcase_tables_and_retries_after_failure(t
         inspector = inspect(db.engine)
         assert inspector.has_table("media_showcase")
         assert inspector.has_table("media_showcase_item")
-        assert set(inspector.get_table_names()) - before_tables == showcase_names
+        assert inspector.has_table("upcoming_product")
+        assert ready_app.extensions["upcoming_product_schema_ready"] is True
+        assert set(inspector.get_table_names()) - before_tables == startup_feature_names
         assert db.session.get(Product, product_id).stock_quantity == 9
         assert db.session.get(Product, product_id).price_cents == 12500
         assert db.session.get(AdminUser, admin_id).username == "owner"
@@ -438,6 +441,63 @@ def test_startup_initializes_missing_showcase_tables_and_retries_after_failure(t
     admin_page = ready_client.get("/admin/media-showcases")
     assert admin_page.status_code == 200
     assert b"setup is pending or failed" not in admin_page.data
+
+
+def test_upcoming_schema_initializes_before_public_page_queries(tmp_path):
+    from sqlalchemy import inspect
+    from app import create_cli_app, create_web_app
+
+    database_uri = f"sqlite:///{(tmp_path / 'startup-upcoming-products.sqlite').as_posix()}"
+    bootstrap_config = type("UpcomingBootstrapConfig", (TestConfig,), {
+        "TESTING": True, "SQLALCHEMY_DATABASE_URI": database_uri,
+    })
+    startup_config = type("UpcomingStartupConfig", (TestConfig,), {
+        "TESTING": False, "SQLALCHEMY_DATABASE_URI": database_uri,
+    })
+    bootstrap_app = create_cli_app(bootstrap_config)
+    with bootstrap_app.app_context():
+        base_tables = [table for table in db.metadata.sorted_tables if table.name != UpcomingProduct.__tablename__]
+        db.metadata.create_all(bind=db.engine, tables=base_tables)
+
+    web_app = create_web_app(startup_config)
+    assert web_app.extensions["upcoming_product_schema_ready"] is True
+    with web_app.app_context():
+        assert inspect(db.engine).has_table("upcoming_product")
+    response = web_app.test_client().get("/upcoming")
+    assert response.status_code == 200
+
+
+def test_upcoming_public_page_degrades_when_startup_schema_setup_fails(tmp_path, monkeypatch):
+    from app import create_cli_app, create_web_app
+    from app.services import upcoming_products as upcoming_service
+
+    database_uri = f"sqlite:///{(tmp_path / 'failed-upcoming-products.sqlite').as_posix()}"
+    bootstrap_config = type("UpcomingFailureBootstrapConfig", (TestConfig,), {
+        "TESTING": True, "SQLALCHEMY_DATABASE_URI": database_uri,
+    })
+    startup_config = type("UpcomingFailureStartupConfig", (TestConfig,), {
+        "TESTING": False, "SQLALCHEMY_DATABASE_URI": database_uri,
+    })
+    bootstrap_app = create_cli_app(bootstrap_config)
+    with bootstrap_app.app_context():
+        excluded = {UpcomingProduct.__tablename__, MediaShowcase.__tablename__, MediaShowcaseItem.__tablename__}
+        base_tables = [table for table in db.metadata.sorted_tables if table.name not in excluded]
+        db.metadata.create_all(bind=db.engine, tables=base_tables)
+        db.session.add(AdminUser(username="owner", password_hash=generate_password_hash("secret123")))
+        db.session.commit()
+
+    def fail_upcoming_setup():
+        raise RuntimeError("database details must not reach the public page")
+
+    monkeypatch.setattr(upcoming_service, "ensure_upcoming_product_schema", fail_upcoming_setup)
+    web_app = create_web_app(startup_config)
+    assert web_app.extensions["upcoming_product_schema_ready"] is False
+    assert web_app.test_client().get("/upcoming").status_code == 200
+    admin_client = web_app.test_client()
+    _sign_in_admin(admin_client, web_app)
+    admin_response = admin_client.get("/admin/upcoming-products")
+    assert admin_response.status_code == 200
+    assert b"Upcoming product storage is pending" in admin_response.data
 
 
 def test_cli_app_skips_web_only_showcase_initialization(tmp_path, monkeypatch):
