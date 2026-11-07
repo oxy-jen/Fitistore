@@ -160,6 +160,7 @@ def create_app(config_object=Config, *, initialize_media_showcases=False):
     register_cli(app)
     register_errors(app)
     app.extensions["media_showcase_schema_ready"] = None
+    app.extensions["upcoming_product_schema_ready"] = None
     if initialize_media_showcases and not app.testing and app.config.get("AUTO_INITIALIZE_MEDIA_SHOWCASES", True):
         from .services.media_showcases import ensure_media_showcase_schema
         with app.app_context():
@@ -173,6 +174,19 @@ def create_app(config_object=Config, *, initialize_media_showcases=False):
                 diagnostic = str(exc) if isinstance(exc, MediaShowcaseSchemaError) else type(exc).__name__
                 app.logger.error(
                     "Automatic Media Showcase database setup failed (%s). Public pages will continue without showcases; the next app startup will retry.",
+                    diagnostic,
+                )
+            from .services.upcoming_products import ensure_upcoming_product_schema
+            try:
+                ensure_upcoming_product_schema()
+                app.extensions["upcoming_product_schema_ready"] = True
+                app.logger.info("Upcoming Products database setup is ready.")
+            except Exception as exc:
+                app.extensions["upcoming_product_schema_ready"] = False
+                from .services.upcoming_products import UpcomingProductSchemaError
+                diagnostic = str(exc) if isinstance(exc, UpcomingProductSchemaError) else type(exc).__name__
+                app.logger.error(
+                    "Automatic Upcoming Products database setup failed (%s). The upcoming page will omit product previews; the next app startup will retry.",
                     diagnostic,
                 )
     return app
