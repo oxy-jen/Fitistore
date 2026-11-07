@@ -575,6 +575,9 @@ input:disabled,select:disabled,textarea:disabled,button:disabled { cursor: not-a
 .site-header,.shop-header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.4rem .85rem;min-width:0}
 .site-header .brand{flex:0 0 auto;min-width:0}
 .site-header .nav{display:flex;flex:1 1 430px;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:.3rem;min-width:0;overflow:visible}
+.site-header .nav[aria-label="Primary navigation"]:not(.nav-overflow-ready){flex-wrap:wrap}
+.site-header .nav.nav-overflow-ready{flex-wrap:nowrap;overflow:hidden}
+.site-header .nav-more[hidden]{display:none!important}
 .site-header .nav>a,.site-header .nav-more>summary{display:inline-flex!important;flex:0 0 auto;align-items:center;justify-content:center;gap:.28rem;min-height:40px;padding:.48rem .62rem;border-radius:10px;white-space:nowrap;font-size:.9rem}
 .site-header .nav>a[aria-current="page"]{background:rgba(229,35,53,.09);color:#bd1729;font-weight:850}
 .site-header .nav .nav-profile{flex:0 1 auto;min-width:0}

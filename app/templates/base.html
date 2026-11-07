@@ -30,8 +30,8 @@
   {% if og_image_alt %}<meta property="og:image:alt" content="{{ og_image_alt }}">{% endif %}
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=site-nav-responsive-20261107">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}?v=site-nav-responsive-20261107">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=adaptive-nav-overflow-20261107">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}?v=adaptive-nav-overflow-20261107">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/media-showcases.css') }}?v=media-admin-bulk-publish-20261106">
   <script type="application/ld+json">
   {{ {"@context": "https://schema.org", "@type": "Organization", "name": settings.shop_name, "url": "https://fitystore.top/", "logo": url_for('static', filename='images/mainLogo-160.png', _external=True), "owner": {"@type": "Organization", "name": "Oxy-Jen Tech"}, "sameAs": ["https://www.facebook.com/oxy.jen.975729", "https://www.tiktok.com/@official_fitystore"]}|tojson }}
@@ -40,7 +40,8 @@
   {{ {"@context": "https://schema.org", "@type": "WebSite", "name": settings.shop_name, "url": "https://fitystore.top/", "potentialAction": {"@type": "SearchAction", "target": "https://fitystore.top/shop?q={search_term_string}", "query-input": "required name=search_term_string"}}|tojson }}
   </script>{% endif %}
   <meta name="google-site-verification" content="ZfoAom6cq3cfHBQw4NOz6s2TA8_1rBkte9rLF7owC8c" />
-  <script defer src="{{ url_for('static', filename='js/cart.js') }}?v=site-nav-cart-guide-20261107"></script>
+  <script defer src="{{ url_for('static', filename='js/cart.js') }}?v=site-nav-overflow-20261107"></script>
+  <script defer src="{{ url_for('static', filename='js/nav-overflow.js') }}?v=measured-navigation-overflow-20261107"></script>
   <script defer src="{{ url_for('static', filename='js/app.js') }}?v=upcoming-spotlight-20261106"></script>
 </head>
 <body{% if request.endpoint == 'public.upcoming' %} class="upcoming-page-body"{% endif %}>
@@ -71,24 +72,23 @@
   <a class="brand" href="{{ url_for('public.home') }}"><img src="{{ url_for('static', filename='images/mainLogo-160.png') }}" alt="FityStores logo">{% if request.endpoint == 'public.shop' %}<span class="brand-copy"><strong>{{ settings.shop_name }}</strong><small>{{ settings.tagline }}</small></span>{% else %}<span>{{ settings.shop_name }}</span>{% endif %}</a>{% if request.endpoint == 'public.shop' %}<form class="header-shop-search" action="{{ url_for('public.shop') }}"><svg class="icon" aria-hidden="true"><use href="#icon-search"></use></svg><input name="q" value="{{ request.args.get('q', '') }}" placeholder="Search for products..." aria-label="Search for products"></form>{% endif %}
   <nav id="nav" class="nav" aria-label="Primary navigation">
     {% if current_user.is_authenticated and current_user.is_admin %}
-      <details class="nav-profile nav-profile-admin"><summary aria-label="Admin profile menu"><span class="nav-profile-avatar" aria-hidden="true">{{ (current_user.username or 'A')[0]|upper }}</span><span class="nav-profile-label">{{ current_user.username or 'Admin' }}</span></summary><div class="nav-profile-menu"><a href="{{ url_for('admin.dashboard') }}">Admin dashboard</a><a href="{{ url_for('admin.upcoming_products') }}">Upcoming products</a><a href="{{ url_for('admin.media_showcases') }}">Media Showcases</a><a href="{{ url_for('admin.email_center') }}">Customer email</a><a href="{{ url_for('admin.email_studio_messages') }}">Studio messages</a><a href="{{ url_for('admin.email_studio') }}">Email Studio</a><form method="post" action="{{ url_for('admin.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sign out</button></form></div></details>
+      <details class="nav-profile nav-profile-admin nav-item" data-nav-overflow-item data-nav-priority="60"><summary aria-label="Admin profile menu"><span class="nav-profile-avatar" aria-hidden="true">{{ (current_user.username or 'A')[0]|upper }}</span><span class="nav-profile-label">{{ current_user.username or 'Admin' }}</span></summary><div class="nav-profile-menu"><a href="{{ url_for('admin.dashboard') }}">Admin dashboard</a><a href="{{ url_for('admin.upcoming_products') }}">Upcoming products</a><a href="{{ url_for('admin.media_showcases') }}">Media Showcases</a><a href="{{ url_for('admin.email_center') }}">Customer email</a><a href="{{ url_for('admin.email_studio_messages') }}">Studio messages</a><a href="{{ url_for('admin.email_studio') }}">Email Studio</a><form method="post" action="{{ url_for('admin.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sign out</button></form></div></details>
     {% elif current_user.is_authenticated %}
-      <details class="nav-profile"><summary aria-label="Customer profile menu"><span class="nav-profile-avatar" aria-hidden="true">{{ (current_user.display_name or current_user.email or 'C').strip()[0]|upper }}</span><span class="nav-profile-label">{{ current_user.display_name or 'My account' }}</span></summary><div class="nav-profile-menu"><p class="nav-profile-email">{{ current_user.email }}</p><a href="{{ url_for('customer.dashboard') }}">Account overview</a><a href="{{ url_for('customer.dashboard') }}#account-orders">My orders</a><a href="{{ url_for('customer.dashboard') }}#account-activity">Recent activity</a><a href="{{ url_for('customer.dashboard') }}#account-details">Profile and security</a><form method="post" action="{{ url_for('customer.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sign out</button></form></div></details>
+      <details class="nav-profile nav-item" data-nav-overflow-item data-nav-priority="60"><summary aria-label="Customer profile menu"><span class="nav-profile-avatar" aria-hidden="true">{{ (current_user.display_name or current_user.email or 'C').strip()[0]|upper }}</span><span class="nav-profile-label">{{ current_user.display_name or 'My account' }}</span></summary><div class="nav-profile-menu"><p class="nav-profile-email">{{ current_user.email }}</p><a href="{{ url_for('customer.dashboard') }}">Account overview</a><a href="{{ url_for('customer.dashboard') }}#account-orders">My orders</a><a href="{{ url_for('customer.dashboard') }}#account-activity">Recent activity</a><a href="{{ url_for('customer.dashboard') }}#account-details">Profile and security</a><form method="post" action="{{ url_for('customer.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sign out</button></form></div></details>
     {% else %}
-      <a class="nav-profile nav-profile-guest" href="{{ url_for('customer.login') }}"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Sign in</span></a>
+      <a class="nav-profile nav-profile-guest nav-item" data-nav-overflow-item data-nav-priority="60" href="{{ url_for('customer.login') }}"><svg class="icon" aria-hidden="true"><use href="#icon-user"></use></svg><span>Sign in</span></a>
     {% endif %}
-    <a href="{{ url_for('public.shop') }}" {% if request.endpoint == 'public.shop' %}aria-current="page"{% endif %}><svg class="icon"><use href="#icon-shop"></use></svg><span>Shop</span></a>
-    <a class="nav-upcoming-link" href="{{ url_for('public.upcoming') }}" {% if request.endpoint == 'public.upcoming' %}aria-current="page"{% endif %}><svg class="icon"><use href="#icon-calendar"></use></svg><span>Upcoming</span></a>
-    <a class="cart-link" href="{{ url_for('public.cart') }}" aria-label="Shopping cart, empty"><svg class="icon"><use href="#icon-cart"></use></svg><span data-cart-label>Cart</span><span data-cart-count aria-hidden="true">0</span></a>
-    <details class="nav-more">
+    <a class="nav-item" data-nav-overflow-item data-nav-priority="90" href="{{ url_for('public.shop') }}" {% if request.endpoint == 'public.shop' %}aria-current="page"{% endif %}><svg class="icon"><use href="#icon-shop"></use></svg><span>Shop</span></a>
+    <a class="nav-upcoming-link nav-item" data-nav-overflow-item data-nav-priority="85" href="{{ url_for('public.upcoming') }}" {% if request.endpoint == 'public.upcoming' %}aria-current="page"{% endif %}><svg class="icon"><use href="#icon-calendar"></use></svg><span>Upcoming</span></a>
+    <a class="cart-link nav-item" href="{{ url_for('public.cart') }}" aria-label="Shopping cart, empty"><svg class="icon"><use href="#icon-cart"></use></svg><span data-cart-label>Cart</span><span data-cart-count aria-hidden="true">0</span></a>
+    <a class="nav-item" data-nav-overflow-item data-nav-priority="10" href="{{ url_for('public.about') }}"><svg class="icon"><use href="#icon-info"></use></svg><span>About</span></a>
+    <a class="nav-item" data-nav-overflow-item data-nav-priority="10" href="{{ url_for('public.contact') }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Contact</span></a>
+    <a class="nav-item" data-nav-overflow-item data-nav-priority="20" href="{{ url_for('public.reviews') }}"><svg class="icon"><use href="#icon-star"></use></svg><span>Reviews</span></a>
+    <a class="nav-item" data-nav-overflow-item data-nav-priority="30" href="{{ url_for('public.track_order') }}"><svg class="icon"><use href="#icon-truck"></use></svg><span>Track order</span></a>
+    <a class="nav-item" data-nav-overflow-item data-nav-priority="20" href="{{ url_for('public.referrals') }}"><svg class="icon"><use href="#icon-star"></use></svg><span>Rewards</span></a>
+    <details class="nav-more" data-nav-more hidden>
       <summary><svg class="icon"><use href="#icon-menu"></use></svg><span>More</span></summary>
-      <div class="nav-more-menu">
-        <a href="{{ url_for('public.about') }}"><svg class="icon"><use href="#icon-info"></use></svg><span>About</span></a>
-        <a href="{{ url_for('public.contact') }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Contact</span></a>
-        <a href="{{ url_for('public.reviews') }}"><svg class="icon"><use href="#icon-star"></use></svg><span>Reviews</span></a>
-        <a href="{{ url_for('public.track_order') }}"><svg class="icon"><use href="#icon-truck"></use></svg><span>Track order</span></a>
-        <a href="{{ url_for('public.referrals') }}"><svg class="icon"><use href="#icon-star"></use></svg><span>Rewards</span></a>
-      </div>
+      <div class="nav-more-menu" data-nav-overflow-menu></div>
     </details>
   </nav>
 </header>
