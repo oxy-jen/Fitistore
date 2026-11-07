@@ -88,7 +88,7 @@ def test_workflow_restricts_manual_trigger_and_target_branch():
     assert "ref: responsive-all-pages" not in preflight_job + migrate_job
     assert "inputs.operation == 'migrate'" in migrate_job
     assert "needs: preflight" in migrate_job
-    migration_command = "python -m flask --app wsgi:app migrate-customer-email-schema"
+    migration_command = "python -m flask --app manage:app migrate-customer-email-schema"
     assert migration_command not in preflight_job
     assert migration_command in migrate_job
     assert "dispatch-check" in preflight_job and "dispatch-check" in migrate_job
@@ -122,7 +122,7 @@ def test_preflight_only_never_has_an_executable_migration_path(preflight_succeed
     workflow = Path(".github/workflows/migrate-customer-email-schema.yml").read_text()
     jobs = re.split(r"(?m)^  (?:preflight|migrate):\s*$", workflow)
     preflight_job, migrate_job = jobs[1], jobs[2]
-    migration_command = "python -m flask --app wsgi:app migrate-customer-email-schema"
+    migration_command = "python -m flask --app manage:app migrate-customer-email-schema"
     assert migration_command not in preflight_job
     gate_match = re.search(r"(?m)^    if:\s*\$\{\{\s*(.*?)\s*\}\}\s*$", migrate_job)
     assert gate_match

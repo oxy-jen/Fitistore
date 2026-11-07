@@ -114,8 +114,8 @@ jobs:
         run: python scripts/customer_email_schema_guard.py tls-env
       - name: Apply the scoped customer email migration
         env:
-          FLASK_APP: wsgi:app
-        run: python -m flask --app wsgi:app migrate-customer-email-schema
+          FLASK_APP: manage:app
+        run: python -m flask --app manage:app migrate-customer-email-schema
       - name: Strict post-migration schema validation
         env:
           DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}

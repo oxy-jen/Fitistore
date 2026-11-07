@@ -4,7 +4,7 @@
   <div class="actions"><a class="btn" href="{{ url_for('admin.products') }}">Manage products</a><a class="btn" href="{{ url_for('admin.product_form') }}">Add product</a></div>
 </section>
 {% if not schema_ready %}
-  <section class="form-card"><h2>Collection storage needs setup</h2><p>The collection editor is ready, but its database tables have not been installed. Run <code>flask --app wsgi:app migrate-mamba-collection-schema</code> once, then reload this page.</p></section>
+  <section class="form-card"><h2>Collection storage needs setup</h2><p>The collection editor is ready, but its database tables have not been installed. Run <code>flask --app manage:app migrate-mamba-collection-schema</code> once, then reload this page.</p></section>
 {% else %}
   <section class="form-card">
     <h2>Select and order products</h2>

@@ -310,7 +310,7 @@ def _form(showcase=None):
 
 def register_media_showcase_routes(admin_bp):
     def migration_required():
-        flash("Media Showcase management needs its database migration. Run `python -m flask --app wsgi:app migrate-media-showcases` in the deployment shell.", "warning")
+        flash("Media Showcase database setup is pending or failed. Public pages remain available; setup retries at the next application startup. Check deployment logs if this message continues.", "warning")
         return redirect(url_for("admin.media_showcases"))
 
     @admin_bp.route("/media-showcases/library")
@@ -344,7 +344,7 @@ def register_media_showcase_routes(admin_bp):
     @login_required
     def media_showcases():
         if not showcase_schema_ready():
-            flash("Media Showcases are not set up in this database yet. Run `python -m flask --app wsgi:app migrate-media-showcases` in the deployment shell.", "warning")
+            flash("Media Showcase database setup is pending or failed. Public pages remain available; setup retries at the next application startup. Check deployment logs if this message continues.", "warning")
             return render_template("admin/media_showcases.html", showcases=[], pages=SHOWCASE_PLACEMENTS, now=datetime.utcnow(), statuses=("published", "draft", "scheduled", "expired", "disabled"))
         query = MediaShowcase.query.options(selectinload(MediaShowcase.items)).order_by(MediaShowcase.page_identifier, MediaShowcase.display_order, MediaShowcase.id)
         page = request.args.get("page", "")
