@@ -650,8 +650,9 @@ def register_cli(app: Flask):
         if not inspect(db.engine).has_table("product"):
             raise click.ClickException("The product table is missing. Initialize the store schema first.")
         try:
-            db.metadata.create_all(bind=db.engine, tables=[UpcomingProduct.__table__], checkfirst=True)
-            click.echo("Upcoming Products table is ready. Add new products and their own images from the admin panel.")
+            from .services.upcoming_products import ensure_upcoming_product_schema
+            ensure_upcoming_product_schema()
+            click.echo("Upcoming Products and voting tables are ready. Existing store records were not modified.")
         except Exception as exc:
             db.session.rollback()
             raise click.ClickException(f"Upcoming Products migration failed ({type(exc).__name__}); no catalogue records were changed.") from None

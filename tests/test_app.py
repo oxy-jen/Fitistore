@@ -9,7 +9,7 @@ import app as app_module
 from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, AuthRateLimit, CartAddCount, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, MediaShowcase, MediaShowcaseItem, Order, OrderItem, OrderStatusHistory, Product, ProductImage, ProductSuggestion, Review, ShopSettings, UpcomingProduct
+from app.models import AdminUser, AuthRateLimit, CartAddCount, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, MediaShowcase, MediaShowcaseItem, Order, OrderItem, OrderStatusHistory, Product, ProductImage, ProductSuggestion, Review, ShopSettings, UpcomingProduct, UpcomingProductVote
 from config import TestConfig
 
 @pytest.fixture()
@@ -591,6 +591,39 @@ def test_admin_can_manage_upcoming_product_cards(client, app):
         assert not item.image_url
     client.post(f"/admin/upcoming-products/{item_id}/action", data={"action": "toggle"})
     assert b"Campus fits" not in client.get("/upcoming").data
+
+
+def test_upcoming_product_votes_are_unique_and_ranked_in_community_panel(client, app):
+    with app.app_context():
+        product = UpcomingProduct(name="Trail runners", category_label="Shoes", description="A future release.")
+        db.session.add(product)
+        db.session.commit()
+        product_id = product.id
+
+    page = client.get("/upcoming")
+    assert page.status_code == 200
+    assert b"Vote for this" in page.data
+    assert b"Most-voted upcoming products" in page.data
+
+    voted_page = client.post(f"/upcoming-products/{product_id}/vote", follow_redirects=True)
+    assert voted_page.status_code == 200
+    assert b"Your vote for" in voted_page.data
+    assert b"Trail runners" in voted_page.data
+    assert b"1 vote" in voted_page.data
+    with app.app_context():
+        assert UpcomingProductVote.query.filter_by(upcoming_product_id=product_id).count() == 1
+
+    duplicate_page = client.post(f"/upcoming-products/{product_id}/vote", follow_redirects=True)
+    assert duplicate_page.status_code == 200
+    assert b"already voted for this product" in duplicate_page.data
+    with app.app_context():
+        assert UpcomingProductVote.query.filter_by(upcoming_product_id=product_id).count() == 1
+
+    second_browser = app.test_client()
+    second_browser.get("/upcoming")
+    second_browser.post(f"/upcoming-products/{product_id}/vote")
+    with app.app_context():
+        assert UpcomingProductVote.query.filter_by(upcoming_product_id=product_id).count() == 2
 
 
 def test_upcoming_suggestion_returns_to_request_form(client):

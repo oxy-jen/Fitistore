@@ -132,6 +132,21 @@ class UpcomingProduct(TimestampMixin, db.Model):
         CheckConstraint("card_size IN ('compact','standard','tall','wide','featured')", name="ck_upcoming_product_card_size"),
         CheckConstraint("display_order >= 0", name="ck_upcoming_product_display_order"),
     )
+    votes = db.relationship("UpcomingProductVote", back_populates="product", cascade="all, delete-orphan")
+
+
+class UpcomingProductVote(TimestampMixin, db.Model):
+    """One anonymous or signed-in shopper vote per Upcoming product."""
+    id = db.Column(db.Integer, primary_key=True)
+    upcoming_product_id = db.Column(
+        db.Integer, db.ForeignKey("upcoming_product.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    voter_hash = db.Column(db.String(64), nullable=False)
+    product = db.relationship("UpcomingProduct", back_populates="votes")
+    __table_args__ = (
+        UniqueConstraint("upcoming_product_id", "voter_hash", name="uq_upcoming_product_vote_voter"),
+    )
 
 
 class MediaShowcase(TimestampMixin, db.Model):

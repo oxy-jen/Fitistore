@@ -9,11 +9,11 @@ from pathlib import Path
 from uuid import uuid4
 from flask import Blueprint, Response, current_app, flash, jsonify, make_response, redirect, render_template, request, session, url_for
 from sqlalchemy import case, func, or_
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
-from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review, UpcomingProduct
+from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review, UpcomingProduct, UpcomingProductVote
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
@@ -398,11 +398,23 @@ def referral_visit(code):
 @public_bp.route("/upcoming")
 def upcoming():
     upcoming_products = []
+    upcoming_vote_rankings = []
+    upcoming_voted_ids = set()
     if upcoming_product_schema_ready():
         try:
             upcoming_products = (UpcomingProduct.query
                                  .filter_by(is_enabled=True)
                                  .order_by(UpcomingProduct.display_order, UpcomingProduct.id).all())
+            voter_hash = _upcoming_voter_hash()
+            vote_rows = (db.session.query(UpcomingProduct, func.count(UpcomingProductVote.id).label("vote_count"))
+                         .outerjoin(UpcomingProductVote, UpcomingProductVote.upcoming_product_id == UpcomingProduct.id)
+                         .filter(UpcomingProduct.is_enabled.is_(True))
+                         .group_by(UpcomingProduct.id)
+                         .order_by(func.count(UpcomingProductVote.id).desc(), UpcomingProduct.display_order,
+                                   UpcomingProduct.id).all())
+            upcoming_vote_rankings = [{"product": product, "count": count} for product, count in vote_rows]
+            upcoming_voted_ids = {vote.upcoming_product_id for vote in UpcomingProductVote.query
+                                  .filter_by(voter_hash=voter_hash).all()}
         except SQLAlchemyError as exc:
             db.session.rollback()
             current_app.logger.error("Upcoming product previews are hidden because their query failed (%s).", type(exc).__name__)
@@ -448,8 +460,46 @@ def upcoming():
         suggestion_categories=UPCOMING_SUGGESTION_CATEGORIES, request_activity=request_activity,
         total_suggestions=total_suggestions, shopper_picks=shopper_picks,
         recent_requests=recent_requests,
+        upcoming_vote_rankings=upcoming_vote_rankings, upcoming_voted_ids=upcoming_voted_ids,
         media_showcases=showcases_by_placement("upcoming"),
     )
+
+
+def _upcoming_voter_hash():
+    """Return a stable, privacy-preserving identity for this account or browser."""
+    if current_user.is_authenticated:
+        identity = "account:" + str(current_user.get_id())
+    else:
+        token = session.get("upcoming_vote_token")
+        if not token:
+            token = token_urlsafe(32)
+            session["upcoming_vote_token"] = token
+        identity = "browser:" + token
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+@public_bp.route("/upcoming-products/<int:product_id>/vote", methods=["POST"])
+def vote_upcoming_product(product_id):
+    if not upcoming_product_schema_ready():
+        flash("Product voting is temporarily unavailable. Please try again later.", "error")
+        return redirect(url_for("public.upcoming") + "#upcoming-products")
+    product = UpcomingProduct.query.filter_by(id=product_id, is_enabled=True).first()
+    if product is None:
+        flash("That upcoming product is no longer available to vote for.", "info")
+        return redirect(url_for("public.upcoming") + "#upcoming-products")
+    db.session.add(UpcomingProductVote(upcoming_product_id=product.id, voter_hash=_upcoming_voter_hash()))
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        if isinstance(exc, IntegrityError):
+            flash("You have already voted for this product. Thanks for supporting its launch!", "info")
+        else:
+            current_app.logger.error("Upcoming product vote could not be saved (%s).", type(exc).__name__)
+            flash("Your vote could not be saved right now. Please try again.", "error")
+        return redirect(url_for("public.upcoming") + "#upcoming-products")
+    flash("Your vote for “{}” has been counted. Thanks for helping shape what comes next!".format(product.name), "success")
+    return redirect(url_for("public.upcoming") + "#community-requests")
 
 SUGGESTION_CATEGORIES = ["Boxers", "Men's shoes and sneakers", "Vests", "Socks", "Slippers", "Other men's accessories"]
 UPCOMING_SUGGESTION_CATEGORIES = ["Clothing", "Shoes", "Accessories", "Beauty & self-care", "Other"]
