@@ -1,7 +1,7 @@
 {% extends "base.html" %}{% block content %}
 {% set fd = form_data or {} %}
 <main class="upcoming-admin">
-  <header class="upcoming-admin-head"><div><p class="eyebrow">Upcoming page</p><h1>{{ 'Edit upcoming product' if item else 'Add upcoming product' }}</h1><p>Add new products planned for the Upcoming page. Add their own image when it is ready; no catalogue product or photo is required.</p></div><a class="btn" href="{{ url_for('admin.upcoming_products') }}">Back to upcoming products</a></header>
+  <header class="upcoming-admin-head"><div><p class="eyebrow">Upcoming page</p><h1>{{ 'Edit upcoming product' if item else 'Add upcoming product' }}</h1><p>Build an Upcoming page card with its own name, category, description, image, size, display order, and visibility. This content stays separate from the shop catalogue and stock.</p></div><a class="btn" href="{{ url_for('admin.upcoming_products') }}">Back to upcoming products</a></header>
   <form class="upcoming-admin-form" method="post" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <section class="upcoming-admin-form-section"><h2>Card content</h2><div class="upcoming-admin-fields">
