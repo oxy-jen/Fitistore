@@ -797,6 +797,9 @@ def test_admin_requires_login(client):
 def test_admin_login(client):
     rv = client.post("/admin/login", data={"username":"owner","password":"secret123"}, follow_redirects=True)
     assert b"Admin dashboard" in rv.data
+    assert b"Upcoming page studio" in rv.data
+    assert b"Add upcoming product" in rv.data
+    assert b"Manage upcoming cards" in rv.data
 
 def test_review_moderation(client, app):
     client.post("/reviews", data={"display_name":"Sam","rating":"5","title":"Good service","text":"Good"})
