@@ -410,16 +410,20 @@ def upcoming():
         Product.query.filter_by(active=True)
     ).order_by(Product.featured.desc(), Product.updated_at.desc(), Product.id.desc()).all()
     recent_requests = (ProductSuggestion.query
+                       .filter(ProductSuggestion.category.in_(UPCOMING_SUGGESTION_CATEGORIES))
                        .order_by(ProductSuggestion.created_at.desc(), ProductSuggestion.id.desc())
                        .limit(4).all())
     request_rows = (db.session.query(ProductSuggestion.category, func.count(ProductSuggestion.id))
+                    .filter(ProductSuggestion.category.in_(UPCOMING_SUGGESTION_CATEGORIES))
                     .group_by(ProductSuggestion.category)
                     .order_by(func.count(ProductSuggestion.id).desc(), ProductSuggestion.category.asc()).all())
     total_suggestions = sum(count for _category, count in request_rows)
     request_image_terms = {
-        "Boxers": ("boxer",), "Men's shoes and sneakers": ("shoe", "sneaker"),
-        "Vests": ("vest",), "Socks": ("sock",), "Slippers": ("slipper",),
-        "Other men's accessories": ("accessory", "cap", "hair band", "shower cap"),
+        "Clothing": ("clothing", "shirt", "trouser", "dress", "jacket"),
+        "Shoes": ("shoe", "sneaker", "slipper"),
+        "Accessories": ("accessory", "cap", "sock", "bag", "belt"),
+        "Beauty & self-care": ("beauty", "hair", "skin", "self-care"),
+        "Other": (),
     }
     request_activity = [{
         "category": category, "count": count,
@@ -441,13 +445,14 @@ def upcoming():
     ][:4]
     return render_template(
         "upcoming.html", title="Upcoming merchandise", upcoming_products=upcoming_products,
-        suggestion_categories=SUGGESTION_CATEGORIES, request_activity=request_activity,
+        suggestion_categories=UPCOMING_SUGGESTION_CATEGORIES, request_activity=request_activity,
         total_suggestions=total_suggestions, shopper_picks=shopper_picks,
         recent_requests=recent_requests,
         media_showcases=showcases_by_placement("upcoming"),
     )
 
 SUGGESTION_CATEGORIES = ["Boxers", "Men's shoes and sneakers", "Vests", "Socks", "Slippers", "Other men's accessories"]
+UPCOMING_SUGGESTION_CATEGORIES = ["Clothing", "Shoes", "Accessories", "Beauty & self-care", "Other"]
 
 
 def suggestion_form_data():
@@ -461,7 +466,7 @@ def suggestion_form_data():
     }
 
 
-def validate_suggestion_payload(data):
+def validate_suggestion_payload(data, categories=None, category_error="Choose a valid product category."):
     errors = []
     if data["website_url"]:
         errors.append("Please submit the suggestion using the visible fields only.")
@@ -469,8 +474,8 @@ def validate_suggestion_payload(data):
         errors.append("Enter the product or item name.")
     if len(data["product_name"]) > 140:
         errors.append("Keep the product name under 140 characters.")
-    if data["category"] not in SUGGESTION_CATEGORIES:
-        errors.append("Choose a valid Mamba collection category.")
+    if data["category"] not in (categories or SUGGESTION_CATEGORIES):
+        errors.append(category_error)
     if len(data["preferences"]) > 255:
         errors.append("Keep preferences under 255 characters.")
     if len(data["price_range"]) > 80:
@@ -508,7 +513,9 @@ def validate_enquiry_payload(data):
 @public_bp.route("/mamba-suggestion", methods=["POST"])
 def mamba_suggestion():
     data = suggestion_form_data()
-    errors = validate_suggestion_payload(data)
+    errors = validate_suggestion_payload(
+        data, SUGGESTION_CATEGORIES, "Choose a valid Mamba collection category."
+    )
     ip_hash = suggestion_ip_hash()
     recent_cutoff = datetime.utcnow() - timedelta(hours=1)
     recent_count = ProductSuggestion.query.filter(ProductSuggestion.ip_hash == ip_hash, ProductSuggestion.created_at >= recent_cutoff).count()
@@ -541,13 +548,78 @@ def mamba_suggestion():
 @public_bp.route("/mamba-suggestion/whatsapp", methods=["POST"])
 def mamba_suggestion_whatsapp():
     data = suggestion_form_data()
-    errors = validate_suggestion_payload(data)
+    errors = validate_suggestion_payload(
+        data, SUGGESTION_CATEGORIES, "Choose a valid Mamba collection category."
+    )
     if errors:
         for error in errors:
             flash(error, "error")
         return redirect(suggestion_return_url())
     message = build_mamba_suggestion_message(data["product_name"], data["category"], data["preferences"], data["price_range"], data["details"])
     return redirect(whatsapp_text_link(current_settings(), message))
+
+
+@public_bp.route("/upcoming-suggestion", methods=["POST"])
+def upcoming_suggestion():
+    data = suggestion_form_data()
+    errors = validate_suggestion_payload(
+        data, UPCOMING_SUGGESTION_CATEGORIES,
+        "Choose a valid category for your all-gender product request.",
+    )
+    ip_hash = suggestion_ip_hash()
+    recent_cutoff = datetime.utcnow() - timedelta(hours=1)
+    recent_count = ProductSuggestion.query.filter(
+        ProductSuggestion.ip_hash == ip_hash,
+        ProductSuggestion.created_at >= recent_cutoff,
+    ).count()
+    if recent_count >= 5:
+        errors.append("Too many product requests were sent recently. Please try again later.")
+    if errors:
+        for error in errors:
+            flash(error, "error")
+        return redirect(url_for("public.upcoming") + "#upcoming-request")
+
+    suggestion = ProductSuggestion(
+        product_name=data["product_name"][:140], category=data["category"],
+        preferences=data["preferences"][:255], price_range=data["price_range"][:80],
+        details=data["details"][:1000], ip_hash=ip_hash,
+    )
+    try:
+        db.session.add(suggestion)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Could not save Upcoming page product request")
+        flash("We could not save your product request right now. Please try again or use WhatsApp.", "error")
+        return redirect(url_for("public.upcoming") + "#upcoming-request")
+    flash("Thanks. Your product request has been sent to FityStores for review.", "success")
+    return redirect(url_for("public.upcoming") + "#upcoming-request")
+
+
+@public_bp.route("/upcoming-suggestion/whatsapp", methods=["POST"])
+def upcoming_suggestion_whatsapp():
+    data = suggestion_form_data()
+    errors = validate_suggestion_payload(
+        data, UPCOMING_SUGGESTION_CATEGORIES,
+        "Choose a valid category for your all-gender product request.",
+    )
+    if errors:
+        for error in errors:
+            flash(error, "error")
+        return redirect(url_for("public.upcoming") + "#upcoming-request")
+    lines = [
+        "Hello FityStores! I would like to suggest a product for the Upcoming page.",
+        "This request is for the all-gender range.",
+        "",
+        f"Product or item: {data['product_name']}",
+        f"Category: {data['category']}",
+        f"Preferred colour, size, or style: {data['preferences'] or 'Not specified'}",
+        f"Suggested price range: {data['price_range'] or 'Not specified'}",
+    ]
+    if data["details"]:
+        lines.extend(["", f"Additional details: {data['details']}"])
+    lines.extend(["", "Please consider this item for a future release. Thank you!"])
+    return redirect(whatsapp_text_link(current_settings(), "\n".join(lines)))
 
 @public_bp.route("/product/<slug>/enquiry", methods=["POST"])
 def product_enquiry(slug):

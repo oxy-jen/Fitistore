@@ -1142,7 +1142,7 @@ def update_order(order_id):
 @admin_bp.route("/suggestions")
 @login_required
 def suggestions():
-    return render_template("admin/suggestions.html", title="Mamba suggestions", suggestions=ProductSuggestion.query.order_by(ProductSuggestion.created_at.desc()).all())
+    return render_template("admin/suggestions.html", title="Product suggestions", suggestions=ProductSuggestion.query.order_by(ProductSuggestion.created_at.desc()).all())
 
 
 @admin_bp.post("/suggestions/<int:suggestion_id>")
