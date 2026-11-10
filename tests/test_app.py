@@ -936,14 +936,14 @@ def test_order_tracking_requires_private_token(client, app):
 def test_product_enquiry_and_restock_alert_save(client, app):
     rv = client.post("/product/plain-socks/enquiry", data={"message":"Do you have black?","contact":"0700","preferred_contact":"WhatsApp","consent_to_contact":"on"}, follow_redirects=True)
     assert rv.status_code == 200
-    assert b"product enquiry has been saved" in rv.data
+    assert b"Your question has been saved for the FityStores team." in rv.data
     with app.app_context():
         from app.models import Product, ProductEnquiry
         product = Product.query.filter_by(slug="plain-socks").first()
         product.stock_quantity = 0
         db.session.commit()
     rv = client.post("/product/plain-socks/restock-alert", data={"contact":"0700","preferred_contact":"WhatsApp","consent_to_contact":"on"}, follow_redirects=True)
-    assert b"Restock alert saved" in rv.data
+    assert b"Thanks. Your request is saved." in rv.data
     with app.app_context():
         from app.models import ProductEnquiry, RestockAlert
         assert ProductEnquiry.query.count() == 1

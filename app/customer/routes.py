@@ -351,7 +351,7 @@ def email_code_login():
         return redirect(url_for("customer.login", next=next_url))
     account = CustomerAccount.query.filter_by(email=email_input).first()
     if not account or not account.active:
-        flash("If an active account uses that email, a sign-in code will be sent when email delivery is available.", "info")
+        flash("If there's an account for that email, we'll send a sign-in code when email sign-in is available.", "info")
         return redirect(url_for("customer.login", next=next_url))
     purpose = "verify_code" if not account.email_verified_at else "login_code"
     return _begin_code_challenge(account, purpose, next_url)
@@ -434,7 +434,7 @@ def set_two_factor():
     if enabled and not current_user.email:
         flash("A verified email address is required for two-step sign-in.", "error")
     elif enabled and not mail_configuration_status()[0]:
-        flash("Two-step sign-in cannot be enabled until email delivery is configured.", "error")
+        flash("Email verification is temporarily unavailable, so two-step sign-in cannot be enabled right now.", "error")
     else:
         current_user.two_factor_enabled = enabled
         db.session.commit()
@@ -728,7 +728,7 @@ def forgot_password():
             account = CustomerAccount.query.filter_by(email=email, active=True).first()
             if account and account.email_verified_at and account.password_hash:
                 _issue_and_send(account, "reset_password", 30)
-        flash("If a verified account uses that address, password reset instructions will be sent when email is configured.", "info")
+        flash("If a verified account uses that address, we'll send password reset instructions when email service is available.", "info")
         return redirect(url_for("customer.login"))
     return render_template("customer/forgot_password.html", title="Reset password")
 
@@ -791,7 +791,7 @@ def unsubscribe(token):
 def google_signin():
     next_url = _safe_customer_next(request.form.get("next"))
     if not current_app.config.get("GOOGLE_CLIENT_ID"):
-        flash("Google sign-in is not configured yet.", "warning")
+        flash("Google sign-in is temporarily unavailable. Please use email sign-in instead.", "warning")
         return redirect(url_for("customer.login", next=next_url))
     if not _rate_allowed("google_ip", "", limit=20, window_minutes=15):
         flash("Too many Google sign-in attempts. Please wait and try again.", "warning")
@@ -802,7 +802,7 @@ def google_signin():
         return redirect(url_for("customer.login", next=next_url))
     claims = verify_google_credential(credential)
     if not claims or not claims.get("sub"):
-        flash("Google could not verify this sign-in. Check the Web client ID and try again.", "error")
+        flash("Google could not verify this sign-in. Please try again or use email sign-in.", "error")
         return redirect(url_for("customer.login", next=next_url))
     if not _google_email_authoritative(claims):
         flash("Use a Google account with a verified Gmail or Google Workspace email address.", "error")

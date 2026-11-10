@@ -5,7 +5,7 @@
       <div class="receipt-mark"><svg class="icon"><use href="#icon-checkout"></use></svg></div>
       <p class="eyebrow">Order enquiry saved</p>
       <h1 id="receipt-title">Awaiting seller confirmation</h1>
-      <p>This is an order request. Send the WhatsApp message so FityStores can confirm item availability, the final amount, payment status, and collection or delivery arrangements.</p>
+      <p>Your request is ready. Send the WhatsApp message so FityStores can confirm item availability, the final amount, payment and collection or delivery arrangements.</p>
     </header>
 
     <div class="receipt-meta">
@@ -57,12 +57,12 @@
       {% if whatsapp_url %}
         <a class="btn primary" href="{{ whatsapp_url }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Open WhatsApp</span></a>
       {% else %}
-        <div class="empty">The owner has not configured a WhatsApp number. Share the reference with the seller another way.</div>
+        <div class="empty">WhatsApp ordering is unavailable right now. Keep your order reference and call FityStores to discuss next steps.</div>
       {% endif %}
       <a class="btn" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Continue shopping</span></a>
     </div>
 
-    <p class="receipt-note">This website cannot confirm whether you sent the WhatsApp message or whether payment has been received. The order remains unconfirmed until the seller replies. <a href="{{ url_for('public.payment_policy') }}">Payment details</a> · <a href="{{ url_for('public.delivery_policy') }}">Delivery and collection</a> · <a href="{{ url_for('public.returns_policy') }}">Returns information</a></p>
+    <p class="receipt-note">Your order is a request until FityStores confirms the items, total, payment and collection or delivery. A payment reference or screenshot alone does not confirm payment. <a href="{{ url_for('public.payment_policy') }}">Payment details</a> · <a href="{{ url_for('public.delivery_policy') }}">Delivery and collection</a> · <a href="{{ url_for('public.returns_policy') }}">Returns information</a></p>
   </div>
 </section>
 <script>localStorage.removeItem('fityCart');</script>

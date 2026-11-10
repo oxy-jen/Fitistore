@@ -642,7 +642,7 @@ def product_enquiry(slug):
     enquiry = ProductEnquiry(product=product, product_name=product.name, size=data["size"], color=data["color"], message=data["message"], contact=data["contact"], preferred_contact=data["preferred_contact"], consent_to_contact=data["consent"], ip_hash=suggestion_ip_hash())
     db.session.add(enquiry)
     db.session.commit()
-    flash("Your product enquiry has been saved for the owner.", "success")
+    flash("Your question has been saved for the FityStores team.", "success")
     return redirect(url_for("public.product_detail", slug=product.slug))
 
 
@@ -661,7 +661,7 @@ def restock_alert(slug):
         return redirect(url_for("public.product_detail", slug=product.slug))
     db.session.add(RestockAlert(product=product, size=size, color=color, contact=contact, preferred_contact=request.form.get("preferred_contact", "WhatsApp"), consent_to_contact=True))
     db.session.commit()
-    flash("Restock alert saved. Automated sending is only used when a provider is configured.", "success")
+    flash("Thanks. Your request is saved. FityStores may contact you if this item is restocked.", "success")
     return redirect(url_for("public.product_detail", slug=product.slug))
 
 
@@ -1272,7 +1272,7 @@ def render_policy_page(slug):
             "sections": [
                 ("Delivery availability", [settings.delivery_area or "Contact FityStores to check whether delivery is available for your location. Availability, timing, and any fee are confirmed for each order."]),
                 ("Collection", [settings.collection_instructions or "The collection reference point is Othaya Mathenge Technical Training Institute. Contact the seller to agree on the exact meeting point and time before travelling."]),
-                ("Delivery fee", [("The configured delivery fee is " + money(settings.delivery_fee_cents, settings.currency) + ". Confirm that it applies to your order before paying.") if settings.delivery_fee_cents is not None else "No fixed delivery fee is configured here. The seller will confirm any fee for your location before payment."]),
+                ("Delivery fee", [("The listed delivery fee is " + money(settings.delivery_fee_cents, settings.currency) + ". Confirm that it applies to your order before paying.") if settings.delivery_fee_cents is not None else "There is no set delivery fee. The seller will confirm any fee for your location before payment."]),
                 ("Before travelling or paying", ["Confirm the item, selected options, price, stock, fulfilment method, any delivery fee, and the collection or delivery arrangements with the seller. A checkout request or payment reference alone does not confirm fulfilment."]),
             ],
         },
