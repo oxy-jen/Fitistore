@@ -1,34 +1,25 @@
-﻿<!doctype html>
+{% from "emails/_brand_components.html" import email_header, email_footer %}
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light only">
   <meta name="supported-color-schemes" content="light">
-  <title>{{ heading }}</title>
+  <title>{{ heading|e }}</title>
 </head>
-<body style="margin:0;padding:0;background-color:#F2F2F2;color:#252525;color-scheme:light only;font-family:Arial,Helvetica,sans-serif">
-  <div style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;mso-hide:all">{{ preheader }}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#F2F2F2;padding:28px 12px">
+<body style="margin:0;padding:0;background:#f0f2f8;color:#182033;color-scheme:light only;font-family:Arial,Helvetica,sans-serif">
+  <div style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;mso-hide:all">{{ preheader|e }}&nbsp;&zwnj;&nbsp;&zwnj;</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f0f2f8;padding:20px 10px">
     <tr><td align="center">
-      <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background-color:#FFFFFF;border-radius:12px;overflow:hidden">
-        <tr><td style="height:6px;background-color:#E52335;font-size:0;line-height:0">&nbsp;</td></tr>
-        <tr><td align="center" style="padding:22px 28px 18px;border-bottom:1px solid #eeeeee">
-          <a href="https://fitystore.top" style="display:inline-block;color:#252525;text-decoration:none">
-            <img src="https://fitystore.top/static/images/mainLogo-160.png" width="64" height="64" alt="FityStores" style="display:block;width:64px;height:64px;margin:0 auto 8px;border:0;object-fit:contain">
-            <span style="font-size:22px;line-height:28px;font-weight:bold;color:#252525">FityStores</span>
-          </a>
-          <div style="padding-top:5px;color:#606060;font-size:13px">Bei Fity, Fits Poa.</div>
+      <table role="presentation" width="680" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:680px;background:#f7f8fc;border:1px solid #fff;border-radius:24px;overflow:hidden;box-shadow:6px 7px 16px #d5d8e2,-6px -6px 16px #fff">
+        {{ email_header('https://fitystore.top/', 'https://fitystore.top/static/images/mainLogo-160.png') }}
+        <tr><td style="padding:26px 28px;color:#283248">
+          <h1 style="font-size:24px;line-height:1.25;margin:0 0 18px;padding:14px 16px;background:#f0f2f8;border-left:5px solid #ed1b36;color:#172033">{{ heading|e }}</h1>
+          {% for paragraph in paragraphs %}<p style="font-size:16px;line-height:1.6;margin:0 0 14px;white-space:pre-wrap">{{ paragraph|e }}</p>{% endfor %}
+          {% if button_url %}<p style="margin:24px 0"><a href="{{ button_url|e }}" style="display:inline-block;background:#ed1b36;color:#fff;text-decoration:none;font-weight:bold;font-size:16px;padding:13px 22px;border-radius:24px">{{ button_text|e }}</a></p>{% endif %}
         </td></tr>
-        <tr><td style="padding:28px">
-          <h1 style="font-size:24px;line-height:1.25;margin:0 0 18px;color:#252525">{{ heading }}</h1>
-          {% for paragraph in paragraphs %}<p style="font-size:16px;line-height:1.6;margin:0 0 14px;color:#252525">{{ paragraph }}</p>{% endfor %}
-          {% if button_url %}<p style="margin:24px 0"><a href="{{ button_url }}" style="display:inline-block;background-color:#E52335;color:#FFFFFF;text-decoration:none;font-weight:bold;font-size:16px;padding:14px 22px;border-radius:8px">{{ button_text }}</a></p>{% endif %}
-          {% if unsubscribe_url %}<p style="font-size:13px;line-height:1.5;color:#606060;margin:26px 0 0">You can <a href="{{ unsubscribe_url }}" style="color:#252525;text-decoration:underline">unsubscribe from promotional emails</a>.</p>{% endif %}
-        </td></tr>
-        <tr><td style="background-color:#252525;color:#FFFFFF;padding:18px 28px;text-align:center;font-size:13px;line-height:1.6">
-          FityStores &middot; <a href="https://fitystore.top" style="color:#FFFFFF;text-decoration:underline">fitystore.top</a>
-        </td></tr>
+        {{ email_footer('https://fitystore.top/', 'https://fitystore.top/contact', unsubscribe_url) }}
       </table>
     </td></tr>
   </table>

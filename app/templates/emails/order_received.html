@@ -1,3 +1,4 @@
+{% from "emails/_brand_components.html" import email_header, email_footer %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -29,38 +30,21 @@
     }
   </style>
 </head>
-<body style="margin:0;padding:0;background:#F3F5F7;color:#202124;color-scheme:light only;font-family:Arial,Helvetica,sans-serif">
+<body style="margin:0;padding:0;background:#f0f2f8;color:#182033;color-scheme:light only;font-family:Arial,Helvetica,sans-serif">
   <div style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;mso-hide:all">{{ preheader }}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#F3F5F7">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f0f2f8">
     <tr><td align="center" class="outer-pad" style="padding:22px 12px">
-      <table role="presentation" class="email-container" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:680px;background:#FFFFFF;border-radius:12px;overflow:hidden">
-        <tr><td style="background:#111111;color:#FFFFFF;padding:10px 24px;font-size:13px;line-height:20px">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>
-            <td class="top-info-cell" style="color:#FFFFFF">&#10003;&nbsp; Fast &amp; Reliable <span style="color:#64748B;padding:0 10px">|</span> Bei Fity, Fits Poa</td>
-            <td class="top-info-cell" align="right"><a href="{{ support_url }}" style="color:#FFFFFF;text-decoration:none"><span style="color:#0B8F52">&#9679;</span>&nbsp; {{ support_label }}</a></td>
-          </tr></table>
-        </td></tr>
-        <tr><td style="background:#FFFFFF;border-bottom:2px solid #ED1B2F;padding:16px 28px">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>
-            <td width="190" valign="middle"><a href="{{ site_url }}" style="color:#111111;text-decoration:none"><img src="{{ logo_url }}" width="58" height="58" alt="FITY — FityStores" style="display:inline-block;width:58px;height:58px;vertical-align:middle;border:0"><span style="display:inline-block;vertical-align:middle;padding-left:10px;font-size:20px;font-weight:bold">FITY</span></a><div style="font-size:11px;color:#64748B;padding-left:68px">Bei Fity, Fits Poa</div></td>
-            <td align="right" class="mobile-hide" style="font-size:12px;letter-spacing:1px;color:#475569">FASHION&nbsp;&nbsp; | &nbsp;&nbsp;COMFORT&nbsp;&nbsp; | &nbsp;&nbsp;EVERYDAY ESSENTIALS</td>
-          </tr></table>
-        </td></tr>
-        <tr><td style="padding:0;background:#111111">
-          <table role="presentation" class="hero-layout" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>
-            <td width="60%" class="hero-col hero-pad" valign="middle" style="padding:34px 30px;color:#FFFFFF;background:#111111">
-              <div style="font-size:15px;line-height:28px;color:#FFFFFF"><span style="display:inline-block;background:#0B8F52;color:#FFFFFF;width:28px;height:28px;text-align:center;border-radius:50%;font-size:20px;font-weight:bold;vertical-align:middle">&#10003;</span>&nbsp; <span style="font-size:28px;font-weight:bold;vertical-align:middle">Order Received!</span></div>
-              <p style="margin:15px 0 7px;font-size:17px;line-height:25px;color:#FFFFFF">Thank you for shopping with FITY, {{ customer_name }}.</p>
-              <p style="margin:0 0 20px;font-size:14px;line-height:21px;color:#E5E7EB">Your order request is in. We’ll keep you updated as it moves through review and fulfilment.</p>
-              <span style="display:inline-block;background:#ED1B2F;border-radius:22px;padding:10px 18px;color:#FFFFFF;font-size:14px;font-weight:bold">Order #{{ order.reference }}</span>
-            </td>
-            <td width="40%" class="hero-col hero-pad" valign="middle" align="center" style="padding:28px 18px;background:#ED1B2F;color:#FFFFFF">
-              <div style="font-size:13px;letter-spacing:2px;color:#FEE2E2">FITY&nbsp; STORES</div>
-              <div style="font-size:28px;line-height:34px;font-weight:bold;margin:12px 0">REAL PRODUCTS.<br>REAL STYLE.</div>
-              <div style="height:3px;width:62px;background:#0B8F52;margin:0 auto"></div>
-            </td>
-          </tr></table>
-        </td></tr>
+      <table role="presentation" class="email-container" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:680px;background:#f7f8fc;border:1px solid #fff;border-radius:24px;overflow:hidden;box-shadow:6px 7px 16px #d5d8e2,-6px -6px 16px #fff">
+        {{ email_header(site_url, logo_url) }}
+        <tr><td style="padding:10px 12px 4px"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f0f2f8;border:1px solid #fff;border-radius:22px;box-shadow:5px 6px 13px #d9dce6,-5px -5px 13px #fff"><tr>
+          <td class="hero-col hero-pad" valign="middle" style="padding:24px 28px;color:#172033">
+            <div style="font-size:24px;line-height:1.25;font-weight:bold;color:#172033"><span style="display:inline-block;background:#0B8F52;color:#FFFFFF;width:28px;height:28px;text-align:center;border-radius:50%;font-size:20px;vertical-align:middle">&#10003;</span>&nbsp; Order received</div>
+            <p style="margin:13px 0 6px;font-size:16px;line-height:24px;color:#283248">Thank you for shopping with FITY, {{ customer_name }}.</p>
+            <p style="margin:0 0 15px;font-size:14px;line-height:21px;color:#46516a">Your order request is in. We’ll keep you updated as it moves through review and fulfilment.</p>
+            <span style="display:inline-block;background:#ed1b36;border-radius:22px;padding:9px 16px;color:#FFFFFF;font-size:14px;font-weight:bold">Order #{{ order.reference }}</span>
+            <a href="{{ support_url }}" style="display:inline-block;margin-left:10px;color:#d91e35;font-size:13px;font-weight:bold">{{ support_label }}</a>
+          </td>
+        </tr></table></td></tr>
         <tr><td class="main-pad" style="padding:25px 28px 18px">
           <h1 style="margin:0 0 7px;color:#172033;font-size:23px;line-height:30px">Your Order</h1>
           <p style="margin:0 0 18px;color:#64748B;font-size:14px">{{ line_count }} order line{% if line_count != 1 %}s{% endif %} · {{ item_count }} item{% if item_count != 1 %}s{% endif %}</p>
@@ -118,12 +102,7 @@
           <p style="text-align:center;margin:24px 0 8px"><a href="{{ tracking_url }}" style="display:inline-block;background:#ED1B2F;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:bold;padding:14px 24px;border-radius:8px">View Order Status</a></p>
           <p style="text-align:center;margin:8px 0 0;font-size:11px;line-height:17px;color:#64748B">The order status page has the latest update for your order.</p>
         </td></tr>
-        <tr><td style="background:#111111;border-top:4px solid #ED1B2F;padding:18px 22px;color:#FFFFFF;text-align:center">
-          <div style="font-size:20px;font-weight:bold;letter-spacing:2px">FITY</div><div style="font-size:12px;color:#CBD5E1;padding-top:3px">Bei Fity, Fits Poa</div>
-          <div style="font-size:21px;font-weight:bold;font-style:italic;padding-top:13px">Thank You!</div>
-          <div style="font-size:12px;line-height:18px;color:#E5E7EB;padding-top:3px">For choosing FITY. You make our journey worthwhile!</div>
-        </td></tr>
-        <tr><td align="center" style="background:#F4F6F8;padding:12px;font-size:11px;line-height:17px;color:#64748B">FITYStores&nbsp; | &nbsp;Bei Fity, Fits Poa&nbsp; | &nbsp;<a href="{{ site_url }}" style="color:#475569;text-decoration:underline">{{ site_url }}</a></td></tr>
+        {{ email_footer(site_url, support_url, '', 'Thank you for choosing FityStores. We appreciate your order.') }}
       </table>
     </td></tr>
   </table>

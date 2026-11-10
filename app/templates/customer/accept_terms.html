@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="account-page account-page-single">
+  <div class="account-intro">
+    <p class="eyebrow">FityStores account</p>
+    <h1>Review our terms before continuing.</h1>
+    <p>To use your account, please review the current Terms and Conditions and Privacy Notice. This acknowledgement is separate from optional promotional emails.</p>
+  </div>
+  <div class="account-panel">
+    <h2>Terms and Conditions</h2>
+    <p>Please take a moment to read the documents that explain how FityStores accounts, orders, privacy, and customer information are handled.</p>
+    <p><a href="{{ url_for('public.terms') }}" target="_blank" rel="noopener">Read the Terms and Conditions</a></p>
+    <p><a href="{{ url_for('public.privacy_policy') }}" target="_blank" rel="noopener">Read the Privacy Notice</a></p>
+    <form method="post" class="account-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <label class="check account-consent account-consent-compact"><input type="checkbox" name="accept_terms" value="yes" required> I have read and agree to the Terms and Conditions and acknowledge the Privacy Notice.</label>
+      <button class="btn primary wide" type="submit">Accept and continue</button>
+    </form>
+    <form method="post" action="{{ url_for('customer.logout') }}" class="account-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn wide" type="submit">Sign out</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

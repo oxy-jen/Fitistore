@@ -22,6 +22,7 @@ from app.services.product_images import product_display_image, product_image_alt
 
 customer_bp = Blueprint("customer", __name__, url_prefix="/account")
 CONSENT_TEXT_VERSION = "2026-10-explicit-registration-opt-in"
+TERMS_ACCEPTANCE_VERSION = "2026-11-customer-terms-acknowledgement-v1"
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +30,23 @@ def _login_customer(account):
     """Keep a customer signed in across page navigation and browser restarts."""
     login_user(account, remember=True)
     session.permanent = True
+
+
+def _has_current_terms_acceptance(account):
+    return CustomerConsentEvent.query.filter_by(
+        account_id=account.id, event="terms_accepted",
+        wording_version=TERMS_ACCEPTANCE_VERSION,
+    ).first() is not None
+
+
+def _login_and_continue(account, next_url=None):
+    """Authenticate uniformly, then require current terms for every sign-in method."""
+    _login_customer(account)
+    next_url = _safe_customer_next(next_url)
+    if not _has_current_terms_acceptance(account):
+        session["customer_terms_next"] = next_url
+        return redirect(url_for("customer.accept_terms"))
+    return redirect(next_url)
 
 
 def _public_url(endpoint, **values):
@@ -64,6 +82,9 @@ def customer_required(view):
             logout_user()
             flash("This customer account is unavailable. Contact FityStores for help.", "error")
             return redirect(url_for("customer.login"))
+        if request.endpoint not in {"customer.accept_terms", "customer.logout"} and not _has_current_terms_acceptance(current_user._get_current_object()):
+            session["customer_terms_next"] = _safe_customer_next(request.full_path)
+            return redirect(url_for("customer.accept_terms"))
         return view(*args, **kwargs)
     return wrapped
 
@@ -241,6 +262,34 @@ def _record_consent(account, event, method):
         account.marketing_withdrawn_at = datetime.utcnow()
 
 
+def _record_terms_acceptance(account, method):
+    db.session.add(CustomerConsentEvent(
+        account_id=account.id, event="terms_accepted", method=method,
+        wording_version=TERMS_ACCEPTANCE_VERSION,
+    ))
+
+
+@customer_bp.route("/terms-acceptance", methods=["GET", "POST"])
+def accept_terms():
+    account = current_user._get_current_object() if current_user.is_authenticated else None
+    if not isinstance(account, CustomerAccount) or not account.active:
+        return redirect(url_for("customer.login", next=_safe_customer_next(request.values.get("next"))))
+    next_url = _safe_customer_next(request.values.get("next") or session.get("customer_terms_next"))
+    if _has_current_terms_acceptance(account):
+        session.pop("customer_terms_next", None)
+        return redirect(next_url)
+    if request.method == "POST":
+        if request.form.get("accept_terms") != "yes":
+            flash("Please confirm that you have read and agree to the Terms and Conditions and Privacy Notice.", "error")
+        else:
+            _record_terms_acceptance(account, "post_login_checkbox")
+            db.session.commit()
+            session.pop("customer_terms_next", None)
+            flash("Thanks. Your terms acknowledgement has been saved.", "success")
+            return redirect(next_url)
+    return render_template("customer/accept_terms.html", title="Review FityStores terms", next_url=next_url)
+
+
 def verify_google_credential(credential):
     """Verify a Google-signed ID token with Google's maintained auth library."""
     if not current_app.config.get("GOOGLE_CLIENT_ID"):
@@ -300,6 +349,7 @@ def register():
             db.session.rollback()
             flash("If this address can be registered, we will send the next steps to it.", "info")
             return redirect(url_for("customer.login", next=next_url))
+        _record_terms_acceptance(account, "registration_checkbox")
         if request.form.get("marketing_opt_in") == "yes":
             # The explicit, optional checkbox is the marketing consent.
             _record_consent(account, "confirmed", "registration_checkbox")
@@ -317,6 +367,9 @@ def register():
 def login():
     next_url = _safe_customer_next(request.values.get("next"))
     if current_user.is_authenticated and isinstance(current_user._get_current_object(), CustomerAccount):
+        if not _has_current_terms_acceptance(current_user._get_current_object()):
+            session["customer_terms_next"] = next_url
+            return redirect(url_for("customer.accept_terms"))
         return redirect(next_url)
     if request.method == "POST":
         email_input = request.form.get("email", "").strip().lower()
@@ -330,8 +383,7 @@ def login():
                     return _begin_code_challenge(account, "verify_code", next_url)
                 if account.two_factor_enabled:
                     return _begin_code_challenge(account, "login_code", next_url)
-                _login_customer(account)
-                return redirect(next_url)
+                return _login_and_continue(account, next_url)
             flash("The email or password was not recognized.", "error")
     return render_template(
         "customer/login.html",
@@ -397,9 +449,9 @@ def verify_code():
                     next_url = session.pop("pending_customer_next", None)
                     session.pop("pending_customer_id", None)
                     session.pop("pending_customer_purpose", None)
-                    _login_customer(account)
+                    response = _login_and_continue(account, next_url)
                     flash("Your email is verified." if purpose == "verify_code" else "You are signed in.", "success")
-                    return redirect(_safe_customer_next(next_url))
+                    return response
         db.session.commit()
     return render_template(
         "customer/verify_code.html",
@@ -819,13 +871,12 @@ def google_signin():
             return _begin_code_challenge(account, "verify_code", next_url)
         if account.two_factor_enabled:
             return _begin_code_challenge(account, "login_code", next_url)
-        _login_customer(account)
-        return redirect(next_url)
+        return _login_and_continue(account, next_url)
     if CustomerAccount.query.filter_by(email=claims["email"]).first():
         flash("An account already uses this email. Sign in with its existing method, then link Google from your account.", "warning")
         return redirect(url_for("customer.login", next=next_url))
     if request.form.get("accept_terms") != "yes":
-        flash("Please accept the Terms and Conditions and acknowledge the Privacy Notice before creating a customer account.", "error")
+        flash("Please accept the Terms and Conditions and acknowledge the Privacy Notice before creating a Google account.", "error")
         return redirect(url_for("customer.login", next=next_url))
     account = CustomerAccount(
         email=claims["email"], display_name=claims.get("name", ""),
@@ -838,12 +889,13 @@ def google_signin():
         db.session.rollback()
         flash("A FityStores account already exists for that Google identity. Sign in with its existing method.", "warning")
         return redirect(url_for("customer.login", next=next_url))
+    _record_terms_acceptance(account, "google_registration")
     if request.form.get("marketing_opt_in") == "yes":
         _record_consent(account, "confirmed", "google_checkbox")
     db.session.commit()
-    _login_customer(account)
+    response = _login_and_continue(account, next_url)
     flash("Your Google account is verified and ready to use.", "success")
-    return redirect(next_url)
+    return response
 
 
 @customer_bp.post("/google/link")

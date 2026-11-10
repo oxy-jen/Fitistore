@@ -1,6 +1,7 @@
 """Admin-only Email Studio and read-only authenticated cart activity view."""
 import hashlib
 import json
+import logging
 import re
 from datetime import datetime, timedelta
 from secrets import token_urlsafe
@@ -24,6 +25,8 @@ from app.services.formatting import money
 from app.services.product_images import product_display_image, product_image_alt, product_image_url
 from app.services.settings import current_settings
 from app.services.whatsapp import build_general_message, whatsapp_text_link
+
+logger = logging.getLogger(__name__)
 
 _PROMOTIONAL_COPY = re.compile(
     r"\b(?:discounts?|sales?|offers?|promotions?|coupons?|vouchers?|deals?|"
@@ -457,7 +460,7 @@ def register_email_studio_routes(admin_bp):
             editor_document = validate_email_blocks(blocks_source, category)
         except EmailContentError:
             editor_document = []
-        editor_design = next((block for block in editor_document if block["type"] == "design"), {"type": "design", "hero_background": "#111111", "text_color": "#FFFFFF", "accent_color": "#ED1B2F", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"})
+        editor_design = next((block for block in editor_document if block["type"] == "design"), {"type": "design", "hero_background": "#F0F2F8", "text_color": "#172033", "accent_color": "#ED1B2F", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"})
         editor_blocks = [block for block in editor_document if block["type"] != "design"]
         if not editor_blocks:
             editor_blocks = [{"type": "heading", "text": headline, "align": "left"}, {"type": "paragraph", "text": message, "align": "left"}]
@@ -651,7 +654,8 @@ def register_email_studio_routes(admin_bp):
                             try:
                                 result = queue_email(target.email, payload_subject, kind, key, account_id=target.id, order_id=order.id if order else None, template_id=saved_template.id if saved_template else None, bypass_marketing_cooldown=bool(marketing_message and category != "cart_reminder"), html_body=html, text_body=text)
                             except Exception:
-                                db.session.rollback(); failed += 1; continue
+                                logger.exception("email_studio_manual_send_failed category=%s account_id=%s", category, target.id)
+                                db.session.rollback(); failed += 1; provider_failures.append(f"{target.email}: internal send error; check server logs."); continue
                             if result.status in {"sent", "delivered"} and prior_accepted: duplicate += 1
                             elif result.status in {"sent", "delivered"}: accepted += 1
                             elif result.status == "suppressed": suppressed += 1

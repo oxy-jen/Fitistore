@@ -1,10 +1,10 @@
 {% from "emails/_brand_components.html" import email_header, email_footer %}
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light"></head>
-<body style="margin:0;background:#F3F5F7;color:#202124;color-scheme:light only;font-family:Arial,sans-serif">
+<body style="margin:0;background:#f0f2f8;color:#182033;color-scheme:light only;font-family:Arial,sans-serif">
 <div style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;mso-hide:all">{{ design.preheader|e }}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F3F5F7;padding:28px 10px">
-    <tr><td align="center"><table role="presentation" width="600" cellspacing="0" cellpadding="0" style="width:100%;max-width:600px;background:{{ design.section_background }};border:1px solid #e6e3dc;border-radius:12px;overflow:hidden">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f0f2f8;padding:20px 10px">
+    <tr><td align="center"><table role="presentation" width="680" cellspacing="0" cellpadding="0" style="width:100%;max-width:680px;background:{{ design.section_background }};border:1px solid #fff;border-radius:24px;overflow:hidden;box-shadow:6px 7px 16px #d5d8e2,-6px -6px 16px #fff">
       {{ email_header(site_url, logo_url) }}
       <tr><td style="padding:28px 30px 24px;background:{{ design.section_background }}">{% if blocks %}
         {% for block in blocks %}

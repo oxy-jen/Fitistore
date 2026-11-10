@@ -118,7 +118,7 @@ def validate_email_blocks(raw, category):
             raise EmailContentError("One of the visual email blocks is not supported.")
         item = {"type": block["type"]}
         if item["type"] == "design":
-            defaults = {"hero_background": "#111111", "text_color": "#FFFFFF", "accent_color": "#ED1B2F", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"}
+            defaults = {"hero_background": "#F0F2F8", "text_color": "#172033", "accent_color": "#ED1B2F", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"}
             for key, fallback in defaults.items():
                 value = str(block.get(key) or fallback)[:180 if key == "preheader" else 200]
                 if key in {"hero_background", "text_color", "accent_color", "section_background"} and not re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
@@ -174,7 +174,9 @@ def render_studio_message(category, subject, headline, message, context, *, bloc
     subject = replace_variables(subject, category, context).replace("\r", " ").replace("\n", " ").strip()[:200]
     headline = replace_variables(headline, category, context).strip()[:200]
     message = replace_variables(message, category, context).strip()[:5000]
-    design_defaults = {"hero_background": "#111111", "text_color": "#FFFFFF", "accent_color": "#ED1B2F", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"}
+    # Match the light, red-accented promotional email foundation across every
+    # Email Studio category while allowing saved templates to customize it.
+    design_defaults = {"hero_background": "#F0F2F8", "text_color": "#172033", "accent_color": "#ED1B2F", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"}
     design = {**design_defaults, **(design or {})}
     design = {key: value for key, value in design.items() if key in design_defaults}
     if _contrast_ratio(design["text_color"], design["hero_background"]) < 4.5:

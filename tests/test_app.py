@@ -31,16 +31,25 @@ def client(app):
     return app.test_client()
 
 def sign_in_verified_customer(client, email="verified-customer@example.com"):
+    from app.customer.routes import TERMS_ACCEPTANCE_VERSION
     with client.application.app_context():
         account = CustomerAccount.query.filter_by(email=email).first()
         if account is None:
             account = CustomerAccount(email=email, display_name="Verified Customer", email_verified_at=datetime.utcnow())
             db.session.add(account)
             db.session.commit()
+        if not CustomerConsentEvent.query.filter_by(account_id=account.id, event="terms_accepted", wording_version=TERMS_ACCEPTANCE_VERSION).first():
+            db.session.add(CustomerConsentEvent(account_id=account.id, event="terms_accepted", method="test_setup", wording_version=TERMS_ACCEPTANCE_VERSION))
+            db.session.commit()
         user_id = account.get_id()
     with client.session_transaction() as browser_session:
         browser_session["_user_id"] = user_id
         browser_session["_fresh"] = True
+
+def accept_current_terms_for_test(account):
+    from app.customer.routes import TERMS_ACCEPTANCE_VERSION
+    db.session.add(CustomerConsentEvent(account_id=account.id, event="terms_accepted", method="test_setup", wording_version=TERMS_ACCEPTANCE_VERSION))
+    db.session.commit()
 
 def test_homepage_renders(client):
     rv = client.get("/")
@@ -1719,7 +1728,8 @@ def test_customer_registration_hashes_password_and_defaults_marketing_off(client
         token = CustomerToken.query.filter_by(account_id=account.id, purpose="verify_email").one()
         assert len(token.token_hash) == 64
         assert EmailMessage.query.filter_by(kind="verify_email").one().status == "not_configured"
-        assert CustomerConsentEvent.query.filter_by(account_id=account.id).count() == 0
+        assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="terms_accepted").count() == 1
+        assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed").count() == 0
 
 
 def test_email_verification_is_expiring_and_single_use(client, app, app_context):
@@ -1827,6 +1837,8 @@ def test_customer_orders_are_account_scoped_and_admin_is_not_customer(client, ap
     second = CustomerAccount(email="second@example.com", display_name="Second", password_hash=generate_password_hash("a-strong-test-password-123"), email_verified_at=datetime.utcnow())
     db.session.add_all([first, second])
     db.session.flush()
+    accept_current_terms_for_test(first)
+    accept_current_terms_for_test(second)
     order1 = Order(reference="FITY-ACCOUNT-1", fulfilment_method="Collection", customer_name="First")
     order2 = Order(reference="FITY-ACCOUNT-2", fulfilment_method="Collection", customer_name="Second")
     db.session.add_all([order1, order2])
@@ -1871,6 +1883,7 @@ def test_customer_profile_menu_and_remembered_session(client, app, app_context):
     )
     db.session.add(account)
     db.session.commit()
+    accept_current_terms_for_test(account)
 
     signed_in = client.post("/account/login", data={
         "email": account.email, "password": "a-strong-test-password-123",
@@ -2346,6 +2359,7 @@ def test_checkout_requires_verified_account_and_links_order_to_it(client, app_co
     account = CustomerAccount(email="checkout-account@example.com", display_name="Checkout", password_hash=generate_password_hash("a-strong-test-password-123"), email_verified_at=datetime.utcnow())
     db.session.add(account)
     db.session.commit()
+    accept_current_terms_for_test(account)
     assert client.post("/account/login", data={"email": account.email, "password": "a-strong-test-password-123"}, follow_redirects=True).status_code == 200
     response = client.post("/checkout", data={"cart_json": "[{\"product_id\":1,\"quantity\":1}]", "customer_name": "Checkout", "fulfilment_method": "Collection"}, follow_redirects=True)
     assert response.status_code == 200
@@ -2859,6 +2873,7 @@ def test_customer_cart_snapshot_requires_verified_account_and_tracks_episode(cli
     assert guest.post("/api/cart/snapshot",json={"items":[{"product_id":1,"quantity":1}]}).status_code==401
     account=CustomerAccount(email="cart-owner@example.com",display_name="Cart Owner",password_hash=generate_password_hash("a-strong-test-password-123"),email_verified_at=datetime.utcnow(),marketing_status="subscribed",marketing_consent_at=datetime.utcnow())
     db.session.add(account);db.session.commit()
+    accept_current_terms_for_test(account)
     assert client.post("/account/login",data={"email":account.email,"password":"a-strong-test-password-123"}).status_code==302
     response=client.post("/api/cart/snapshot",json={"items":[{"product_id":1,"quantity":2}]})
     assert response.status_code==200 and response.get_json()["ok"]
