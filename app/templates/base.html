@@ -3,6 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e52335">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   {% set page_title = seo_title or ((title or settings.shop_name) ~ ' | ' ~ settings.shop_name) %}
   {% set page_description = seo_description or settings.tagline %}
   {% set canonical = canonical_url or ('https://fitystore.top' ~ request.path) %}
@@ -29,10 +33,12 @@
   {% if og_image_type %}<meta property="og:image:type" content="{{ og_image_type }}">{% endif %}
   {% if og_image_alt %}<meta property="og:image:alt" content="{{ og_image_alt }}">{% endif %}
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
-  <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/pwa/apple-touch-icon.png') }}">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=adaptive-nav-overflow-20261107">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}?v=adaptive-nav-overflow-20261107">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/media-showcases.css') }}?v=media-admin-bulk-publish-20261106">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/pwa.css') }}?v=pwa-install-v1">
   <script type="application/ld+json">
   {{ {"@context": "https://schema.org", "@type": "Organization", "name": settings.shop_name, "url": "https://fitystore.top/", "logo": url_for('static', filename='images/mainLogo-160.png', _external=True), "owner": {"@type": "Organization", "name": "Oxy-Jen Tech"}, "sameAs": ["https://www.facebook.com/oxy.jen.975729", "https://www.tiktok.com/@official_fitystore"]}|tojson }}
   </script>
@@ -43,6 +49,7 @@
   <script defer src="{{ url_for('static', filename='js/cart.js') }}?v=site-nav-overflow-20261107"></script>
   <script defer src="{{ url_for('static', filename='js/nav-overflow.js') }}?v=measured-navigation-overflow-20261107"></script>
   <script defer src="{{ url_for('static', filename='js/app.js') }}?v=upcoming-spotlight-20261106"></script>
+  <script defer src="{{ url_for('static', filename='js/pwa-install.js') }}?v=pwa-install-v1"></script>
 </head>
 <body{% if request.endpoint == 'public.upcoming' %} class="upcoming-page-body"{% endif %}>
 <svg class="icon-sprite" aria-hidden="true" focusable="false">
@@ -148,9 +155,19 @@
   <section class="footer-bottom" aria-label="Store services and legal links">
     <div class="footer-service-points"><span><svg class="icon"><use href="#icon-truck"></use></svg><b>Fast &amp; Reliable<br>Delivery</b></span><span><svg class="icon"><use href="#icon-shield"></use></svg><b>Secure<br>Payments</b></span><span><svg class="icon"><use href="#icon-headset"></use></svg><b>Dedicated<br>Support</b></span></div>
     <nav class="footer-legal-links" aria-label="Legal"><a href="{{ url_for('public.privacy_policy') }}">Privacy Policy</a><a href="{{ url_for('public.terms') }}">Terms &amp; Conditions</a><a href="{{ url_for('public.contact') }}">Contact</a></nav>
+    <div class="pwa-install-actions" data-pwa-install-actions>
+      <button class="pwa-install-button" type="button" data-pwa-install hidden>Install FityStores</button>
+      <button class="pwa-install-help" type="button" data-pwa-help>How to install FityStores</button>
+    </div>
     <small class="footer-copyright">© {{ current_year }} {{ settings.shop_name }}. All rights reserved.</small>
   </section>
 </footer>
+<dialog class="pwa-install-dialog" data-pwa-dialog aria-labelledby="pwa-install-title">
+  <form method="dialog"><button class="pwa-dialog-close" aria-label="Close installation help">Close</button></form>
+  <h2 id="pwa-install-title">Install FityStores</h2>
+  <p data-pwa-instructions>Use your browser's install option to add FityStores to this device.</p>
+  <button class="pwa-install-button" type="button" data-pwa-dialog-install hidden>Install FityStores</button>
+</dialog>
 </body>
 </html>
 

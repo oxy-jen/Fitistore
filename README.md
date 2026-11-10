@@ -96,6 +96,10 @@ Never enable debug mode in production, never commit `.env`, and back up the data
 
 Email Studio supports visual email blocks, saved templates, drafts, recipient previews, test sends, and manually confirmed customer sends. See the [Email Studio guide](docs/email-studio-guide.md) for the full workflow and the difference between saving, previewing, testing, and sending.
 
+## PWA and Android
+
+FityStores supports browser installation as a Progressive Web App. Android Trusted Web Activity generation, signing, Digital Asset Links, build steps, and outstanding release requirements are documented in [PWA and Android TWA](docs/pwa-android.md).
+
 ## Implementation Checklist
 
 - Complete app factory and module structure: done.

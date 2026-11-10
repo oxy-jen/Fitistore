@@ -1410,6 +1410,43 @@ def terms():
 def robots():
     return Response("User-agent: *\nDisallow: /admin\nSitemap: " + url_for("public.sitemap", _external=True) + "\n", mimetype="text/plain")
 
+
+@public_bp.route("/service-worker.js")
+def pwa_service_worker():
+    response = current_app.send_static_file("pwa/service-worker.js")
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@public_bp.route("/.well-known/assetlinks.json")
+def android_asset_links():
+    """Publish only configured signing fingerprints; never invent release identity."""
+    import re
+
+    fingerprints = []
+    raw = current_app.config.get("ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS", "")
+    for value in (raw.split(",") if isinstance(raw, str) else raw or []):
+        fingerprint = str(value).strip().upper()
+        if re.fullmatch(r"(?:[0-9A-F]{2}:){31}[0-9A-F]{2}", fingerprint):
+            fingerprints.append(fingerprint)
+    payload = []
+    package_id = str(current_app.config.get("ANDROID_PACKAGE_ID", "")).strip()
+    if package_id and fingerprints:
+        payload.append({
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": package_id,
+                "sha256_cert_fingerprints": sorted(set(fingerprints)),
+            },
+        })
+    response = current_app.response_class(
+        current_app.json.dumps(payload), mimetype="application/json"
+    )
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return response
+
 @public_bp.route("/sitemap.xml")
 def sitemap():
     urls = [url_for("public.home", _external=True), url_for("public.shop", _external=True), url_for("public.upcoming", _external=True), url_for("public.contact", _external=True), url_for("public.about", _external=True), url_for("public.reviews", _external=True)]

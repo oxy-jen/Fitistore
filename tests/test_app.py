@@ -50,6 +50,72 @@ def test_homepage_renders(client):
     assert b"https://www.tiktok.com/@official_fitystore" in rv.data
 
 
+def test_pwa_manifest_icons_install_controls_and_worker_are_available(client):
+    page = client.get("/")
+    assert page.status_code == 200
+    assert b'rel="manifest"' in page.data
+    assert b'data-pwa-help' in page.data
+    assert b"pwa-install.js" in page.data
+
+    manifest_response = client.get("/static/manifest.webmanifest")
+    assert manifest_response.status_code == 200
+    manifest = manifest_response.get_json()
+    assert manifest["name"] == "FityStores"
+    assert manifest["start_url"] == "/"
+    assert manifest["scope"] == "/"
+    assert manifest["display"] == "standalone"
+    assert manifest["orientation"] == "any"
+    for icon in manifest["icons"]:
+        response = client.get(icon["src"])
+        assert response.status_code == 200
+        assert response.mimetype == "image/png"
+        width, height = __import__("struct").unpack(">II", response.data[16:24])
+        assert (width, height) == tuple(int(value) for value in icon["sizes"].split("x"))
+    assert {item["purpose"] for item in manifest["icons"]} >= {"any", "maskable"}
+
+    offline = client.get("/static/pwa/offline.html")
+    assert offline.status_code == 200
+    assert b"You're offline" in offline.data
+
+    worker = client.get("/service-worker.js")
+    assert worker.status_code == 200
+    assert worker.headers["Service-Worker-Allowed"] == "/"
+    assert "no-cache" in worker.headers["Cache-Control"]
+    assert b"request.method !== \"GET\"" in worker.data
+    assert b"/static/css/" in worker.data and b"/static/images/" in worker.data
+    assert b"/static/uploads/" not in worker.data
+    assert b"request.mode === \"navigate\"" in worker.data
+    allowlist = worker.data.split(b"function isSafeStaticAsset(url) {", 1)[1].split(b"}", 1)[0]
+    assert b"/static/css/" in allowlist
+    assert b"/static/js/" in allowlist
+    assert b"/static/images/" in allowlist
+    assert b"/api/" not in allowlist and b"/account" not in allowlist
+
+
+def test_assetlinks_returns_empty_until_real_fingerprint_is_configured(client, app):
+    response = client.get("/.well-known/assetlinks.json")
+    assert response.status_code == 200
+    assert response.get_json() == []
+
+    fingerprint = ":".join(["AB"] * 32)
+    with app.app_context():
+        app.config["ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS"] = fingerprint
+    response = client.get("/.well-known/assetlinks.json")
+    assert response.status_code == 200
+    assert response.get_json() == [{
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "top.fitystore.app",
+            "sha256_cert_fingerprints": [fingerprint],
+        },
+    }]
+
+    with app.app_context():
+        app.config["ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS"] = "replace-with-real-fingerprint"
+    assert client.get("/.well-known/assetlinks.json").get_json() == []
+
+
 def _sign_in_admin(client, app):
     with app.app_context():
         user_id = str(AdminUser.query.filter_by(username="owner").one().get_id())
@@ -1226,9 +1292,11 @@ def test_cloudinary_url_and_legacy_fallback_helpers(app):
         assert product_image_url(missing).endswith("/static/images/mainLogo-160.png")
 
 
-def test_local_product_image_remains_visible_when_cloudinary_is_unconfigured(app):
+def test_local_product_image_remains_visible_when_cloudinary_is_unconfigured(app, tmp_path):
+    from app import ensure_sample_images
     from app.services.product_images import product_image_url, valid_product_image
-    app.config.update(CLOUDINARY_CLOUD_NAME="")
+    app.config.update(CLOUDINARY_CLOUD_NAME="", UPLOAD_FOLDER=str(tmp_path / "uploads"))
+    ensure_sample_images(app)
     image = ProductImage(
         filename="sample-ankle-socks.svg", cloudinary_public_id="fity/legacy/local-sock",
         storage_backend="cloudinary", alt_text="Sock", is_primary=True,
