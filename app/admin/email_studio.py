@@ -461,6 +461,14 @@ def register_email_studio_routes(admin_bp):
         except EmailContentError:
             editor_document = []
         editor_design = next((block for block in editor_document if block["type"] == "design"), {"type": "design", "hero_background": "#F0F2F8", "text_color": "#172033", "accent_color": "#ED1B2F", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"})
+        if category != "promotion":
+            editor_design = {
+                **editor_design,
+                "hero_background": "#F0F2F8",
+                "text_color": "#172033",
+                "accent_color": "#ED1B36",
+                "section_background": "#FFFFFF",
+            }
         editor_blocks = [block for block in editor_document if block["type"] != "design"]
         if not editor_blocks:
             editor_blocks = [{"type": "heading", "text": headline, "align": "left"}, {"type": "paragraph", "text": message, "align": "left"}]
@@ -652,13 +660,23 @@ def register_email_studio_routes(admin_bp):
                             prior_message = EmailMessage.query.filter_by(idempotency_key=key).first()
                             prior_accepted = bool(prior_message and prior_message.status in {"sent", "delivered"})
                             try:
-                                result = queue_email(target.email, payload_subject, kind, key, account_id=target.id, order_id=order.id if order else None, template_id=saved_template.id if saved_template else None, bypass_marketing_cooldown=bool(marketing_message and category != "cart_reminder"), html_body=html, text_body=text)
+                                result = queue_email(
+                                    target.email, payload_subject, kind, key,
+                                    account_id=target.id, order_id=order.id if order else None,
+                                    template_id=saved_template.id if saved_template else None,
+                                    bypass_marketing_cooldown=bool(marketing_message),
+                                    retry_suppressed=(category == "cart_reminder"),
+                                    html_body=html, text_body=text,
+                                )
                             except Exception:
                                 logger.exception("email_studio_manual_send_failed category=%s account_id=%s", category, target.id)
                                 db.session.rollback(); failed += 1; provider_failures.append(f"{target.email}: internal send error; check server logs."); continue
                             if result.status in {"sent", "delivered"} and prior_accepted: duplicate += 1
                             elif result.status in {"sent", "delivered"}: accepted += 1
-                            elif result.status == "suppressed": suppressed += 1
+                            elif result.status == "suppressed":
+                                suppressed += 1
+                                if result.failure_reason:
+                                    suppression_reasons.append(f"{target.email}: {result.failure_reason[:180]}")
                             else:
                                 failed += 1
                                 if result.failure_reason:

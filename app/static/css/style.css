@@ -457,6 +457,13 @@ input,select,textarea,button{max-width:100%}
 .account-discovery>.product-section{padding:.8rem 0}
 .account-discovery .product-row{scrollbar-width:thin}
 .nav-profile{position:relative}
+.nav-profile-group{display:flex;align-items:center;gap:.1rem;min-width:0}
+.nav-profile-account-link{display:flex;align-items:center;gap:.45rem;min-width:0;padding:.25rem .5rem;border-radius:999px;text-decoration:none;font-weight:800}
+.nav-profile-account-link:hover{background:#fff}
+.nav-profile-options{position:static;flex:0 0 auto}
+.nav .nav-profile-options>summary{display:grid;place-items:center;width:34px;height:34px;padding:.25rem;border-radius:50%;list-style:none;cursor:pointer}
+.nav .nav-profile-options>summary::-webkit-details-marker{display:none}
+.nav-profile-options[open]>summary,.nav .nav-profile-options>summary:hover{background:#fff}
 .nav .nav-profile>summary{display:flex;align-items:center;gap:.45rem;padding:.35rem .65rem;border-radius:999px;list-style:none;cursor:pointer;font-weight:800;max-width:13rem}
 .nav .nav-profile>summary::-webkit-details-marker{display:none}
 .nav-profile-avatar{display:grid;place-items:center;flex:0 0 2rem;width:2rem;height:2rem;border-radius:50%;background:var(--red);color:#fff;font-size:.9rem;font-weight:900}

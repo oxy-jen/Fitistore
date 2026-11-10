@@ -155,7 +155,7 @@ def _send_brevo(recipient: str, subject: str, html_body: str, text_body: str) ->
         return str(message_id)[:255] if message_id else None
 
 
-def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *, account_id=None, order_id=None, campaign_id=None, template_id=None, bypass_marketing_cooldown: bool = False, html_body: str, text_body: str) -> EmailMessage:
+def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *, account_id=None, order_id=None, campaign_id=None, template_id=None, bypass_marketing_cooldown: bool = False, retry_suppressed: bool = False, html_body: str, text_body: str) -> EmailMessage:
     record = EmailMessage.query.filter_by(idempotency_key=idempotency_key).first()
     marketing = kind == "marketing_campaign" or kind.startswith("marketing_")
     if marketing and account_id:
@@ -182,6 +182,14 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
                 record = EmailMessage(recipient=recipient[:254],subject=subject[:200],kind=kind[:32],idempotency_key=idempotency_key[:160],account_id=account_id,order_id=order_id,campaign_id=campaign_id,template_id=template_id,status="suppressed",failure_reason=suppression_reason)
                 db.session.add(record);db.session.commit()
             return record
+    if record and record.status == "suppressed" and retry_suppressed:
+        # The caller has revalidated the recipient and cart episode. A prior
+        # policy suppression must not permanently poison this idempotency key.
+        record.status = "queued"
+        record.failure_reason = ""
+        record.recipient = recipient[:254]
+        record.subject = subject[:200]
+        db.session.commit()
     if record:
         if record.status == "not_configured":
             configured, _reason = mail_configuration_status()

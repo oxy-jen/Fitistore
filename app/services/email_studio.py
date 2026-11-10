@@ -174,11 +174,19 @@ def render_studio_message(category, subject, headline, message, context, *, bloc
     subject = replace_variables(subject, category, context).replace("\r", " ").replace("\n", " ").strip()[:200]
     headline = replace_variables(headline, category, context).strip()[:200]
     message = replace_variables(message, category, context).strip()[:5000]
-    # Match the light, red-accented promotional email foundation across every
-    # Email Studio category while allowing saved templates to customize it.
-    design_defaults = {"hero_background": "#F0F2F8", "text_color": "#172033", "accent_color": "#ED1B2F", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"}
-    design = {**design_defaults, **(design or {})}
-    design = {key: value for key, value in design.items() if key in design_defaults}
+    # Keep non-promotional Email Studio categories on the promotional
+    # template's Fity palette. Preserve promotion design controls as-is.
+    design_defaults = {"hero_background": "#F0F2F8", "text_color": "#172033", "accent_color": "#ED1B36", "section_background": "#FFFFFF", "footer_note": "Bei Fity, Fits Poa", "preheader": "A note from FityStores"}
+    saved_design = design if isinstance(design, dict) else {}
+    if category == "promotion":
+        design = {**design_defaults, **saved_design}
+        design = {key: value for key, value in design.items() if key in design_defaults}
+    else:
+        design = {
+            **design_defaults,
+            "footer_note": str(saved_design.get("footer_note", design_defaults["footer_note"]))[:200],
+            "preheader": str(saved_design.get("preheader", design_defaults["preheader"]))[:180],
+        }
     if _contrast_ratio(design["text_color"], design["hero_background"]) < 4.5:
         raise EmailContentError("Choose hero background and text colours with readable contrast.")
     design["button_text_color"] = "#111111" if _contrast_ratio("#111111", design["accent_color"]) >= _contrast_ratio("#FFFFFF", design["accent_color"]) else "#FFFFFF"
