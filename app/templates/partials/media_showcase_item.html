@@ -1,0 +1,32 @@
+{% if item.media_type == 'video' %}
+  {% set ratio_value = item.aspect_ratio or ((item.media_width|string) ~ ':' ~ (item.media_height|string) if item.media_width and item.media_height else '16:9') %}
+  {% set ratio_parts = ratio_value.split(':') %}
+  {% set ratio_width = ratio_parts[0]|float %}
+  {% set ratio_height = ratio_parts[1]|float %}
+  <button class="media-showcase-video-preview media-presentation-{{ item.presentation_mode }}" type="button"
+          data-showcase-video-open
+          data-video-src="{{ item.media_url if item.source_type != 'video_embed' else '' }}"
+          data-video-embed="{{ item.media_url if item.source_type == 'video_embed' else '' }}"
+          data-video-title="{{ item.title }}"
+          data-video-poster="{{ item.poster_url }}"
+          data-presentation-mode="{{ item.presentation_mode }}"
+          data-aspect-ratio="{{ ratio_value }}"
+          data-source-width="{{ item.media_width or '' }}"
+          data-source-height="{{ item.media_height or '' }}"
+          data-ratio-known="{{ '1' if item.aspect_ratio or (item.media_width and item.media_height) else '0' }}"
+          {% if item.source_type != 'video_embed' and not item.poster_url and not item.media_width and not item.aspect_ratio %}data-video-meta-src="{{ item.media_url }}"{% endif %}
+          aria-label="Play {{ item.title }}"
+          aria-haspopup="dialog"
+          style="--media-item-ratio:{% if ratio_width / ratio_height < 0.9 %}4 / 5{% else %}{{ ratio_width }} / {{ ratio_height }}{% endif %};--media-preview-max-width:{% if ratio_width / ratio_height < 0.9 %}288{% else %}{{ 360 * ratio_width / ratio_height }}{% endif %}px;--media-position-x:{{ item.preview_position_x }}%;--media-position-y:{{ item.preview_position_y }}%">
+    {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" loading="lazy" decoding="async">{% else %}<span class="media-video-preview-empty">Video preview</span>{% endif %}
+    <span class="media-video-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"></path></svg></span>
+  </button>
+{% elif item.media_type in ['gif','image'] %}
+  {% if item.destination_url %}<a class="media-showcase-media-link" href="{{ item.destination_url }}"{% if item.destination_url.startswith('http') and request.host not in item.destination_url %} target="_blank" rel="noopener noreferrer"{% endif %}>{% endif %}
+  <img class="media-presentation-{{ item.presentation_mode }}" data-presentation-mode="{{ item.presentation_mode }}" data-aspect-ratio="{{ item.aspect_ratio }}" src="{{ item.media_url or item.poster_url }}" alt="{{ item.alt_text or item.title }}" loading="lazy" decoding="async">
+  {% if item.destination_url %}</a>{% endif %}
+{% elif item.poster_url %}
+  <a class="media-showcase-link-art" href="{{ item.destination_url }}"{% if item.destination_url.startswith('http') and request.host not in item.destination_url %} target="_blank" rel="noopener noreferrer"{% endif %}><img class="media-presentation-{{ item.presentation_mode }}" data-presentation-mode="{{ item.presentation_mode }}" data-aspect-ratio="{{ item.aspect_ratio }}" src="{{ item.poster_url }}" alt="{{ item.alt_text or item.title }}" loading="lazy" decoding="async"><span>Explore</span></a>
+{% else %}
+  <div class="media-showcase-link-art media-showcase-text-card"><span>Explore FityStores</span></div>
+{% endif %}

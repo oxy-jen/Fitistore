@@ -68,6 +68,22 @@ def _validate_showcase_schema(connection):
         raise MediaShowcaseSchemaError("Incomplete Media Showcase schema: " + "; ".join(problems))
 
 
+def _add_missing_preview_position_columns(connection):
+    """Apply the additive preview metadata upgrade without touching media rows."""
+    if not inspect(connection).has_table(MediaShowcaseItem.__tablename__):
+        return
+    item_columns = {
+        column["name"]
+        for column in inspect(connection).get_columns(MediaShowcaseItem.__tablename__)
+    }
+    for column_name in ("preview_position_x", "preview_position_y"):
+        if column_name not in item_columns:
+            connection.exec_driver_sql(
+                f'ALTER TABLE "{MediaShowcaseItem.__tablename__}" '
+                f'ADD COLUMN "{column_name}" INTEGER NOT NULL DEFAULT 50'
+            )
+
+
 def _create_missing_showcase_tables(connection):
     names = set(inspect(connection).get_table_names())
     missing_base = SHOWCASE_BASE_TABLES - names
@@ -75,9 +91,14 @@ def _create_missing_showcase_tables(connection):
         raise MediaShowcaseSchemaError(
             "Required existing store tables are missing: " + ", ".join(sorted(missing_base))
         )
-    # Restrict metadata creation to these two feature tables. Existing tables
-    # are never altered; SQLAlchemy creates only absent tables and their indexes.
+    # Restrict metadata creation to these two feature tables. SQLAlchemy creates
+    # only absent feature tables and their indexes; the explicit additive step
+    # below adds only the two preview-position fields when they are missing.
     db.metadata.create_all(bind=connection, tables=list(SHOWCASE_TABLES), checkfirst=True)
+    # These two preview-only fields were added after the original showcase
+    # tables shipped. Add them in place so saved media rows and source files
+    # remain untouched. Names/defaults are fixed in code, not user supplied.
+    _add_missing_preview_position_columns(connection)
     # Repair only missing supporting indexes. This does not rewrite table data
     # or touch any unrelated store table.
     for table in SHOWCASE_TABLES:
@@ -87,7 +108,7 @@ def _create_missing_showcase_tables(connection):
 
 
 def ensure_media_showcase_schema(engine=None):
-    """Create only absent Media Showcase tables, atomically and idempotently."""
+    """Create missing showcase tables and add preview fields atomically."""
     engine = engine or db.engine
     dialect = engine.dialect.name
     if dialect == "postgresql":

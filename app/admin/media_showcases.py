@@ -158,6 +158,12 @@ def _save_items(showcase, raw):
             ratio_match = re.fullmatch(r"(\d{1,4}(?:\.\d{1,3})?):(\d{1,4}(?:\.\d{1,3})?)", aspect_ratio)
             if not ratio_match or any(float(part) <= 0 or float(part) > 1000 for part in ratio_match.groups()):
                 raise ValueError(f"Media item {idx + 1} aspect ratio must look like 9:16, 16:9, or 1.85:1.")
+        def preview_position(key):
+            try:
+                value = int(data.get(key, 50))
+            except (TypeError, ValueError):
+                value = 50
+            return max(0, min(100, value))
         source_type = "video_embed" if embed_url else str(data.get("source", "external_url"))
         if source_type not in {"library", "upload", "cloudinary", "external_url", "video_embed"}:
             source_type = "external_url"
@@ -200,6 +206,8 @@ def _save_items(showcase, raw):
             autoplay=data.get("autoplay", True) is not False, muted=data.get("muted", True) is not False,
             loop=data.get("loop", True) is not False, show_controls=bool(data.get("controls", False)),
             presentation_mode=presentation, aspect_ratio=aspect_ratio,
+            preview_position_x=preview_position("preview_position_x"),
+            preview_position_y=preview_position("preview_position_y"),
         )
         created_items.append(item)
     return created_items
@@ -216,6 +224,7 @@ def _form(showcase=None):
                 "active": item.is_active, "autoplay": item.autoplay, "muted": item.muted,
                 "loop": item.loop, "controls": item.show_controls,
                 "presentation": item.presentation_mode, "aspect_ratio": item.aspect_ratio,
+                "preview_position_x": item.preview_position_x, "preview_position_y": item.preview_position_y,
                 "source": item.source_type, "filename": item.source_filename,
                 "size": item.file_size_bytes, "width": item.media_width, "height": item.media_height,
                 "duration": item.duration_seconds,
@@ -450,7 +459,9 @@ def register_media_showcase_routes(admin_bp):
                 media_url=item.media_url, poster_url=item.poster_url, thumbnail_url=item.thumbnail_url, destination_url=item.destination_url,
                 linked_product_id=item.linked_product_id, cta_label=item.cta_label, alt_text=item.alt_text, display_order=item.display_order,
                 is_active=item.is_active, autoplay=item.autoplay, muted=item.muted, loop=item.loop, show_controls=item.show_controls,
-                presentation_mode=item.presentation_mode, aspect_ratio=item.aspect_ratio, source_type=item.source_type,
+                presentation_mode=item.presentation_mode, aspect_ratio=item.aspect_ratio,
+                preview_position_x=item.preview_position_x, preview_position_y=item.preview_position_y,
+                source_type=item.source_type,
                 source_filename=item.source_filename, file_size_bytes=item.file_size_bytes, media_width=item.media_width,
                 media_height=item.media_height, duration_seconds=item.duration_seconds))
         db.session.add(copy); db.session.commit(); flash("Draft copy created.", "success")

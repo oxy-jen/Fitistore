@@ -223,12 +223,16 @@ class MediaShowcaseItem(TimestampMixin, db.Model):
     show_controls = db.Column(db.Boolean, nullable=False, default=False)
     presentation_mode = db.Column(db.String(16), nullable=False, default="original")
     aspect_ratio = db.Column(db.String(24), nullable=False, default="")
+    preview_position_x = db.Column(db.Integer, nullable=False, default=50)
+    preview_position_y = db.Column(db.Integer, nullable=False, default=50)
     showcase = db.relationship("MediaShowcase", back_populates="items")
     linked_product = db.relationship("Product")
     __table_args__ = (
         CheckConstraint("media_type IN ('video','gif','image','link')", name="ck_media_showcase_item_type"),
         CheckConstraint("display_order >= 0", name="ck_media_showcase_item_order_nonnegative"),
         CheckConstraint("presentation_mode IN ('original','contain','cover')", name="ck_media_showcase_item_presentation"),
+        CheckConstraint("preview_position_x BETWEEN 0 AND 100", name="ck_media_showcase_item_preview_x"),
+        CheckConstraint("preview_position_y BETWEEN 0 AND 100", name="ck_media_showcase_item_preview_y"),
     )
 
 class MambaCollection(db.Model):

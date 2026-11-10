@@ -488,8 +488,39 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 
 document.addEventListener('click',function(event){const button=event.target.closest('[data-showcase-scroll]');if(!button)return;const rail=button.closest('.media-showcase').querySelector('[data-media-showcase-items]');const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;rail.scrollBy({left:Number(button.dataset.showcaseScroll)*Math.max(rail.clientWidth*.8,240),behavior:reduced?'auto':'smooth'});});
+document.addEventListener('click',function(event){
+  const opener=event.target.closest('[data-showcase-video-open]');
+  if(opener){
+    const section=opener.closest('.media-showcase');
+    const dialog=section?.querySelector('[data-media-showcase-player]');
+    const slot=dialog?.querySelector('[data-media-player-content]');
+    if(!dialog||!slot)return;
+    slot.replaceChildren();
+    if(opener.dataset.videoEmbed){
+      try{const embed=new URL(opener.dataset.videoEmbed);embed.searchParams.set('autoplay','1');embed.searchParams.set('playsinline','1');const frame=document.createElement('iframe');frame.src=embed.href;frame.title=opener.dataset.videoTitle||'FityStores video';frame.allow='autoplay; fullscreen; picture-in-picture; encrypted-media';frame.allowFullscreen=true;frame.referrerPolicy='strict-origin-when-cross-origin';frame.sandbox='allow-scripts allow-same-origin allow-presentation';frame.style.setProperty('--media-player-ratio',opener.dataset.aspectRatio.replace(':',' / ')||'16 / 9');slot.append(frame);}catch(_){return}
+    }else if(opener.dataset.videoSrc){
+      const video=document.createElement('video');video.src=opener.dataset.videoSrc;video.controls=true;video.playsInline=true;video.preload='auto';video.setAttribute('aria-label',opener.dataset.videoTitle||'FityStores video');if(opener.dataset.videoPoster)video.poster=opener.dataset.videoPoster;slot.append(video);
+    }else return;
+    if(!dialog.open)dialog.showModal();
+    const player=slot.querySelector('video');if(player)player.play().catch(()=>{});
+    return;
+  }
+  const close=event.target.closest('[data-media-player-close]');
+  if(close){const dialog=close.closest('[data-media-showcase-player]');if(dialog?.open)dialog.close();}
+});
+document.querySelectorAll('[data-media-showcase-player]').forEach(dialog=>dialog.addEventListener('close',()=>dialog.querySelector('[data-media-player-content]')?.replaceChildren()));
 const showcaseReducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
 function setShowcaseMediaRatio(media){
+  const videoPreview=media.closest('.media-showcase-video-preview');
+  if(videoPreview){
+    let width=Number(videoPreview.dataset.sourceWidth)||0;
+    let height=Number(videoPreview.dataset.sourceHeight)||0;
+    const match=videoPreview.dataset.ratioKnown==='1'?(videoPreview.dataset.aspectRatio||'').match(/^([\d.]+):([\d.]+)$/):null;
+    if(!(width>0&&height>0)&&match){width=Number(match[1]);height=Number(match[2]);}
+    if(!(width>0&&height>0)){width=media instanceof HTMLVideoElement?media.videoWidth:media.naturalWidth;height=media instanceof HTMLVideoElement?media.videoHeight:media.naturalHeight;}
+    if(width>0&&height>0){const ratio=width/height<.9?.8:width/height;videoPreview.style.setProperty('--media-item-ratio',width/height<.9?'4 / 5':`${width} / ${height}`);videoPreview.style.setProperty('--media-preview-max-width',`${360*ratio}px`);}
+    return;
+  }
   const mode=media.dataset.presentationMode||'original';
   const ratioText=media.dataset.aspectRatio||'';
   const match=ratioText.match(/^([\d.]+):([\d.]+)$/);
@@ -505,5 +536,6 @@ document.querySelectorAll('.media-showcase video,.media-showcase img').forEach(m
   else if(media.complete)refresh();
 });
 document.querySelectorAll('.media-showcase iframe[data-aspect-ratio]').forEach(frame=>{const match=(frame.dataset.aspectRatio||'').match(/^(\d{1,4}(?:\.\d{1,3})?):(\d{1,4}(?:\.\d{1,3})?)$/);if(match){const width=Number(match[1]),height=Number(match[2]);if(width>0&&height>0&&width<=1000&&height<=1000)frame.style.setProperty('--media-item-ratio',`${width} / ${height}`)}});
+if('IntersectionObserver'in window){const showcaseMetadataObserver=new IntersectionObserver(entries=>entries.forEach(entry=>{if(!entry.isIntersecting)return;const preview=entry.target;showcaseMetadataObserver.unobserve(preview);const probe=document.createElement('video');probe.preload='metadata';probe.muted=true;probe.src=preview.dataset.videoMetaSrc;probe.addEventListener('loadedmetadata',()=>{if(probe.videoWidth&&probe.videoHeight){const ratio=probe.videoWidth/probe.videoHeight<.9?.8:probe.videoWidth/probe.videoHeight;preview.style.setProperty('--media-item-ratio',probe.videoWidth/probe.videoHeight<.9?'4 / 5':`${probe.videoWidth} / ${probe.videoHeight}`);preview.style.setProperty('--media-preview-max-width',`${360*ratio}px`);}probe.removeAttribute('src');probe.load();},{once:true});probe.addEventListener('error',()=>{probe.removeAttribute('src');},{once:true});}),{rootMargin:'160px'});document.querySelectorAll('.media-showcase-video-preview[data-video-meta-src]').forEach(preview=>showcaseMetadataObserver.observe(preview));}
 if('IntersectionObserver'in window){const showcaseVideoObserver=new IntersectionObserver(entries=>entries.forEach(entry=>{const video=entry.target;if(entry.isIntersecting&&entry.intersectionRatio>=.5){document.querySelectorAll('.media-showcase video').forEach(other=>{if(other!==video)other.pause()});if(!video.src&&video.dataset.src){video.src=video.dataset.src;video.load()}if(showcaseReducedMotion.matches){video.controls=true;video.pause();return}if(video.dataset.autoplay==='1'&&video.dataset.hoverPaused!=='1')video.play().catch(()=>{});}else video.pause();}),{threshold:[0,.5,1]});document.querySelectorAll('.media-showcase video').forEach(video=>{showcaseVideoObserver.observe(video);video.addEventListener('mouseenter',()=>{video.dataset.hoverPaused='1';video.pause()});video.addEventListener('mouseleave',()=>{video.dataset.hoverPaused='0';if(!showcaseReducedMotion.matches&&video.dataset.autoplay==='1'&&video.getBoundingClientRect().top<innerHeight&&video.getBoundingClientRect().bottom>0)video.play().catch(()=>{})});});}
 else document.querySelectorAll('.media-showcase video').forEach(video=>{video.src=video.dataset.src||'';video.controls=true;});

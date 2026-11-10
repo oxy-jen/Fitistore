@@ -1035,14 +1035,14 @@ def test_order_tracking_requires_private_token(client, app):
 def test_product_enquiry_and_restock_alert_save(client, app):
     rv = client.post("/product/plain-socks/enquiry", data={"message":"Do you have black?","contact":"0700","preferred_contact":"WhatsApp","consent_to_contact":"on"}, follow_redirects=True)
     assert rv.status_code == 200
-    assert b"product enquiry has been saved" in rv.data
+    assert b"Your question has been saved for the FityStores team." in rv.data
     with app.app_context():
         from app.models import Product, ProductEnquiry
         product = Product.query.filter_by(slug="plain-socks").first()
         product.stock_quantity = 0
         db.session.commit()
     rv = client.post("/product/plain-socks/restock-alert", data={"contact":"0700","preferred_contact":"WhatsApp","consent_to_contact":"on"}, follow_redirects=True)
-    assert b"Restock alert saved" in rv.data
+    assert b"Thanks. Your request is saved." in rv.data
     with app.app_context():
         from app.models import ProductEnquiry, RestockAlert
         assert ProductEnquiry.query.count() == 1
@@ -3505,3 +3505,76 @@ def test_manual_cart_reminder_revalidates_and_records_one_cart_episode(client, a
     assert cart.reminder_sent_at is not None
     assert cart.updated_at == original_activity
     assert EmailMessage.query.filter_by(idempotency_key=f"cart-reminder:{cart.episode_key}", status="sent").count() == 1
+
+
+def test_media_showcase_video_preview_crop_saves_and_renders_without_cropping_source(client, app):
+    _sign_in_admin(client, app)
+    items = [
+        {"type": "video", "title": "Portrait film", "url": "https://cdn.example.test/portrait.mp4",
+         "poster": "https://cdn.example.test/portrait.jpg", "presentation": "cover", "aspect_ratio": "9:16",
+         "width": 1080, "height": 1920, "preview_position_x": 73, "preview_position_y": 24},
+        {"type": "video", "title": "Landscape film", "url": "https://cdn.example.test/landscape.mp4",
+         "poster": "https://cdn.example.test/landscape.jpg", "presentation": "contain", "aspect_ratio": "16:9",
+         "width": 1920, "height": 1080},
+    ]
+    response = client.post("/admin/media-showcases/new", data={
+        "name": "Video crop test", "title": "Video preview", "page": "home",
+        "placement": "home_after_hero", "layout": "grid", "publish_action": "publish",
+        "is_enabled": "1", "items_json": json.dumps(items),
+    })
+    assert response.status_code == 302
+    with app.app_context():
+        showcase = MediaShowcase.query.filter_by(slug="video-crop-test").one()
+        showcase_id = showcase.id
+        portrait = next(item for item in showcase.items if item.title == "Portrait film")
+        assert (portrait.preview_position_x, portrait.preview_position_y) == (73, 24)
+
+    edit_page = client.get(f"/admin/media-showcases/{showcase_id}/edit")
+    encoded = re.search(rb'<script type="application/json" id="showcase-items-data">(.*?)</script>', edit_page.data, re.S)
+    assert encoded
+    editable_items = json.loads(json.loads(encoded.group(1)))
+    portrait_settings = next(item for item in editable_items if item["title"] == "Portrait film")
+    assert (portrait_settings["preview_position_x"], portrait_settings["preview_position_y"]) == (73, 24)
+
+    portrait_settings["preview_position_x"] = 50
+    portrait_settings["preview_position_y"] = 50
+    update = client.post(f"/admin/media-showcases/{showcase_id}/edit", data={
+        "name": "Video crop test", "title": "Video preview", "page": "home",
+        "placement": "home_after_hero", "layout": "grid", "publish_action": "keep",
+        "is_published": "1", "is_enabled": "1", "items_json": json.dumps(editable_items),
+    })
+    assert update.status_code == 302
+    with app.app_context():
+        portrait = next(item for item in MediaShowcase.query.get(showcase_id).items if item.title == "Portrait film")
+        assert (portrait.preview_position_x, portrait.preview_position_y) == (50, 50)
+
+    page = client.get("/")
+    assert page.status_code == 200
+    assert b"data-showcase-video-open" in page.data
+    assert b"data-video-src=\"https://cdn.example.test/portrait.mp4\"" in page.data
+    assert b"--media-item-ratio:4 / 5" in page.data
+    assert b"--media-item-ratio:16.0 / 9.0" in page.data
+    assert b"data-media-showcase-player" in page.data
+    assert b"media-showcase-player-content" in page.data
+    editor_js = client.get("/static/js/media-showcase-editor.js")
+    assert editor_js.status_code == 200
+    assert b"Horizontal position" in editor_js.data and b"Vertical position" in editor_js.data
+    assert b"Reset position" in editor_js.data
+
+
+def test_media_showcase_preview_position_upgrade_is_additive_and_idempotent():
+    from sqlalchemy import create_engine, inspect, text
+    from app.services.media_showcases import _add_missing_preview_position_columns
+
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE media_showcase_item (id INTEGER PRIMARY KEY, title VARCHAR(160) NOT NULL)"))
+        connection.execute(text("INSERT INTO media_showcase_item (id, title) VALUES (7, 'Saved video')"))
+        _add_missing_preview_position_columns(connection)
+        _add_missing_preview_position_columns(connection)
+        columns = {column["name"] for column in inspect(connection).get_columns("media_showcase_item")}
+        saved = connection.execute(text("SELECT id, title, preview_position_x, preview_position_y FROM media_showcase_item WHERE id=7")).one()
+
+    assert {"id", "title", "preview_position_x", "preview_position_y"} <= columns
+    assert tuple(saved) == (7, "Saved video", 50, 50)
+    engine.dispose()

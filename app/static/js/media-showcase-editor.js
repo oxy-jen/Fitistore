@@ -36,6 +36,12 @@
     if (key === 'poster') input.placeholder = 'Optional thumbnail/poster URL';
     label.append(input); parent.append(label); return input;
   };
+  const rangeField = (parent, labelText, key, value = 50) => {
+    const label = document.createElement('label'); label.append(document.createTextNode(labelText));
+    const input = document.createElement('input'); input.type = 'range'; input.min = '0'; input.max = '100'; input.step = '1'; input.dataset.itemKey = key; input.value = String(value ?? 50);
+    const output = document.createElement('output'); output.value = `${input.value}%`; output.textContent = output.value;
+    label.append(input, output); parent.append(label); return input;
+  };
   const formatBytes = (value) => value == null || !Number.isFinite(Number(value)) ? 'Size unavailable' : `${(Number(value) / 1048576).toFixed(2)} MB`;
   const sourceNames = { library: 'Existing media library', upload: 'New local upload', cloudinary: 'Cloudinary', external_url: 'External URL', video_embed: 'YouTube/Vimeo embed' };
   const esc = (value) => String(value || '');
@@ -146,8 +152,9 @@
         const embed = platformEmbed(item.url);
         if (embed) { const old = cachedMedia.get(String(index)); const frame = old?.tagName === 'IFRAME' && old.dataset.previewSource === embed ? old : document.createElement('iframe'); frame.dataset.previewKey = index; frame.dataset.previewSource = embed; frame.src = embed; frame.title = item.title || 'Embedded video preview'; frame.loading = 'lazy'; frame.allow = 'fullscreen; picture-in-picture'; frame.sandbox = 'allow-scripts allow-same-origin allow-presentation'; frame.className = 'media-embed-player'; frame.dataset.aspectRatio = item.aspect_ratio || ''; card.append(frame); }
       } else if (src && item.type === 'video') {
-        const old = cachedMedia.get(String(index)); const video = old?.tagName === 'VIDEO' && old.dataset.previewSource === src ? old : document.createElement('video'); video.dataset.previewKey = index; video.dataset.previewSource = src; if (!video.src || old?.dataset.previewSource !== src) video.src = src; video.poster = safePreviewUrl(item.poster); video.controls = true; video.muted = true; video.preload = 'none';
-        if (video !== old) video.addEventListener('loadedmetadata', () => { recordMetadata(index, video.videoWidth, video.videoHeight, video.duration); });
+        const old = cachedMedia.get(String(index)); const video = old?.tagName === 'VIDEO' && old.dataset.previewSource === src ? old : document.createElement('video'); video.dataset.previewKey = index; video.dataset.previewSource = src; if (!video.src || old?.dataset.previewSource !== src) video.src = src; video.poster = safePreviewUrl(item.poster); video.controls = true; video.muted = true; video.preload = 'metadata'; video.className = `media-presentation-${item.presentation || 'original'}`; video.dataset.presentationMode = item.presentation || 'original'; video.dataset.aspectRatio = item.aspect_ratio || ''; video.style.setProperty('--media-position-x', `${item.preview_position_x ?? 50}%`); video.style.setProperty('--media-position-y', `${item.preview_position_y ?? 50}%`);
+        if (item.width && item.height) { const ratio = Number(item.width) / Number(item.height) < .9 ? .8 : Number(item.width) / Number(item.height); video.style.setProperty('--media-item-ratio', ratio === .8 ? '4 / 5' : `${item.width} / ${item.height}`); video.style.maxWidth = `${360 * ratio}px`; }
+        if (video !== old) video.addEventListener('loadedmetadata', () => { const ratio = video.videoWidth / video.videoHeight < .9 ? .8 : video.videoWidth / video.videoHeight; video.style.setProperty('--media-item-ratio', ratio === .8 ? '4 / 5' : `${video.videoWidth} / ${video.videoHeight}`); video.style.maxWidth = `${360 * ratio}px`; recordMetadata(index, video.videoWidth, video.videoHeight, video.duration); });
         video.addEventListener('error', () => { if (!card.querySelector('.media-preview-error')) { const issue = document.createElement('small'); issue.className = 'media-preview-error'; issue.textContent = 'Video preview unavailable. Check the direct media URL or storage access.'; card.append(issue); } });
         if (video.readyState >= 1) recordMetadata(index, video.videoWidth, video.videoHeight, video.duration);
         card.append(video);
@@ -182,7 +189,7 @@
       const assetMeta = document.createElement('small'); assetMeta.className = 'media-item-meta'; assetMeta.dataset.mediaMetadata = '1';
       assetMeta.textContent = [card.dataset.filename, card.dataset.width && card.dataset.height ? `${card.dataset.width} × ${card.dataset.height}` : '', formatBytes(card.dataset.size || null), card.dataset.duration ? `${Number(card.dataset.duration).toFixed(1)} s` : ''].filter(Boolean).join(' · '); actions.append(assetMeta); card.append(actions);
       const fields = document.createElement('div'); fields.className = 'item-fields-grid';
-      choices(fields, 'Media type', 'type', item.type || 'image', [['video', 'Video'], ['gif', 'Animated GIF'], ['image', 'Image'], ['link', 'Link card']]);
+      const typeSelect = choices(fields, 'Media type', 'type', item.type || 'image', [['video', 'Video'], ['gif', 'Animated GIF'], ['image', 'Image'], ['link', 'Link card']]);
       textField(fields, 'Title', 'title', item.title || '');
       const url = textField(fields, 'Media URL', 'url', item.url || '', 'url');
       textField(fields, 'Poster / thumbnail URL', 'poster', item.poster || '', 'url');
@@ -195,6 +202,13 @@
       choices(fields, 'Media fit', 'presentation', item.presentation || 'original', [['original', 'Original / natural ratio'], ['contain', 'Contain the full media'], ['cover', 'Cover the frame (crop edges)']]);
       textField(fields, 'Frame ratio (optional)', 'aspect_ratio', item.aspect_ratio || '');
       card.append(fields);
+      const crop = document.createElement('div'); crop.className = 'media-crop-controls'; crop.dataset.videoCropControls = '1'; crop.hidden = typeSelect.value !== 'video';
+      const cropHeading = document.createElement('strong'); cropHeading.textContent = 'Video preview crop'; crop.append(cropHeading);
+      const cropHelp = document.createElement('p'); cropHelp.textContent = 'Adjust the preview only. The original video stays unchanged.'; crop.append(cropHelp);
+      rangeField(crop, 'Horizontal position', 'preview_position_x', item.preview_position_x);
+      rangeField(crop, 'Vertical position', 'preview_position_y', item.preview_position_y);
+      const cropReset = document.createElement('button'); cropReset.type = 'button'; cropReset.className = 'btn media-crop-reset'; cropReset.textContent = 'Reset position'; crop.append(cropReset);
+      card.append(crop);
       const sourceActions = document.createElement('div'); sourceActions.className = 'media-item-source-actions';
       const browse = document.createElement('button'); browse.type = 'button'; browse.className = 'btn'; browse.textContent = 'Choose existing media'; browse.dataset.itemLibrary = '1'; sourceActions.append(browse);
       const uploadLabel = document.createElement('label'); uploadLabel.className = 'btn media-upload-button'; uploadLabel.textContent = 'Upload file';
@@ -211,6 +225,13 @@
         if (detected) { card.querySelector('[data-item-key="type"]').value = detected.type; card.dataset.source = detected.source; source.textContent = sourceNames[detected.source]; if (detected.embed?.includes('youtube-nocookie.com') && !card.querySelector('[data-item-key="poster"]').value) card.querySelector('[data-item-key="poster"]').value = `https://img.youtube.com/vi/${detected.embed.split('/').pop()}/hqdefault.jpg`; }
         else if (url.value) { uploadStatus.textContent = 'Preview supports direct media files plus YouTube and Vimeo links.'; }
         renderPreview();
+      });
+      typeSelect.addEventListener('change', () => { crop.hidden = typeSelect.value !== 'video'; renderPreview(); });
+      cropReset.addEventListener('click', () => {
+        crop.querySelector('[data-item-key="preview_position_x"]').value = '50';
+        crop.querySelector('[data-item-key="preview_position_y"]').value = '50';
+        crop.querySelectorAll('output').forEach((output) => { output.value = '50%'; output.textContent = '50%'; });
+        dirty = true; renderPreview();
       });
       destination.querySelector?.('input');
       const destinationPreset = card.querySelector('[data-item-key="destination_preset"]');
@@ -395,7 +416,8 @@
   dialog?.querySelector('[data-library-search]')?.addEventListener('input', (event) => {
     const query = event.target.value.toLowerCase(); drawLibrary(libraryItems.filter((asset) => `${asset.filename} ${asset.type} ${asset.source}`.toLowerCase().includes(query)));
   });
-  form.addEventListener('input', (event) => { if (!event.target.matches('[data-color-picker]')) dirty = true; renderPreview(); });
+  form.addEventListener('input', (event) => { if (!event.target.matches('[data-color-picker]')) dirty = true; const output = event.target.parentElement?.querySelector('output'); if (output && event.target.type === 'range') { output.value = `${event.target.value}%`; output.textContent = output.value; } renderPreview(); });
+  form.addEventListener('change', (event) => { if (event.target.matches('[data-item-key="type"]')) renderPreview(); });
   document.querySelectorAll('[data-live-width]').forEach((button) => button.addEventListener('click', () => { preview.style.maxWidth = `${button.dataset.liveWidth}px`; }));
   form.addEventListener('submit', (event) => {
     const collected = collect();

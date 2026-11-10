@@ -85,7 +85,7 @@
   </details>
 
   <details class="json-help"><summary>Advanced JSON editor</summary><p>Use this only if you prefer editing the item data directly.</p><textarea class="items-json" name="items_json" rows="18" spellcheck="false">{{ items_json }}</textarea></details>
-  <div class="form-actions media-form-actions"><button class="btn" type="submit" name="publish_action" value="keep">{{ 'Save changes' if showcase else 'Save draft' }}</button><button class="btn" type="submit" name="publish_action" value="draft">Save as draft</button><button class="btn primary" type="submit" name="publish_action" value="publish">{{ 'Publish / update' if showcase else 'Publish now' }}</button>{% if showcase %}<a class="btn" href="{{ url_for('admin.media_showcase_preview', showcase_id=showcase.id) }}">Open full preview</a>{% endif %}</div>
+  <div class="form-actions media-form-actions"><button class="btn" type="submit" name="publish_action" value="keep">{{ 'Save changes' if showcase else 'Save draft' }}</button><button class="btn" type="submit" name="publish_action" value="draft">Save as draft</button><button class="btn primary" type="submit" name="publish_action" value="publish">{{ 'Publish / update' if showcase else 'Publish now' }}</button><a class="btn" href="{{ url_for('admin.media_showcases') }}">Cancel</a>{% if showcase %}<a class="btn" href="{{ url_for('admin.media_showcase_preview', showcase_id=showcase.id) }}">Open full preview</a>{% endif %}</div>
 </form>
 
 <aside class="media-live-preview-panel">
