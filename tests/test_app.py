@@ -9,7 +9,7 @@ import app as app_module
 from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, AuthRateLimit, CartAddCount, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, MediaShowcase, MediaShowcaseItem, Order, OrderItem, OrderStatusHistory, Product, ProductImage, ProductSuggestion, Review, ShopSettings, UpcomingProduct, UpcomingProductVote
+from app.models import AdminUser, AuthRateLimit, CartAddCount, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, MediaShowcase, MediaShowcaseItem, Order, OrderItem, OrderStatusHistory, Product, ProductImage, ProductLike, ProductSuggestion, Review, ShopSettings, UpcomingProduct, UpcomingProductVote
 from config import TestConfig
 
 @pytest.fixture()
@@ -794,6 +794,49 @@ def test_homepage_most_added_carousel_keeps_popularity_order_and_pagination_cont
     assert b'data-product-id=' in section
     assert b'href="/product/plain-socks"' in section
     assert section.index(b"Unpriced Cap") < section.index(b"Plain Socks")
+
+
+def test_homepage_most_added_ranks_likes_before_cart_counts(client, app):
+    with app.app_context():
+        products = {product.name: product for product in Product.query.all()}
+        socks = products["Plain Socks"]
+        cap = products["Unpriced Cap"]
+        db.session.add_all([
+            CartAddCount(product_id=socks.id, add_count=20),
+            CartAddCount(product_id=cap.id, add_count=1),
+            ProductLike(product_id=socks.id, voter_hash="a" * 64),
+            ProductLike(product_id=cap.id, voter_hash="b" * 64),
+            ProductLike(product_id=cap.id, voter_hash="c" * 64),
+        ])
+        db.session.commit()
+
+    response = client.get("/")
+    assert response.status_code == 200
+    section = response.data[response.data.index(b'id="most-added"'):response.data.index(b'id="category-showcase"')]
+    assert section.index(b"Unpriced Cap") < section.index(b"Plain Socks")
+    assert b"data-cart-count=\"20\"" in section
+    assert b"data-cart-count-toggle" in section
+    assert b"data-product-like" in section
+    assert b"items added to carts" in section
+
+
+def test_product_like_endpoint_toggles_one_persistent_vote(client, app):
+    with app.app_context():
+        product_id = Product.query.filter_by(slug="plain-socks").one().id
+
+    first = client.post(f"/api/products/{product_id}/like", json={})
+    assert first.status_code == 200
+    assert first.get_json() == {"ok": True, "liked": True, "like_count": 1}
+
+    second = client.post(f"/api/products/{product_id}/like", json={})
+    assert second.status_code == 200
+    assert second.get_json() == {"ok": True, "liked": False, "like_count": 0}
+
+
+def test_cart_add_endpoint_returns_updated_real_add_count(client):
+    response = client.post("/api/cart/add", json={"product_id": 1, "quantity": 2})
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True, "add_count": 2}
 
 def test_about_renders_live_categories_products_and_working_destinations(client):
     rv = client.get("/about")
@@ -1727,7 +1770,8 @@ def test_customer_registration_hashes_password_and_defaults_marketing_off(client
     app.config["MAIL_PROVIDER"] = ""
     response = _register_customer(client)
     assert response.status_code == 200
-    assert b"Your FityStores account" in response.data
+    assert b"Your account was created successfully" in response.data
+    assert b"Sign in with your email and password to request a verification code" in response.data
     with app.app_context():
         account = CustomerAccount.query.filter_by(email="customer@example.com").one()
         assert account.password_hash != "a-strong-test-password-123"
@@ -2511,7 +2555,9 @@ def test_registration_shows_honest_email_delivery_status_and_public_url(client, 
     monkeypatch.setattr(customer_mail, "_send_smtp", lambda recipient, subject, html, text: sent.append(text))
     response = _register_customer(client, email="mail-status@example.com")
     assert response.status_code == 200
-    assert b"accepted by the mail server" in response.data
+    assert b"Your account was created successfully" in response.data
+    assert b"Check your inbox for a verification link" in response.data
+    assert b"accepted by the mail server" not in response.data
     assert "https://fitystore.top/account/verify/" in sent[0]
     with app.app_context():
         row = EmailMessage.query.filter_by(kind="verify_email").one()
@@ -2530,7 +2576,7 @@ def test_resend_verification_reports_not_configured_and_rate_limits(client, app)
         session["pending_customer_id"] = account_id
         session["pending_customer_purpose"] = "verify_code"
     first = client.post("/account/verification/resend", follow_redirects=True)
-    assert b"No verification email was sent" in first.data
+    assert "We can’t send your verification email right now".encode("utf-8") in first.data
     client.post("/account/verification/resend", follow_redirects=True)
     client.post("/account/verification/resend", follow_redirects=True)
     limited = client.post("/account/verification/resend", follow_redirects=True)

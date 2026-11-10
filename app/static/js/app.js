@@ -245,7 +245,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       let pageSize=0;
       let currentPage=0;
       let pages=[];
-      const getPageSize=()=>window.matchMedia('(max-width: 600px)').matches?2:window.matchMedia('(max-width: 980px)').matches?3:4;
+      const getPageSize=()=>window.matchMedia('(max-width: 600px)').matches?2:window.matchMedia('(max-width: 980px)').matches?3:window.matchMedia('(min-width: 1200px)').matches?5:4;
       const showPage=(index,{announce=false}={})=>{
         currentPage=Math.max(0,Math.min(index,pages.length-1));
         track.style.transform=`translate3d(${-currentPage*100}%,0,0)`;
@@ -302,6 +302,54 @@ document.addEventListener('DOMContentLoaded',()=>{
         touchStartX=null;
         if(Math.abs(delta)>45)showPage(currentPage+(delta<0?1:-1),{announce:true});
       },{passive:true});
+      track.addEventListener('click',async event=>{
+        const countToggle=event.target.closest('[data-cart-count-toggle]');
+        if(countToggle){
+          const count=document.getElementById(countToggle.getAttribute('aria-controls'));
+          if(!count)return;
+          const expanded=countToggle.getAttribute('aria-expanded')==='true';
+          countToggle.setAttribute('aria-expanded',String(!expanded));
+          count.hidden=expanded;
+          const productName=countToggle.closest('[data-product-card]')?.querySelector('.most-added-product-name')?.textContent.trim()||'product';
+          countToggle.setAttribute('aria-label',`${expanded?'Show':'Hide'} how many ${productName} items shoppers have added to carts`);
+          return;
+        }
+        const likeButton=event.target.closest('[data-product-like]');
+        if(!likeButton||likeButton.disabled)return;
+        likeButton.disabled=true;
+        try{
+          const response=await fetch(likeButton.dataset.url,{method:'POST',headers:{'X-CSRFToken':document.querySelector('meta[name="csrf-token"]')?.content||'',Accept:'application/json'}});
+          const result=await response.json();
+          if(!response.ok||!result.ok)throw new Error(result.message||'Like unavailable');
+          likeButton.setAttribute('aria-pressed',String(result.liked));
+          likeButton.dataset.liked=String(result.liked);
+          likeButton.setAttribute('aria-label',`${result.liked?'Unlike':'Like'} ${likeButton.closest('[data-product-card]')?.querySelector('.most-added-product-name')?.textContent.trim()||'product'}`);
+          const count=likeButton.querySelector('[data-like-count]');
+          if(count)count.textContent=String(result.like_count);
+          const card=likeButton.closest('.marquee-item');
+          if(card)card.dataset.likeCount=String(result.like_count);
+          if(status)status.textContent='Likes saved. Products are ordered by likes, then cart additions.';
+          cards.sort((left,right)=>Number(right.dataset.likeCount||0)-Number(left.dataset.likeCount||0)||Number(right.dataset.cartCount||0)-Number(left.dataset.cartCount||0));
+          track.replaceChildren(...cards);
+          pageSize=0;
+          buildPages();
+        }catch(error){
+          if(status)status.textContent=error.message||'Your like could not be saved. Please try again.';
+        }finally{likeButton.disabled=false;}
+      });
+      window.addEventListener('fity:cart-add-count-updated',event=>{
+        const productId=String(event.detail?.productId||'');
+        const card=cards.find(item=>item.querySelector('[data-product-card]')?.dataset.productCard===productId);
+        if(!card)return;
+        const count=Math.max(0,Number(event.detail?.addCount||0));
+        card.dataset.cartCount=String(count);
+        const countText=card.querySelector('.most-added-cart-count');
+        if(countText)countText.textContent=`${count} items added to carts`;
+        cards.sort((left,right)=>Number(right.dataset.likeCount||0)-Number(left.dataset.likeCount||0)||Number(right.dataset.cartCount||0)-Number(left.dataset.cartCount||0));
+        track.replaceChildren(...cards);
+        pageSize=0;
+        buildPages();
+      });
       buildPages();
       window.addEventListener('resize',buildPages,{passive:true});
     }

@@ -35,7 +35,7 @@
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/pwa/apple-touch-icon.png') }}">
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=adaptive-nav-overflow-20261107">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=most-added-short-cards-20261110">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}?v=adaptive-nav-overflow-20261107">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/media-showcases.css') }}?v=media-admin-bulk-publish-20261106">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/pwa.css') }}?v=pwa-install-v1">
@@ -46,9 +46,9 @@
   {{ {"@context": "https://schema.org", "@type": "WebSite", "name": settings.shop_name, "url": "https://fitystore.top/", "potentialAction": {"@type": "SearchAction", "target": "https://fitystore.top/shop?q={search_term_string}", "query-input": "required name=search_term_string"}}|tojson }}
   </script>{% endif %}
   <meta name="google-site-verification" content="ZfoAom6cq3cfHBQw4NOz6s2TA8_1rBkte9rLF7owC8c" />
-  <script defer src="{{ url_for('static', filename='js/cart.js') }}?v=site-nav-overflow-20261107"></script>
+  <script defer src="{{ url_for('static', filename='js/cart.js') }}?v=most-added-count-20261110"></script>
   <script defer src="{{ url_for('static', filename='js/nav-overflow.js') }}?v=measured-navigation-overflow-20261107"></script>
-  <script defer src="{{ url_for('static', filename='js/app.js') }}?v=upcoming-spotlight-20261106"></script>
+  <script defer src="{{ url_for('static', filename='js/app.js') }}?v=most-added-short-cards-20261110"></script>
   <script defer src="{{ url_for('static', filename='js/pwa-install.js') }}?v=pwa-install-v1"></script>
 </head>
 <body{% if request.endpoint == 'public.upcoming' %} class="upcoming-page-body"{% endif %}>

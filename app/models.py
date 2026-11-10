@@ -44,6 +44,15 @@ class CartAddCount(db.Model):
     add_count = db.Column(db.Integer, nullable=False, default=0)
 
 
+class ProductLike(db.Model):
+    __tablename__ = "product_like"
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id", ondelete="CASCADE"), nullable=False, index=True)
+    voter_hash = db.Column(db.String(64), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (UniqueConstraint("product_id", "voter_hash", name="uq_product_like_voter"),)
+
+
 class Product(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(140), nullable=False, index=True)

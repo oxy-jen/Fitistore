@@ -62,12 +62,25 @@ def _public_url(endpoint, **values):
 def _delivery_message(result, label="verification"):
     status = getattr(result, "status", "")
     if status == "sent":
-        return f"The {label} email was accepted by the mail server. Check your inbox and spam folder; acceptance does not guarantee inbox delivery."
+        return f"We’ve sent your {label} email. Check your inbox and spam folder. If it doesn’t arrive, you can request another."
     if status == "not_configured":
-        return f"No {label} email was sent because email delivery is not configured. Please try again later."
+        return f"We can’t send your {label} email right now. Please try again later."
     if status == "failed":
-        return f"The {label} email could not be sent. Please try again later."
-    return f"The {label} email could not be queued. Please try again later."
+        return f"We couldn’t send your {label} email. Please try again in a moment."
+    return f"We couldn’t prepare your {label} email. Please try again shortly."
+
+
+def _registration_message(result):
+    if getattr(result, "status", "") == "sent":
+        return (
+            "Your account was created successfully. Check your inbox for a verification link, "
+            "then sign in to start shopping. If you don’t see the email, check spam or request "
+            "a verification code from the sign-in page."
+        )
+    return (
+        "Your account was created successfully, but email verification still needs to be completed. "
+        "Sign in with your email and password to request a verification code, or try again later."
+    )
 
 
 def customer_required(view):
@@ -355,10 +368,7 @@ def register():
             _record_consent(account, "confirmed", "registration_checkbox")
         db.session.commit()
         result = _issue_and_send(account, "verify_email", next_url=next_url)
-        flash(
-            "Your FityStores account was created. " + _delivery_message(result),
-            "success" if result and result.status == "sent" else "warning",
-        )
+        flash(_registration_message(result), "success" if result and result.status == "sent" else "warning")
         return redirect(url_for("customer.login", next=next_url))
     return render_template("customer/register.html", title="Create account", next_url=next_url)
 

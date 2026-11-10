@@ -13,13 +13,14 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
-from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review, UpcomingProduct, UpcomingProductVote
+from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductLike, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review, UpcomingProduct, UpcomingProductVote
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
 from app.services.mamba_collection import mamba_products_query
 from app.services.media_showcases import showcases_by_placement
 from app.services.upcoming_products import upcoming_product_schema_ready
+from app.services.product_likes import product_like_schema_ready
 from app.services.category_thumbnails import CATEGORY_GROUPS, CATEGORY_GROUPS_BY_KEY, category_group_key, category_thumbnails_schema_ready
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
 from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
@@ -36,6 +37,23 @@ def product_list_options(query):
         selectinload(Product.images),
         selectinload(Product.variants).joinedload(ProductVariant.image),
     )
+
+
+def _product_like_voter_hash(create=False):
+    """Return a stable pseudonymous voter key without storing account/email data."""
+    identity = None
+    user = current_user._get_current_object()
+    if isinstance(user, CustomerAccount):
+        identity = f"customer:{user.id}"
+    else:
+        identity = session.get("product_like_voter")
+        if not identity and create:
+            identity = token_urlsafe(32)
+            session["product_like_voter"] = identity
+    if not identity:
+        return None
+    secret = str(current_app.secret_key or "").encode("utf-8")
+    return hmac.new(secret, identity.encode("utf-8"), hashlib.sha256).hexdigest()
 
 TRACKING_STEP_COPY = {
     "Order received": "Your order has been received and is waiting for seller review.",
@@ -188,7 +206,36 @@ def home():
     featured = product_list_options(featured_query).order_by(Product.updated_at.desc(), Product.id.desc()).limit(8).all()
     used_product_ids.update(product.id for product in featured)
 
-    top_added = [product for product in product_list_options(Product.query.join(CartAddCount, CartAddCount.product_id == Product.id).filter(Product.active.is_(True)).order_by(CartAddCount.add_count.desc(), Product.name.asc())).all() if product.display_stock_quantity > 0][:8]
+    top_added_candidates = [product for product in product_list_options(Product.query.join(CartAddCount, CartAddCount.product_id == Product.id).filter(Product.active.is_(True)).order_by(CartAddCount.add_count.desc(), Product.name.asc())).all() if product.display_stock_quantity > 0]
+    product_like_counts = {}
+    liked_product_ids = set()
+    likes_enabled = product_like_schema_ready()
+    if likes_enabled and top_added_candidates:
+        product_ids = [product.id for product in top_added_candidates]
+        try:
+            product_like_counts = dict(
+                db.session.query(ProductLike.product_id, func.count(ProductLike.id))
+                .filter(ProductLike.product_id.in_(product_ids))
+                .group_by(ProductLike.product_id).all()
+            )
+            voter_hash = _product_like_voter_hash(create=True)
+            if voter_hash:
+                liked_product_ids = {
+                    product_id for (product_id,) in db.session.query(ProductLike.product_id)
+                    .filter(ProductLike.product_id.in_(product_ids), ProductLike.voter_hash == voter_hash).all()
+                }
+        except SQLAlchemyError as exc:
+            db.session.rollback()
+            current_app.logger.error("Homepage product like data could not be loaded (%s).", type(exc).__name__)
+            product_like_counts = {}
+            liked_product_ids = set()
+            likes_enabled = False
+    cart_add_counts = {
+        product_id: count for product_id, count in db.session.query(CartAddCount.product_id, CartAddCount.add_count)
+        .filter(CartAddCount.product_id.in_([product.id for product in top_added_candidates])).all()
+    } if top_added_candidates else {}
+    top_added_candidates.sort(key=lambda product: (-product_like_counts.get(product.id, 0), -cart_add_counts.get(product.id, 0), product.name.casefold()))
+    top_added = top_added_candidates[:8]
 
     categories = Category.query.join(Product).filter(Product.active.is_(True)).group_by(Category.id).order_by(Category.name).all()
     category_sections = []
@@ -256,6 +303,8 @@ def home():
         seo_description=section_description, canonical_url=home_canonical, og_image=home_og_image,
         og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=section_title + " at FityStores",
         fresh_arrivals=fresh_arrivals, featured=featured, top_added=top_added, discounted=discounted,
+        cart_add_counts=cart_add_counts, product_like_counts=product_like_counts,
+        liked_product_ids=liked_product_ids, product_likes_enabled=likes_enabled,
         category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories,
         mamba_collection_configured=mamba_collection_configured,
         suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE,
@@ -862,14 +911,45 @@ def api_record_cart_add():
     if counter:
         counter.add_count += quantity
     else:
-        db.session.add(CartAddCount(product_id=product_id, add_count=quantity))
+        counter = CartAddCount(product_id=product_id, add_count=quantity)
+        db.session.add(counter)
     try:
         db.session.commit()
     except Exception:
         db.session.rollback()
         current_app.logger.exception("Could not record cart addition")
         return jsonify({"ok": False}), 503
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "add_count": counter.add_count})
+
+
+@public_bp.post("/api/products/<int:product_id>/like")
+def api_toggle_product_like(product_id):
+    if not product_like_schema_ready():
+        return jsonify({"ok": False, "message": "Likes are temporarily unavailable."}), 503
+    product = Product.query.filter_by(id=product_id, active=True).first()
+    if not product:
+        return jsonify({"ok": False, "message": "Product not found."}), 404
+    voter_hash = _product_like_voter_hash(create=True)
+    existing = ProductLike.query.filter_by(product_id=product.id, voter_hash=voter_hash).first()
+    try:
+        if existing:
+            db.session.delete(existing)
+            liked = False
+        else:
+            db.session.add(ProductLike(product_id=product.id, voter_hash=voter_hash))
+            liked = True
+        db.session.commit()
+    except IntegrityError:
+        # A parallel request from the same shopper may have inserted the
+        # unique vote first. Recover to the persisted state without a 500.
+        db.session.rollback()
+        liked = ProductLike.query.filter_by(product_id=product.id, voter_hash=voter_hash).first() is not None
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("Could not record product like (%s).", type(exc).__name__)
+        return jsonify({"ok": False, "message": "Your like could not be saved. Please try again."}), 503
+    like_count = ProductLike.query.filter_by(product_id=product.id).count()
+    return jsonify({"ok": True, "liked": liked, "like_count": like_count})
 
 
 @public_bp.post("/api/cart/snapshot")
