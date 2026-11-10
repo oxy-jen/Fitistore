@@ -784,6 +784,15 @@ def test_homepage_most_added_carousel_keeps_popularity_order_and_pagination_cont
     assert b'data-most-added-track' in section
     assert b'data-most-added-prev' in section
     assert b'data-most-added-next' in section
+    assert b'Popular picks' in section
+    assert b'Most added to cart' in section
+    assert b'Discover the products shoppers love.' in section
+    assert b'View all products' in section
+    assert b'most-added-product-name' in section
+    assert b'most-added-price-row' in section
+    assert b'available' in section
+    assert b'data-product-id=' in section
+    assert b'href="/product/plain-socks"' in section
     assert section.index(b"Unpriced Cap") < section.index(b"Plain Socks")
 
 def test_about_renders_live_categories_products_and_working_destinations(client):

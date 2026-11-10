@@ -18,13 +18,16 @@
   </a>
   <div class="product-body">
     {% if compact_product_card|default(false) %}
-      <span class="most-added-product-name" title="{{ product.name }}">{{ product.name }}</span>
-      <div class="most-added-price-actions">
-        <span class="most-added-price">{% if variant_count and product.min_variant_price_cents is not none %}{{ money(product.min_variant_price_cents, settings.currency) }}{% elif product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}Ask for price{% endif %}</span>
+      <p class="category">{{ product.category.name }}</p>
+      <h3 class="most-added-product-name"><a href="{{ url_for('public.product_detail', slug=product.slug) }}">{{ product.name }}</a></h3>
+      <div class="most-added-price-row"><span class="most-added-price">{% if variant_count and product.min_variant_price_cents is not none %}{% if product.min_variant_price_cents == product.max_variant_price_cents %}{{ money(product.min_variant_price_cents, settings.currency) }}{% else %}From {{ money(product.min_variant_price_cents, settings.currency) }}{% endif %}{% elif product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}Ask for price{% endif %}</span>{% if product.has_discount and not variant_count %}<span class="most-added-discount">{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% off</span>{% endif %}</div>
+      {% if product.has_discount and not variant_count %}<p class="most-added-original-price"><s>{{ money(product.previous_price_cents, settings.currency) }}</s> <span>Regular price</span></p>{% endif %}
+      <p class="stock {{ 'bad' if display_stock == 0 else 'warn' if display_stock <= product.low_stock_threshold else '' }}">{% if display_stock > 0 %}{{ display_stock }} available{% if variant_count %} across options{% endif %}{% else %}Out of stock{% endif %}</p>
+      <div class="shop-card-actions">
         {% if display_stock < 1 %}<button class="btn primary most-added-add" type="button" disabled aria-label="{{ product.name }} is out of stock"><svg class="icon"><use href="#icon-cart"></use></svg><span>Out of stock</span></button>
         {% elif product.price_cents is none and not requires_option_choice %}<a class="btn primary most-added-add" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>View product</span></a>
         {% elif requires_option_choice %}<a class="btn primary most-added-add" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-cart"></use></svg><span>Choose options</span></a>
-        {% else %}<button class="btn primary add-cart most-added-add" data-product-id="{{ product.id }}" data-name="{{ product.name }}" {% if display_stock < 1 %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to Cart</span></button>{% endif %}
+        {% else %}<button class="btn primary add-cart most-added-add" data-product-id="{{ product.id }}" data-name="{{ product.name }}"><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to Cart</span></button>{% endif %}
       </div>
     {% else %}
     <p class="category">{{ product.category.name }}</p>
