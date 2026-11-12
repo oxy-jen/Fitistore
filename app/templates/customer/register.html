@@ -13,8 +13,8 @@
       <input type="hidden" name="next" value="{{ next_url }}">
       <label>Your name<input name="display_name" maxlength="120" required autocomplete="name"></label>
       <label>Email address<input type="email" name="email" maxlength="254" required autocomplete="email"></label>
-      <label>Password <span class="account-muted">(at least 12 characters)</span><input type="password" name="password" minlength="12" maxlength="128" required autocomplete="new-password"></label>
-      <label>Confirm password<input type="password" name="confirm_password" minlength="12" maxlength="128" required autocomplete="new-password"></label>
+      <label>Password <span class="account-muted">(at least 4 characters)</span><input type="password" name="password" minlength="4" required autocomplete="new-password"></label>
+      <label>Confirm password<input type="password" name="confirm_password" minlength="4" required autocomplete="new-password"></label>
       <p class="account-legal account-consent-note">Before creating your account, please review the <a href="{{ url_for('public.terms') }}">Terms and Conditions</a> and <a href="{{ url_for('public.privacy_policy') }}">Privacy Notice</a>.</p>
       <label class="check account-consent account-consent-compact"><input type="checkbox" name="accept_terms" value="yes" required> I have read and agree to the Terms and Conditions and acknowledge the Privacy Notice.</label>
       <small class="account-legal account-consent-note">FityStores may send essential account, security, and order messages.</small>

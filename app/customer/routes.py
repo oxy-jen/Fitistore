@@ -348,8 +348,8 @@ def register():
             return render_template("customer/register.html", title="Create account", next_url=next_url)
         name = request.form.get("display_name", "").strip()[:120]
         password = request.form.get("password", "")
-        if len(name) < 1 or len(password) < 12 or len(password) > 128 or password != request.form.get("confirm_password", ""):
-            flash("Enter your name and a matching password of at least 12 characters.", "error")
+        if len(name) < 1 or len(password) < 4 or len(password) > 1024 or password != request.form.get("confirm_password", ""):
+            flash("Enter your name and a matching password between 4 and 1024 characters.", "error")
             return render_template("customer/register.html", title="Create account", next_url=next_url)
         if CustomerAccount.query.filter_by(email=email).first():
             flash("If this address can be registered, we will send the next steps to it.", "info")
@@ -804,8 +804,8 @@ def reset_password(token):
         flash("That password reset link is invalid or expired.", "error")
         return redirect(url_for("customer.forgot_password"))
     password = request.form.get("password", "")
-    if len(password) < 12 or len(password) > 128 or password != request.form.get("confirm_password", ""):
-        flash("Enter matching passwords of at least 12 characters.", "error")
+    if len(password) < 4 or len(password) > 1024 or password != request.form.get("confirm_password", ""):
+        flash("Enter matching passwords between 4 and 1024 characters.", "error")
         return render_template("customer/reset_password.html", title="Choose a new password", token=token, valid=True)
     row.used_at = datetime.utcnow()
     row.account.password_hash = generate_password_hash(password)

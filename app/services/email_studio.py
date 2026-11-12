@@ -1,5 +1,6 @@
 """Safe, data-backed rendering helpers for administrator-initiated emails."""
 import re
+from urllib.parse import urlsplit
 
 from flask import render_template
 
@@ -201,6 +202,16 @@ def render_studio_message(category, subject, headline, message, context, *, bloc
             seen_product_ids.add(product_id)
         unique_products.append(product)
     products = unique_products
+    icon_base_url = (site_url or shop_url or "https://fitystore.top").strip().rstrip("/")
+    parsed_site = urlsplit(icon_base_url)
+    if parsed_site.scheme and parsed_site.netloc:
+        icon_base_url = f"{parsed_site.scheme}://{parsed_site.netloc}"
+    else:
+        icon_base_url = "https://fitystore.top"
+    benefit_icon_urls = {
+        name: f"{icon_base_url}/static/images/email-icons/benefit-{name}.png"
+        for name in ("secure", "delivery", "support", "quality")
+    }
     resolved_blocks = []
     for block in blocks:
         item = dict(block)
@@ -227,6 +238,7 @@ def render_studio_message(category, subject, headline, message, context, *, bloc
         contact_url=contact_url, hero_image_url=hero_image_url, about_url=about_url,
         preferences_url=preferences_url, whatsapp_url=whatsapp_url,
         social_icon_urls=social_icon_urls or {},
+        benefit_icon_urls=benefit_icon_urls,
     )
     text_lines = [headline, "", message]
     if resolved_blocks:

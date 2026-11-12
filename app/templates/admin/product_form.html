@@ -10,9 +10,43 @@
   <div class="form-grid"><label>Promotional/previous price in KSh<input name="previous_price" inputmode="decimal" value="{{ (product.previous_price_cents / 100) if product and product.previous_price_cents is not none else '' }}"></label><label>Reserved quantity<input value="{{ product.reserved_quantity if product else 0 }}" disabled></label></div>
   <div class="form-grid"><label>Stock quantity<input name="stock_quantity" type="number" min="0" value="{{ product.stock_quantity if product else 0 }}" required></label><label>Low-stock threshold<input name="low_stock_threshold" type="number" min="0" value="{{ product.low_stock_threshold if product else settings.default_low_stock_threshold }}"></label></div>
   <div class="form-grid"><label>Sizes or variants, comma separated<input name="size_options" value="{{ product.size_options if product else '' }}" placeholder="S, M, L or 38, 39, 40"></label><label>Available colours, comma separated<input name="color_options" value="{{ product.color_options if product else '' }}" placeholder="Black, white, red"></label></div>
-  <label>Variants, one per line<textarea name="variants_text" rows="6" placeholder="Small | Black | Basic | HB-SMALL | 10 | 5 | 20 | active&#10;Medium | Black | Standard | HB-MED | 40 | 20 | 12 | active&#10;Large | Purple | Premium | HB-PREM | 60 | 30 | 8 | active">{% if product %}{% for variant in product.variants %}{{ variant.size or '' }} | {{ variant.color or '' }} | {{ variant.style or '' }} | {{ variant.sku or '' }} | {{ (variant.price_cents / 100) if variant.price_cents is not none else '' }} | {{ (variant.unit_cost_cents / 100) if variant.unit_cost_cents is not none else '' }} | {{ variant.stock_quantity }} | {{ 'active' if variant.active else 'inactive' }}{% if not loop.last %}
-{% endif %}{% endfor %}{% endif %}</textarea></label>
-  <p class="note small">Use one line per option when the same product has different prices or stock, for example hair bands at KSh 10, KSh 40, and KSh 60. Format: Size | Colour | Style | SKU | Price KSh | Cost KSh | Stock | active.</p>
+  {% set variant_rows = variant_form_rows if variant_form_rows is defined and variant_form_rows is not none else [] %}
+  {% if not variant_rows %}{% set variant_rows = [{}] %}{% endif %}
+  <section class="admin-variant-studio" aria-labelledby="admin-variant-title">
+    <div class="admin-variant-heading"><div><p class="eyebrow">Customer product options</p><h2 id="admin-variant-title">Variants, colours, and stock</h2><p>Add one row for each combination customers can select. For example, Black / Small and Pink / Small are separate variants with their own price, stock, and image.</p></div><button class="btn" type="button" id="add-product-variant">Add another option</button></div>
+    <div id="product-variant-rows" class="admin-variant-rows">
+      {% for row in variant_rows %}
+      <article class="admin-variant-row" data-product-variant-row>
+        <div class="admin-variant-row-heading"><strong>Option {{ loop.index }}</strong><button class="btn danger" type="button" data-remove-product-variant>Remove option</button></div>
+        <div class="admin-variant-fields">
+          <label>Size<input name="variant_size" value="{{ row.get('size', '') }}" placeholder="Small, M, 38"></label>
+          <label>Colour<input name="variant_color" value="{{ row.get('color', '') }}" placeholder="Black, Pink, Other"></label>
+          <label>Style<input name="variant_style" value="{{ row.get('style', '') }}" placeholder="Basic, Premium"></label>
+          <label>Material<input name="variant_material" value="{{ row.get('material', '') }}" placeholder="Cotton, leather"></label>
+          <label>Pack size<input name="variant_pack_size" value="{{ row.get('pack_size', '') }}" placeholder="Single, 3-pack"></label>
+          <label>Variant SKU<input name="variant_sku" value="{{ row.get('sku', '') }}" maxlength="80"></label>
+          <label>Price in KSh<input name="variant_price" type="number" min="0" step="0.01" value="{{ row.get('price', '') }}" placeholder="Uses product price if blank"></label>
+          <label>Unit cost in KSh<input name="variant_unit_cost" type="number" min="0" step="0.01" value="{{ row.get('unit_cost', '') }}"></label>
+          <label>Stock<input name="variant_stock_quantity" type="number" min="0" step="1" value="{{ row.get('stock_quantity', '') }}" placeholder="0"></label>
+          <label>Preview image<select name="variant_image_id"><option value="">Use main product image</option>{% if product %}{% for image in product.images %}<option value="{{ image.id }}" {% if row.get('image_id', '')|string == image.id|string %}selected{% endif %}>{{ image.alt_text or ('Product image ' ~ loop.index) }}{% if image.is_primary %} (main){% endif %}</option>{% endfor %}{% endif %}</select></label>
+          <label class="admin-variant-upload">Or upload this option's image<input name="variant_image_files" type="file" accept="image/jpeg,image/png,image/webp,image/gif"></label>
+        </div>
+        <div class="admin-variant-row-footer"><label class="check"><input type="checkbox" data-variant-active-toggle {% if row.get('active', true) in [true, '1', 'on', 'true', 'active'] %}checked{% endif %}> Available to customers</label><input type="hidden" name="variant_active" value="{{ '1' if row.get('active', true) in [true, '1', 'on', 'true', 'active'] else '0' }}"></div>
+      </article>
+      {% endfor %}
+    </div>
+    <p class="note small">Add every colour, size, style, or pack combination as its own row. Customers will see available choices as selectable chips. Variant uploads are added to this product's gallery and saved as that option's preview; a selected gallery image can be used instead.</p>
+  </section>
+  <template id="product-variant-row-template">
+    <article class="admin-variant-row" data-product-variant-row>
+      <div class="admin-variant-row-heading"><strong>New option</strong><button class="btn danger" type="button" data-remove-product-variant>Remove option</button></div>
+      <div class="admin-variant-fields">
+        <label>Size<input name="variant_size" placeholder="Small, M, 38"></label><label>Colour<input name="variant_color" placeholder="Black, Pink, Other"></label><label>Style<input name="variant_style" placeholder="Basic, Premium"></label><label>Material<input name="variant_material" placeholder="Cotton, leather"></label><label>Pack size<input name="variant_pack_size" placeholder="Single, 3-pack"></label><label>Variant SKU<input name="variant_sku" maxlength="80"></label>
+        <label>Price in KSh<input name="variant_price" type="number" min="0" step="0.01" placeholder="Uses product price if blank"></label><label>Unit cost in KSh<input name="variant_unit_cost" type="number" min="0" step="0.01"></label><label>Stock<input name="variant_stock_quantity" type="number" min="0" step="1" placeholder="0"></label>
+        <label>Preview image<select name="variant_image_id"><option value="">Use main product image</option></select></label><label class="admin-variant-upload">Or upload this option's image<input name="variant_image_files" type="file" accept="image/jpeg,image/png,image/webp,image/gif"></label>
+      </div><div class="admin-variant-row-footer"><label class="check"><input type="checkbox" data-variant-active-toggle checked> Available to customers</label><input type="hidden" name="variant_active" value="1"></div>
+    </article>
+  </template>
   <label>Main/additional product images<input id="product-images" name="images" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple></label><div id="image-preview" class="preview-grid"></div>
   <div id="online-image-urls">
     <div class="online-image-url-row">
@@ -29,5 +63,6 @@
 </form>
 {% if product and product.images %}{% for image in product.images %}<form id="primary-image-{{ image.id }}" method="post" action="{{ url_for('admin.set_primary_image', product_id=product.id, image_id=image.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form><form id="delete-image-{{ image.id }}" method="post" action="{{ url_for('admin.delete_product_image', product_id=product.id, image_id=image.id) }}" onsubmit="return confirm('Remove this image?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>{% endfor %}{% endif %}
 {% if product %}<form class="form-card danger-zone" method="post" action="{{ url_for('admin.delete_product', product_id=product.id) }}" onsubmit="return confirm('Delete this product permanently?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><h2>Delete product</h2><p>Type DELETE to remove this product record and uploaded images.</p><input name="confirm" placeholder="DELETE"><button class="btn danger" type="submit">Delete product</button></form>{% endif %}
+<script defer src="{{ url_for('static', filename='js/admin-product-variants.js') }}?v=variant-studio-20261112"></script>
 {% endblock %}
 

@@ -477,6 +477,26 @@ IMAGE_SIGNATURES = {
     "svg": (b"<svg", b"<?xml"),
 }
 
+def submitted_variant_form_rows(form):
+    fields = ("size", "color", "style", "material", "pack_size", "sku", "price", "unit_cost", "stock_quantity", "active", "image_id")
+    columns = {field: form.getlist(f"variant_{field}") for field in fields}
+    row_count = max((len(values) for values in columns.values()), default=0)
+    return [{field: (columns[field][index] if index < len(columns[field]) else "") for field in fields} for index in range(row_count)]
+
+
+def product_variant_form_rows(product):
+    if not product:
+        return []
+    return [{
+        "size": variant.size or "", "color": variant.color or "", "style": variant.style or "",
+        "material": variant.material or "", "pack_size": variant.pack_size or "", "sku": variant.sku or "",
+        "price": f"{variant.price_cents / 100:.2f}" if variant.price_cents is not None else "",
+        "unit_cost": f"{variant.unit_cost_cents / 100:.2f}" if variant.unit_cost_cents is not None else "",
+        "stock_quantity": str(variant.stock_quantity or 0), "active": variant.active,
+        "image_id": str(variant.image_id or ""),
+    } for variant in product.variants]
+
+
 def parse_variant_rows(raw_text, product):
     rows = []
     seen = set()
@@ -488,7 +508,7 @@ def parse_variant_rows(raw_text, product):
         while len(parts) < 8:
             parts.append("")
         size, color, style, sku, price, cost, stock, active = parts[:8]
-        key = (size.lower(), color.lower(), style.lower(), sku.lower())
+        key = (size.casefold(), color.casefold(), style.casefold(), "", "")
         if key in seen:
             raise ValueError(f"Duplicate variant row: {line}")
         seen.add(key)
@@ -502,30 +522,81 @@ def parse_variant_rows(raw_text, product):
             "size": size[:50],
             "color": color[:50],
             "style": style[:80],
+            "material": "",
+            "pack_size": "",
             "sku": sku[:80],
             "price_cents": parse_money(price) if price else None,
             "unit_cost_cents": parse_money(cost) if cost else None,
             "stock_quantity": max(0, int(stock or 0)),
             "active": active.lower() not in {"no", "false", "0", "inactive"},
+            "image_id": None,
+            "structured": False,
         })
     return rows
 
-def sync_product_variants(product, raw_text):
-    rows = parse_variant_rows(raw_text, product)
-    existing = {variant.id: variant for variant in product.variants}
+def parse_variant_form_rows(form, product):
+    fields = ("size", "color", "style", "material", "pack_size", "sku", "price", "unit_cost", "stock_quantity", "active", "image_id")
+    columns = {field: form.getlist(f"variant_{field}") for field in fields}
+    row_count = max((len(values) for values in columns.values()), default=0)
+    rows = []
+    seen = set()
+    product_image_ids = {image.id for image in product.images} if product.id else set()
+    for index in range(row_count):
+        value = lambda field: columns[field][index].strip() if index < len(columns[field]) else ""
+        size, color, style = value("size")[:50], value("color")[:50], value("style")[:80]
+        material, pack_size = value("material")[:80], value("pack_size")[:80]
+        sku = value("sku")[:80]
+        raw_price, raw_cost, raw_stock = value("price"), value("unit_cost"), value("stock_quantity")
+        raw_image_id = value("image_id")
+        active = value("active") not in {"", "0", "false", "off", "inactive"}
+        if not any((size, color, style, material, pack_size, sku, raw_price, raw_cost, raw_image_id)) and not int(raw_stock or 0):
+            continue
+        key = tuple(part.casefold() for part in (size, color, style, material, pack_size))
+        if key in seen:
+            raise ValueError("Each variant must have a unique combination of size, colour, style, material, and pack size.")
+        seen.add(key)
+        if sku:
+            duplicate_sku = ProductVariant.query.filter(ProductVariant.sku == sku)
+            if product.id:
+                duplicate_sku = duplicate_sku.filter(ProductVariant.product_id != product.id)
+            if duplicate_sku.first():
+                raise ValueError(f"Variant SKU {sku} already belongs to another product.")
+        image_id = int(raw_image_id) if raw_image_id else None
+        if image_id and image_id not in product_image_ids:
+            raise ValueError("Choose a product image from this product's gallery for each variant.")
+        rows.append({
+            "size": size, "color": color, "style": style, "material": material, "pack_size": pack_size,
+            "sku": sku, "price_cents": parse_money(raw_price) if raw_price else None,
+            "unit_cost_cents": parse_money(raw_cost) if raw_cost else None,
+            "stock_quantity": max(0, int(raw_stock or 0)), "active": active, "_form_index": index,
+            "image_id": image_id, "structured": True,
+        })
+    return rows
+
+def sync_product_variants(product, raw_text_or_rows):
+    rows = parse_variant_rows(raw_text_or_rows, product) if isinstance(raw_text_or_rows, str) else raw_text_or_rows
     keep_ids = set()
+    matched_ids = set()
+    synced_variants = []
     for index, row in enumerate(rows):
         variant = None
-        for candidate in product.variants:
-            if (candidate.size or "") == row["size"] and (candidate.color or "") == row["color"] and (candidate.style or "") == row["style"] and (candidate.sku or "") == row["sku"]:
+        candidates = [candidate for candidate in product.variants if candidate.id and candidate.id not in matched_ids]
+        for candidate in candidates:
+            if (candidate.size or "") == row["size"] and (candidate.color or "") == row["color"] and (candidate.style or "") == row["style"] and (candidate.material or "") == row.get("material", "") and (candidate.pack_size or "") == row.get("pack_size", "") and (candidate.sku or "") == row["sku"]:
                 variant = candidate
                 break
+        if not variant and row["sku"]:
+            variant = next((candidate for candidate in candidates if (candidate.sku or "") == row["sku"]), None)
+        if not variant and candidates:
+            variant = candidates[0]
         if not variant:
             variant = ProductVariant(product=product)
             db.session.add(variant)
         variant.size = row["size"]
         variant.color = row["color"]
         variant.style = row["style"]
+        variant.material = row.get("material", "")
+        variant.pack_size = row.get("pack_size", "")
         variant.sku = row["sku"]
         variant.price_cents = row["price_cents"]
         variant.unit_cost_cents = row["unit_cost_cents"]
@@ -533,12 +604,18 @@ def sync_product_variants(product, raw_text):
         variant.low_stock_threshold = product.low_stock_threshold
         variant.active = row["active"]
         variant.sort_order = index
+        if row.get("structured"):
+            variant.image_id = row.get("image_id")
         keep_ids.add(variant.id)
+        if variant.id:
+            matched_ids.add(variant.id)
+        synced_variants.append(variant)
     for variant in list(product.variants):
         if variant.id and variant.id not in keep_ids and not variant.reserved_quantity:
             db.session.delete(variant)
         elif variant.id and variant.id not in keep_ids:
             variant.active = False
+    return synced_variants
 
 def slugify(value):
     value = re.sub(r"[^a-zA-Z0-9]+", "-", value.lower()).strip("-")
@@ -668,6 +745,28 @@ def save_images(files, product):
         except ImageStorageError as exc:
             current_app.logger.warning("Could not upload product image to Cloudinary: %s", exc)
             flash(f"Skipped {file.filename}: {exc}", "error")
+
+
+def save_variant_image(file, product):
+    if not file or not file.filename:
+        return None
+    if not cloudinary_configured():
+        flash("Cloudinary is not configured, so the variant image was not uploaded.", "error")
+        return None
+    data = file.read(current_app.config["MAX_CONTENT_LENGTH"] + 1)
+    file.stream.seek(0)
+    _, error = validate_image_bytes(file.filename, data)
+    if error:
+        flash(f"Variant image skipped: {error}", "error")
+        return None
+    try:
+        append_cloudinary_image(product, file.filename, data, f"{product.name} variant image", prefix="variants")
+        db.session.flush()
+        return product.images[-1]
+    except ImageStorageError as exc:
+        current_app.logger.warning("Could not upload variant image to Cloudinary: %s", exc)
+        flash(f"Variant image upload failed: {exc}", "error")
+        return None
 
 
 def remove_image_file(filename):
@@ -988,14 +1087,24 @@ def product_form(product_id=None):
         product.color_options = request.form.get("color_options", "").strip()
         product.active = bool(request.form.get("active"))
         product.featured = bool(request.form.get("featured"))
+        variant_form_rows = submitted_variant_form_rows(request.form) if "variant_size" in request.form else None
         try:
-            sync_product_variants(product, request.form.get("variants_text", ""))
+            variant_rows = parse_variant_form_rows(request.form, product) if variant_form_rows is not None else request.form.get("variants_text", "")
+            synced_variants = sync_product_variants(product, variant_rows)
         except ValueError as exc:
             flash(str(exc), "error")
-            return render_template("admin/product_form.html", title="Product", product=product if product.id else None, categories=categories)
+            return render_template("admin/product_form.html", title="Product", product=product if product.id else None, categories=categories, variant_form_rows=variant_form_rows)
         db.session.add(product)
         db.session.flush()
         save_images(request.files.getlist("images"), product)
+        if variant_form_rows is not None:
+            variant_files = request.files.getlist("variant_image_files")
+            for row, variant in zip(variant_rows, synced_variants):
+                index = row["_form_index"]
+                file = variant_files[index] if index < len(variant_files) else None
+                image = save_variant_image(file, product)
+                if image:
+                    variant.image_id = image.id
         for image_url in request.form.getlist("online_image_url"):
             save_image_from_url(image_url, product)
         if not product.images:
@@ -1007,7 +1116,7 @@ def product_form(product_id=None):
         db.session.commit()
         flash("Product saved.", "success")
         return redirect(url_for("admin.products"))
-    return render_template("admin/product_form.html", title="Product", product=product, categories=categories)
+    return render_template("admin/product_form.html", title="Product", product=product, categories=categories, variant_form_rows=product_variant_form_rows(product))
 
 @admin_bp.post("/products/<int:product_id>/stock")
 @login_required
@@ -1083,6 +1192,9 @@ def delete_product_image(product_id, image_id):
         db.session.rollback()
         flash(str(exc), "error")
         return redirect(url_for("admin.product_form", product_id=product.id))
+    for variant in product.variants:
+        if variant.image_id == image.id:
+            variant.image_id = None
     db.session.delete(image)
     db.session.flush()
     if was_primary and product.images:

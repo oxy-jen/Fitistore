@@ -1027,7 +1027,16 @@ def api_search_suggestions():
 @public_bp.route("/product/<slug>")
 def product_detail(slug):
     product = product_list_options(Product.query.filter_by(slug=slug, active=True)).first_or_404()
-    related = product_list_options(Product.query.filter(Product.active.is_(True), Product.category_id == product.category_id, Product.id != product.id)).limit(4).all()
+    related = product_list_options(Product.query.filter(Product.active.is_(True), Product.category_id == product.category_id, Product.id != product.id)).order_by(Product.featured.desc(), Product.updated_at.desc(), Product.id.desc()).limit(4).all()
+    related_same_category_count = len(related)
+    if len(related) < 4:
+        related_ids = [item.id for item in related] + [product.id]
+        additional_related = product_list_options(Product.query.filter(Product.active.is_(True), Product.id.notin_(related_ids))).order_by(Product.featured.desc(), Product.updated_at.desc(), Product.id.desc()).limit(4 - len(related)).all()
+        related.extend(additional_related)
+    approved_review_query = Review.query.filter_by(product_id=product.id, status="approved")
+    review_count = approved_review_query.count()
+    review_average = db.session.query(func.avg(Review.rating)).filter_by(product_id=product.id, status="approved").scalar() or 0
+    approved_reviews = approved_review_query.order_by(Review.created_at.desc(), Review.id.desc()).limit(3).all()
     product_description = re.sub(r"<[^>]+>", " ", product.description or "")
     product_description = " ".join(product_description.split())[:300] or ("View details and current availability for " + product.name + " at FityStores.")
     image_url = product_image_url(product_display_image(product))
@@ -1048,7 +1057,7 @@ def product_detail(slug):
     seo_description = (product_description + " " + share_price + ".")[:300]
     whatsapp_share_url = "https://wa.me/?text=" + quote(share_message)
     card_url = "https://fitystore.top" + url_for("public.product_share_card", slug=product.slug)
-    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=card_url, og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=product.name + " at FityStores ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â " + share_price, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related)
+    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=card_url, og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=product.name + " at FityStores ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â " + share_price, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, related=related, related_same_category_count=related_same_category_count, approved_reviews=approved_reviews, review_count=review_count, review_average=float(review_average))
 
 @public_bp.route("/share/product/<slug>/social.png")
 def product_social_card(slug):

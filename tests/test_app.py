@@ -9,7 +9,7 @@ import app as app_module
 from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, AuthRateLimit, CartAddCount, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, MediaShowcase, MediaShowcaseItem, Order, OrderItem, OrderStatusHistory, Product, ProductImage, ProductLike, ProductSuggestion, Review, ShopSettings, UpcomingProduct, UpcomingProductVote
+from app.models import AdminUser, AuthRateLimit, CartAddCount, Category, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate, MediaShowcase, MediaShowcaseItem, Order, OrderItem, OrderStatusHistory, Product, ProductImage, ProductLike, ProductSuggestion, ProductVariant, Review, ShopSettings, UpcomingProduct, UpcomingProductVote
 from config import TestConfig
 
 @pytest.fixture()
@@ -980,10 +980,71 @@ def test_product_card_disables_action_when_every_variant_is_sold_out(client, app
     assert b'class="btn primary add-cart"' not in card
 
 def test_product_detail(client):
+    with client.application.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        db.session.add_all([
+            Review(display_name="Amina", title="Comfortable", rating=5, text="Soft and comfortable.", product_id=product.id, status="approved"),
+            Review(display_name="Pending shopper", title="Pending", rating=1, text="This review is awaiting approval.", product_id=product.id, status="pending"),
+        ])
+        db.session.commit()
     rv = client.get("/product/plain-socks")
     assert rv.status_code == 200
     assert b"Plain Socks" in rv.data
     assert b"KSh 150" in rv.data
+    assert b"product-gallery" in rv.data
+    assert b"Add to Cart" in rv.data
+    assert b'data-product-quantity-step="1"' in rv.data
+    assert b'id="qty-choice" type="number" min="1" max="4" value="1"' in rv.data
+    assert b"Ask on WhatsApp" in rv.data
+    assert b"product-enquiry-disclosure" in rv.data
+    assert b"Customer reviews" in rv.data
+    assert b"You may also like" in rv.data
+    assert b"View category" in rv.data
+    assert b'class="product-related-grid"' in rv.data
+    assert b'role="tablist" aria-label="Product details"' in rv.data
+    assert b'id="product-description" class="product-info-section" role="tabpanel" aria-labelledby="product-tab-description"' in rv.data
+    assert b'id="product-specifications" class="product-info-section" role="tabpanel" aria-labelledby="product-tab-specifications" hidden' in rv.data
+    assert b'id="product-reviews" class="product-info-section product-review-section" role="tabpanel" aria-labelledby="product-tab-reviews" hidden' in rv.data
+    assert b"Comfortable" in rv.data
+    assert b"Soft and comfortable." in rv.data
+    assert b"This review is awaiting approval." not in rv.data
+
+def test_product_detail_keeps_real_variant_options_and_stock(client, app):
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        db.session.add_all([
+            ProductVariant(product_id=product.id, size="Large", color="Black", price_cents=17000, stock_quantity=3, active=True),
+            ProductVariant(product_id=product.id, size="Medium", color="Black", price_cents=16000, stock_quantity=0, active=True),
+            ProductVariant(product_id=product.id, size="Large", color="Pink", price_cents=18000, stock_quantity=2, active=True),
+        ])
+        db.session.commit()
+    rv = client.get("/product/plain-socks")
+    assert rv.status_code == 200
+    assert b'aria-label="Choose size"' in rv.data
+    assert b'data-variant-dimension="size"' in rv.data
+    assert b'data-variant-dimension="color"' in rv.data
+    assert b'data-variant-value="Black"' in rv.data
+    assert b'data-variant-value="Pink"' in rv.data
+    assert b"Large / Black" in rv.data
+    assert b"3 available" in rv.data
+    assert b"Medium / Black" in rv.data
+    assert b"disabled" in rv.data
+    assert b'data-total-stock="5"' in rv.data
+
+def test_product_detail_recommendations_fall_back_when_category_has_no_siblings(client, app):
+    with app.app_context():
+        category = Category(name="Travel accessories", slug="travel-accessories")
+        db.session.add(category)
+        db.session.flush()
+        product = Product(name="Travel pouch", slug="travel-pouch", category=category, description="A catalogue item.", price_cents=25000, stock_quantity=3, active=True)
+        db.session.add(product)
+        db.session.commit()
+    rv = client.get("/product/travel-pouch")
+    assert rv.status_code == 200
+    assert b"You may also like" in rv.data
+    assert b"More picks from the FityStores catalogue." in rv.data
+    assert b"Plain Socks" in rv.data
+    assert b"Travel accessories" in rv.data
 
 def test_cart_validation_limits_stock(client):
     rv = client.post("/api/cart/validate", json={"items":[{"product_id":1,"quantity":9}]})
@@ -1234,6 +1295,51 @@ def test_admin_product_edit_save_updates_product(client, app):
         assert product.sku == "SOCK-UPDATED"
         assert product.price_cents == 15500
         assert product.stock_quantity == 7
+
+
+def test_admin_product_form_has_repeatable_variant_controls(client, app):
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.get("/admin/products/new")
+    assert response.status_code == 200
+    assert b"Add another option" in response.data
+    assert b'name="variant_color"' in response.data
+    assert b'name="variant_material"' in response.data
+    assert b'name="variant_pack_size"' in response.data
+    assert b'name="variant_image_files"' in response.data
+    assert b"admin-product-variants.js" in response.data
+
+
+def test_admin_can_save_multiple_variant_colours_and_individual_preview_images(client, app, monkeypatch):
+    app.config.update(CLOUDINARY_CLOUD_NAME="demo", CLOUDINARY_API_KEY="key", CLOUDINARY_API_SECRET="secret")
+    monkeypatch.setattr("app.admin.routes.upload_image_bytes", lambda data, public_id, resource_type="image": {"public_id": public_id})
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    with app.app_context():
+        category_id = Category.query.first().id
+    response = client.post("/admin/products/new", data={
+        "name": "Variant Colour Bands", "category_id": str(category_id), "description": "Colour options",
+        "price": "25", "stock_quantity": "0", "low_stock_threshold": "1", "active": "on",
+        "variant_size": ["One size", "One size"], "variant_color": ["Black", "Pink"],
+        "variant_style": ["Basic", "Basic"], "variant_material": ["Elastic", "Elastic"],
+        "variant_pack_size": ["Single", "Single"], "variant_sku": ["BAND-BLK", "BAND-PNK"],
+        "variant_price": ["25", "30"], "variant_unit_cost": ["10", "12"],
+        "variant_stock_quantity": ["4", "8"], "variant_active": ["1", "1"],
+        "variant_image_id": ["", ""],
+        "images": (io.BytesIO(b"\xff\xd8\xffmain-image"), "bands-main.jpg"),
+        "variant_image_files": [(io.BytesIO(b""), ""), (io.BytesIO(b"\xff\xd8\xffpink-image"), "bands-pink.jpg")],
+    }, content_type="multipart/form-data", follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Product saved" in response.data
+    with app.app_context():
+        product = Product.query.filter_by(slug="variant-colour-bands").first()
+        variants = {variant.color: variant for variant in product.variants}
+        assert set(variants) == {"Black", "Pink"}
+        assert variants["Black"].material == "Elastic"
+        assert variants["Pink"].pack_size == "Single"
+        assert variants["Black"].price_cents == 2500
+        assert variants["Pink"].stock_quantity == 8
+        assert variants["Black"].image_id is None
+        assert variants["Pink"].image_id is not None
+        assert variants["Pink"].image.alt_text == "Variant Colour Bands variant image"
 
 
 def test_variant_product_shows_price_range_and_options(client, app):
@@ -3479,7 +3585,12 @@ def test_email_studio_promotion_requires_preview_consent_and_real_catalogue_item
     assert "Our Featured Products" in sent[0][2]
     assert "In stock" in sent[0][2]
     assert "email-removebg-preview.png" in sent[0][2]
-    assert 'viewBox="0 0 24 24"' in sent[0][2]
+    for icon in ("secure", "delivery", "support", "quality"):
+        assert f"/static/images/email-icons/benefit-{icon}.png" in sent[0][2]
+        icon_response = client.get(f"/static/images/email-icons/benefit-{icon}.png")
+        assert icon_response.status_code == 200
+        assert icon_response.data.startswith(b"\x89PNG\r\n\x1a\n")
+    assert '<svg class="benefit-icon"' not in sent[0][2]
     assert 'viewBox="0 0 448 512"' in sent[0][2]
     assert 'class="benefit-col"' in sent[0][2]
     assert 'class="wa-icon"' in sent[0][2]

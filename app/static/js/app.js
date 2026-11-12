@@ -665,3 +665,36 @@ document.querySelectorAll('.media-showcase iframe[data-aspect-ratio]').forEach(f
 if('IntersectionObserver'in window){const showcaseMetadataObserver=new IntersectionObserver(entries=>entries.forEach(entry=>{if(!entry.isIntersecting)return;const preview=entry.target;showcaseMetadataObserver.unobserve(preview);const probe=document.createElement('video');probe.preload='metadata';probe.muted=true;probe.src=preview.dataset.videoMetaSrc;probe.addEventListener('loadedmetadata',()=>{if(probe.videoWidth&&probe.videoHeight){const ratio=probe.videoWidth/probe.videoHeight<.9?.8:probe.videoWidth/probe.videoHeight;preview.style.setProperty('--media-item-ratio',probe.videoWidth/probe.videoHeight<.9?'4 / 5':`${probe.videoWidth} / ${probe.videoHeight}`);preview.style.setProperty('--media-preview-max-width',`${360*ratio}px`);}probe.removeAttribute('src');probe.load();},{once:true});probe.addEventListener('error',()=>{probe.removeAttribute('src');},{once:true});}),{rootMargin:'160px'});document.querySelectorAll('.media-showcase-video-preview[data-video-meta-src]').forEach(preview=>showcaseMetadataObserver.observe(preview));}
 if('IntersectionObserver'in window){const showcaseVideoObserver=new IntersectionObserver(entries=>entries.forEach(entry=>{const video=entry.target;if(entry.isIntersecting&&entry.intersectionRatio>=.5){document.querySelectorAll('.media-showcase video').forEach(other=>{if(other!==video)other.pause()});if(!video.src&&video.dataset.src){video.src=video.dataset.src;video.load()}if(showcaseReducedMotion.matches){video.controls=true;video.pause();return}if(video.dataset.autoplay==='1'&&video.dataset.hoverPaused!=='1')video.play().catch(()=>{});}else video.pause();}),{threshold:[0,.5,1]});document.querySelectorAll('.media-showcase video').forEach(video=>{showcaseVideoObserver.observe(video);video.addEventListener('mouseenter',()=>{video.dataset.hoverPaused='1';video.pause()});video.addEventListener('mouseleave',()=>{video.dataset.hoverPaused='0';if(!showcaseReducedMotion.matches&&video.dataset.autoplay==='1'&&video.getBoundingClientRect().top<innerHeight&&video.getBoundingClientRect().bottom>0)video.play().catch(()=>{})});});}
 else document.querySelectorAll('.media-showcase video').forEach(video=>{video.src=video.dataset.src||'';video.controls=true;});
+
+function activateProductInfoTab(tab,{focus=false}={}){
+  const tablist=tab.closest('[role="tablist"]');
+  const detail=tablist?.closest('.product-information-card');
+  if(!tablist||!detail)return;
+  const tabs=[...tablist.querySelectorAll('[role="tab"]')];
+  tabs.forEach(item=>{
+    const selected=item===tab;
+    item.setAttribute('aria-selected',String(selected));
+    item.tabIndex=selected?0:-1;
+    const panel=document.getElementById(item.getAttribute('aria-controls'));
+    if(panel&&detail.contains(panel))panel.hidden=!selected;
+  });
+  if(focus)tab.focus();
+}
+document.addEventListener('click',event=>{
+  const tab=event.target.closest('.product-information-tabs [role="tab"]');
+  if(tab)activateProductInfoTab(tab);
+});
+document.addEventListener('keydown',event=>{
+  const tab=event.target.closest('.product-information-tabs [role="tab"]');
+  if(!tab)return;
+  const tabs=[...tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
+  const index=tabs.indexOf(tab);
+  let next=index;
+  if(event.key==='ArrowRight')next=(index+1)%tabs.length;
+  else if(event.key==='ArrowLeft')next=(index-1+tabs.length)%tabs.length;
+  else if(event.key==='Home')next=0;
+  else if(event.key==='End')next=tabs.length-1;
+  else return;
+  event.preventDefault();
+  activateProductInfoTab(tabs[next],{focus:true});
+});

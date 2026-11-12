@@ -1,81 +1,164 @@
-{% extends "base.html" %}{% block content %}
-<section class="product-detail">
-  {% set main_image = product_display_image(product) %}
-  {% set active_variants = product.variants|selectattr('active')|list %}
-  <div>
-    <div class="detail-image"><img id="detail-product-image" src="{{ product_image_url(main_image) }}" alt="{{ product_image_alt(main_image) }}"></div>
-    {% if product.images|length > 1 %}<div class="thumbs" aria-label="Product images">{% for image in product.images %}{% if valid_product_image(image) %}<button type="button" class="product-thumb{% if image.id == main_image.id %} active{% endif %}" data-product-thumb="{{ product_image_url(image) }}" data-product-thumb-alt="{{ product_image_alt(image) }}" aria-label="View {{ product_image_alt(image) }}" {% if image.id == main_image.id %}aria-current="true"{% endif %}><img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}"></button>{% endif %}{% endfor %}</div>{% endif %}
-  </div>
-  <div class="detail-copy">
-    <p class="category">{{ product.category.name }}</p><h1>{{ product.name }}</h1>
-    {% if active_variants and product.min_variant_price_cents is not none %}
-      <p class="price big" id="detail-price">{% if product.min_variant_price_cents == product.max_variant_price_cents %}{{ money(product.min_variant_price_cents, settings.currency) }}{% else %}{{ money(product.min_variant_price_cents, settings.currency) }} - {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}</p>
-    {% else %}
-      <p class="price big" id="detail-price">{{ money(product.price_cents, settings.currency) }}{% if product.has_discount %}<s>{{ money(product.previous_price_cents, settings.currency) }}</s><span class="discount-ribbon detail-discount">{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% OFF</span>{% endif %}</p>
-    {% endif %}
-    <p>{{ product.description }}</p>
-    {% if active_variants %}
-      <label class="variant-select-label">Choose option<select id="variant-choice" required>
-        <option value="">Select an available option</option>
-        {% for variant in active_variants %}<option value="{{ variant.id }}" data-price="{{ money(variant.effective_price_cents, settings.currency) }}" data-stock="{{ variant.available_quantity }}" data-size="{{ variant.size or '' }}" data-color="{{ variant.color or '' }}" data-image="{{ product_image_url(variant.image) if variant.image else '' }}" {% if variant.available_quantity < 1 %}disabled{% endif %}>{{ variant.label }}{% if variant.sku %} - {{ variant.sku }}{% endif %} - {{ variant.available_quantity }} available</option>{% endfor %}
-      </select></label>
-      <div class="variant-options" aria-label="Product options">
-        {% for variant in active_variants %}<button type="button" class="variant-option" data-variant-card="{{ variant.id }}" {% if variant.available_quantity < 1 %}disabled{% endif %}><strong>{{ variant.label }}</strong><span>{{ money(variant.effective_price_cents, settings.currency) }}</span><small>{% if variant.available_quantity > 0 %}{{ variant.available_quantity }} available{% else %}Out of stock{% endif %}{% if variant.sku %} | {{ variant.sku }}{% endif %}</small></button>{% endfor %}
+{% extends "base.html" %}
+{% block content %}
+{% set main_image = product_display_image(product) %}
+{% set active_variants = product.variants|selectattr('active')|list %}
+{% macro variant_choice_group(variants, dimension, data_dimension, label, is_color=false) -%}
+  {% set values = variants|map(attribute=dimension)|select|unique|list %}
+  {% if values|length > 1 %}
+  <div class="product-option-picker"><strong>{{ label }}</strong><div class="product-option-chips" role="group" aria-label="Choose {{ label|lower }}">
+    {% for value in values %}<button type="button" class="product-option-chip{% if is_color %} product-color-chip{% endif %}" data-variant-dimension="{{ data_dimension }}" data-variant-value="{{ value }}" aria-pressed="false">{% if is_color %}<span class="variant-color-swatch" data-color-swatch="{{ value }}" aria-hidden="true"></span>{% endif %}<span>{{ value }}</span></button>{% endfor %}
+  </div></div>
+  {% elif values|length == 1 %}<p class="product-option-static"><strong>{{ label }}:</strong> {{ values[0] }}</p>{% endif %}
+{%- endmacro %}
+{% set variant_colors = active_variants|map(attribute='color')|select|unique|list %}
+{% set variant_sizes = active_variants|map(attribute='size')|select|unique|list %}
+{% set variant_styles = active_variants|map(attribute='style')|select|unique|list %}
+{% set variant_materials = active_variants|map(attribute='material')|select|unique|list %}
+{% set variant_pack_sizes = active_variants|map(attribute='pack_size')|select|unique|list %}
+{% set has_variant_dimensions = variant_colors|length > 1 or variant_sizes|length > 1 or variant_styles|length > 1 or variant_materials|length > 1 or variant_pack_sizes|length > 1 %}
+<div class="product-page">
+  <nav class="product-breadcrumbs" aria-label="Breadcrumb">
+    <a href="{{ url_for('public.home') }}">Home</a><span aria-hidden="true">›</span>
+    <a href="{{ url_for('public.shop', category=product.category.slug) }}">{{ product.category.name }}</a><span aria-hidden="true">›</span>
+    <span aria-current="page">{{ product.name }}</span>
+  </nav>
+
+  <section class="product-detail" aria-labelledby="product-title">
+    <div class="product-gallery">
+      <div class="detail-image">
+        {% if product.available_quantity > 0 or (active_variants and product.display_stock_quantity > 0) %}<span class="product-image-status in-stock">In stock</span>{% else %}<span class="product-image-status out-stock">Out of stock</span>{% endif %}
+        <img id="detail-product-image" src="{{ product_image_url(main_image) }}" alt="{{ product_image_alt(main_image) }}" fetchpriority="high">
       </div>
-      <p class="stock" id="variant-stock">Select a variant to see current stock.</p>
-    {% else %}
-      {% if product.price_cents is none %}<p class="notice">This price is not confirmed yet. Message FityStores on WhatsApp or call {{ local_contact_number }} before paying.</p>{% endif %}
-      <p class="stock {{ 'bad' if product.available_quantity == 0 else 'warn' if product.available_quantity <= product.low_stock_threshold else '' }}">{% if product.available_quantity > 0 %}{{ product.available_quantity }} currently available{% else %}Out of stock{% endif %}</p>
-      {% if split_options(product.size_options) %}<label>Size<select id="size-choice">{% for option in split_options(product.size_options) %}<option>{{ option }}</option>{% endfor %}</select></label>{% endif %}
-      {% if split_options(product.color_options) %}<label>Colour<select id="color-choice">{% for option in split_options(product.color_options) %}<option>{{ option }}</option>{% endfor %}</select></label>{% endif %}
-    {% endif %}
-    {% if product.price_cents is not none or active_variants %}<label>Quantity<input id="qty-choice" type="number" min="1" max="{{ product.available_quantity if not active_variants else 1 }}" value="1"></label>{% endif %}
-    <div class="actions">
-      {% if product.price_cents is none and not active_variants %}
-        <a class="btn primary" href="{{ product_whatsapp_link(product, settings, request.url, 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Confirm on WhatsApp</span></a><a class="btn" href="tel:{{ local_contact_number }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Call {{ local_contact_number }}</span></a>
-      {% else %}
-        <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" data-detail="true" {% if (active_variants and not active_variants|selectattr('available_quantity')|list) or (not active_variants and product.available_quantity < 1) %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to cart</span></button><a class="btn" href="{{ product_whatsapp_link(product, settings, request.url, 'buy') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask on WhatsApp</span></a>
+      {% if product.images|length > 1 %}
+      <div class="thumbs" aria-label="Product images">
+        {% for image in product.images %}{% if valid_product_image(image) %}
+        <button type="button" class="product-thumb{% if image.id == main_image.id %} active{% endif %}" data-product-thumb="{{ product_image_url(image) }}" data-product-thumb-alt="{{ product_image_alt(image) }}" aria-label="View {{ product_image_alt(image) }}" {% if image.id == main_image.id %}aria-current="true"{% endif %}>
+          <img src="{{ product_image_url(image) }}" alt="" loading="lazy">
+        </button>
+        {% endif %}{% endfor %}
+      </div>
       {% endif %}
     </div>
-    <p class="product-review-link"><a class="btn" href="{{ url_for('public.reviews', product_id=product.id) }}#write-review">Review this product</a></p>
-    <div class="product-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ url_for('public.product_social_card', slug=product.slug) }}">
-      <button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share product</button><button class="btn" type="button" data-share-facebook aria-label="Share {{ product.name }} on Facebook">Share on Facebook</button>
-      <button class="btn" type="button" data-share-copy>Copy link</button>
-      <a class="btn" href="{{ whatsapp_share_url }}" target="_blank" rel="noopener">WhatsApp a friend</a>
-      <span class="share-status" data-share-status role="status" aria-live="polite"></span>
+
+    <div class="detail-copy product-purchase-panel">
+      <div class="product-detail-heading">
+        <div><p class="category product-category-pill">{{ product.category.name }}</p><h1 id="product-title">{{ product.name }}</h1></div>
+        <div class="product-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ url_for('public.product_social_card', slug=product.slug) }}" aria-label="Share product">
+          <span>Share</span>
+          <button type="button" class="product-share-icon" data-share-facebook aria-label="Share {{ product.name }} on Facebook" title="Share on Facebook">f</button>
+          <a class="product-share-icon whatsapp" href="{{ whatsapp_share_url }}" target="_blank" rel="noopener" aria-label="Share {{ product.name }} on WhatsApp" title="WhatsApp a friend"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 3.8A11.2 11.2 0 0 0 2.6 17.3L1 23l5.9-1.5a11.2 11.2 0 0 0 5.3 1.3h.1A11.2 11.2 0 0 0 20.2 3.8ZM12.3 20.9a9.3 9.3 0 0 1-4.7-1.3l-.3-.2-3.5.9.9-3.4-.2-.4a9.3 9.3 0 1 1 7.8 4.4Zm5.1-7c-.3-.1-1.6-.8-1.9-.9s-.4-.1-.6.2-.7.9-.9 1.1-.3.2-.6.1a7.7 7.7 0 0 1-2.3-1.4 8.5 8.5 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.4-.5.3-.5c.1-.2 0-.4 0-.5s-.6-1.5-.9-2c-.2-.5-.5-.4-.6-.4h-.5c-.2 0-.5.1-.7.3s-.9.9-.9 2.2.9 2.5 1 2.7a10.4 10.4 0 0 0 4 3.6c.5.2.9.4 1.2.5.5.2 1 .2 1.3.1.4-.1 1.6-.7 1.8-1.3s.2-1.1.2-1.2-.2-.3-.5-.4Z"/></svg><span class="sr-only">WhatsApp a friend</span></a>
+          <button type="button" class="product-share-icon" data-share-copy aria-label="Copy product link" title="Copy link">↗</button>
+          <button type="button" class="product-share-native" data-share-native>More</button>
+          <span class="share-status" data-share-status role="status" aria-live="polite"></span>
+        </div>
+      </div>
+
+      {% if active_variants and product.min_variant_price_cents is not none %}
+        <p class="price big product-detail-price" id="detail-price">{% if product.min_variant_price_cents == product.max_variant_price_cents %}{{ money(product.min_variant_price_cents, settings.currency) }}{% else %}{{ money(product.min_variant_price_cents, settings.currency) }} - {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}</p>
+      {% else %}
+        <p class="price big product-detail-price" id="detail-price">{{ money(product.price_cents, settings.currency) }}{% if product.has_discount %}<s>{{ money(product.previous_price_cents, settings.currency) }}</s><span class="discount-ribbon detail-discount">{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% OFF</span>{% endif %}</p>
+      {% endif %}
+
+      {% if active_variants %}
+        <p class="stock product-availability {{ 'bad' if product.display_stock_quantity == 0 else '' }}" id="variant-stock" data-total-stock="{{ product.display_stock_quantity }}">{{ product.display_stock_quantity }} available across options</p>
+      {% else %}
+        <p class="stock product-availability {{ 'bad' if product.available_quantity == 0 else 'warn' if product.available_quantity <= product.low_stock_threshold else '' }}">{% if product.available_quantity > 0 %}{{ product.available_quantity }} available{% else %}Out of stock{% endif %}</p>
+      {% endif %}
+      {% if product.description %}<p class="product-detail-description">{{ product.description }}</p>{% endif %}
+
+      {% if active_variants %}
+        <select id="variant-choice" class="product-option-native" aria-hidden="true" tabindex="-1" required>
+          <option value="">Select an available option</option>
+          {% for variant in active_variants %}<option value="{{ variant.id }}" data-price="{{ money(variant.effective_price_cents, settings.currency) }}" data-stock="{{ variant.available_quantity }}" data-size="{{ variant.size or '' }}" data-color="{{ variant.color or '' }}" data-style="{{ variant.style or '' }}" data-material="{{ variant.material or '' }}" data-pack-size="{{ variant.pack_size or '' }}" data-image="{{ product_image_url(variant.image) if variant.image else '' }}" data-image-alt="{{ product_image_alt(variant.image) if variant.image else '' }}" {% if variant.available_quantity < 1 %}disabled{% endif %}>{{ variant.label }}{% if variant.sku %} - {{ variant.sku }}{% endif %} - {{ variant.available_quantity }} available</option>{% endfor %}
+        </select>
+        <div class="product-variant-picker" aria-label="Available product options">
+          {{ variant_choice_group(active_variants, 'color', 'color', 'Colour', true) }}
+          {{ variant_choice_group(active_variants, 'size', 'size', 'Size') }}
+          {{ variant_choice_group(active_variants, 'style', 'style', 'Style') }}
+          {{ variant_choice_group(active_variants, 'material', 'material', 'Material') }}
+          {{ variant_choice_group(active_variants, 'pack_size', 'packSize', 'Pack size') }}
+          {% if active_variants|length > 1 and not has_variant_dimensions %}<div class="product-option-picker"><strong>Option</strong><div class="product-option-chips" role="group" aria-label="Choose an option">{% for variant in active_variants %}<button type="button" class="product-option-chip" data-variant-card="{{ variant.id }}" aria-pressed="false" {% if variant.available_quantity < 1 %}disabled{% endif %}>{{ variant.label }}{% if variant.sku %} - {{ variant.sku }}{% endif %}</button>{% endfor %}</div></div>{% endif %}
+        </div>
+      {% else %}
+        {% if product.price_cents is none %}<p class="notice product-price-notice">Price to be confirmed. Contact FityStores before paying.</p>{% endif %}
+        {% set sizes = split_options(product.size_options) %}{% if sizes %}<div class="product-option-picker"><strong>Size</strong><div class="product-option-chips" role="group" aria-label="Choose size">{% for option in sizes %}<button type="button" class="product-option-chip" data-product-option-chip data-choice-target="size-choice" data-choice-value="{{ option }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ option }}</button>{% endfor %}</div><select id="size-choice" class="product-option-native" aria-hidden="true" tabindex="-1">{% for option in sizes %}<option>{{ option }}</option>{% endfor %}</select></div>{% endif %}
+        {% set colors = split_options(product.color_options) %}{% if colors %}<div class="product-option-picker"><strong>Colour</strong><div class="product-option-chips" role="group" aria-label="Choose colour">{% for option in colors %}<button type="button" class="product-option-chip product-color-chip" data-product-option-chip data-choice-target="color-choice" data-choice-value="{{ option }}" aria-pressed="{{ 'true' if loop.first else 'false' }}"><span class="variant-color-swatch" data-color-swatch="{{ option }}" aria-hidden="true"></span><span>{{ option }}</span></button>{% endfor %}</div><select id="color-choice" class="product-option-native" aria-hidden="true" tabindex="-1">{% for option in colors %}<option>{{ option }}</option>{% endfor %}</select></div>{% endif %}
+      {% endif %}
+
+      {% if product.price_cents is not none or active_variants %}
+      <div class="product-quantity-row"><strong>Quantity</strong><div class="product-quantity-stepper" aria-label="Quantity">
+        <button type="button" data-product-quantity-step="-1" aria-label="Decrease quantity">−</button>
+        <input id="qty-choice" type="number" min="1" max="{{ product.available_quantity if not active_variants else 1 }}" value="1" inputmode="numeric" aria-label="Quantity">
+        <button type="button" data-product-quantity-step="1" aria-label="Increase quantity">+</button>
+      </div></div>
+      {% endif %}
+
+      <div class="actions product-detail-actions">
+        {% if product.price_cents is none and not active_variants %}
+          <a class="btn primary" href="{{ product_whatsapp_link(product, settings, request.url, 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Confirm on WhatsApp</span></a><a class="btn product-secondary-action" href="tel:{{ local_contact_number }}"><svg class="icon"><use href="#icon-phone"></use></svg><span>Call FityStores</span></a>
+        {% else %}
+          <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" data-detail="true" {% if (active_variants and not active_variants|selectattr('available_quantity')|list) or (not active_variants and product.available_quantity < 1) %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to Cart</span></button><a class="btn product-secondary-action" href="{{ product_whatsapp_link(product, settings, request.url, 'buy') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask on WhatsApp</span></a>
+        {% endif %}
+      </div>
+      <div class="product-service-promises" aria-label="Shopping information">
+        <div><span aria-hidden="true">✓</span><strong>Secure<br>payments</strong></div><div><span aria-hidden="true">↗</span><strong>Reliable<br>delivery</strong></div><div><span aria-hidden="true">◎</span><strong>Customer<br>support</strong></div>
+      </div>
     </div>
+  </section>
+
+  <div class="product-below-grid">
+    <div class="product-information-column">
+      <section class="product-information-card" aria-label="Product information">
+        <div class="product-information-tabs" role="tablist" aria-label="Product details">
+          <button type="button" id="product-tab-description" role="tab" aria-controls="product-description" aria-selected="true" tabindex="0">Description</button>
+          <button type="button" id="product-tab-specifications" role="tab" aria-controls="product-specifications" aria-selected="false" tabindex="-1">Specifications</button>
+          <button type="button" id="product-tab-reviews" role="tab" aria-controls="product-reviews" aria-selected="false" tabindex="-1">Reviews ({{ review_count }})</button>
+        </div>
+        <div class="product-information-content">
+          <section id="product-description" class="product-info-section" role="tabpanel" aria-labelledby="product-tab-description"><h2>Description</h2>{% if product.description %}<p>{{ product.description }}</p>{% else %}<p>Product description has not been provided.</p>{% endif %}</section>
+          <section id="product-specifications" class="product-info-section" role="tabpanel" aria-labelledby="product-tab-specifications" hidden><h2>Specifications</h2><dl class="product-spec-list">
+            <div><dt>Category</dt><dd>{{ product.category.name }}</dd></div>
+            {% if product.sku %}<div><dt>SKU</dt><dd>{{ product.sku }}</dd></div>{% endif %}
+            {% if not active_variants and split_options(product.size_options) %}<div><dt>Available sizes</dt><dd>{{ split_options(product.size_options)|join(', ') }}</dd></div>{% endif %}
+            {% if not active_variants and split_options(product.color_options) %}<div><dt>Available colours</dt><dd>{{ split_options(product.color_options)|join(', ') }}</dd></div>{% endif %}
+            {% if active_variants %}<div><dt>Available options</dt><dd>{{ active_variants|length }} listed</dd></div>{% endif %}
+          </dl>{% if not product.sku and not active_variants and not split_options(product.size_options) and not split_options(product.color_options) %}<p>No additional specifications are listed for this product.</p>{% endif %}</section>
+          <section id="product-reviews" class="product-info-section product-review-section" role="tabpanel" aria-labelledby="product-tab-reviews" hidden>
+            <div class="product-review-heading"><div><h2>Customer reviews</h2>{% if review_count %}<p><span class="product-review-stars" aria-label="Average rating {{ '%.1f'|format(review_average) }} out of 5">★</span> {{ '%.1f'|format(review_average) }} · {{ review_count }} review{{ '' if review_count == 1 else 's' }}</p>{% else %}<p>No approved reviews yet.</p>{% endif %}</div><a href="{{ url_for('public.reviews', product_id=product.id) }}#write-review">Write a review <span aria-hidden="true">→</span></a></div>
+            {% if approved_reviews %}<div class="product-review-list">{% for review in approved_reviews %}<article><div><strong>{{ review.title or review.display_name }}</strong><span class="product-review-stars" aria-label="{{ review.rating }} out of 5 stars">{{ '★' * review.rating }}{{ '☆' * (5 - review.rating) }}</span></div>{% if review.title and review.display_name %}<small>{{ review.display_name }}</small>{% endif %}{% if review.text %}<p>{{ review.text }}</p>{% endif %}</article>{% endfor %}</div>{% else %}<p class="product-review-empty">Be the first to review this product. Your feedback helps other shoppers.</p>{% endif %}
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <aside class="product-side-column">
+      <details class="product-enquiry-disclosure">
+        <summary><span class="enquiry-icon" aria-hidden="true">?</span><span><strong>Ask a question about this product</strong><small>Need help with price, options, or availability?</small></span><span class="enquiry-chevron" aria-hidden="true">⌄</span></summary>
+        <div class="product-enquiry-content">
+          <form class="mini-form" method="post" action="{{ url_for('public.product_enquiry', slug=product.slug) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="hp-field">Leave this field empty<input name="website_url" tabindex="-1" autocomplete="off"></label>
+            <h2>Ask about {{ product.name }}</h2>
+            <div class="form-grid"><label>Size<input name="size" maxlength="50" placeholder="Optional"></label><label>Colour<input name="color" maxlength="50" placeholder="Optional"></label></div>
+            <label>Question<textarea name="message" maxlength="1000" required placeholder="Ask about price, size, colour, or availability"></textarea></label>
+            <div class="form-grid"><label>Contact<input name="contact" maxlength="120" placeholder="Phone or email"></label><label>Preferred contact<select name="preferred_contact"><option>WhatsApp</option><option>Call</option><option>SMS</option><option>Email</option></select></label></div>
+            <label class="check"><input type="checkbox" name="consent_to_contact"> FityStores may contact me about this enquiry</label>
+            <button class="btn primary"><svg class="icon"><use href="#icon-message"></use></svg><span>Send enquiry</span></button>
+          </form>
+          {% if product.available_quantity < 1 and not active_variants %}<form class="mini-form product-restock-form" id="product-restock" method="post" action="{{ url_for('public.restock_alert', slug=product.slug) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><h2>Back-in-stock alert</h2>
+            <div class="form-grid"><label>Size<input name="size" maxlength="50" placeholder="Optional"></label><label>Colour<input name="color" maxlength="50" placeholder="Optional"></label></div>
+            <div class="form-grid"><label>Contact<input name="contact" maxlength="120" required></label><label>Preferred contact<select name="preferred_contact"><option>WhatsApp</option><option>Call</option><option>SMS</option><option>Email</option></select></label></div>
+            <label class="check"><input type="checkbox" name="consent_to_contact" required> Notify me when this item is available</label><button class="btn"><svg class="icon"><use href="#icon-calendar"></use></svg><span>Save alert</span></button>
+          </form>{% endif %}
+        </div>
+      </details>
+
+      {% if related %}<section class="product-related-section" aria-labelledby="related-products-title"><div class="product-related-heading"><div><p class="product-related-kicker">{{ product.category.name }}</p><h2 id="related-products-title">You may also like</h2><p class="product-related-note">{% if related_same_category_count %}More from this category, followed by other store picks.{% else %}More picks from the FityStores catalogue.{% endif %}</p></div><a href="{{ url_for('public.shop', category=product.category.slug) }}">View category <span aria-hidden="true">→</span></a></div><div class="product-related-grid" aria-label="Products you may also like">{% for product in related %}{% with compact_product_card=true %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}</div></section>{% endif %}
+    </aside>
   </div>
-  <div class="request-grid">
-    <form class="mini-form" method="post" action="{{ url_for('public.product_enquiry', slug=product.slug) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label class="hp-field">Leave this field empty<input name="website_url" tabindex="-1" autocomplete="off"></label>
-      <h2>Ask about this product</h2>
-      <div class="form-grid"><label>Size<input name="size" maxlength="50" placeholder="Optional"></label><label>Colour<input name="color" maxlength="50" placeholder="Optional"></label></div>
-      <label>Question<textarea name="message" maxlength="1000" required placeholder="Ask about price, size, colour, or availability"></textarea></label>
-      <div class="form-grid"><label>Contact<input name="contact" maxlength="120" placeholder="Phone or email"></label><label>Preferred contact<select name="preferred_contact"><option>WhatsApp</option><option>Call</option><option>SMS</option><option>Email</option></select></label></div>
-      <label class="check"><input type="checkbox" name="consent_to_contact"> FityStores may contact me about this enquiry</label>
-      <button class="btn primary"><svg class="icon"><use href="#icon-message"></use></svg><span>Send enquiry</span></button>
-    </form>
-    {% if product.available_quantity < 1 and not active_variants %}<form class="mini-form" id="product-restock" method="post" action="{{ url_for('public.restock_alert', slug=product.slug) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <h2>Back-in-stock alert</h2>
-      <div class="form-grid"><label>Size<input name="size" maxlength="50" placeholder="Optional"></label><label>Colour<input name="color" maxlength="50" placeholder="Optional"></label></div>
-      <div class="form-grid"><label>Contact<input name="contact" maxlength="120" required></label><label>Preferred contact<select name="preferred_contact"><option>WhatsApp</option><option>Call</option><option>SMS</option><option>Email</option></select></label></div>
-      <label class="check"><input type="checkbox" name="consent_to_contact" required> Notify me when this item is available</label>
-      <button class="btn"><svg class="icon"><use href="#icon-calendar"></use></svg><span>Save alert</span></button>
-    </form>{% endif %}
-  </div></section>
-{% if related %}<section><div class="section-title"><h2>Related products</h2></div><div class="product-grid">{% for product in related %}{% include "partials/product_card.html" %}{% endfor %}</div></section>{% endif %}
+</div>
 <script>
-(() => {
-  try {
-    const key = 'fity-recently-viewed-products';
-    const id = {{ product.id|tojson }};
-    const saved = JSON.parse(localStorage.getItem(key) || '[]');
-    const ids = Array.isArray(saved) ? saved.map(Number).filter(value => Number.isInteger(value) && value > 0) : [];
-    localStorage.setItem(key, JSON.stringify([id, ...ids.filter(value => value !== id)].slice(0, 8)));
-  } catch (_) {}
-})();
+(() => { try { const key='fity-recently-viewed-products'; const id={{ product.id|tojson }}; const saved=JSON.parse(localStorage.getItem(key)||'[]'); const ids=Array.isArray(saved)?saved.map(Number).filter(value=>Number.isInteger(value)&&value>0):[]; localStorage.setItem(key,JSON.stringify([id,...ids.filter(value=>value!==id)].slice(0,8))); } catch (_) {} })();
 </script>
 {% endblock %}
-
