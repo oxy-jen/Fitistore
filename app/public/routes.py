@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 from flask import Blueprint, Response, current_app, flash, jsonify, make_response, redirect, render_template, request, session, url_for
-from sqlalchemy import case, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
@@ -21,7 +21,7 @@ from app.services.mamba_collection import mamba_products_query
 from app.services.media_showcases import showcases_by_placement
 from app.services.upcoming_products import upcoming_product_schema_ready
 from app.services.product_likes import product_like_schema_ready
-from app.services.category_thumbnails import CATEGORY_GROUPS, CATEGORY_GROUPS_BY_KEY, category_group_key, category_thumbnails_schema_ready
+from app.services.category_thumbnails import CATEGORY_GROUPS, category_group_key, category_thumbnails_schema_ready
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
 from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
 from app.services.referrals import get_or_create_profile, normalize_phone, record_referral_click
@@ -30,6 +30,60 @@ from flask_login import current_user, logout_user
 
 public_bp = Blueprint("public", __name__)
 PRODUCTS_PER_PAGE = 8
+SHOP_CATEGORY_PREVIEW_LIMIT = 12
+OTHER_SHOP_CATEGORY_GROUP = {"key": "other-products", "name": "Other products", "description": "More products from the FityStores catalogue."}
+SHOP_CATEGORY_GROUPS = (*CATEGORY_GROUPS, OTHER_SHOP_CATEGORY_GROUP)
+SHOP_CATEGORY_GROUPS_BY_KEY = {group["key"]: group for group in SHOP_CATEGORY_GROUPS}
+SEARCH_SUGGESTION_LIMIT = 8
+
+
+def _search_pattern(value):
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _product_search_filter(value):
+    normalized = " ".join((value or "").split())
+    if not normalized:
+        return None
+    def matches(term):
+        pattern = f"%{_search_pattern(term)}%"
+        return or_(
+            Product.name.ilike(pattern, escape="\\"),
+            Product.sku.ilike(pattern, escape="\\"),
+            Product.description.ilike(pattern, escape="\\"),
+            Category.name.ilike(pattern, escape="\\"),
+            Product.variants.any(and_(
+                ProductVariant.active.is_(True),
+                or_(
+                    ProductVariant.sku.ilike(pattern, escape="\\"),
+                    ProductVariant.size.ilike(pattern, escape="\\"),
+                    ProductVariant.color.ilike(pattern, escape="\\"),
+                    ProductVariant.style.ilike(pattern, escape="\\"),
+                    ProductVariant.material.ilike(pattern, escape="\\"),
+                    ProductVariant.pack_size.ilike(pattern, escape="\\"),
+                ),
+            )),
+        )
+
+    phrase_match = matches(normalized)
+    tokens = [token for token in re.findall(r"[\w-]+", normalized, flags=re.UNICODE) if len(token) > 1]
+    if len(tokens) > 1:
+        return or_(phrase_match, and_(*(matches(token) for token in tokens)))
+    return phrase_match
+
+
+def _product_search_rank(value):
+    normalized = " ".join((value or "").split()).lower()
+    escaped = _search_pattern(normalized)
+    return case(
+        (func.lower(Product.name) == normalized, 0),
+        (Product.sku.ilike(normalized, escape="\\"), 1),
+        (func.lower(Product.name).like(f"{escaped}%", escape="\\"), 2),
+        (Product.sku.ilike(f"{escaped}%", escape="\\"), 3),
+        (func.lower(Product.name).like(f"%{escaped}%", escape="\\"), 4),
+        (Category.name.ilike(f"%{escaped}%", escape="\\"), 5),
+        else_=6,
+    )
 
 def product_list_options(query):
     return query.options(
@@ -130,20 +184,46 @@ def helpers():
     ]
     return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "category_group_key": category_group_key, "footer_products": footer_products[:3], "footer_product_groups": footer_product_groups, "current_year": datetime.now().year}
 
-def product_query():
+def product_query(category_group_override=None):
     q = request.args.get("q", "").strip()
     category_slug = request.args.get("category", "").strip()
-    category_group = CATEGORY_GROUPS_BY_KEY.get(request.args.get("category_group", "").strip())
+    category_group_key_value = category_group_override or request.args.get("category_group", "").strip()
+    category_group = SHOP_CATEGORY_GROUPS_BY_KEY.get(category_group_key_value)
     sort = request.args.get("sort", "newest")
     query = product_list_options(Product.query.filter_by(active=True).join(Category))
     if q:
-        like = f"%{q}%"
-        query = query.filter(or_(Product.name.ilike(like), Product.description.ilike(like), Product.sku.ilike(like)))
+        search_filter = _product_search_filter(q)
+        if not category_slug and not category_group_key_value:
+            matched_categories = (
+                db.session.query(Category.name)
+                .select_from(Product)
+                .join(Category, Product.category_id == Category.id)
+                .filter(Product.active.is_(True), search_filter)
+                .distinct()
+                .all()
+            )
+            matched_group_keys = {
+                category_group_key(category_name) or OTHER_SHOP_CATEGORY_GROUP["key"]
+                for (category_name,) in matched_categories
+            }
+            inferred_group_key = category_group_key(q)
+            if inferred_group_key:
+                matched_group_keys.add(inferred_group_key)
+            matching_category_ids = [
+                category.id for category in Category.query.all()
+                if (category_group_key(category.name) or OTHER_SHOP_CATEGORY_GROUP["key"]) in matched_group_keys
+            ]
+            query = query.filter(or_(search_filter, Product.category_id.in_(matching_category_ids)))
+        else:
+            query = query.filter(search_filter)
     active_category = None
     if category_slug:
         active_category = Category.query.filter_by(slug=category_slug).first()
         if active_category:
             query = query.filter(Product.category == active_category)
+    elif category_group_key_value == OTHER_SHOP_CATEGORY_GROUP["key"]:
+        category_ids = [category.id for category in Category.query.all() if category_group_key(category.name) is None]
+        query = query.filter(Product.category_id.in_(category_ids or [-1]))
     elif category_group:
         category_ids = [category.id for category in Category.query.all() if category_group_key(category.name) == category_group["key"]]
         query = query.filter(Product.category_id.in_(category_ids or [-1]))
@@ -155,14 +235,17 @@ def product_query():
         for category in Category.query.all()
     }
     group_order = case(category_order, value=Product.category_id, else_=len(CATEGORY_GROUPS)).asc()
+    if q:
+        query = query.order_by(_product_search_rank(q).asc())
+    query = query.order_by(group_order)
     if sort == "price-low":
-        query = query.order_by(group_order, Product.price_cents.is_(None), Product.price_cents.asc(), Product.name.asc())
+        query = query.order_by(Product.price_cents.is_(None), Product.price_cents.asc(), Product.name.asc())
     elif sort == "price-high":
-        query = query.order_by(group_order, Product.price_cents.is_(None), Product.price_cents.desc(), Product.name.asc())
+        query = query.order_by(Product.price_cents.is_(None), Product.price_cents.desc(), Product.name.asc())
     elif sort == "name":
-        query = query.order_by(group_order, Product.name.asc())
+        query = query.order_by(Product.name.asc())
     else:
-        query = query.order_by(group_order, Product.created_at.desc(), Product.id.desc())
+        query = query.order_by(Product.created_at.desc(), Product.id.desc())
     return query, active_category, q, sort
 
 def product_card_payload(product):
@@ -789,12 +872,77 @@ def track_order_link(reference, tracking_token):
 @public_bp.route("/shop")
 def shop():
     query, active_category, q, sort = product_query()
-    active_category_group = CATEGORY_GROUPS_BY_KEY.get(request.args.get("category_group", "").strip())
+    active_category_group = SHOP_CATEGORY_GROUPS_BY_KEY.get(request.args.get("category_group", "").strip())
     page = 1
-    pagination = query.paginate(page=page, per_page=PRODUCTS_PER_PAGE, error_out=False)
+    shop_sections = []
+    search_match_product_ids = set()
+    related_products = []
+    if q and not active_category and not active_category_group:
+        search_match_product_ids = {
+            product_id for (product_id,) in db.session.query(Product.id)
+            .join(Category, Product.category_id == Category.id)
+            .filter(Product.active.is_(True), _product_search_filter(q))
+            .all()
+        }
+    if not active_category and not active_category_group and not q:
+        for group in SHOP_CATEGORY_GROUPS:
+            group_query, _category, _query_text, _sort = product_query(group["key"])
+            total = group_query.count()
+            if total:
+                shop_sections.append({
+                    "group": group,
+                    "products": group_query.limit(SHOP_CATEGORY_PREVIEW_LIMIT).all(),
+                    "total": total,
+                    "preview_limit": SHOP_CATEGORY_PREVIEW_LIMIT,
+                })
+        products = []
+        has_next = False
+    elif q and not active_category and not active_category_group:
+        products = query.filter(Product.id.in_(search_match_product_ids)).all() if search_match_product_ids else []
+        related_products = query.filter(~Product.id.in_(search_match_product_ids)).all() if search_match_product_ids else []
+        has_next = False
+    else:
+        pagination = query.paginate(page=page, per_page=PRODUCTS_PER_PAGE, error_out=False)
+        products = pagination.items
+        has_next = pagination.has_next
+    search_other_places = []
+    if q and not products and (active_category or active_category_group):
+        matches = (
+            db.session.query(Category.id, Category.name, Category.slug, func.count(Product.id))
+            .join(Product, Product.category_id == Category.id)
+            .filter(Product.active.is_(True), _product_search_filter(q))
+            .group_by(Category.id, Category.name, Category.slug)
+            .order_by(func.count(Product.id).desc(), Category.name.asc())
+            .all()
+        )
+        destinations = {}
+        for category_id, category_name, category_slug, match_count in matches:
+            group_key = category_group_key(category_name)
+            if group_key:
+                group = SHOP_CATEGORY_GROUPS_BY_KEY[group_key]
+                destination_key = ("group", group_key)
+                destination = {
+                    "label": group["name"],
+                    "url": url_for("public.shop", q=q, category_group=group_key, sort=sort),
+                    "categories": [],
+                    "count": 0,
+                }
+            else:
+                destination_key = ("category", category_id)
+                destination = {
+                    "label": category_name,
+                    "url": url_for("public.shop", q=q, category=category_slug, sort=sort),
+                    "categories": [],
+                    "count": 0,
+                }
+            current = destinations.setdefault(destination_key, destination)
+            current["count"] += match_count
+            if category_name not in current["categories"]:
+                current["categories"].append(category_name)
+        search_other_places = sorted(destinations.values(), key=lambda item: (-item["count"], item["label"].casefold()))[:5]
     categories = Category.query.order_by(Category.name).all()
     active_title = active_category.name if active_category else (active_category_group["name"] if active_category_group else "Shop products")
-    return render_template("shop.html", title="Shop", seo_title=active_title + " | Shop at FityStores", seo_description=("Browse available " + active_title + " products, check current listing details, and contact FityStores with questions."), products=pagination.items, categories=categories, category_groups=CATEGORY_GROUPS, active_category=active_category, active_category_group=active_category_group, q=q, sort=sort, page=page, has_next=pagination.has_next, media_showcases=showcases_by_placement("shop"))
+    return render_template("shop.html", title="Shop", seo_title=active_title + " | Shop at FityStores", seo_description=("Browse available " + active_title + " products, check current listing details, and contact FityStores with questions."), products=products, related_products=related_products, shop_sections=shop_sections, categories=categories, category_groups=SHOP_CATEGORY_GROUPS, active_category=active_category, active_category_group=active_category_group, search_other_places=search_other_places, search_match_product_ids=search_match_product_ids, q=q, sort=sort, page=page, has_next=has_next, media_showcases=showcases_by_placement("shop"))
 
 @public_bp.route("/api/products")
 def api_products():
@@ -804,7 +952,15 @@ def api_products():
     except ValueError:
         page = 1
     pagination = query.paginate(page=page, per_page=PRODUCTS_PER_PAGE, error_out=False)
-    cards = [render_template("partials/product_card.html", product=product) for product in pagination.items]
+    search_match_product_ids = set()
+    if _q and not request.args.get("category", "").strip() and not request.args.get("category_group", "").strip():
+        search_match_product_ids = {
+            product_id for (product_id,) in db.session.query(Product.id)
+            .join(Category, Product.category_id == Category.id)
+            .filter(Product.active.is_(True), _product_search_filter(_q))
+            .all()
+        }
+    cards = [render_template("partials/product_card.html", product=product, shop_listing_card=True, search_match_product_ids=search_match_product_ids) for product in pagination.items]
     return jsonify({
         "page": page,
         "has_next": pagination.has_next,
@@ -814,6 +970,59 @@ def api_products():
         "html": "".join(cards),
         "products": [product_card_payload(product) for product in pagination.items],
     })
+
+
+@public_bp.route("/api/search/suggestions")
+def api_search_suggestions():
+    query_text = " ".join(request.args.get("q", "").split())[:100]
+    if len(query_text) < 2:
+        return jsonify({"query": query_text, "suggestions": []})
+
+    query = product_list_options(Product.query.filter_by(active=True).join(Category))
+    query = query.filter(_product_search_filter(query_text))
+    group_key = request.args.get("category_group", "").strip()
+    group = SHOP_CATEGORY_GROUPS_BY_KEY.get(group_key)
+    if group_key == OTHER_SHOP_CATEGORY_GROUP["key"]:
+        category_ids = [category.id for category in Category.query.all() if category_group_key(category.name) is None]
+        query = query.filter(Product.category_id.in_(category_ids or [-1]))
+    elif group:
+        category_ids = [category.id for category in Category.query.all() if category_group_key(category.name) == group_key]
+        query = query.filter(Product.category_id.in_(category_ids or [-1]))
+    category_slug = request.args.get("category", "").strip()
+    if category_slug:
+        category = Category.query.filter_by(slug=category_slug).first()
+        query = query.filter(Product.category == category) if category else query.filter(False)
+
+    products = query.order_by(
+        _product_search_rank(query_text).asc(),
+        Product.featured.desc(),
+        Product.updated_at.desc(),
+        Product.id.desc(),
+    ).limit(SEARCH_SUGGESTION_LIMIT).all()
+
+    from app.services.formatting import money
+    currency = current_settings().currency
+    suggestions = []
+    for product in products:
+        image = product_display_image(product)
+        if product.min_variant_price_cents is not None:
+            price = f"From {money(product.min_variant_price_cents, currency)}"
+        elif product.price_cents is not None:
+            price = money(product.price_cents, currency)
+        else:
+            price = "Price to be confirmed"
+        available = product.display_stock_quantity
+        suggestions.append({
+            "id": product.id,
+            "name": product.name,
+            "category": product.category.name,
+            "price": price,
+            "availability": f"{available} available" if available else "Out of stock",
+            "image_url": product_image_url(image),
+            "image_alt": product_image_alt(image),
+            "url": url_for("public.product_detail", slug=product.slug),
+        })
+    return jsonify({"query": query_text, "suggestions": suggestions})
 
 @public_bp.route("/product/<slug>")
 def product_detail(slug):

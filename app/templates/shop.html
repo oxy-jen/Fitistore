@@ -2,7 +2,7 @@
 <div class="shop-page">
   <section class="shop-banner" aria-labelledby="shop-banner-title">
     <div class="shop-banner-copy">
-      <p class="eyebrow">FityStores · Everyday essentials</p>
+      <p class="eyebrow">FityStores Â· Everyday essentials</p>
       <h1 id="shop-banner-title">Good finds. Fair prices.<br><span>Fits poa.</span></h1>
       <p>Shop everyday essentials with clear prices<br class="desktop-break"> and quick WhatsApp support.</p>
     </div>
@@ -17,17 +17,57 @@
     {% for group in category_groups %}<a class="shop-chip{% if active_category_group and active_category_group.key == group.key %} active{% endif %}" data-category-group-key="{{ group.key }}" data-category-group-name="{{ group.name }}" href="{{ url_for('public.shop', category_group=group.key, q=q, sort=sort) }}"{% if active_category_group and active_category_group.key == group.key %} aria-current="page"{% endif %}>{{ group.name }}</a>{% endfor %}
   </nav>
 
-  <form class="shop-toolbar" action="{{ url_for('public.shop') }}" id="shop-filters">
-    <label class="shop-search"><svg class="icon" aria-hidden="true"><use href="#icon-search"></use></svg><input name="q" value="{{ q }}" placeholder="Search products..." aria-label="Search products"></label>
+  <form class="shop-toolbar" action="{{ url_for('public.shop') }}" id="shop-filters" data-search-autocomplete data-suggestions-url="{{ url_for('public.api_search_suggestions') }}">
+    <div class="shop-search-autocomplete"><label class="shop-search" for="shop-global-search"><svg class="icon" aria-hidden="true"><use href="#icon-search"></use></svg><input id="shop-global-search" name="q" value="{{ q }}" placeholder="Search products..." aria-label="Search products" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="shop-global-search-suggestions" autocomplete="off"></label><div class="shop-search-suggestions" id="shop-global-search-suggestions" role="listbox" data-search-suggestions hidden></div></div>
     <label class="shop-filter-select"><span class="sr-only">Filter by category</span><svg class="icon" aria-hidden="true"><use href="#icon-filter"></use></svg><select name="category_group" aria-label="Filter by category"><option value="">All categories</option>{% for group in category_groups %}<option value="{{ group.key }}" {% if active_category_group and active_category_group.key == group.key %}selected{% endif %}>{{ group.name }}</option>{% endfor %}</select></label>
     <label class="shop-sort"><span class="sr-only">Sort products</span><select name="sort" aria-label="Sort products"><option value="newest" {% if sort=='newest' %}selected{% endif %}>Sort by: Newest</option><option value="name" {% if sort=='name' %}selected{% endif %}>Sort by: Name</option><option value="price-low" {% if sort=='price-low' %}selected{% endif %}>Sort by: Price low to high</option><option value="price-high" {% if sort=='price-high' %}selected{% endif %}>Sort by: Price high to low</option></select></label>
     <button class="btn primary shop-apply" type="submit">Apply</button>
   </form>
 
   <div class="shop-results-heading"><h2>{% if active_category %}{{ active_category.name }}{% elif active_category_group %}{{ active_category_group.name }}{% elif q %}Search results{% else %}Shop everyday essentials{% endif %}</h2><a href="{{ url_for('public.shop') }}">Clear filters</a></div>
-  <div id="product-grid" class="product-grid shop-product-grid" data-next-page="{{ page + 1 if has_next else '' }}" data-has-next="{{ 'true' if has_next else 'false' }}" data-api-url="{{ url_for('public.api_products') }}" data-shop-url="{{ url_for('public.shop') }}" data-shop-sort="{{ sort }}" data-shop-query="{{ q }}">{% for product in products %}{% include "partials/product_card.html" %}{% endfor %}</div>
-  <div id="shop-empty" class="empty shop-empty" {% if products %}hidden{% endif %}>No active products match this search.</div>
-  <div class="load-panel shop-load-panel"><p id="load-status" class="note small">{% if has_next %}More products will load as you scroll.{% else %}All matching products are loaded.{% endif %}</p><button id="load-more" class="btn" type="button" {% if not has_next %}hidden{% endif %}><svg class="icon"><use href="#icon-arrow"></use></svg><span>Load more</span></button></div>
+  {% if shop_sections %}
+    <div class="shop-category-sections">
+      {% for section in shop_sections %}
+        <section class="shop-category-section" aria-labelledby="shop-category-title-{{ section.group.key }}" data-shop-category-section data-total-products="{{ section.total }}">
+          <header class="shop-category-section-header">
+            <div class="shop-category-section-title"><h2 id="shop-category-title-{{ section.group.key }}">{{ section.group.name }}</h2><span>{{ section.total }} product{{ '' if section.total == 1 else 's' }}</span></div>
+            <form class="shop-section-search" method="get" action="{{ url_for('public.shop') }}" data-search-autocomplete data-suggestions-url="{{ url_for('public.api_search_suggestions') }}">
+              <label class="sr-only" for="shop-search-{{ section.group.key }}">Search {{ section.group.name }}</label>
+              <input id="shop-search-{{ section.group.key }}" type="search" name="q" value="{{ q }}" placeholder="Search {{ section.group.name }}..." role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="shop-suggestions-{{ section.group.key }}" autocomplete="off">
+              <input type="hidden" name="category_group" value="{{ section.group.key }}">
+              <input type="hidden" name="sort" value="{{ sort }}">
+              <button class="btn" type="submit">Search</button>
+              <div class="shop-search-suggestions" id="shop-suggestions-{{ section.group.key }}" role="listbox" data-search-suggestions hidden></div>
+            </form>
+            <a class="shop-section-more" href="{{ url_for('public.shop', category_group=section.group.key, q=q, sort=sort) }}">Show more <span aria-hidden="true">â†’</span></a>
+          </header>
+          <div class="product-grid shop-product-grid shop-category-products" data-shop-preview-grid>
+            {% for product in section.products %}{% with shop_listing_card=true %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+    </div>
+  {% elif active_category or active_category_group or q %}
+    {% if q and not active_category and not active_category_group %}
+      <div id="product-grid" class="product-grid shop-product-grid" data-next-page="" data-has-next="false" data-api-url="{{ url_for('public.api_products') }}" data-shop-url="{{ url_for('public.shop') }}" data-shop-sort="{{ sort }}" data-shop-query="{{ q }}">{% for product in products %}{% with shop_listing_card=true %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}</div>
+      {% if related_products %}<section class="shop-related-search" aria-labelledby="shop-related-search-title"><h2 id="shop-related-search-title">You may also like</h2><div class="product-grid shop-product-grid">{% for product in related_products %}{% with shop_listing_card=true %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}</div></section>{% endif %}
+    {% else %}
+      <div id="product-grid" class="product-grid shop-product-grid" data-next-page="{{ page + 1 if has_next else '' }}" data-has-next="{{ 'true' if has_next else 'false' }}" data-api-url="{{ url_for('public.api_products') }}" data-shop-url="{{ url_for('public.shop') }}" data-shop-sort="{{ sort }}" data-shop-query="{{ q }}">{% for product in products %}{% with shop_listing_card=true %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}</div>
+    {% endif %}
+    <div id="shop-empty" class="empty shop-empty" {% if products or related_products %}hidden{% endif %}>
+      <h3>No products found{% if q %} for {{ q }}{% endif %}{% if active_category_group %} in {{ active_category_group.name }}{% elif active_category %} in {{ active_category.name }}{% endif %}</h3>
+      {% if search_other_places %}
+        <p>There are no matches in this category. Matching products are listed under:</p>
+        <div class="shop-search-elsewhere-links"><a class="btn" href="{{ url_for('public.shop', q=q, sort=sort) }}">All matching products</a>{% for place in search_other_places %}<a class="btn" href="{{ place.url }}">{{ place.label }} <span>({{ place.count }})</span></a>{% endfor %}</div>
+      {% else %}
+        <p>No matching products are currently listed. Try a different term, or browse the full catalogue.</p>
+        <a class="btn" href="{{ url_for('public.shop') }}">Browse all products</a>
+      {% endif %}
+    </div>
+    <div class="load-panel shop-load-panel"><p id="load-status" class="note small">{% if has_next %}More products will load as you scroll.{% else %}All matching products are loaded.{% endif %}</p><button id="load-more" class="btn" type="button" {% if not has_next %}hidden{% endif %}><svg class="icon"><use href="#icon-arrow"></use></svg><span>Load more</span></button></div>
+  {% else %}
+    <div class="empty shop-empty">No active products are available right now.</div>
+  {% endif %}
 
   <section class="shop-trust-strip" aria-label="Shopping information">
     <article><svg class="icon" aria-hidden="true"><use href="#icon-checkout"></use></svg><div><strong>Clear prices</strong><span>See listed prices before you order.</span></div></article>

@@ -1,4 +1,4 @@
-<article class="product-card neu-card shop-product-card{% if compact_product_card|default(false) %} most-added-product-card{% endif %}" data-product-card="{{ product.id }}" data-category-group="{{ category_group_key(product.category.name) or 'other' }}">
+<article class="product-card neu-card shop-product-card{% if compact_product_card|default(false) %} most-added-product-card{% endif %}{% if fresh_arrival_card|default(false) %} fresh-arrival-product-card{% endif %}{% if product.id in (search_match_product_ids|default([])) %} search-match-product{% endif %}" data-product-card="{{ product.id }}" data-category-group="{{ category_group_key(product.category.name) or 'other' }}">
   {% set image = product_display_image(product) %}
   {% set variant_count = product.active_variants|length %}
   {% set size_option_count = split_options(product.size_options)|length %}
@@ -17,6 +17,7 @@
     {% if not compact_product_card|default(false) %}{% if display_stock < 1 %}<span class="product-card-badge is-unavailable">Out of stock</span>{% elif product.has_discount %}<span class="discount-ribbon" aria-label="{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% discount">Sale</span>{% elif requires_option_choice %}<span class="badge">Options</span>{% endif %}{% endif %}
   </a>
   <div class="product-body">
+    {% if product.id in (search_match_product_ids|default([])) %}<span class="shop-search-match-label">Best match</span>{% endif %}
     {% if compact_product_card|default(false) %}
       <p class="category">{{ product.category.name }}</p>
       <h3 class="most-added-product-name"><a href="{{ url_for('public.product_detail', slug=product.slug) }}">{{ product.name }}</a></h3>
@@ -45,15 +46,15 @@
       {% if display_stock < 1 %}
         <button class="btn primary" type="button" disabled aria-label="{{ product.name }} is out of stock"><svg class="icon"><use href="#icon-cart"></use></svg><span>Out of stock</span></button>
       {% elif product.price_cents is none and not requires_option_choice %}
-        {% if compact_product_card|default(false) %}<a class="btn primary" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>View product</span></a>{% else %}<a class="btn primary" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask for price</span></a>{% endif %}
+        {% if fresh_arrival_card|default(false) or shop_listing_card|default(false) or compact_product_card|default(false) %}<a class="btn primary" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>View product</span></a>{% else %}<a class="btn primary" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask for price</span></a>{% endif %}
       {% elif requires_option_choice %}
         <a class="btn primary" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>Choose options</span></a>
       {% else %}
         <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" {% if display_stock < 1 %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to Cart</span></button>
       {% endif %}
-      {% if not compact_product_card|default(false) %}<a class="btn shop-whatsapp" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'buy') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask on WhatsApp</span></a>{% endif %}
+      {% if not (compact_product_card|default(false)) and not (fresh_arrival_card|default(false)) and not (shop_listing_card|default(false)) %}<a class="btn shop-whatsapp" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'buy') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask on WhatsApp</span></a>{% endif %}
     </div>
-    <div class="card-share shop-card-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ url_for('public.product_social_card', slug=product.slug) }}"><button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share product</button><button class="btn" type="button" data-share-facebook aria-label="Share {{ product.name }} on Facebook">Facebook</button><span class="share-status" data-share-status role="status" aria-live="polite"></span></div>
+    {% if not (compact_product_card|default(false)) and not (fresh_arrival_card|default(false)) and not (shop_listing_card|default(false)) %}<div class="card-share shop-card-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ url_for('public.product_social_card', slug=product.slug) }}"><button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share product</button><button class="btn" type="button" data-share-facebook aria-label="Share {{ product.name }} on Facebook">Facebook</button><span class="share-status" data-share-status role="status" aria-live="polite"></span></div>{% endif %}
     {% endif %}
   </div>
 </article>

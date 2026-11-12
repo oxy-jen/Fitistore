@@ -885,6 +885,22 @@ def test_shop_search_and_category_filter(client):
     assert b"Unpriced Cap" not in product_grid
 
 
+def test_global_shop_search_shows_matches_before_the_rest_of_the_category(client, app):
+    with app.app_context():
+        plain_id = Product.query.filter_by(slug="plain-socks").one().id
+        related_id = Product.query.filter_by(slug="unpriced-cap").one().id
+
+    response = client.get("/shop?q=Plain")
+    assert response.status_code == 200
+    html = response.data
+    matched_card = html.index(f'data-product-card="{plain_id}"'.encode())
+    related_heading = html.index(b">You may also like</h2>")
+    related_card = html.index(f'data-product-card="{related_id}"'.encode())
+    assert matched_card < related_heading < related_card
+    assert b"Best match" in html[matched_card:related_heading]
+    assert b"Showing products from matching categories" not in html
+
+
 def _shop_product_card(client, product_id):
     response = client.get("/shop")
     marker = f'data-product-card="{product_id}"'.encode()
@@ -1229,8 +1245,8 @@ def test_variant_product_shows_price_range_and_options(client, app):
             ProductVariant(product=product, size="Large", color="Black", style="Premium", sku="SOCK-L", price_cents=6000, stock_quantity=3, active=True),
         ])
         db.session.commit()
-    shop = client.get("/shop")
-    assert b"KSh 10 - KSh 60" in shop.data
+    shop = client.get("/shop?q=plain+socks")
+    assert "KSh 10 – KSh 60".encode() in shop.data
     assert b"2 options available" in shop.data
     detail = client.get("/product/plain-socks")
     assert b"Small / Black / Basic" in detail.data
@@ -1683,10 +1699,11 @@ def test_product_sharing_uses_canonical_links_and_current_prices(client, app):
     assert b"Contact the store for the current price" in unpriced.data
     assert b"Price: KSh 0" not in unpriced.data
     assert b'data-share-url="https://fitystore.top/product/unpriced-cap"' in unpriced.data
-    listing = client.get("/shop")
+    listing = client.get("/shop?q=plain+socks")
     assert listing.status_code == 200
-    assert b'data-share-url="https://fitystore.top/product/plain-socks"' in listing.data
-    assert b'data-share-native' in listing.data
+    assert b'href="/product/plain-socks"' in listing.data
+    assert b'data-share-url=' not in listing.data
+    assert b'data-share-native' not in listing.data
 
 
 def test_product_whatsapp_share_encodes_special_characters(client, app):

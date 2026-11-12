@@ -12,58 +12,137 @@ document.addEventListener('DOMContentLoaded',()=>{
   const nav=document.getElementById('nav');
   if(button&&nav){button.addEventListener('click',()=>{const open=nav.classList.toggle('open');button.setAttribute('aria-expanded',open?'true':'false')})}
 
+  document.querySelectorAll('[data-search-autocomplete]').forEach(form=>{
+    const input=form.querySelector('input[name="q"]');
+    const list=form.querySelector('[data-search-suggestions]');
+    if(!input||!list)return;
+    let timer=0,controller=null,activeIndex=-1,suggestions=[];
+    const close=()=>{
+      list.hidden=true;
+      input.setAttribute('aria-expanded','false');
+      input.removeAttribute('aria-activedescendant');
+      activeIndex=-1;
+    };
+    const showMessage=message=>{
+      list.replaceChildren();
+      const option=document.createElement('div');
+      option.className='shop-search-suggestion-message';
+      option.setAttribute('role','option');
+      option.setAttribute('aria-disabled','true');
+      option.textContent=message;
+      list.appendChild(option);
+      list.hidden=false;
+      input.setAttribute('aria-expanded','true');
+      input.removeAttribute('aria-activedescendant');
+      activeIndex=-1;
+      suggestions=[];
+    };
+    const setActive=index=>{
+      const options=Array.from(list.querySelectorAll('[role="option"]:not([aria-disabled="true"])'));
+      if(!options.length)return;
+      activeIndex=(index+options.length)%options.length;
+      options.forEach((option,optionIndex)=>option.setAttribute('aria-selected',optionIndex===activeIndex?'true':'false'));
+      input.setAttribute('aria-activedescendant',options[activeIndex].id);
+      options[activeIndex].scrollIntoView({block:'nearest'});
+    };
+    const render=items=>{
+      suggestions=items;
+      activeIndex=-1;
+      list.replaceChildren();
+      if(!items.length){showMessage('No matches yet. Press Enter to search the catalogue.');return;}
+      items.forEach((item,index)=>{
+        const option=document.createElement('a');
+        option.className='shop-search-suggestion';
+        option.id=`${input.id}-option-${index}`;
+        option.href=item.url;
+        option.setAttribute('role','option');
+        option.setAttribute('aria-selected','false');
+        option.tabIndex=-1;
+        const image=document.createElement('img');
+        image.src=item.image_url;
+        image.alt=item.image_alt||'';
+        image.loading='lazy';
+        const copy=document.createElement('span');
+        copy.className='shop-search-suggestion-copy';
+        const name=document.createElement('strong');
+        name.textContent=item.name;
+        const category=document.createElement('small');
+        category.textContent=item.category;
+        const meta=document.createElement('span');
+        meta.className='shop-search-suggestion-meta';
+        const price=document.createElement('span');
+        price.textContent=item.price;
+        const availability=document.createElement('span');
+        availability.className=item.availability==='Out of stock'?'is-unavailable':'is-available';
+        availability.textContent=item.availability;
+        meta.append(price,availability);
+        copy.append(name,category,meta);
+        option.append(image,copy);
+        list.appendChild(option);
+      });
+      list.hidden=false;
+      input.setAttribute('aria-expanded','true');
+    };
+    const search=async()=>{
+      const query=input.value.trim();
+      if(query.length<2){close();return;}
+      if(controller)controller.abort();
+      controller=new AbortController();
+      const params=new URLSearchParams({q:query});
+      const group=form.querySelector('[name="category_group"]');
+      const category=form.querySelector('[name="category"]');
+      if(group?.value)params.set('category_group',group.value);
+      if(category?.value)params.set('category',category.value);
+      try{
+        const response=await fetch(`${form.dataset.suggestionsUrl}?${params}`,{headers:{'Accept':'application/json'},signal:controller.signal});
+        if(!response.ok)throw new Error('Search suggestions unavailable');
+        const data=await response.json();
+        if(input.value.trim()!==query)return;
+        render(data.suggestions||[]);
+      }catch(error){
+        if(error.name!=='AbortError'&&input.value.trim()===query)showMessage('Suggestions are unavailable right now. Press Enter to search.');
+      }
+    };
+    input.addEventListener('input',()=>{
+      window.clearTimeout(timer);
+      if(controller)controller.abort();
+      suggestions=[];
+      close();
+      if(input.value.trim().length>=2)timer=window.setTimeout(search,180);
+    });
+    input.addEventListener('focus',()=>{if(suggestions.length){list.hidden=false;input.setAttribute('aria-expanded','true')}});
+    input.addEventListener('keydown',event=>{
+      if(event.key==='Escape'&&!list.hidden){event.preventDefault();close();return;}
+      if(list.hidden)return;
+      if(event.key==='ArrowDown'){event.preventDefault();setActive(activeIndex+1)}
+      else if(event.key==='ArrowUp'){event.preventDefault();setActive(activeIndex<0?suggestions.length-1:activeIndex-1)}
+      else if(event.key==='Enter'&&activeIndex>=0){event.preventDefault();list.querySelectorAll('[role="option"]:not([aria-disabled="true"])')[activeIndex]?.click()}
+    });
+    form.addEventListener('submit',()=>close());
+    document.addEventListener('pointerdown',event=>{if(!form.contains(event.target))close()});
+    form.querySelectorAll('select[name="category_group"]').forEach(select=>select.addEventListener('change',()=>{if(input.value.trim().length>=2)search();else close()}));
+  });
+
   const grid=document.getElementById('product-grid');
   const loadMore=document.getElementById('load-more');
   const status=document.getElementById('load-status');
   const empty=document.getElementById('shop-empty');
   let loading=false;
   const seen=new Set(Array.from(document.querySelectorAll('[data-product-card]')).map(card=>card.dataset.productCard));
-  const categoryGroupNames=new Map(Array.from(document.querySelectorAll('.shop-category-chips [data-category-group-key]')).map(link=>[link.dataset.categoryGroupKey,link.dataset.categoryGroupName]));
-  function updateShopCategoryHeadings(){
-    if(!grid||!grid.classList.contains('shop-product-grid'))return;
-    grid.querySelectorAll('.shop-category-group-heading').forEach(heading=>heading.remove());
-    const cards=Array.from(grid.children).filter(child=>child.matches('[data-product-card]'));
-    let previousGroup='';
-    cards.forEach(card=>{
-      const key=card.dataset.categoryGroup||'other';
-      if(key===previousGroup)return;
-      previousGroup=key;
-      const name=categoryGroupNames.get(key)||'Other products';
-      const heading=document.createElement('div');
-      heading.className='shop-category-group-heading';
-      const title=document.createElement('h3');
-      title.textContent=name;
-      heading.appendChild(title);
-      if(categoryGroupNames.has(key)){
-        const form=document.createElement('form');
-        form.className='shop-group-search';
-        form.method='get';
-        form.action=grid.dataset.shopUrl||'/shop';
-        const input=document.createElement('input');
-        input.type='search';
-        input.name='q';
-        input.value=grid.dataset.shopQuery||'';
-        input.placeholder=`Search ${name}`;
-        input.setAttribute('aria-label',`Search ${name}`);
-        const group=document.createElement('input');
-        group.type='hidden';
-        group.name='category_group';
-        group.value=key;
-        const sort=document.createElement('input');
-        sort.type='hidden';
-        sort.name='sort';
-        sort.value=grid.dataset.shopSort||'newest';
-        const submit=document.createElement('button');
-        submit.type='submit';
-        submit.className='btn';
-        submit.textContent='Search';
-        form.append(input,group,sort,submit);
-        heading.appendChild(form);
-      }
-      grid.insertBefore(heading,card);
-    });
+  const categorySections=Array.from(document.querySelectorAll('[data-shop-category-section]'));
+  function updateCategoryPreview(section){
+    const productGrid=section.querySelector('[data-shop-preview-grid]');
+    if(!productGrid)return;
+    const columns=getComputedStyle(productGrid).gridTemplateColumns.split(/\s+/).filter(Boolean).length||1;
+    const visibleLimit=columns*2;
+    const cards=Array.from(productGrid.querySelectorAll('[data-product-card]'));
+    cards.forEach((card,index)=>{card.hidden=index>=visibleLimit});
+    const showMore=section.querySelector('.shop-section-more');
+    if(showMore)showMore.hidden=Number(section.dataset.totalProducts||0)<=visibleLimit;
   }
-  updateShopCategoryHeadings();
+  const updateCategoryPreviews=()=>categorySections.forEach(updateCategoryPreview);
+  updateCategoryPreviews();
+  window.addEventListener('resize',()=>requestAnimationFrame(updateCategoryPreviews),{passive:true});
   async function loadProducts(){
     if(!grid||loading||grid.dataset.hasNext!=='true')return;
     loading=true;
@@ -81,7 +160,6 @@ document.addEventListener('DOMContentLoaded',()=>{
         seen.add(card.dataset.productCard);
         grid.appendChild(card);
       });
-      updateShopCategoryHeadings();
       grid.dataset.hasNext=data.has_next?'true':'false';
       grid.dataset.nextPage=data.next_page||'';
       if(empty)empty.hidden=grid.children.length>0;
