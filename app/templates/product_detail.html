@@ -64,7 +64,7 @@
       {% else %}
         <p class="stock product-availability {{ 'bad' if product.available_quantity == 0 else 'warn' if product.available_quantity <= product.low_stock_threshold else '' }}">{% if product.available_quantity > 0 %}{{ product.available_quantity }} available{% else %}Out of stock{% endif %}</p>
       {% endif %}
-      {% if product.description %}<p class="product-detail-description">{{ product.description }}</p>{% endif %}
+      {% if product_display_note %}<p class="product-detail-description">{{ product_display_note }}</p>{% elif active_variants or split_options(product.size_options) or split_options(product.color_options) %}<p class="product-detail-description product-option-hint">Choose your preferred options below.</p>{% endif %}
 
       {% if active_variants %}
         <select id="variant-choice" class="product-option-native" aria-hidden="true" tabindex="-1" required>

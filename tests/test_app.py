@@ -981,7 +981,10 @@ def test_product_card_disables_action_when_every_variant_is_sold_out(client, app
 
 def test_product_detail(client):
     with client.application.app_context():
+        from app.models import ProductDisplayNote
         product = Product.query.filter_by(slug="plain-socks").first()
+        product.description = "A full-length description that belongs in the Description tab only."
+        db.session.add(ProductDisplayNote(product_id=product.id, note="Choose your preferred sock size below."))
         db.session.add_all([
             Review(display_name="Amina", title="Comfortable", rating=5, text="Soft and comfortable.", product_id=product.id, status="approved"),
             Review(display_name="Pending shopper", title="Pending", rating=1, text="This review is awaiting approval.", product_id=product.id, status="pending"),
@@ -990,6 +993,10 @@ def test_product_detail(client):
     rv = client.get("/product/plain-socks")
     assert rv.status_code == 200
     assert b"Plain Socks" in rv.data
+    purchase_panel = rv.data.split(b'<div class="detail-copy product-purchase-panel">', 1)[1].split(b'<div class="product-service-promises"', 1)[0]
+    assert b"Choose your preferred sock size below." in purchase_panel
+    assert b"A full-length description that belongs in the Description tab only." not in purchase_panel
+    assert b"A full-length description that belongs in the Description tab only." in rv.data.split(b'id="product-description"', 1)[1]
     assert b"KSh 150" in rv.data
     assert b"product-gallery" in rv.data
     assert b"Add to Cart" in rv.data
@@ -1276,6 +1283,7 @@ def test_admin_product_edit_save_updates_product(client, app):
         "sku": "SOCK-UPDATED",
         "category_id": str(category_id),
         "description": "Updated description",
+        "display_note": "Choose your preferred size below.",
         "price": "155",
         "unit_cost": "80",
         "previous_price": "180",
@@ -1295,6 +1303,8 @@ def test_admin_product_edit_save_updates_product(client, app):
         assert product.sku == "SOCK-UPDATED"
         assert product.price_cents == 15500
         assert product.stock_quantity == 7
+        from app.models import ProductDisplayNote
+        assert ProductDisplayNote.query.filter_by(product_id=product_id).one().note == "Choose your preferred size below."
 
 
 def test_admin_product_form_has_repeatable_variant_controls(client, app):

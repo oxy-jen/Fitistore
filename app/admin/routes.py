@@ -1070,7 +1070,10 @@ def save_category_thumbnail(group_key):
 def product_form(product_id=None):
     product = Product.query.get(product_id) if product_id else None
     categories = Category.query.order_by(Category.name).all()
+    from app.services.product_display_notes import get_product_display_note
+    form_display_note = get_product_display_note(product.id) if product else ""
     if request.method == "POST":
+        form_display_note = request.form.get("display_note", "").strip()[:180]
         if not product:
             product = Product(category_id=categories[0].id if categories else None)
         product.name = request.form["name"].strip()
@@ -1093,7 +1096,7 @@ def product_form(product_id=None):
             synced_variants = sync_product_variants(product, variant_rows)
         except ValueError as exc:
             flash(str(exc), "error")
-            return render_template("admin/product_form.html", title="Product", product=product if product.id else None, categories=categories, variant_form_rows=variant_form_rows)
+            return render_template("admin/product_form.html", title="Product", product=product if product.id else None, categories=categories, variant_form_rows=variant_form_rows, form_display_note=form_display_note)
         db.session.add(product)
         db.session.flush()
         save_images(request.files.getlist("images"), product)
@@ -1110,13 +1113,24 @@ def product_form(product_id=None):
         if not product.images:
             db.session.rollback()
             flash("Add at least one main product image before saving.", "error")
-            return render_template("admin/product_form.html", title="Product", product=product if product.id else None, categories=categories)
+            return render_template("admin/product_form.html", title="Product", product=product if product.id else None, categories=categories, form_display_note=form_display_note)
         if product.images and not any(image.is_primary for image in product.images):
             product.images[0].is_primary = True
         db.session.commit()
-        flash("Product saved.", "success")
+        from app.services.product_display_notes import product_display_note_schema_ready, save_product_display_note
+        if product_display_note_schema_ready():
+            try:
+                save_product_display_note(product.id, form_display_note)
+                db.session.commit()
+                flash("Product saved. Display note saved.", "success")
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.warning("Could not save a product display note (%s).", type(exc).__name__)
+                flash("Product saved, but its short display note could not be saved. Please try again later.", "warning")
+        else:
+            flash("Product saved. Short display notes are temporarily unavailable and will be saved after setup completes.", "warning")
         return redirect(url_for("admin.products"))
-    return render_template("admin/product_form.html", title="Product", product=product, categories=categories, variant_form_rows=product_variant_form_rows(product))
+    return render_template("admin/product_form.html", title="Product", product=product, categories=categories, variant_form_rows=product_variant_form_rows(product), form_display_note=form_display_note)
 
 @admin_bp.post("/products/<int:product_id>/stock")
 @login_required

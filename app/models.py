@@ -73,6 +73,7 @@ class Product(TimestampMixin, db.Model):
     category = db.relationship("Category", back_populates="products")
     images = db.relationship("ProductImage", back_populates="product", cascade="all, delete-orphan", order_by="ProductImage.sort_order")
     variants = db.relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan", order_by="ProductVariant.sort_order")
+    display_note = db.relationship("ProductDisplayNote", back_populates="product", cascade="all, delete-orphan", uselist=False)
     reviews = db.relationship("Review", back_populates="product")
     mamba_collection_item = db.relationship("MambaCollectionItem", back_populates="product", cascade="all, delete-orphan", uselist=False)
     __table_args__ = (
@@ -124,6 +125,14 @@ class Product(TimestampMixin, db.Model):
     def max_variant_price_cents(self):
         prices = self.active_variant_prices
         return max(prices) if prices else None
+
+
+class ProductDisplayNote(db.Model):
+    """Short admin-written note shown beside price and selectable product options."""
+    __tablename__ = "product_display_note"
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id", ondelete="CASCADE"), primary_key=True)
+    note = db.Column(db.String(240), nullable=False, default="")
+    product = db.relationship("Product", back_populates="display_note")
 
 
 class UpcomingProduct(TimestampMixin, db.Model):

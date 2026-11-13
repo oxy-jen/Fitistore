@@ -10,7 +10,7 @@ from werkzeug.security import generate_password_hash
 
 from config import Config
 from .extensions import db, login_manager, csrf
-from .models import AdminUser, CartAddCount, Category, CategoryThumbnail, CustomerProfile, MediaShowcase, MambaCollection, MambaCollectionItem, Order, OrderItem, Product, ProductImage, ReferralClick, ShopSettings, UpcomingProduct
+from .models import AdminUser, CartAddCount, Category, CategoryThumbnail, CustomerProfile, MediaShowcase, MambaCollection, MambaCollectionItem, Order, OrderItem, Product, ProductDisplayNote, ProductImage, ReferralClick, ShopSettings, UpcomingProduct
 from .services.product_images import ImageStorageError, legacy_local_image_path, upload_image_bytes
 
 DEFAULT_CATEGORIES = [
@@ -162,6 +162,7 @@ def create_app(config_object=Config, *, initialize_media_showcases=False):
     app.extensions["media_showcase_schema_ready"] = None
     app.extensions["upcoming_product_schema_ready"] = None
     app.extensions["product_like_schema_ready"] = None
+    app.extensions["product_display_note_schema_ready"] = None
     if initialize_media_showcases and not app.testing and app.config.get("AUTO_INITIALIZE_MEDIA_SHOWCASES", True):
         from .services.media_showcases import ensure_media_showcase_schema
         with app.app_context():
@@ -199,6 +200,17 @@ def create_app(config_object=Config, *, initialize_media_showcases=False):
                 app.extensions["product_like_schema_ready"] = False
                 app.logger.error(
                     "Automatic product like database setup failed (%s). The homepage will remain available without voting; the next app startup will retry.",
+                    type(exc).__name__,
+                )
+            from .services.product_display_notes import ensure_product_display_note_schema
+            try:
+                ensure_product_display_note_schema()
+                app.extensions["product_display_note_schema_ready"] = True
+                app.logger.info("Product display note storage is ready.")
+            except Exception as exc:
+                app.extensions["product_display_note_schema_ready"] = False
+                app.logger.error(
+                    "Automatic product display note setup failed (%s). Product pages will use their default option guidance; the next app startup will retry.",
                     type(exc).__name__,
                 )
     return app
