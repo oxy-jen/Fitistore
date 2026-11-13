@@ -28,7 +28,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!showSheet) return;
 
     mobileLinks.replaceChildren();
-    for (const item of originalItems) {
+    const mobileItems = [
+      ...originalItems,
+      ...Array.from(menu.children).filter((item) =>
+        !originalItems.includes(item) && !(item.matches('a') && originalItems.some((original) =>
+          original.matches('a') && original.href === item.href
+        ))
+      ),
+    ];
+    for (const item of mobileItems) {
       const source = item.matches('a') ? item : item.querySelector('.nav-profile-account-link');
       if (!source) continue;
       const link = source.cloneNode(true);
@@ -67,7 +75,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   const originalItems = Array.from(nav.children).filter((item) => item !== more);
-  const candidates = originalItems.filter((item) => item.hasAttribute('data-nav-overflow-item'));
+  const candidates = originalItems.filter((item) =>
+    item.hasAttribute('data-nav-overflow-item') && !item.hasAttribute('data-nav-pinned')
+  );
   const overflowOrder = [...candidates].reverse().sort((a, b) =>
     Number(a.dataset.navPriority || 50) - Number(b.dataset.navPriority || 50)
   );
@@ -97,17 +107,18 @@ document.addEventListener('DOMContentLoaded', () => {
       more.hidden = menu.children.length === 0;
       return;
     }
-    while (nav.scrollWidth > nav.clientWidth + 1) {
-      const overflowItem = overflowOrder.find((item) =>
-        item.parentElement === nav && !item.classList.contains('cart-link')
-      );
-      if (!overflowItem) break;
+    while (true) {
+      const overflowItem = overflowOrder.find((item) => item.parentElement === nav);
+      const phoneKeepsSecondaryInMenu = mobileNavigation.matches && Boolean(overflowItem);
+      if (!overflowItem || (!phoneKeepsSecondaryInMenu && nav.scrollWidth <= nav.clientWidth + 1)) break;
       const nextOverflow = originalItems.slice(originalItems.indexOf(overflowItem) + 1)
         .find((item) => item.parentElement === menu);
       menu.insertBefore(overflowItem, nextOverflow || null);
     }
 
-    const hasOverflow = menu.children.length > 0;
+    const hasOverflow = Array.from(menu.children).some((item) =>
+      !item.hidden && getComputedStyle(item).display !== 'none'
+    );
     more.hidden = !hasOverflow;
     if (!hasOverflow) more.open = false;
   }
