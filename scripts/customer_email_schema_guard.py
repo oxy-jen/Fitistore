@@ -18,10 +18,18 @@ EXPECTED_TABLES = {
     "marketing_automation_settings", "marketing_campaign_run",
     "marketing_product_exposure",
     "email_template", "email_draft",
+    "email_delivery_attempt", "email_delivery_investigation",
+    "email_delivery_investigation_event", "email_worker_run",
+    "email_legacy_payload_review_event",
 }
 EMAIL_STUDIO_TABLES = {"email_template", "email_draft"}
-PRE_EMAIL_STUDIO_TABLES = EXPECTED_TABLES - EMAIL_STUDIO_TABLES
-APPROVED_MISSING_TABLES = EMAIL_STUDIO_TABLES
+EMAIL_DELIVERY_OPS_TABLES = {
+    "email_delivery_attempt", "email_delivery_investigation",
+    "email_delivery_investigation_event", "email_worker_run",
+}
+EMAIL_LEGACY_REVIEW_TABLES = {"email_legacy_payload_review_event"}
+PRE_EMAIL_STUDIO_TABLES = EXPECTED_TABLES - EMAIL_STUDIO_TABLES - EMAIL_DELIVERY_OPS_TABLES - EMAIL_LEGACY_REVIEW_TABLES
+APPROVED_MISSING_TABLES = EMAIL_STUDIO_TABLES | EMAIL_DELIVERY_OPS_TABLES | {"email_legacy_payload_review_event"}
 BASE_COLUMNS = {"admin_user": {"id"}, "order": {"id"}, "product": {"id"}}
 # These are the only missing objects approved for an existing feature schema.
 APPROVED_MISSING_COLUMNS = {
@@ -32,8 +40,23 @@ APPROVED_MISSING_COLUMNS = {
     ("email_template", "blocks_json"),
     ("email_draft", "blocks_json"),
     ("email_message", "template_id"),
+    ("email_message", "purpose"),
+    ("email_message", "frequency_override"),
+    ("email_message", "html_body"),
+    ("email_message", "text_body"),
+    ("email_message", "claimed_at"),
+    ("email_message", "last_attempt_at"),
+    ("email_message", "next_attempt_at"),
+    ("email_message", "error_category"),
+    ("email_message", "claim_token"),
+    ("marketing_campaign_run", "queued_count"),
 }
-APPROVED_MISSING_INDEXES = {"ix_email_message_provider_message_id", "ix_email_message_template_id"}
+APPROVED_MISSING_INDEXES = {
+    "ix_email_message_provider_message_id", "ix_email_message_template_id",
+    "ix_email_message_purpose", "ix_email_message_dispatch",
+    "ix_email_message_claimed_at", "ix_email_message_next_attempt_at",
+    "ix_email_message_claim_token",
+}
 def migration_index_manifest() -> dict[str, tuple[str, tuple[str, ...], bool]]:
     sql = migration_sql()
     pattern = re.compile(
@@ -59,7 +82,10 @@ def migration_sql() -> str:
     email_studio = (migrations_dir / "20261027_email_studio.sql").read_text(encoding="utf-8")
     email_builder = (migrations_dir / "20261028_email_builder.sql").read_text(encoding="utf-8")
     consent_wording = (migrations_dir / "20261029_consent_wording_version.sql").read_text(encoding="utf-8")
-    return f"{customer_email}\n{email_studio}\n{email_builder}\n{consent_wording}"
+    outbox = (migrations_dir / "20261113_email_outbox.sql").read_text(encoding="utf-8")
+    delivery_ops = (migrations_dir / "20261116_email_delivery_ops.sql").read_text(encoding="utf-8")
+    legacy_review = (migrations_dir / "20261117_email_legacy_review.sql").read_text(encoding="utf-8")
+    return f"{customer_email}\n{email_studio}\n{email_builder}\n{consent_wording}\n{outbox}\n{delivery_ops}\n{legacy_review}"
 
 
 def migration_column_defaults() -> dict[tuple[str, str], str | None]:
@@ -160,6 +186,23 @@ def migration_column_manifest() -> dict[tuple[str, str], ColumnSpec]:
             raise GuardError("Migration type change references an unknown column.")
         previous = manifest[key]
         manifest[key] = ColumnSpec(canonical_sql_type(sql_type), previous.nullable, previous.default)
+    defaults = re.compile(
+        r"ALTER\s+TABLE\s+(\w+)\s+ALTER\s+COLUMN\s+(\w+)\s+SET\s+DEFAULT\s+('(?:''|[^'])*'|CURRENT_TIMESTAMP|TRUE|FALSE|-?\d+(?:\.\d+)?)\s*;",
+        re.I,
+    )
+    for table, column, default in defaults.findall(sql):
+        key = (table.lower(), column.lower())
+        if key not in manifest:
+            raise GuardError("Migration default references an unknown column.")
+        previous = manifest[key]
+        manifest[key] = ColumnSpec(previous.sql_type, previous.nullable, default)
+    not_null = re.compile(r"ALTER\s+TABLE\s+(\w+)\s+ALTER\s+COLUMN\s+(\w+)\s+SET\s+NOT\s+NULL\s*;", re.I)
+    for table, column in not_null.findall(sql):
+        key = (table.lower(), column.lower())
+        if key not in manifest:
+            raise GuardError("Migration nullability change references an unknown column.")
+        previous = manifest[key]
+        manifest[key] = ColumnSpec(previous.sql_type, False, previous.default)
     if not manifest:
         raise GuardError("Migration column definitions could not be verified.")
     if {table for table, _column in manifest} != EXPECTED_TABLES:
@@ -194,6 +237,18 @@ def migration_constraint_manifest():
             if reference:
                 target_table, target_column = reference.groups()
                 foreign_keys[table].add((column.lower(), target_table.lower(), target_column.lower()))
+            table_reference = re.match(
+                r"(?:CONSTRAINT\s+\w+\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s*"
+                r"REFERENCES\s+\"?([A-Za-z_][A-Za-z0-9_]*)\"?\s*\(([^)]+)\)",
+                declaration, re.I,
+            )
+            if table_reference:
+                local_columns, target_table, target_columns = table_reference.groups()
+                locals_ = [part.strip().strip('"').lower() for part in local_columns.split(",")]
+                targets_ = [part.strip().strip('"').lower() for part in target_columns.split(",")]
+                if len(locals_) != len(targets_):
+                    raise GuardError("Migration foreign-key column count is inconsistent.")
+                foreign_keys[table].update((local, target_table.lower(), target) for local, target in zip(locals_, targets_))
     alters = re.compile(r"ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+(.*?);", re.I | re.S)
     for table, declaration in alters.findall(sql):
         parsed = _COLUMN_DECLARATION.match(declaration.strip())
@@ -208,6 +263,8 @@ def migration_constraint_manifest():
         raise GuardError("Migration constraint definitions could not be verified.")
     if re.search(r"ALTER\s+TABLE\s+email_template\s+DROP\s+CONSTRAINT\s+IF\s+EXISTS\s+email_template_category_key", sql, re.I):
         unique["email_template"].discard(("category",))
+    # This unique partial index is declared in the additive operations schema.
+    unique["email_delivery_investigation"].add(("message_id",))
     return unique, named_unique, foreign_keys
 
 
@@ -436,7 +493,7 @@ def _engine_url(url: str) -> str:
 
 def validate_schema(connection, schema: str, *, allow_approved_missing: bool) -> list[str]:
     """Compare every expected customer/email object with application metadata."""
-    from sqlalchemy import inspect
+    from sqlalchemy import inspect, text
     from app import customer_email_schema_tables
 
     inspector = inspect(connection)
@@ -471,7 +528,12 @@ def validate_schema(connection, schema: str, *, allow_approved_missing: bool) ->
         name = table.name
         if name not in tables:
             if name in APPROVED_MISSING_TABLES and allow_approved_missing:
-                problems.append(f"approved missing table: {name} (migration 20261027_email_studio.sql)")
+                migration = (
+                    "20261116_email_delivery_ops.sql" if name in EMAIL_DELIVERY_OPS_TABLES else
+                    "20261117_email_legacy_review.sql" if name in EMAIL_LEGACY_REVIEW_TABLES else
+                    "20261027_email_studio.sql"
+                )
+                problems.append(f"approved missing table: {name} (migration {migration})")
                 continue
             raise GuardError(f"Unexpected missing table: {name}.")
         actual_columns = {row["name"]: row for row in inspector.get_columns(name, schema=schema_arg)}
@@ -552,7 +614,9 @@ def validate_schema(connection, schema: str, *, allow_approved_missing: bool) ->
                 or unique_options.get("postgresql_nulls_not_distinct")
             ):
                 raise GuardError(f"Incompatible unique-constraint timing on {name}.")
-        if inspector.get_check_constraints(name, schema=schema_arg):
+        # Operation-table CHECK constraints and trigger/index catalog details
+        # are validated by validate_email_delivery_ops_schema below.
+        if name not in EMAIL_DELIVERY_OPS_TABLES | EMAIL_LEGACY_REVIEW_TABLES and inspector.get_check_constraints(name, schema=schema_arg):
             raise GuardError(f"Unexpected check constraint on {name}.")
         for constraint_name, columns in named_unique_manifest.get(name, {}).items():
             if actual_named_unique.get(constraint_name) != columns:
@@ -571,10 +635,21 @@ def validate_schema(connection, schema: str, *, allow_approved_missing: bool) ->
             for row in foreign_keys
             for local, remote in zip(row.get("constrained_columns") or (), row.get("referred_columns") or ())
         }
-        expected_fk_with_schema = {
-            (local, target_table, target_col, schema, None, None)
-            for local, target_table, target_col in expected_fk
-        }
+        if name in EMAIL_DELIVERY_OPS_TABLES | EMAIL_LEGACY_REVIEW_TABLES:
+            expected_fk_with_schema = set()
+            for foreign_key in table.foreign_key_constraints:
+                for element in foreign_key.elements:
+                    expected_fk_with_schema.add((
+                        element.parent.name, foreign_key.referred_table.name,
+                        element.column.name, schema,
+                        foreign_key.ondelete.upper() if foreign_key.ondelete else None,
+                        foreign_key.onupdate.upper() if foreign_key.onupdate else None,
+                    ))
+        else:
+            expected_fk_with_schema = {
+                (local, target_table, target_col, schema, None, None)
+                for local, target_table, target_col in expected_fk
+            }
         if expected_fk_with_schema != actual_fk:
             raise GuardError(f"Missing or incompatible foreign key on {name}.")
         expected_pk = tuple(col.name for col in table.primary_key.columns)
@@ -586,7 +661,59 @@ def validate_schema(connection, schema: str, *, allow_approved_missing: bool) ->
         if actual_pk != expected_pk:
             raise GuardError(f"Missing or incompatible primary key on {name}.")
 
+    if "email_message" in tables:
+        history_exists = inspector.has_table("email_schema_migration", schema=schema_arg)
+        if not history_exists:
+            if allow_approved_missing:
+                problems.append("approved missing migration history: email_schema_migration (20261113_email_outbox)")
+            else:
+                raise GuardError("Email outbox migration history is missing.")
+        else:
+            from app.services.email_outbox_schema import validate_email_outbox_schema
+            try:
+                validate_email_outbox_schema(connection, schema=schema)
+            except Exception as exc:
+                raise GuardError(f"Email outbox schema or migration checksum is incompatible ({type(exc).__name__}).") from None
+            migration_ids = set(connection.execute(text(
+                "SELECT migration_id FROM email_schema_migration"
+            )).scalars())
+            for migration_id, service_module, validator_name in (
+                ("20261117_email_admin_test_purpose", "app.services.email_test_purpose_migration", "validate_email_test_purpose"),
+                ("20261117_customer_consent_audit_immutable", "app.services.consent_audit", "validate_consent_audit_schema"),
+            ):
+                if migration_id in migration_ids:
+                    try:
+                        module = __import__(service_module, fromlist=[validator_name])
+                        getattr(module, validator_name)(connection, **({"schema": schema} if validator_name == "validate_consent_audit_schema" else {}))
+                    except Exception as exc:
+                        raise GuardError(f"Customer email additive migration {migration_id} is incompatible ({type(exc).__name__}).") from None
+                elif allow_approved_missing:
+                    problems.append(f"approved pending additive migration: {migration_id}")
+                else:
+                    raise GuardError(f"Required customer email migration is missing: {migration_id}.")
+
+    if EMAIL_LEGACY_REVIEW_TABLES <= tables:
+        from app.services.email_legacy_reviews import validate_email_legacy_review_schema
+        try:
+            validate_email_legacy_review_schema(connection)
+        except Exception as exc:
+            raise GuardError(f"Legacy email review schema or checksum is incompatible ({type(exc).__name__}).") from None
+
+    if EMAIL_DELIVERY_OPS_TABLES <= tables:
+        from app.services.email_delivery_ops import validate_email_delivery_ops_schema
+        try:
+            validate_email_delivery_ops_schema(connection, schema=schema)
+        except Exception as exc:
+            raise GuardError(f"Email delivery operations schema or migration checksum is incompatible ({type(exc).__name__}).") from None
+
     return ["Preflight: customer email schema is complete or has only approved additive omissions."] + problems
+
+
+def validate_marketing_suppression_schema(connection, schema: str) -> list[str]:
+    """Validate suppression objects, partial-index predicates, composite FKs and triggers."""
+    from app.services.marketing_suppressions import validate_marketing_suppression_schema as validate
+    validate(connection, schema=schema)
+    return ["Marketing suppression schema, constraints, indexes, ledger trigger, and migration checksum are complete."]
 
 
 def write_summary(lines: list[str]) -> None:
@@ -846,7 +973,10 @@ def run(mode: str) -> None:
 
     try:
         schema = os.environ["EXPECTED_DATABASE_SCHEMA"]
-        notes = validate_schema(connection, schema, allow_approved_missing=(mode == "preflight"))
+        if mode == "suppression-check":
+            notes = validate_marketing_suppression_schema(connection, schema)
+        else:
+            notes = validate_schema(connection, schema, allow_approved_missing=(mode == "preflight"))
         if mode == "postcheck" and any(note.startswith("approved missing") for note in notes):
             raise GuardError("Post-migration validation found approved objects still missing.")
         for note in notes:
@@ -870,8 +1000,8 @@ def run(mode: str) -> None:
 
 if __name__ == "__main__":
     try:
-        if len(sys.argv) != 2 or sys.argv[1] not in {"confirm", "dispatch-check", "settings", "preflight", "postcheck", "tls-env"}:
-            raise GuardError("Usage: customer_email_schema_guard.py confirm|dispatch-check|settings|preflight|postcheck|tls-env")
+        if len(sys.argv) != 2 or sys.argv[1] not in {"confirm", "dispatch-check", "settings", "preflight", "postcheck", "suppression-check", "tls-env"}:
+            raise GuardError("Usage: customer_email_schema_guard.py confirm|dispatch-check|settings|preflight|postcheck|suppression-check|tls-env")
         if sys.argv[1] == "settings":
             required_settings()
             print("Connection settings are present; TLS policy is verify-full. No database connection opened.")

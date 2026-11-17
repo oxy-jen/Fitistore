@@ -1,0 +1,6 @@
+-- Additive consent audit protection, executed by app.services.consent_audit
+-- inside the customer/email migration transaction and advisory lock.
+-- No consent records are changed by this migration.
+-- PostgreSQL protects UPDATE, DELETE, and TRUNCATE; SQLite test support blocks
+-- UPDATE and DELETE. The Python migration validates trigger catalog state and
+-- records the checksum in email_schema_migration and email_migration_history.

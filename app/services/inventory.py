@@ -31,7 +31,26 @@ def queue_restock_alerts(product: Product):
         return []
     alerts = RestockAlert.query.filter_by(product_id=product.id, status="pending", consent_to_contact=True).all()
     for alert in alerts:
-        alert.status = "queued"
+        if alert.preferred_contact == "Email":
+            from sqlalchemy import inspect
+            inspector = inspect(db.engine)
+            required = {"recipient", "kind", "subject", "idempotency_key", "status", "purpose", "html_body", "text_body"}
+            if inspector.has_table("email_message") and required <= {
+                column["name"] for column in inspector.get_columns("email_message")
+            }:
+                from app.services.customer_mail import notify_restock_alert
+                # Queue in the same transaction as the stock and alert update.
+                # The caller commits both together; no nested transaction or provider I/O.
+                message = notify_restock_alert(alert, f"restock-alert:{alert.id}")
+                if message and message.status in {"queued", "sent", "delivered"}:
+                    alert.status = "notified" if message.status in {"sent", "delivered"} else "queued"
+                    if alert.status == "notified":
+                        from datetime import datetime
+                        alert.notified_at = message.sent_at or datetime.utcnow()
+        else:
+            # Non-email contacts remain an explicit admin follow-up item; no
+            # external message is sent from the inventory transaction.
+            alert.status = "queued"
     return alerts
 
 def low_stock_products():

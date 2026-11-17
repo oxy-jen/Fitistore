@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block content %}
+<section class="page-head admin-head"><div><p class="eyebrow">System-managed · preview only</p><h1>{{ definition.name }}</h1><p>{{ definition.purpose }} This sample preview does not create tokens, update customer data, enqueue or send email.</p></div><div class="actions"><a class="btn" href="{{ url_for('admin.email_studio_messages') }}#template-library">Back to template library</a></div></section>
+<section class="form-card"><p><strong>Source:</strong> <code>{{ definition.source }}</code></p><p><strong>Trigger:</strong> {{ definition.trigger }}</p><iframe title="Static email template sample" srcdoc="{{ html|e }}" style="width:100%;min-height:620px;border:1px solid #d9dde5;background:#fff;border-radius:12px"></iframe><h2>Plain-text sample</h2><pre style="white-space:pre-wrap">{{ text }}</pre></section>
+{% endblock %}

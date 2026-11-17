@@ -14,6 +14,7 @@ from flask import Blueprint, abort, current_app, flash, jsonify, redirect, rende
 from flask_login import current_user, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
 
 from app.extensions import db, csrf
 from app.models import AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, Order, Product, Review
@@ -61,6 +62,8 @@ def _public_url(endpoint, **values):
 
 def _delivery_message(result, label="verification"):
     status = getattr(result, "status", "")
+    if status == "queued":
+        return f"Your {label} email is in the delivery queue. It will be sent when email delivery is available."
     if status == "sent":
         return f"We’ve sent your {label} email. Check your inbox and spam folder. If it doesn’t arrive, you can request another."
     if status == "not_configured":
@@ -71,11 +74,10 @@ def _delivery_message(result, label="verification"):
 
 
 def _registration_message(result):
-    if getattr(result, "status", "") == "sent":
+    if getattr(result, "status", "") in {"sent", "queued"}:
         return (
-            "Your account was created successfully. Check your inbox for a verification link, "
-            "then sign in to start shopping. If you don’t see the email, check spam or request "
-            "a verification code from the sign-in page."
+            "Your account was created successfully. Your verification email is in the delivery queue. "
+            "Once it arrives, verify your email and sign in to start shopping."
         )
     return (
         "Your account was created successfully, but email verification still needs to be completed. "
@@ -147,7 +149,7 @@ def _find_token(raw, purpose):
     return row
 
 
-def _send_token_email(account, purpose, raw, next_url=None):
+def _send_token_email(account, purpose, raw, next_url=None, *, commit=True):
     if purpose == "verify_email":
         path = "customer.verify_email"
         subject = "Verify your FityStores email"
@@ -176,12 +178,16 @@ def _send_token_email(account, purpose, raw, next_url=None):
     event_key = hashlib.sha256(raw.encode()).hexdigest()[:24]
     return queue_branded_email(
         account.email, subject, purpose, f"{purpose}:{event_key}", heading, [text], account_id=account.id,
-        button_url=url, button_text=button_text,
+        button_url=url, button_text=button_text, commit=commit,
     )
 
 
 def _issue_and_send(account, purpose, minutes=None, next_url=None):
     raw = token_urlsafe(32)
+    now = datetime.utcnow()
+    CustomerToken.query.filter_by(account_id=account.id, purpose=purpose).filter(
+        CustomerToken.used_at.is_(None),
+    ).update({"used_at": now}, synchronize_session="fetch")
     token_row = CustomerToken(
         account_id=account.id,
         purpose=purpose,
@@ -189,65 +195,57 @@ def _issue_and_send(account, purpose, minutes=None, next_url=None):
         expires_at=datetime.utcnow() + timedelta(minutes=minutes or (30 if purpose == "reset_password" else 24 * 60)),
     )
     db.session.add(token_row)
-    db.session.commit()
     try:
-        result = _send_token_email(account, purpose, raw, next_url=next_url)
+        db.session.flush()
+        result = _send_token_email(account, purpose, raw, next_url=next_url, commit=False)
+        db.session.commit()
     except Exception:
-        token_row.used_at = datetime.utcnow()
+        db.session.rollback()
+        # A queue/render failure must never make an earlier credential valid again.
+        CustomerToken.query.filter_by(account_id=account.id, purpose=purpose).filter(
+            CustomerToken.used_at.is_(None),
+        ).update({"used_at": datetime.utcnow()}, synchronize_session="fetch")
         db.session.commit()
         raise
-
-    now = datetime.utcnow()
-    if result and result.status == "sent":
-        CustomerToken.query.filter(
-            CustomerToken.account_id == account.id,
-            CustomerToken.purpose == purpose,
-            CustomerToken.id != token_row.id,
-            CustomerToken.used_at.is_(None),
-        ).update({"used_at": now}, synchronize_session="fetch")
-    elif result and result.status == "not_configured":
-        # No mail was attempted, so retire this unsent token while retaining a prior usable link.
-        token_row.used_at = now
-    # A failed SMTP call can be ambiguous if the server accepted the message before a
-    # connection dropped. Keep both links usable; the next accepted send retires older tokens.
-    db.session.commit()
     return result
 
 
 def _start_email_code(account, purpose):
     """Issue a short-lived, hashed one-time code for verification or optional 2FA."""
     code = f"{randbelow(1_000_000):06d}"
+    now = datetime.utcnow()
+    CustomerToken.query.filter_by(account_id=account.id, purpose=purpose).filter(
+        CustomerToken.used_at.is_(None),
+    ).update({"used_at": now}, synchronize_session="fetch")
     row = CustomerToken(
         account_id=account.id, purpose=purpose,
         token_hash=hashlib.sha256(code.encode()).hexdigest(),
         expires_at=datetime.utcnow() + timedelta(minutes=10),
     )
     db.session.add(row)
-    db.session.commit()
     heading = "Verify your FityStores account" if purpose == "verify_code" else "Your FityStores sign-in code"
     subject = "Your FityStores verification code" if purpose == "verify_code" else "Your FityStores sign-in code"
     code_copy = "Enter this code within 10 minutes; tap and hold it to copy. Never share it, even with FityStores."
-    result = queue_branded_email(
-        account.email, subject, purpose, f"{purpose}:{row.id}", heading,
-        [code_copy], account_id=account.id, security_code=code,
-    )
-    now = datetime.utcnow()
-    if result.status == "sent":
-        CustomerToken.query.filter(
-            CustomerToken.account_id == account.id,
-            CustomerToken.purpose == purpose,
-            CustomerToken.id != row.id,
+    try:
+        db.session.flush()
+        result = queue_branded_email(
+            account.email, subject, purpose, f"{purpose}:{row.id}", heading,
+            [code_copy], account_id=account.id, security_code=code, commit=False,
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        CustomerToken.query.filter_by(account_id=account.id, purpose=purpose).filter(
             CustomerToken.used_at.is_(None),
-        ).update({"used_at": now}, synchronize_session="fetch")
-    else:
-        row.used_at = now
-    db.session.commit()
+        ).update({"used_at": datetime.utcnow()}, synchronize_session="fetch")
+        db.session.commit()
+        raise
     return result
 
 
 def _begin_code_challenge(account, purpose, next_url=None):
     result = _start_email_code(account, purpose)
-    if not result or result.status != "sent":
+    if not result or result.status not in {"sent", "queued"}:
         session.pop("pending_customer_id", None)
         session.pop("pending_customer_purpose", None)
         session.pop("pending_customer_next", None)
@@ -368,7 +366,7 @@ def register():
             _record_consent(account, "confirmed", "registration_checkbox")
         db.session.commit()
         result = _issue_and_send(account, "verify_email", next_url=next_url)
-        flash(_registration_message(result), "success" if result and result.status == "sent" else "warning")
+        flash(_registration_message(result), "success" if result and result.status in {"sent", "queued"} else "warning")
         return redirect(url_for("customer.login", next=next_url))
     return render_template("customer/register.html", title="Create account", next_url=next_url)
 
@@ -690,7 +688,7 @@ def subscribe_marketing():
         _record_consent(current_user, "requested", "account_preferences")
         db.session.commit()
         result = _issue_and_send(current_user, "marketing_confirm")
-        flash(_delivery_message(result, "promotional confirmation"), "success" if result and result.status == "sent" else "warning")
+        flash(_delivery_message(result, "promotional confirmation"), "success" if result and result.status in {"sent", "queued"} else "warning")
     return redirect(url_for("customer.dashboard"))
 
 
@@ -722,8 +720,10 @@ def footer_newsletter_signup():
 @customer_bp.post("/marketing/unsubscribe")
 @customer_required
 def unsubscribe_account():
-    if current_user.marketing_status == "subscribed":
-        _record_consent(current_user, "withdrawn", "account_preferences")
+    from app.services.marketing_suppressions import lock_marketing_account
+    account = lock_marketing_account(current_user.id)
+    if account and account.marketing_status == "subscribed":
+        _record_consent(account, "withdrawn", "account_preferences")
         db.session.commit()
     flash("You are unsubscribed from promotional email.", "success")
     return redirect(url_for("customer.dashboard"))
@@ -778,7 +778,7 @@ def resend_verification():
         flash("Too many verification requests. Please wait before trying again.", "warning")
     else:
         result = _issue_and_send(account, "verify_email")
-        flash(_delivery_message(result), "success" if result and result.status == "sent" else "warning")
+        flash(_delivery_message(result), "success" if result and result.status in {"sent", "queued"} else "warning")
     return redirect(url_for("customer.dashboard") if isinstance(current_user._get_current_object(), CustomerAccount) else url_for("customer.verify_code"))
 
 
@@ -824,9 +824,48 @@ def confirm_marketing(token):
     if not row:
         flash("That confirmation link is invalid or expired.", "error")
         return redirect(url_for("public.home"))
-    account = row.account
+    # Lock account before token, matching suppression ingestion's lock order.
+    from app.services.marketing_suppressions import lock_marketing_account
+    account = lock_marketing_account(row.account_id)
+    row = db.session.execute(
+        select(CustomerToken).where(
+            CustomerToken.id == row.id,
+            CustomerToken.used_at.is_(None),
+        ).with_for_update()
+    ).scalar_one_or_none()
+    if not account or not row or row.expires_at <= datetime.utcnow() or not account.active:
+        db.session.rollback()
+        flash("That confirmation link is invalid or expired.", "error")
+        return redirect(url_for("public.home"))
     if not account.email_verified_at:
         flash("Verify your account email before confirming promotional email. The confirmation link remains available for 24 hours.", "warning")
+        return redirect(url_for("customer.login"))
+    suppression_active = account.marketing_status == "suppressed"
+    try:
+        from sqlalchemy import inspect
+        from app.models import MarketingSuppressionCase
+        inspector = inspect(db.engine)
+        if not inspector.has_table(MarketingSuppressionCase.__tablename__):
+            raise RuntimeError("suppression schema is not installed")
+        columns = {column["name"] for column in inspector.get_columns(MarketingSuppressionCase.__tablename__)}
+        if not {"account_id", "cleared_at"} <= columns:
+            raise RuntimeError("suppression schema is incomplete")
+        if not suppression_active:
+            suppression_active = db.session.execute(
+                select(MarketingSuppressionCase.id).where(
+                    MarketingSuppressionCase.account_id == account.id,
+                    MarketingSuppressionCase.cleared_at.is_(None),
+                ).limit(1)
+            ).first() is not None
+    except Exception as exc:
+        db.session.rollback()
+        logger.error("marketing_confirmation_suppression_check_failed error_type=%s", type(exc).__name__)
+        flash("We could not confirm your email preference right now. Please try again later.", "warning")
+        return redirect(url_for("customer.login"))
+    if suppression_active:
+        row.used_at = datetime.utcnow()
+        db.session.commit()
+        flash("This address has an active marketing suppression. Contact support if you believe this is an error.", "warning")
         return redirect(url_for("customer.login"))
     row.used_at = datetime.utcnow()
     _record_consent(account, "confirmed", "double_opt_in")
@@ -840,12 +879,20 @@ def unsubscribe(token):
     if request.method == "GET":
         return render_template("customer/confirm_token.html", title="Unsubscribe", heading="Unsubscribe from FityStores offers", action=url_for("customer.unsubscribe", token=token), valid=bool(row))
     if row:
-        row.used_at = datetime.utcnow()
-        account = row.account
-        _record_consent(account, "withdrawn", "unsubscribe_link")
-        db.session.commit()
-        from app.services.customer_mail import queue_branded_email
-        queue_branded_email(account.email, "FityStores email preferences updated", "unsubscribe_confirmation", f"unsubscribe-link:{row.id}", "Promotional email stopped", ["You have been unsubscribed from promotional FityStores emails. Essential account and order messages may still be sent."], account_id=account.id)
+        from app.services.marketing_suppressions import lock_marketing_account
+        account = lock_marketing_account(row.account_id)
+        row = db.session.execute(
+            select(CustomerToken).where(
+                CustomerToken.id == row.id, CustomerToken.used_at.is_(None),
+                CustomerToken.expires_at > datetime.utcnow(),
+            ).with_for_update()
+        ).scalar_one_or_none()
+        if account and row:
+            row.used_at = datetime.utcnow()
+            _record_consent(account, "withdrawn", "unsubscribe_link")
+            db.session.commit()
+            from app.services.customer_mail import queue_branded_email
+            queue_branded_email(account.email, "FityStores email preferences updated", "unsubscribe_confirmation", f"unsubscribe-link:{row.id}", "Promotional email stopped", ["You have been unsubscribed from promotional FityStores emails. Essential account and order messages may still be sent."], account_id=account.id)
     return render_template("customer/unsubscribed.html", title="Email preferences updated")
 
 

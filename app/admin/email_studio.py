@@ -3,10 +3,11 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from secrets import token_urlsafe
 from uuid import UUID, uuid4
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app, flash, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required
@@ -20,7 +21,9 @@ from app.models import (
     Order, OrderItem, Product,
 )
 from app.services.cart import validate_cart
-from app.services.email_studio import EMAIL_CATEGORIES, EmailContentError, render_studio_message, validate_email_blocks, validate_variables
+from app.services.email_studio import EMAIL_CATEGORIES, EMAIL_MARKETING_CATEGORY_KEYS, EMAIL_PRODUCT_CATEGORY_KEYS, EmailContentError, render_studio_message, validate_email_blocks, validate_variables
+from app.services.email_purpose import studio_email_kind_for_category, STUDIO_TRANSACTIONAL_CATEGORY_KINDS
+from app.services.email_template_inventory import SYSTEM_TEMPLATES, build_email_template_inventory
 from app.services.formatting import money
 from app.services.product_images import product_display_image, product_image_alt, product_image_url
 from app.services.settings import current_settings
@@ -28,21 +31,57 @@ from app.services.whatsapp import build_general_message, whatsapp_text_link
 
 logger = logging.getLogger(__name__)
 
-_PROMOTIONAL_COPY = re.compile(
-    r"\b(?:discounts?|sales?|offers?|promotions?|coupons?|vouchers?|deals?|"
-    r"new\s+arrivals|shop\s+now|buy\s+now|limited\s+time|save\s+\d+%|"
-    r"featured\s+products|product\s+recommendations)\b",
-    re.IGNORECASE,
-)
+def _is_server_defined_transactional_content(category, form, *, blocks=None):
+    """Allow transactional Studio sends only for unchanged code-defined notices.
+
+    A category label, saved template, draft, or admin-authored block never grants
+    transactional privileges. The order itself is reloaded and ownership checked
+    by ``_render_for`` before a message can be queued.
+    """
+    defaults = EMAIL_CATEGORIES.get(category)
+    if category not in STUDIO_TRANSACTIONAL_CATEGORY_KINDS or not defaults:
+        return False
+    if any(str(form.get(key) or "").strip() for key in ("template_id", "draft_id")):
+        return False
+    try:
+        if form.getlist("product_ids"):
+            return False
+    except AttributeError:
+        pass
+    if (form.get("subject", defaults["subject"]) != defaults["subject"]
+            or form.get("headline", defaults["headline"]) != defaults["headline"]
+            or form.get("message", defaults["message"]) != defaults["message"]):
+        return False
+    if blocks is None:
+        try:
+            blocks = validate_email_blocks(form.get("blocks_json", "[]"), category)
+        except EmailContentError:
+            return False
+    design_blocks = [block for block in blocks if block["type"] == "design"]
+    if any(
+        block.get("preheader") != "A note from FityStores"
+        or block.get("footer_note") != "Bei Fity, Fits Poa"
+        for block in design_blocks
+    ):
+        return False
+    content_blocks = [block for block in blocks if block["type"] != "design"]
+    if not content_blocks:
+        return True
+    expected_blocks = [
+        {"type": "heading", "text": defaults["headline"], "align": "left"},
+        {"type": "paragraph", "text": defaults["message"], "align": "left"},
+        {"type": "order_summary"},
+        {"type": "button", "text": "View order", "target": "order"},
+        {"type": "contact", "text": "Questions?", "align": "left"},
+    ]
+    return content_blocks == expected_blocks
 
 
-def _requires_marketing_consent(category, subject, headline, message, blocks):
-    if EMAIL_CATEGORIES[category]["marketing"]:
-        return True
-    if any(block["type"] in {"product_grid", "image_banner"} for block in blocks):
-        return True
-    copy = " ".join([subject or "", headline or "", message or ""] + [block.get("text", "") for block in blocks])
-    return bool(_PROMOTIONAL_COPY.search(copy))
+def _requires_marketing_consent(category, subject, headline, message, blocks, *, trusted_transactional=False):
+    """Classify editable Studio content conservatively as marketing."""
+    if category in STUDIO_TRANSACTIONAL_CATEGORY_KINDS:
+        return not trusted_transactional
+    return bool(EMAIL_CATEGORIES.get(category, {}).get("marketing", True))
 
 
 def _public_url(path):
@@ -114,11 +153,12 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
     if not account or not account.active:
         raise EmailContentError("Choose an active customer for this preview/context.")
     if not account.email_verified_at and not (
-        category in {"promotion", "cart_reminder"} and account.marketing_status == "subscribed"
+        category in EMAIL_MARKETING_CATEGORY_KEYS and account.marketing_status == "subscribed"
     ):
         raise EmailContentError("This email category requires a verified customer email address.")
 
     template = EMAIL_CATEGORIES[category]
+    trusted_transactional_request = _is_server_defined_transactional_content(category, form)
     saved = None
     try:
         requested_template_id = int(form.get("template_id") or 0)
@@ -128,7 +168,7 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
         saved = EmailTemplate.query.filter_by(id=requested_template_id, category=category).first()
         if not saved:
             raise EmailContentError("Choose a saved template from the selected email category.")
-    if not saved:
+    if not saved and not trusted_transactional_request:
         saved = EmailTemplate.query.filter_by(category=category, name="BEI FITS Promotional Default").first() if category == "promotion" else EmailTemplate.query.filter_by(category=category).order_by(EmailTemplate.id).first()
     default = template
     subject = (form.get("subject") if "subject" in form else (saved.subject if saved else default["subject"])) or ""
@@ -289,8 +329,8 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
             if len(by_id) != len(product_ids) or any(product.display_stock_quantity <= 0 for product in found):
                 raise EmailContentError("A selected product is inactive, unavailable, or no longer in stock. Refresh the picker.")
             products = [_product_card(by_id[product_id]) for product_id in product_ids]
-        if category == "promotion" and not products and any(block["type"] in {"product_grid", "image_banner"} for block in blocks):
-            raise EmailContentError("Select at least one active, in-stock catalogue product for a promotion.")
+        if category in EMAIL_PRODUCT_CATEGORY_KEYS and not products and any(block["type"] in {"product_grid", "image_banner"} for block in blocks):
+            raise EmailContentError("Select at least one active, in-stock catalogue product for this campaign.")
 
     customer_name = (account.display_name or account.email.partition("@")[0]).strip().split()[0]
     context = {"customer_name": customer_name}
@@ -310,10 +350,14 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
     if category == "cart_reminder":
         context["cart_item_count"] = sum(line.quantity for line in cart_lines)
         context["cart_total"] = cart_total
-    promotional = _requires_marketing_consent(category, subject, headline, message, blocks)
+    trusted_transactional = _is_server_defined_transactional_content(category, form, blocks=blocks)
+    promotional = _requires_marketing_consent(
+        category, subject, headline, message, blocks,
+        trusted_transactional=trusted_transactional,
+    )
     unsubscribe_url = ""
     if promotional:
-        if account.marketing_status != "subscribed":
+        if account.marketing_status != "subscribed" and not test_mode:
             raise EmailContentError("This address is not currently subscribed to marketing email.")
         if test_mode:
             context["unsubscribe_link"] = "[an unsubscribe link is included in a real send]"
@@ -366,16 +410,96 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
 
 
 def register_email_studio_routes(admin_bp):
+    @admin_bp.get("/email/studio/system-preview/<template_id>")
+    @login_required
+    def email_studio_system_preview(template_id):
+        """Render a fixed sample of an existing system template; never queues mail."""
+        from flask import abort
+        from types import SimpleNamespace
+
+        definition = next((item for item in SYSTEM_TEMPLATES if item["id"] == template_id), None)
+        if not definition or not definition["implemented"] or not definition["preview"]:
+            abort(404)
+        if template_id == "order_received":
+            from flask import render_template as render
+            from datetime import datetime
+            html = render(
+                "emails/order_received.html", preheader="Sample preview only; no email was sent.",
+                site_url="https://fitystore.top", logo_url="https://fitystore.top/static/images/mainLogo-160.png",
+                support_url="https://fitystore.top/contact", support_label="Contact support",
+                customer_name="Sample Customer", customer_email="sample@example.invalid", customer_phone="Not provided",
+                order=SimpleNamespace(reference="SAMPLE-ORDER", status="Order received"),
+                line_count=1, item_count=1,
+                items=[{"image_url": "", "image_alt": "", "name": "Sample catalogue item", "variant": "", "sku": "", "unit_price": "KSh 100", "quantity": 1, "line_total": "KSh 100"}],
+                subtotal="KSh 100", discount="KSh 0", delivery_fee="To be confirmed", total="KSh 100",
+                show_discount=False, show_delivery=False, paid=False, created_at=datetime(2026, 1, 1),
+                payment_method="Not recorded", payment_status="Awaiting payment", fulfillment="To be confirmed",
+                delivery_heading="Delivery details", delivery_details="The store will confirm the delivery details with you.",
+                payment_guidance="Sample payment guidance.", fulfillment_guidance="Sample fulfillment guidance.",
+                stages=[{"label":"Order received","description":"Sample status","state":"current"}],
+                tracking_url="https://fitystore.top/track-order", contact_url="https://fitystore.top/contact",
+            )
+            text = "Sample order received preview. No email was sent."
+        else:
+            from app.services.customer_mail import render_branded_email
+            copy = {
+                "verify_email": ("Verify your email address", ["Sample verification link. No real token is created."]),
+                "welcome": ("Welcome to FityStores", ["This is a static template preview. No email was sent."]),
+                "verify_code": ("Verify your FityStores account", ["Sample code only. Never use this code to sign in."]),
+                "login_code": ("Your FityStores sign-in code", ["Sample code only. Never use this code to sign in."]),
+                "reset_password": ("Reset your password", ["Sample reset link. No real token is created."]),
+                "account_security": ("Your password was changed", ["This is a static security notice preview."]),
+                "marketing_confirm": ("Confirm promotional email preferences", ["Sample consent confirmation. No subscription is changed."]),
+                "unsubscribe_confirmation": ("Promotional email stopped", ["Sample unsubscribe confirmation. No preference is changed."]),
+                "payment_confirmed": ("Payment confirmed", ["Sample verified payment confirmation."]),
+                "payment_failed": ("Payment status needs your attention", ["Sample notice: FityStores recorded the order payment status as failed. If you have already paid, contact the store before making another payment."]),
+                "restock_notification": ("Your requested item is available", ["Sample notice: the item you requested is available again. This message is only about your restock request."]),
+                "refund_confirmation": ("Refund completed", ["Sample notice: a refund was recorded as completed.", "Recorded refund amount: KSh 100.", "Refund reference: SAMPLE-REFUND."]),
+                "order_status": ("Your order status was updated", ["Sample order status update."]),
+                "review_request": ("How was your order?", ["Sample request for feedback on an actual transaction."]),
+                "thank_you": ("Thank you for shopping with FityStores", ["Sample order-linked thank-you message."]),
+            }
+            heading, paragraphs = copy[template_id]
+            html, text = render_branded_email(
+                heading, paragraphs, kind=template_id,
+                button_url="https://fitystore.top/" if template_id not in {"verify_code", "login_code"} else "",
+                button_text="Open FityStores" if template_id not in {"verify_code", "login_code"} else "",
+                security_code="123456" if template_id in {"verify_code", "login_code"} else "",
+                order_reference="SAMPLE-ORDER" if template_id in {"order_status", "review_request", "thank_you"} else "",
+            )
+        return render_template(
+            "admin/email_template_preview.html", title=definition["name"],
+            definition=definition, html=html, text=text,
+        )
+
     @admin_bp.get("/email/studio-messages")
     @login_required
     def email_studio_messages():
         from app.services.email_studio import EMAIL_CATEGORIES
 
-        templates = EmailTemplate.query.order_by(EmailTemplate.category, EmailTemplate.updated_at.desc(), EmailTemplate.id.desc()).all()
-        drafts = EmailDraft.query.filter_by(created_by_id=current_user.id, status="draft").order_by(EmailDraft.updated_at.desc(), EmailDraft.id.desc()).limit(100).all()
+        from sqlalchemy import inspect
+        from app.admin.routes import model_schema_missing
+
+        inspector = inspect(db.engine)
+        missing = sorted({item for model in (EmailTemplate, EmailDraft)
+                          for item in model_schema_missing(model, inspector)})
+        schema_ready = not missing
+        if schema_ready:
+            templates = EmailTemplate.query.order_by(
+                EmailTemplate.category, EmailTemplate.updated_at.desc(), EmailTemplate.id.desc()
+            ).all()
+            drafts = EmailDraft.query.filter_by(
+                created_by_id=current_user.id, status="draft"
+            ).order_by(EmailDraft.updated_at.desc(), EmailDraft.id.desc()).limit(100).all()
+        else:
+            # Do not let an unapplied local schema migration turn this admin
+            # page into a 500. The migration remains an explicit operator step.
+            templates, drafts = [], []
         return render_template(
             "admin/studio_messages.html", title="Studio messages",
             categories=EMAIL_CATEGORIES, templates=templates, drafts=drafts,
+            inventory=build_email_template_inventory(EMAIL_CATEGORIES),
+            schema_ready=schema_ready, missing_schema=missing,
         )
 
     @admin_bp.route("/email/studio", methods=["GET", "POST"])
@@ -430,7 +554,16 @@ def register_email_studio_routes(admin_bp):
         account_id = request.values.get("account_id", "").strip()
         accounts = CustomerAccount.query.order_by(CustomerAccount.display_name, CustomerAccount.email).limit(500).all()
         saved_templates = EmailTemplate.query.order_by(EmailTemplate.category, EmailTemplate.name, EmailTemplate.id).all()
-        saved_template = selected_template or (EmailTemplate.query.filter_by(category=category, name="BEI FITS Promotional Default").first() if category == "promotion" else EmailTemplate.query.filter_by(category=category).order_by(EmailTemplate.id).first())
+        if selected_template:
+            saved_template = selected_template
+        elif category == "promotion":
+            saved_template = EmailTemplate.query.filter_by(category="promotion", name="BEI FITS Promotional Default").first()
+        elif category in STUDIO_TRANSACTIONAL_CATEGORY_KINDS:
+            # Transactional defaults are code-backed; a saved admin template
+            # must be explicitly selected and will then require marketing consent.
+            saved_template = None
+        else:
+            saved_template = EmailTemplate.query.filter_by(category=category).order_by(EmailTemplate.id).first()
         defaults = EMAIL_CATEGORIES[category]
         draft_id = request.values.get("draft_id", "").strip()
         draft = None
@@ -472,7 +605,7 @@ def register_email_studio_routes(admin_bp):
         editor_blocks = [block for block in editor_document if block["type"] != "design"]
         if not editor_blocks:
             editor_blocks = [{"type": "heading", "text": headline, "align": "left"}, {"type": "paragraph", "text": message, "align": "left"}]
-            if category == "promotion":
+            if category in EMAIL_PRODUCT_CATEGORY_KEYS:
                 editor_blocks.append({"type": "product_grid"})
             if category == "cart_reminder":
                 editor_blocks.extend([{"type": "product_grid"}, {"type": "order_summary"}])
@@ -600,13 +733,35 @@ def register_email_studio_routes(admin_bp):
                     db.session.delete(row); db.session.commit()
                     flash("Draft deleted. No email was sent.", "success")
                     return redirect(url_for("admin.email_studio", category=category))
-                if action in {"preview", "send_test", "send"}:
+                if action in {"preview", "send_test", "send", "schedule"}:
                     selected_account = account
-                    marketing_message = _requires_marketing_consent(
-                        category, subject, headline, message,
-                        validate_email_blocks(request.form.get("blocks_json", "[]"), category),
+                    submitted_blocks = validate_email_blocks(request.form.get("blocks_json", "[]"), category)
+                    trusted_transactional = _is_server_defined_transactional_content(
+                        category, request.form, blocks=submitted_blocks,
                     )
-                    if action == "send":
+                    marketing_message = _requires_marketing_consent(
+                        category, subject, headline, message, submitted_blocks,
+                        trusted_transactional=trusted_transactional,
+                    )
+                    if action in {"send", "schedule"}:
+                        scheduled_at = None
+                        if action == "schedule":
+                            if not marketing_message:
+                                raise EmailContentError("Only marketing campaigns can be scheduled; transactional messages remain immediate.")
+                            raw_schedule = request.form.get("schedule_at", "").strip()
+                            try:
+                                local_schedule = datetime.strptime(raw_schedule, "%Y-%m-%dT%H:%M")
+                                zone_name = current_app.config.get("TIMEZONE", "Africa/Nairobi")
+                                try:
+                                    zone = ZoneInfo(zone_name)
+                                except (ZoneInfoNotFoundError, TypeError, ValueError):
+                                    zone = ZoneInfo("Africa/Nairobi")
+                                scheduled_at = local_schedule.replace(tzinfo=zone).astimezone(timezone.utc).replace(tzinfo=None)
+                            except (TypeError, ValueError, OverflowError):
+                                raise EmailContentError("Choose a valid future date and time for the campaign.") from None
+                            now_utc = datetime.utcnow()
+                            if scheduled_at < now_utc + timedelta(minutes=5) or scheduled_at > now_utc + timedelta(days=90):
+                                raise EmailContentError("Schedule campaigns at least 5 minutes ahead and within the next 90 days.")
                         if marketing_message:
                             requested_ids = []
                             for raw in request.form.getlist("account_ids"):
@@ -615,18 +770,21 @@ def register_email_studio_routes(admin_bp):
                             requested_ids = list(dict.fromkeys(requested_ids))
                             if len(requested_ids) > 500:
                                 raise EmailContentError("Select no more than 500 recipients in one synchronous send.")
-                            if not requested_ids and selected_account and category != "promotion":
+                            if not requested_ids and selected_account and category in {"cart_reminder", "customer_service"}:
                                 requested_ids = [selected_account.id]
-                            targets = CustomerAccount.query.filter(
+                            candidates = CustomerAccount.query.filter(
                                 CustomerAccount.id.in_(requested_ids), CustomerAccount.active.is_(True),
                                 CustomerAccount.marketing_status == "subscribed",
                             ).order_by(CustomerAccount.id).all() if requested_ids else []
+                            from app.services.marketing_eligibility import evaluate_marketing_eligibility
+                            targets = [candidate for candidate in candidates if evaluate_marketing_eligibility(candidate).eligible]
                         else:
                             targets = [selected_account] if selected_account and selected_account.active and selected_account.email_verified_at else []
                         if not targets:
                             raise EmailContentError("Select at least one eligible recipient. Marketing recipients must be active and subscribed.")
-                        phrase = f"SEND {len(targets)}"
-                        if request.form.get("confirm_send", "").strip() != phrase:
+                        phrase = f"SCHEDULE {len(targets)}" if action == "schedule" else f"SEND {len(targets)}"
+                        confirmation_field = "confirm_schedule" if action == "schedule" else "confirm_send"
+                        if request.form.get(confirmation_field, "").strip() != phrase:
                             raise EmailContentError(f"Review the preview and type {phrase} to confirm the exact recipient count.")
                         if session.get("email_studio_preview") != preview_fingerprint():
                             raise EmailContentError("Preview this exact content and recipient selection before sending.")
@@ -651,7 +809,9 @@ def register_email_studio_routes(admin_bp):
                                 suppressed += 1
                                 suppression_reasons.append(str(exc))
                                 continue
-                            kind = "marketing_abandoned_cart" if category == "cart_reminder" else "marketing_campaign" if marketing_message else "admin_" + category
+                            kind = studio_email_kind_for_category(category, marketing=marketing_message)
+                            if not kind:
+                                raise EmailContentError("This Email Studio purpose has no trusted server-side delivery classification.")
                             if category == "cart_reminder":
                                 cart = CustomerCart.query.filter_by(account_id=target.id).first()
                                 key = f"cart-reminder:{cart.episode_key}" if cart else f"email-studio:{operation_id}:{target.id}"
@@ -664,15 +824,15 @@ def register_email_studio_routes(admin_bp):
                                     target.email, payload_subject, kind, key,
                                     account_id=target.id, order_id=order.id if order else None,
                                     template_id=saved_template.id if saved_template else None,
-                                    bypass_marketing_cooldown=bool(marketing_message),
                                     retry_suppressed=(category == "cart_reminder"),
+                                    not_before=scheduled_at,
                                     html_body=html, text_body=text,
                                 )
                             except Exception:
                                 logger.exception("email_studio_manual_send_failed category=%s account_id=%s", category, target.id)
                                 db.session.rollback(); failed += 1; provider_failures.append(f"{target.email}: internal send error; check server logs."); continue
                             if result.status in {"sent", "delivered"} and prior_accepted: duplicate += 1
-                            elif result.status in {"sent", "delivered"}: accepted += 1
+                            elif result.status in {"sent", "delivered", "queued"}: accepted += 1
                             elif result.status == "suppressed":
                                 suppressed += 1
                                 if result.failure_reason:
@@ -694,7 +854,10 @@ def register_email_studio_routes(admin_bp):
                         suppression_detail = " Reasons: " + "; ".join(dict.fromkeys(suppression_reasons[:3])) if suppression_reasons else ""
                         delivery_detail = " Errors: " + "; ".join(dict.fromkeys(provider_failures[:3])) if provider_failures else ""
                         duplicate_detail = f" {duplicate} already accepted earlier; no duplicate message was sent." if duplicate else ""
-                        flash(f"Manual send result: provider accepted {accepted}; failed {failed}; suppressed {suppressed}.{duplicate_detail}{suppression_detail}{delivery_detail} Provider acceptance is not inbox delivery.", "success" if accepted and not failed and not suppressed else "warning")
+                        if action == "schedule":
+                            flash(f"Campaign schedule result: {accepted} queued for {scheduled_at.strftime('%Y-%m-%d %H:%M UTC')}; failed {failed}; suppressed {suppressed}.{duplicate_detail}{suppression_detail}{delivery_detail} Scheduled messages are not sent until their time and have not been provider-accepted.", "success" if accepted and not failed and not suppressed else "warning")
+                        else:
+                            flash(f"Manual send result: queued {accepted}; failed {failed}; suppressed {suppressed}.{duplicate_detail}{suppression_detail}{delivery_detail} Queued messages have not yet been accepted by the provider or delivered.", "success" if accepted and not failed and not suppressed else "warning")
                         session.pop("email_studio_preview", None)
                         return redirect(url_for("admin.email_studio", category=category))
 
@@ -726,7 +889,7 @@ def register_email_studio_routes(admin_bp):
                         db.session.add(FinancialAuditEvent(admin=current_user, event_type="email_studio_test", entity_type="EmailMessage", entity_id=row.id, note="Email Studio test status=" + row.status))
                         db.session.commit()
                         detail = (" " + row.failure_reason) if row.failure_reason else ""
-                        flash("Test result: " + row.status + "." + detail + " Provider acceptance is not inbox delivery.", "success" if row.status == "sent" else "warning")
+                        flash("Test result: " + ("queued for delivery" if row.status == "queued" else row.status) + "." + detail + (" The message is not yet provider-accepted or delivered." if row.status == "queued" else " Provider acceptance is not inbox delivery."), "success" if row.status in {"sent", "queued"} else "warning")
                         return redirect(url_for("admin.email_studio", category=category))
 
                     if not selected_account:
@@ -762,7 +925,6 @@ def register_email_studio_routes(admin_bp):
                             preview_notice = "Preview only: a reminder was already sent for this cart episode."
                     preview = {"subject": rendered_subject, "html": html, "text": text, "products": cards, "order": order, "eligible_count": eligible_count, "notice": preview_notice}
                     session["email_studio_preview"] = preview_fingerprint()
-                    print("EMAIL_PREVIEW_SET_DEBUG", action, session.get("email_studio_preview"))
                 else:
                     raise EmailContentError("Choose a supported Email Studio action.")
             except (EmailContentError, ValueError, TypeError) as exc:
@@ -771,6 +933,12 @@ def register_email_studio_routes(admin_bp):
 
         # Carry a one-time operation identifier into the form; it never triggers work on GET.
         operation_id = str(uuid4())
+        editor_marketing_message = _requires_marketing_consent(
+            category, subject, headline, message, editor_blocks,
+            trusted_transactional=_is_server_defined_transactional_content(
+                category, request.values, blocks=editor_blocks,
+            ),
+        )
         return render_template(
             "admin/email_studio.html", title="Email Studio", categories=EMAIL_CATEGORIES,
             category=category, accounts=accounts, account=account, linked_orders=linked_orders,
@@ -782,7 +950,7 @@ def register_email_studio_routes(admin_bp):
             subject=subject, headline=headline, message=message, draft=draft, preview=preview,
             preview_size=preview_size,
             configured=configured, provider_note=provider_note, operation_id=operation_id,
-            product_search=search,
+            product_search=search, email_is_marketing=editor_marketing_message,
         )
 
     @admin_bp.get("/email/cart-activity")

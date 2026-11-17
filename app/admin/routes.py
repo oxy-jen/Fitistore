@@ -14,11 +14,11 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 from flask import Blueprint, Response, current_app, flash, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
-from sqlalchemy import func, or_, update
+from sqlalchemy import func, or_, select, update
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 from app.extensions import db
-from app.models import AdminUser, CustomerAccount, CustomerCart, CustomerOrderLink, Category, CategoryThumbnail, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, MambaCollection, MambaCollectionItem, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage, EmailTemplate
+from app.models import AdminUser, CustomerAccount, CustomerCart, CustomerOrderLink, Category, CategoryThumbnail, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, MambaCollection, MambaCollectionItem, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDeliveryAttempt, EmailDeliveryInvestigation, EmailDeliveryInvestigationEvent, EmailDraft, EmailMessage, EmailTemplate, EmailWorkerRun, MarketingSuppressionCase, MarketingSuppressionEvent, EmailLegacyPayloadReviewEvent
 from app.services.mamba_collection import MAMBA_CATEGORY_NAMES, mamba_collection_schema_ready
 from app.services.category_thumbnails import CATEGORY_GROUPS, CATEGORY_GROUPS_BY_KEY, category_group_key, category_thumbnails_schema_ready
 from app.services.formatting import parse_money
@@ -61,7 +61,12 @@ def email_center():
     if not model_schema_ready(CustomerAccount, inspector):
         flash("Customer email is unavailable because the customer account table is not present in this database.", "warning")
         return render_template("admin/email_unavailable.html", title="Customer email")
-    query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed")
+    eligible_candidate_query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(
+        CustomerAccount.email_verified_at.is_not(None),
+        CustomerAccount.marketing_consent_at.is_not(None),
+        CustomerAccount.marketing_withdrawn_at.is_(None),
+    )
+    query = eligible_candidate_query
     account_query = CustomerAccount.query
     if search:
         term = f"%{search}%"
@@ -93,18 +98,84 @@ def email_center():
             order_map.setdefault(link.account_id, []).append(link.order)
     campaigns = EmailCampaign.query.order_by(EmailCampaign.created_at.desc()).limit(25).all() if model_schema_ready(EmailCampaign, inspector) else []
     messages_available = model_schema_ready(EmailMessage, inspector)
+    if messages_available:
+        from app.services.customer_mail import email_queue_health
+        queue_health = email_queue_health()
+    else:
+        queue_health = {}
     templates_available = model_schema_ready(EmailTemplate, inspector)
     email_templates = EmailTemplate.query.order_by(EmailTemplate.category, EmailTemplate.name, EmailTemplate.id).all() if templates_available else []
     promotional_templates = EmailTemplate.query.filter_by(category="promotion").order_by(EmailTemplate.updated_at.desc(), EmailTemplate.id.desc()).all() if templates_available else []
     default_promotional_template_id = promotional_templates[0].id if promotional_templates else None
     service_templates = [item for item in email_templates if item.category == "customer_service"]
     service_messages_available = messages_available and model_schema_ready(FinancialAuditEvent, inspector)
-    messages = EmailMessage.query.order_by(EmailMessage.created_at.desc()).limit(30).all() if messages_available else []
+    message_search = request.args.get("message_q", "").strip()[:120]
+    message_status_filter = request.args.get("message_status", "").strip().lower()
+    message_query = EmailMessage.query if messages_available else None
+    if message_query is not None:
+        if message_search:
+            message_term = f"%{message_search}%"
+            message_query = message_query.filter(or_(
+                EmailMessage.recipient.ilike(message_term),
+                EmailMessage.subject.ilike(message_term),
+                EmailMessage.failure_reason.ilike(message_term),
+            ))
+        if message_status_filter in {"queued", "sending", "sent", "delivered", "failed", "suppressed"}:
+            message_query = message_query.filter(EmailMessage.status == message_status_filter)
+        else:
+            message_status_filter = ""
+        message_page = message_query.order_by(EmailMessage.created_at.desc(), EmailMessage.id.desc()).paginate(
+            page=max(1, request.args.get("message_page", 1, type=int)), per_page=25, error_out=False,
+        )
+        messages = message_page.items
+    else:
+        message_page = None
+        messages = []
+    message_status_counts = dict(
+        db.session.query(EmailMessage.status, func.count(EmailMessage.id))
+        .group_by(EmailMessage.status).all()
+    ) if messages_available else {}
+    ambiguous_message_count = EmailMessage.query.filter_by(error_category="ambiguous_outcome").count() if messages_available else 0
     products = Product.query.filter_by(active=True).order_by(Product.name).all()
     configured, note = mail_configuration_status()
-    eligible_total = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").count()
-    service_eligible_total = CustomerAccount.query.filter_by(active=True).filter(CustomerAccount.email_verified_at.isnot(None)).count()
-    return render_template("admin/email.html", title="Customer email", subscribers=subscribers, pending_opt_ins=pending_opt_ins, pending_opt_in_total=pending_opt_in_total, accounts=accounts, order_map=order_map, consent_events=consent_events, campaigns=campaigns, messages=messages, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex, promotional_templates=promotional_templates, default_promotional_template_id=default_promotional_template_id, service_templates=service_templates)
+    eligible_total = eligible_candidate_query.count()
+    service_eligible_total = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(
+        CustomerAccount.email_verified_at.isnot(None),
+        CustomerAccount.marketing_consent_at.isnot(None),
+        CustomerAccount.marketing_withdrawn_at.is_(None),
+    ).count()
+    suppression_schema_ready = model_schema_ready(MarketingSuppressionCase, inspector) and model_schema_ready(MarketingSuppressionEvent, inspector)
+    from app.services.marketing_suppressions import active_cases_for_accounts
+    suppression_cases = active_cases_for_accounts([account.id for account in accounts]) if suppression_schema_ready else {}
+    suppression_events = {}
+    if accounts and suppression_schema_ready:
+        for event in MarketingSuppressionEvent.query.filter(
+            MarketingSuppressionEvent.account_id.in_([account.id for account in accounts])
+        ).order_by(MarketingSuppressionEvent.occurred_at.desc()).all():
+            suppression_events.setdefault(event.account_id, []).append(event)
+    investigation_schema_ready = all(model_schema_ready(model, inspector) for model in (
+        EmailDeliveryAttempt, EmailDeliveryInvestigation, EmailDeliveryInvestigationEvent, EmailWorkerRun,
+    ))
+    investigations = []
+    attempts_by_message = {}
+    investigation_events_by_id = {}
+    worker_health = {"workers": [], "live_count": 0, "stale_count": 0}
+    if investigation_schema_ready:
+        investigations = EmailDeliveryInvestigation.query.order_by(EmailDeliveryInvestigation.started_at.desc()).limit(50).all()
+        investigation_ids = [item.id for item in investigations]
+        if investigation_ids:
+            for event in EmailDeliveryInvestigationEvent.query.filter(
+                EmailDeliveryInvestigationEvent.investigation_id.in_(investigation_ids)
+            ).order_by(EmailDeliveryInvestigationEvent.created_at.asc()).all():
+                investigation_events_by_id.setdefault(event.investigation_id, []).append(event)
+        message_ids = [item.id for item in messages if item.error_category == "ambiguous_outcome"]
+        if message_ids:
+            for attempt in EmailDeliveryAttempt.query.filter(EmailDeliveryAttempt.message_id.in_(message_ids)).order_by(EmailDeliveryAttempt.attempt_number.desc()).all():
+                attempts_by_message.setdefault(attempt.message_id, []).append(attempt)
+        from app.services.email_worker import worker_health as get_worker_health
+        worker_health = get_worker_health(timeout_seconds=current_app.config.get("EMAIL_WORKER_HEARTBEAT_TIMEOUT_SECONDS", 90))
+    legacy_review_schema_ready = model_schema_ready(EmailLegacyPayloadReviewEvent, inspector)
+    return render_template("admin/email.html", title="Customer email", legacy_review_schema_ready=legacy_review_schema_ready, subscribers=subscribers, pending_opt_ins=pending_opt_ins, pending_opt_in_total=pending_opt_in_total, accounts=accounts, order_map=order_map, consent_events=consent_events, campaigns=campaigns, messages=messages, message_page=message_page, message_search=message_search, message_status_filter=message_status_filter, message_status_counts=message_status_counts, ambiguous_message_count=ambiguous_message_count, queue_health=queue_health, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex, promotional_templates=promotional_templates, default_promotional_template_id=default_promotional_template_id, service_templates=service_templates, suppression_schema_ready=suppression_schema_ready, suppression_cases=suppression_cases, suppression_events=suppression_events, investigation_schema_ready=investigation_schema_ready, investigations=investigations, investigation_events_by_id=investigation_events_by_id, attempts_by_message=attempts_by_message, worker_health=worker_health)
 
 
 @admin_bp.post("/email/send-manual")
@@ -136,14 +207,17 @@ def send_manual_customer_email():
     if len(selected_ids) > 500:
         flash("This manual send is limited to 500 recipients per request. Nothing was sent.", "error")
         return redirect(url_for("admin.email_center"))
+    from app.services.marketing_eligibility import evaluate_marketing_eligibility
     eligible_query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed")
     if request.form.get("all_eligible") == "yes":
         if eligible_query.count() > 500:
             flash("This manual send is limited to 500 recipients. Use the Email Studio recipient picker to send a smaller confirmed batch.", "error")
             return redirect(url_for("admin.email_center"))
-        accounts = eligible_query.order_by(CustomerAccount.id).limit(500).all()
+        candidates = eligible_query.order_by(CustomerAccount.id).limit(501).all()
+        accounts = [account for account in candidates if evaluate_marketing_eligibility(account).eligible][:500]
     else:
-        accounts = eligible_query.filter(CustomerAccount.id.in_(selected_ids)).order_by(CustomerAccount.id).all() if selected_ids else []
+        candidates = eligible_query.filter(CustomerAccount.id.in_(selected_ids)).order_by(CustomerAccount.id).all() if selected_ids else []
+        accounts = [account for account in candidates if evaluate_marketing_eligibility(account).eligible]
     if not accounts:
         flash("Choose active customers who explicitly subscribed to marketing before sending.", "error")
         return redirect(url_for("admin.email_center"))
@@ -254,7 +328,7 @@ def send_manual_customer_email():
     for account in accounts:
         key = f"admin-manual:{batch_key}:{account.id}"
         prior = EmailMessage.query.filter_by(idempotency_key=key).first()
-        if prior and prior.status in {"sent", "delivered"}:
+        if prior and prior.status in {"queued", "sent", "delivered"}:
             batch_sent += 1
             continue
         token = token_urlsafe(32)
@@ -293,22 +367,22 @@ def send_manual_customer_email():
         try:
             message = queue_email(account.email, rendered_subject, "marketing_campaign", key,
                                   account_id=account.id, template_id=selected_template.id if selected_template else None,
-                                  bypass_marketing_cooldown=True, html_body=html_body, text_body=text_body)
-            if message.status in {"sent", "delivered"}:
+                                  html_body=html_body, text_body=text_body)
+            if message.status in {"queued", "sent", "delivered"}:
                 batch_sent += 1
             else:
                 batch_failed += 1
         except Exception:
             db.session.rollback()
             batch_failed += 1
-    flash(f"Manual email result: provider accepted {batch_sent}; failed or suppressed {batch_failed}. Provider acceptance does not confirm inbox delivery.", "success" if batch_sent and not batch_failed else "warning")
+    flash(f"Manual email result: queued {batch_sent}; failed or suppressed {batch_failed}. Queued messages are not yet provider-accepted or delivered.", "success" if batch_sent and not batch_failed else "warning")
     return redirect(url_for("admin.email_center"))
 
 
 @admin_bp.post("/email/send-service")
 @login_required
 def send_service_customer_email():
-    """Send a manually confirmed service update to active, verified accounts."""
+    """Queue a manually confirmed administrator-authored marketing message."""
     from sqlalchemy import inspect
     from app.services.customer_mail import mail_configuration_status, queue_branded_email
 
@@ -332,29 +406,33 @@ def send_service_customer_email():
         flash("Service updates are limited to 500 recipients per send. Nothing was sent.", "error")
         return redirect(url_for("admin.email_center"))
 
-    eligible_query = CustomerAccount.query.filter_by(active=True).filter(CustomerAccount.email_verified_at.isnot(None))
+    eligible_query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(
+        CustomerAccount.email_verified_at.isnot(None),
+        CustomerAccount.marketing_consent_at.isnot(None),
+        CustomerAccount.marketing_withdrawn_at.is_(None),
+    )
     if request.form.get("service_all_eligible") == "yes":
         if eligible_query.count() > 500:
-            flash("There are more than 500 verified accounts. Search for a smaller group and select recipients individually.", "error")
+            flash("There are more than 500 eligible subscribers. Search for a smaller group and select recipients individually.", "error")
             return redirect(url_for("admin.email_center"))
         accounts = eligible_query.order_by(CustomerAccount.id).limit(500).all()
     else:
         accounts = eligible_query.filter(CustomerAccount.id.in_(selected_ids)).order_by(CustomerAccount.id).all() if selected_ids else []
     if not accounts:
-        flash("Select at least one active, verified customer account for the service update.", "error")
+        flash("Select at least one active, verified subscriber with recorded consent for the administrator-authored message.", "error")
         return redirect(url_for("admin.email_center"))
     if len(accounts) > 1 and request.form.get("service_confirm_send", "").strip() != f"SEND {len(accounts)}":
-        flash(f"Service update not sent. Type SEND {len(accounts)} to confirm the exact recipient count.", "warning")
+        flash(f"Message not queued. Type SEND {len(accounts)} to confirm the exact recipient count.", "warning")
         return redirect(url_for("admin.email_center"))
 
     subject = request.form.get("service_subject", "").strip()[:200]
     body = request.form.get("service_body", "").strip()[:5000]
     if not subject or not body:
-        flash("Service update not sent. Enter both a subject and message.", "error")
+        flash("Message not queued. Enter both a subject and message.", "error")
         return redirect(url_for("admin.email_center"))
     configured, note = mail_configuration_status()
     if not configured:
-        flash("Service update not sent: " + note, "error")
+        flash("Message not queued: " + note, "error")
         return redirect(url_for("admin.email_center"))
 
     sent = failed = 0
@@ -366,7 +444,7 @@ def send_service_customer_email():
             continue
         try:
             message = queue_branded_email(
-                account.email, subject, "admin_service", key,
+                account.email, subject, "marketing_campaign", key,
                 "A service update from FityStores", [body], account_id=account.id,
             )
             db.session.add(FinancialAuditEvent(
@@ -375,7 +453,7 @@ def send_service_customer_email():
                 note=f"EmailMessage {message.id}: {message.status}",
             ))
             db.session.commit()
-            if message.status in {"sent", "delivered"}:
+            if message.status in {"queued", "sent", "delivered"}:
                 sent += 1
             else:
                 failed += 1
@@ -383,7 +461,7 @@ def send_service_customer_email():
             db.session.rollback()
             current_app.logger.exception("Manual service email failed for customer account %s", account.id)
             failed += 1
-    flash(f"Service update result: provider accepted {sent}; failed {failed}. Provider acceptance does not confirm inbox delivery.", "success" if sent and not failed else "warning")
+    flash(f"Administrator-authored message result: queued {sent}; failed {failed}. Queued messages have not yet been accepted by the provider or delivered.", "success" if sent and not failed else "warning")
     return redirect(url_for("admin.email_center"))
 
 
@@ -433,29 +511,197 @@ def email_customer_message(account_id):
         except (ValueError, TypeError, AttributeError):
             flash("Message not sent because its one-time send key was invalid. Refresh and try again.", "error")
             return redirect(url_for("admin.email_center"))
-        result = queue_branded_email(account.email, subject, "admin_service", f"admin-message:{account.id}:{send_key}", "A message from FityStores", [body], account_id=account.id)
+        result = queue_branded_email(account.email, subject, "marketing_campaign", f"admin-message:{account.id}:{send_key}", "A message from FityStores", [body], account_id=account.id)
         db.session.add(FinancialAuditEvent(admin=current_user, event_type="customer_service_email", entity_type="CustomerAccount", entity_id=account.id, note=f"EmailMessage {result.id}: {result.status}"))
         db.session.commit()
-        flash("Service message status: " + result.status, "success" if result.status == "sent" else "error")
+        flash("Service message status: " + result.status, "success" if result.status in {"sent", "queued"} else "error")
     return redirect(url_for("admin.email_center"))
 
 
 @admin_bp.post("/email/customers/<int:account_id>/suppress")
 @login_required
 def suppress_customer_marketing(account_id):
+    from sqlalchemy import inspect
+    from app.services.marketing_suppressions import record_suppression
+    inspector = inspect(db.engine)
+    if not model_schema_ready(MarketingSuppressionCase, inspector) or not model_schema_ready(MarketingSuppressionEvent, inspector):
+        flash("Suppression controls are unavailable until the suppression schema migration is applied.", "warning")
+        return redirect(url_for("admin.email_center"))
+    reason = request.form.get("reason", "").strip()[:2000]
+    if len(reason) < 8:
+        flash("Enter a clear reason of at least 8 characters before suppressing this address.", "error")
+        return redirect(url_for("admin.email_center"))
     account = CustomerAccount.query.get_or_404(account_id)
-    account.marketing_status = "suppressed"
-    account.marketing_withdrawn_at = datetime.utcnow()
+    record_suppression(
+        account.id, source="admin", reason_code="admin_review", reason_text=reason,
+        actor_type="admin", admin_id=current_user.id,
+    )
     db.session.add(CustomerConsentEvent(account_id=account.id, event="suppressed", method="admin_suppression", wording_version="2026-10"))
-    db.session.add(FinancialAuditEvent(admin=current_user, event_type="customer_marketing_suppressed", entity_type="CustomerAccount", entity_id=account.id, note="Admin suppression"))
+    db.session.add(FinancialAuditEvent(admin=current_user, event_type="customer_marketing_suppressed", entity_type="CustomerAccount", entity_id=account.id, note="Admin suppression: " + reason))
     db.session.commit()
     flash("Address suppressed from marketing campaigns.", "success")
+    return redirect(url_for("admin.email_center"))
+
+
+@admin_bp.post("/email/messages/<int:message_id>/quarantine-legacy")
+@login_required
+def quarantine_legacy_email_payload(message_id):
+    from sqlalchemy import inspect
+    from app.services.email_legacy_reviews import quarantine_incomplete_legacy_message
+    if not inspect(db.engine).has_table("email_legacy_payload_review_event"):
+        flash("Legacy payload review is unavailable until the customer email migration is complete.", "warning")
+        return redirect(url_for("admin.email_center"))
+    try:
+        quarantine_incomplete_legacy_message(
+            message_id, actor_admin_id=current_user.id,
+            reason=request.form.get("reason", ""),
+            provider_outcome=request.form.get("provider_outcome", "unknown"),
+            provider_evidence=request.form.get("provider_evidence", ""),
+        )
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), "warning")
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("legacy_email_quarantine_failed message_id=%s error_type=%s", message_id, type(exc).__name__)
+        flash("The legacy message could not be quarantined for review.", "error")
+    else:
+        flash("Message quarantined. Its original content and delivery history are retained; no email was sent.", "success")
+    return redirect(url_for("admin.email_center"))
+
+
+@admin_bp.post("/email/messages/<int:message_id>/investigate")
+@login_required
+def open_email_delivery_investigation(message_id):
+    from app.services.email_delivery_investigations import InvestigationError, open_investigation
+    try:
+        open_investigation(message_id, current_user.id, request.form.get("reason", ""))
+    except InvestigationError as exc:
+        db.session.rollback()
+        flash(str(exc), "warning")
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("email_investigation_open_failed message_id=%s error_type=%s", message_id, type(exc).__name__)
+        flash("Investigation could not be opened. Check that the email operations migration is ready.", "error")
+    else:
+        flash("Delivery investigation opened. The original message will not be resent automatically.", "success")
+    return redirect(url_for("admin.email_center", message_q=request.form.get("return_q", "")))
+
+
+@admin_bp.post("/email/investigations/<int:investigation_id>/update")
+@login_required
+def update_email_delivery_investigation(investigation_id):
+    from app.services.email_delivery_investigations import InvestigationError, update_investigation
+    try:
+        update_investigation(
+            investigation_id, current_user.id,
+            status=request.form.get("status", ""),
+            evidence_summary=request.form.get("evidence_summary", ""),
+            evidence_source=request.form.get("evidence_source", ""),
+            explanation=request.form.get("explanation", ""),
+        )
+    except InvestigationError as exc:
+        db.session.rollback()
+        flash(str(exc), "warning")
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("email_investigation_update_failed investigation_id=%s error_type=%s", investigation_id, type(exc).__name__)
+        flash("Investigation update could not be saved.", "error")
+    else:
+        flash("Investigation evidence and status were recorded in the audit history.", "success")
+    return redirect(url_for("admin.email_center"))
+
+
+@admin_bp.post("/email/investigations/<int:investigation_id>/recover")
+@login_required
+def recover_email_delivery_investigation(investigation_id):
+    from app.services.email_delivery_investigations import InvestigationError, recover_confirmed_non_acceptance
+    try:
+        recovered = recover_confirmed_non_acceptance(
+            investigation_id, current_user.id,
+            authorization=request.form.get("confirmation", ""),
+            replacement_subject=request.form.get("replacement_subject", ""),
+            replacement_text=request.form.get("replacement_text", ""),
+        )
+    except InvestigationError as exc:
+        db.session.rollback()
+        flash(str(exc), "warning")
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error("email_investigation_recovery_failed investigation_id=%s error_type=%s", investigation_id, type(exc).__name__)
+        flash("Recovery could not be authorized or saved.", "error")
+    else:
+        flash(f"A new linked outbox message ({recovered.id}) was queued. It will recheck current eligibility before provider dispatch.", "success")
+    return redirect(url_for("admin.email_center"))
+
+
+@admin_bp.post("/email/suppression-cases/<int:case_id>/clear")
+@login_required
+def clear_customer_marketing_suppression(case_id):
+    from sqlalchemy import inspect
+    inspector = inspect(db.engine)
+    if not model_schema_ready(MarketingSuppressionCase, inspector) or not model_schema_ready(MarketingSuppressionEvent, inspector):
+        flash("Suppression review is unavailable until the suppression schema migration is applied.", "warning")
+        return redirect(url_for("admin.email_center"))
+    reason = request.form.get("reason", "").strip()[:2000]
+    if len(reason) < 8:
+        flash("Enter a clear review reason of at least 8 characters before clearing this case.", "error")
+        return redirect(url_for("admin.email_center"))
+    case_reference = db.session.get(MarketingSuppressionCase, case_id)
+    if case_reference is None:
+        flash("That suppression case could not be found.", "warning")
+        return redirect(url_for("admin.email_center"))
+    from app.services.marketing_suppressions import lock_marketing_account
+    account = lock_marketing_account(case_reference.account_id)
+    if account is None:
+        db.session.rollback()
+        flash("The customer account could not be found; no change was made.", "error")
+        return redirect(url_for("admin.email_center"))
+    case = db.session.execute(
+        select(MarketingSuppressionCase).where(
+            MarketingSuppressionCase.id == case_id,
+            MarketingSuppressionCase.account_id == account.id,
+        ).with_for_update()
+    ).scalar_one_or_none()
+    if case is None or case.cleared_at is not None:
+        db.session.rollback()
+        flash("That suppression case is no longer active.", "warning")
+        return redirect(url_for("admin.email_center"))
+    now = datetime.utcnow()
+    case.cleared_at = now
+    case.cleared_by_admin_id = current_user.id
+    case.clearance_reason = reason
+    db.session.add(MarketingSuppressionEvent(
+        suppression_case_id=case.id, account_id=case.account_id,
+        event_type="suppression_cleared", actor_type="admin", admin_id=current_user.id,
+        source=case.source, reason_code=case.reason_code, reason_text=reason,
+        occurred_at=now, provider_name=case.provider_name,
+        idempotency_key=f"clear:{case.id}:{uuid4().hex}",
+    ))
+    other_active = MarketingSuppressionCase.query.filter(
+        MarketingSuppressionCase.account_id == account.id,
+        MarketingSuppressionCase.id != case.id,
+        MarketingSuppressionCase.cleared_at.is_(None),
+    ).count()
+    # Clearance is never consent. A new explicit customer opt-in is required.
+    account.marketing_status = "suppressed" if other_active else "unsubscribed"
+    db.session.add(FinancialAuditEvent(
+        admin=current_user, event_type="customer_marketing_suppression_cleared",
+        entity_type="MarketingSuppressionCase", entity_id=account.id,
+        note=f"Reviewed suppression case {case.id}: {reason}",
+    ))
+    db.session.commit()
+    flash("Suppression case cleared after review. The customer is not subscribed; fresh consent is still required.", "success")
     return redirect(url_for("admin.email_center"))
 
 @admin_bp.post("/email/customers/<int:account_id>/active")
 @login_required
 def set_customer_active(account_id):
-    account = CustomerAccount.query.get_or_404(account_id)
+    from flask import abort
+    from app.services.marketing_suppressions import lock_marketing_account
+    account = lock_marketing_account(account_id)
+    if account is None:
+        abort(404)
     account.active = request.form.get("active") == "yes"
     db.session.add(FinancialAuditEvent(admin=current_user, event_type="customer_account_activation_changed", entity_type="CustomerAccount", entity_id=account.id, note="active" if account.active else "inactive"))
     db.session.commit()
@@ -1260,6 +1506,17 @@ def update_order(order_id):
                     notify_order_event(order, "review_request", f"order-review-request:{order.id}")
                 except Exception:
                     current_app.logger.error("Order review request could not be prepared for order %s", order.id)
+        failed_payment_change = any(
+            field == "payment_status" and new_value == "Failed"
+            for field, _old_value, new_value in changes
+        )
+        if failed_payment_change:
+            event = OrderStatusHistory.query.filter_by(order_id=order.id, field="payment_status").order_by(OrderStatusHistory.id.desc()).first()
+            try:
+                from app.services.customer_mail import notify_order_event
+                notify_order_event(order, "payment_failed", f"payment-failed:{event.id}" if event else f"payment-failed:{order.id}")
+            except Exception as exc:
+                current_app.logger.error("payment_failure_notification_queue_failed order_id=%s error_type=%s", order.id, type(exc).__name__)
         flash("Order updated." if changes else "No status change was needed.", "success")
     except ValueError as exc:
         db.session.rollback()
@@ -1647,6 +1904,9 @@ def update_refund(refund_id):
     if status == "completed" and not reference:
         flash("A verified refund reference is required before marking a refund completed.", "error")
         return redirect(url_for("admin.reconciliation"))
+    if status not in {"requested", "processing", "completed", "failed"}:
+        flash("Choose a valid refund status.", "error")
+        return redirect(url_for("admin.reconciliation"))
     refund.status = status
     refund.reference = reference
     refund.note = note
@@ -1660,6 +1920,12 @@ def update_refund(refund_id):
         refund.order.payment_status = "Refund failed"
     db.session.add(FinancialAuditEvent(admin=current_user, event_type=f"refund_{status}", entity_type="RefundRequest", entity_id=refund.id, note=note))
     db.session.commit()
+    if status == "completed":
+        try:
+            from app.services.customer_mail import notify_refund_completed
+            notify_refund_completed(refund, f"refund-completed:{refund.id}")
+        except Exception as exc:
+            current_app.logger.error("refund_notification_queue_failed refund_id=%s error_type=%s", refund.id, type(exc).__name__)
     flash("Refund status updated.", "success")
     return redirect(url_for("admin.reconciliation"))
 @admin_bp.route("/reports/sales.csv")

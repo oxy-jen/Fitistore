@@ -5,6 +5,7 @@ import logging
 import re
 import smtplib
 import ssl
+import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage as MimeMessage
@@ -13,9 +14,14 @@ from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app, render_template, url_for
+from sqlalchemy import func, or_, select, update
+from uuid import uuid4
 
 from app.extensions import db
-from app.models import CustomerAccount, EmailMessage
+from app.services.email_purpose import UnknownEmailKind, email_purpose_for_kind
+from app.models import (CustomerAccount, CustomerCart, EmailDeliveryAttempt,
+                        EmailDeliveryInvestigation, EmailMessage, MarketingCampaignRun,
+                        RestockAlert)
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +102,7 @@ def _send_smtp(recipient: str, subject: str, html_body: str, text_body: str) -> 
 
 
 
-def _send_resend(recipient: str, subject: str, html_body: str, text_body: str) -> None:
+def _send_resend(recipient: str, subject: str, html_body: str, text_body: str) -> str | None:
     cfg = current_app.config
     payload = {
         "from": formataddr((cfg.get("MAIL_FROM_NAME") or "FityStores", cfg["MAIL_FROM_ADDRESS"])),
@@ -119,6 +125,12 @@ def _send_resend(recipient: str, subject: str, html_body: str, text_body: str) -
     with urllib.request.urlopen(request, timeout=15) as response:
         if not 200 <= response.status < 300:
             raise RuntimeError(f"Resend API returned HTTP {response.status}.")
+        try:
+            result = json.loads(response.read().decode("utf-8"))
+        except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        message_id = result.get("id") if isinstance(result, dict) else None
+        return str(message_id)[:255] if message_id else None
 
 
 def _send_brevo(recipient: str, subject: str, html_body: str, text_body: str) -> str | None:
@@ -155,81 +167,179 @@ def _send_brevo(recipient: str, subject: str, html_body: str, text_body: str) ->
         return str(message_id)[:255] if message_id else None
 
 
-def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *, account_id=None, order_id=None, campaign_id=None, template_id=None, bypass_marketing_cooldown: bool = False, retry_suppressed: bool = False, html_body: str, text_body: str) -> EmailMessage:
-    record = EmailMessage.query.filter_by(idempotency_key=idempotency_key).first()
-    marketing = kind == "marketing_campaign" or kind.startswith("marketing_")
-    if marketing and account_id:
-        account = db.session.get(CustomerAccount, account_id)
-        allowed = bool(account and account.active and account.marketing_status == "subscribed")
-        suppression_reason = "Recipient is no longer eligible for marketing email."
-        if allowed and not bypass_marketing_cooldown and (not record or record.status != "sent"):
-            recent = EmailMessage.query.filter(
-                EmailMessage.account_id == account.id,
-                EmailMessage.kind.in_(("marketing_campaign", "marketing_daily_goodies", "marketing_weekly_picks", "marketing_abandoned_cart", "marketing_review_highlight")),
-                EmailMessage.status.in_(("sent", "delivered", "bounced", "complained")),
-                EmailMessage.sent_at >= datetime.utcnow() - timedelta(hours=24),
-            ).first()
-            if recent:
-                allowed = False
-                suppression_reason = "A marketing email was accepted for this recipient within the last 24 hours."
-        if not allowed:
-            if record and record.status not in {"sent", "sending"}:
-                record.status = "suppressed"
-                record.failure_reason = suppression_reason
-                db.session.commit()
-                return record
-            if not record:
-                record = EmailMessage(recipient=recipient[:254],subject=subject[:200],kind=kind[:32],idempotency_key=idempotency_key[:160],account_id=account_id,order_id=order_id,campaign_id=campaign_id,template_id=template_id,status="suppressed",failure_reason=suppression_reason)
-                db.session.add(record);db.session.commit()
-            return record
-    if record and record.status == "suppressed" and retry_suppressed:
-        # The caller has revalidated the recipient and cart episode. A prior
-        # policy suppression must not permanently poison this idempotency key.
-        record.status = "queued"
-        record.failure_reason = ""
-        record.recipient = recipient[:254]
-        record.subject = subject[:200]
-        db.session.commit()
-    if record:
-        if record.status == "not_configured":
-            configured, _reason = mail_configuration_status()
-            if configured:
-                record.status = "queued";record.failure_reason = "";db.session.commit()
-                deliver_email(record, html_body, text_body)
-            return record
-        retryable = ("HTTP 429" in record.failure_reason or any(f"HTTP {code}" in record.failure_reason for code in (500,502,503,504)) or any(f"SMTP error {code}" in record.failure_reason for code in (400,421,450,451,452)))
-        retry_delay = timedelta(minutes=min(240, 15 * (2 ** max(0, record.retry_count))))
-        if record.status == "failed" and retryable and record.retry_count < 3 and record.updated_at <= datetime.utcnow() - retry_delay:
-            record.status = "queued";record.failure_reason = "";record.retry_count += 1;db.session.commit()
-            deliver_email(record, html_body, text_body)
-        return record
+def _is_marketing_kind(kind: str) -> bool:
+    return email_purpose_for_kind(kind, testing=current_app.testing) == "marketing"
+
+
+def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *, account_id=None, order_id=None, campaign_id=None, template_id=None, retry_suppressed: bool = False, not_before: datetime | None = None, html_body: str, text_body: str, commit: bool = True) -> EmailMessage:
+    """Persist a message to the outbox. Provider I/O happens only in the worker.
+
+    Purpose is assigned from the trusted server-side message kind; callers cannot
+    label promotional content transactional by passing a form value.
+    """
+    del retry_suppressed  # Suppressed idempotency keys are intentionally sticky.
+    normalized_kind = str(kind or "").strip().lower()
+    purpose = email_purpose_for_kind(normalized_kind, testing=current_app.testing)
+    if not_before is not None and purpose != "marketing":
+        raise ValueError("Only marketing messages can be scheduled for future delivery.")
+    if purpose == "test" and account_id is not None:
+        raise ValueError("Test email messages cannot be linked to a customer account.")
+    key = str(idempotency_key or "")
+    if not key:
+        raise ValueError("An idempotency key is required for queued email.")
+    if len(key) > 160:
+        raise ValueError("Email idempotency keys cannot exceed 160 characters.")
+    normalized_recipient = str(recipient or "").strip()
+    if len(normalized_recipient) > 254:
+        raise ValueError("Email recipient addresses cannot exceed 254 characters.")
+
+    def reuse_existing(existing: EmailMessage) -> EmailMessage:
+        if existing.kind != normalized_kind or existing.purpose != purpose:
+            raise ValueError("Email idempotency key is already bound to a different message purpose.")
+        if (existing.recipient != normalized_recipient or existing.account_id != account_id
+                or existing.order_id != order_id or existing.campaign_id != campaign_id):
+            raise ValueError("Email idempotency key is already bound to a different recipient or context.")
+        return existing
+
+    existing = EmailMessage.query.filter_by(idempotency_key=key).first()
+    if existing:
+        return reuse_existing(existing)
+    marketing = purpose == "marketing"
+    decision = None
+    if marketing:
+        from app.services.marketing_eligibility import evaluate_marketing_eligibility
+        decision = evaluate_marketing_eligibility(
+            account_id=account_id, respect_frequency=True,
+            now=not_before if not_before is not None else None,
+        )
+    infrastructure_failure = bool(decision and decision.reason_code in {
+        "eligibility_unavailable", "suppression_schema_unavailable", "suppression_schema_incomplete",
+    })
+    queued_status = (
+        "failed" if infrastructure_failure else
+        "queued" if not decision or decision.eligible else "suppressed"
+    )
     record = EmailMessage(
-        recipient=recipient[:254], subject=subject[:200], kind=kind[:32],
-        idempotency_key=idempotency_key[:160], account_id=account_id,
-        order_id=order_id, campaign_id=campaign_id, template_id=template_id, status="queued",
+        recipient=normalized_recipient, subject=str(subject or "")[:200],
+        kind=normalized_kind[:32], idempotency_key=key, account_id=account_id,
+        order_id=order_id, campaign_id=campaign_id, template_id=template_id,
+        purpose=purpose,
+        # Legacy column retained for compatibility; all current sends enforce policy.
+        frequency_override=False,
+        status=queued_status,
+        failure_reason=(
+            "Marketing eligibility could not be verified; retry after the service recovers."
+            if infrastructure_failure else
+            "" if not decision or decision.eligible else decision.reason_code[:255]
+        ),
+        error_category="retryable_infrastructure" if infrastructure_failure else None,
+        next_attempt_at=(datetime.utcnow() + timedelta(minutes=15)) if infrastructure_failure else not_before,
+        html_body=html_body if not decision or decision.eligible or infrastructure_failure else None,
+        text_body=text_body if not decision or decision.eligible or infrastructure_failure else None,
     )
     db.session.add(record)
-    db.session.commit()
-    deliver_email(record, html_body, text_body)
+    try:
+        if commit:
+            db.session.commit()
+        else:
+            db.session.flush()
+    except Exception:
+        if not commit:
+            raise
+        db.session.rollback()
+        # Concurrent idempotent enqueue: return the row committed by the winner.
+        existing = EmailMessage.query.filter_by(idempotency_key=key).first()
+        if existing:
+            return reuse_existing(existing)
+        raise
     return record
 
 
-def deliver_email(record: EmailMessage, html_body: str, text_body: str) -> bool:
-    configured, reason = mail_configuration_status()
-    if not configured:
-        record.status = "not_configured"
-        record.failure_reason = reason[:255]
-        db.session.commit()
-        logger.warning("email_delivery_not_configured message_id=%s reason=%s", record.id, record.failure_reason)
-        return False
+def deliver_email(record: EmailMessage, html_body: str | None = None, text_body: str | None = None) -> bool:
+    """Dispatch one persisted outbox row; this is called by the explicit worker."""
     if record.status != "queued":
         return record.status == "sent"
-    record.status = "sending"
-    db.session.commit()
+    try:
+        expected_purpose = email_purpose_for_kind(record.kind, testing=current_app.testing)
+    except UnknownEmailKind:
+        expected_purpose = None
+    if expected_purpose is None or record.purpose != expected_purpose:
+        reason = "Unknown or inconsistent email purpose; dispatch was blocked."
+        db.session.execute(update(EmailMessage).where(
+            EmailMessage.id == record.id, EmailMessage.status == "queued",
+        ).values(status="failed", error_category="invalid_purpose",
+                 failure_reason=reason, html_body=None, text_body=None,
+                 next_attempt_at=None, claim_token=None, claimed_at=None,
+                 updated_at=datetime.utcnow()))
+        db.session.commit()
+        db.session.refresh(record)
+        return False
+    marketing = expected_purpose == "marketing"
+    configured, reason = mail_configuration_status()
+    if not configured:
+        logger.warning("email_delivery_not_configured message_id=%s reason=%s", record.id, reason)
+        return False
+    html_body = record.html_body if record.html_body is not None else html_body
+    text_body = record.text_body if record.text_body is not None else text_body
+    if not isinstance(html_body, str) or not html_body.strip() or not isinstance(text_body, str) or not text_body.strip():
+        logger.error("email_outbox_payload_missing message_id=%s", record.id)
+        from sqlalchemy import inspect
+        if inspect(db.engine).has_table("email_legacy_payload_review_event"):
+            from app.services.email_legacy_reviews import quarantine_incomplete_legacy_message
+            try:
+                quarantine_incomplete_legacy_message(
+                    record.id, actor_admin_id=None,
+                    reason="Delivery preflight found missing or empty stored HTML/text content; dispatch blocked.",
+                )
+                db.session.refresh(record)
+            except ValueError:
+                db.session.rollback()
+        return False
+    if record.html_body is None or record.text_body is None:
+        # Compatibility for internal callers that create the outbox row first:
+        # payload persistence must commit before any provider request.
+        record.html_body = html_body
+        record.text_body = text_body
+        db.session.commit()
+    claim_token = str(uuid4())
+    if marketing:
+        claimed, reason, observed_status = _claim_marketing_dispatch(record, claim_token=claim_token)
+        if not claimed:
+            if reason and observed_status == "suppressed":
+                record.status = "suppressed"
+                record.failure_reason = reason[:255]
+                db.session.commit()
+            elif reason and observed_status == "retryable_failure":
+                retry_count = record.retry_count + 1
+                retryable = retry_count <= 3
+                failure_values = dict(
+                    status="failed", retry_count=retry_count,
+                    error_category="retryable_infrastructure" if retryable else "infrastructure_failure",
+                    failure_reason=reason[:255],
+                    next_attempt_at=(datetime.utcnow() + timedelta(minutes=min(240, 15 * (2 ** (retry_count - 1)))) if retryable else None),
+                    updated_at=datetime.utcnow(),
+                )
+                if not retryable:
+                    failure_values.update(html_body=None, text_body=None)
+                db.session.execute(update(EmailMessage).where(
+                    EmailMessage.id == record.id, EmailMessage.status == "queued",
+                ).values(**failure_values))
+                db.session.commit()
+                db.session.refresh(record)
+            return False
+        # The committed claim is the point of no return: the provider request
+        # may now be in flight and cannot reliably be recalled. The claim
+        # transaction released its account-row lock before this network call.
+        record.status = "sending"
+        record.failure_reason = ""
+    else:
+        if not _claim_transactional_dispatch(record, claim_token):
+            return False
+        record.status = "sending"
     try:
         provider = (current_app.config.get("MAIL_PROVIDER") or "").strip().lower()
         if provider == "resend":
-            _send_resend(record.recipient, record.subject, html_body, text_body)
+            record.provider_message_id = _send_resend(record.recipient, record.subject, html_body, text_body)
         elif provider == "brevo":
             record.provider_message_id = _send_brevo(record.recipient, record.subject, html_body, text_body)
         else:
@@ -238,26 +348,423 @@ def deliver_email(record: EmailMessage, html_body: str, text_body: str) -> bool:
         code = getattr(exc, "smtp_code", None)
         provider = (current_app.config.get("MAIL_PROVIDER") or "smtp").strip().lower()
         http_status = getattr(exc, "code", None) if provider in {"resend", "brevo"} else None
-        record.status = "failed"
+        # A provider 5xx (or gateway timeout) does not prove that the request
+        # was rejected: acceptance may have happened before the error response.
+        # Only explicit throttling responses are safe to retry automatically.
+        transient_smtp_codes = {421, 450, 451, 452}
+        retryable = ((provider in {"resend", "brevo"} and http_status == 429)
+                     or (provider == "smtp" and code in transient_smtp_codes))
+        retry_count = record.retry_count + 1
+        next_attempt_at = (
+            datetime.utcnow() + timedelta(minutes=min(240, 15 * (2 ** max(0, retry_count - 1))))
+            if retryable and retry_count <= 3 else None
+        )
         if provider == "smtp" and code:
-            record.failure_reason = f"SMTP error {code}."
+            failure_reason = f"SMTP error {code}."
         elif provider in {"resend", "brevo"} and isinstance(http_status, int):
-            record.failure_reason = f"{provider.title()} HTTP {http_status}."
+            failure_reason = f"{provider.title()} HTTP {http_status}."
         else:
             provider_name = "SMTP" if provider == "smtp" else provider.title()
-            record.failure_reason = f"{provider_name} send failed ({type(exc).__name__})."
-        db.session.commit()
+            failure_reason = f"{provider_name} send failed ({type(exc).__name__})."
+        if provider in {"resend", "brevo"} and (
+            http_status == 408 or isinstance(http_status, int) and 500 <= http_status <= 599
+        ):
+            error_category = "ambiguous_outcome"
+        elif retryable and next_attempt_at:
+            error_category = "retryable_provider"
+        elif retryable:
+            error_category = "retry_exhausted"
+        elif provider in {"resend", "brevo"} and isinstance(http_status, int):
+            error_category = "permanent_provider"
+        elif provider == "smtp" and isinstance(code, int):
+            error_category = "permanent_provider"
+        else:
+            # Transport exceptions without an explicit provider rejection may
+            # have occurred after the provider accepted the message.
+            error_category = "ambiguous_outcome"
+        _finalize_dispatch(
+            record, claim_token, status="failed", failure_reason=failure_reason,
+            error_category=error_category,
+            retry_count=retry_count, next_attempt_at=next_attempt_at,
+            clear_payload=not bool(next_attempt_at),
+        )
         logger.warning(
             "email_delivery_failed message_id=%s provider=%s error_type=%s smtp_code=%s http_status=%s",
             record.id, provider, type(exc).__name__, code if isinstance(code, int) else "none",
             http_status if isinstance(http_status, int) else "none",
         )
         return False
-    record.status = "sent"
-    record.failure_reason = ""
-    record.sent_at = datetime.utcnow()
+    return _finalize_dispatch(
+        record, claim_token, status="sent", failure_reason="", sent_at=datetime.utcnow(),
+        error_category=None, next_attempt_at=None, provider_message_id=record.provider_message_id,
+        clear_payload=True,
+    )
+
+
+def _claim_marketing_dispatch(record: EmailMessage, *, claim_token: str | None = None) -> tuple[bool, str | None, str | None]:
+    """Atomically recheck eligibility and commit a dispatch claim.
+
+    Suppression, voluntary withdrawal, and account deactivation serialize on
+    the same CustomerAccount row. A committed suppression wins if it gets the
+    lock first; a committed claim wins if it gets the lock first. No lock is
+    held while contacting the provider.
+    """
+    account_id, message_id = record.account_id, record.id
+    claim_token = claim_token or str(uuid4())
+    if not account_id:
+        return False, "Marketing message has no linked customer account; sending is paused.", "suppressed"
+    try:
+        with db.engine.begin() as connection:
+            from app.services.marketing_suppressions import marketing_account_lock_statement
+            account = connection.execute(marketing_account_lock_statement(account_id)).mappings().first()
+            from app.services.marketing_eligibility import evaluate_marketing_eligibility
+            decision = evaluate_marketing_eligibility(
+                account_id=account_id, connection=connection,
+                respect_frequency=True,
+                frequency_override=False,
+                exclude_message_id=message_id,
+            ) if account else None
+            reason = None if decision and decision.eligible else (decision.reason_code if decision else "account_missing")
+            if reason:
+                changed = connection.execute(
+                    update(EmailMessage).where(EmailMessage.id == message_id, EmailMessage.status == "queued")
+                    .values(status="suppressed", failure_reason=reason[:255], html_body=None, text_body=None,
+                            claim_token=None, updated_at=datetime.utcnow())
+                ).rowcount
+                status = connection.execute(select(EmailMessage.status).where(EmailMessage.id == message_id)).scalar_one_or_none()
+                if changed == 1:
+                    _refresh_automation_campaign_counts(connection, record)
+                return False, reason if changed == 1 else None, status
+            result = connection.execute(
+                update(EmailMessage).where(EmailMessage.id == message_id, EmailMessage.status == "queued")
+                .values(status="sending", failure_reason="", claim_token=claim_token,
+                        claimed_at=datetime.utcnow(), last_attempt_at=datetime.utcnow(), updated_at=datetime.utcnow())
+            )
+            if result.rowcount != 1:
+                status = connection.execute(select(EmailMessage.status).where(EmailMessage.id == message_id)).scalar_one_or_none()
+                return False, None, status
+            attempt_id = _insert_delivery_attempt(connection, record, claim_token)
+        record._active_attempt_id = attempt_id
+        return True, None, "sending"
+    except Exception as exc:
+        logger.error("marketing_dispatch_claim_failed message_id=%s error_type=%s", message_id, type(exc).__name__)
+        return False, "Marketing eligibility could not be verified; retry after the service recovers.", "retryable_failure"
+
+
+def _claim_transactional_dispatch(record: EmailMessage, claim_token: str) -> bool:
+    """Claim transactional messages without consulting marketing consent state."""
+    with db.engine.begin() as connection:
+        result = connection.execute(
+            update(EmailMessage).where(EmailMessage.id == record.id, EmailMessage.status == "queued")
+            .values(status="sending", claim_token=claim_token, claimed_at=datetime.utcnow(),
+                    last_attempt_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        )
+        if result.rowcount != 1:
+            return False
+        record._active_attempt_id = _insert_delivery_attempt(connection, record, claim_token)
+        return True
+
+
+def _insert_delivery_attempt(connection, record: EmailMessage, claim_token: str) -> int:
+    """Persist provider handoff metadata in the same transaction as the claim."""
+    attempt_number = connection.execute(
+        select(func.count(EmailDeliveryAttempt.id)).where(EmailDeliveryAttempt.message_id == record.id)
+    ).scalar_one() + 1
+    recovery_of_attempt_id = connection.execute(select(EmailDeliveryInvestigation.original_attempt_id).where(
+        EmailDeliveryInvestigation.recovered_message_id == record.id,
+    )).scalar_one_or_none()
+    return connection.execute(EmailDeliveryAttempt.__table__.insert().values(
+        message_id=record.id,
+        attempt_number=attempt_number,
+        attempt_key=claim_token,
+        provider=(current_app.config.get("MAIL_PROVIDER") or "unknown").strip().lower()[:24],
+        status="in_flight",
+        started_at=datetime.utcnow(),
+        recovery_of_attempt_id=recovery_of_attempt_id,
+    ).returning(EmailDeliveryAttempt.id)).scalar_one()
+
+
+def _refresh_automation_campaign_counts(connection, record: EmailMessage) -> None:
+    key = str(record.idempotency_key or "")
+    marker = ":account:"
+    if not key.startswith("automation:") or marker not in key:
+        return
+    run_key = key[len("automation:"):].split(marker, 1)[0]
+    prefix = f"automation:{run_key}:account:"
+    rows = connection.execute(
+        select(EmailMessage.status, func.count(EmailMessage.id))
+        .where(func.substr(EmailMessage.idempotency_key, 1, len(prefix)) == prefix)
+        .group_by(EmailMessage.status)
+    ).all()
+    states = {status: count for status, count in rows}
+    queued_count = states.get("queued", 0) + states.get("sending", 0)
+    sent_count = states.get("sent", 0) + states.get("delivered", 0)
+    failed_count = states.get("failed", 0)
+    suppressed_count = states.get("suppressed", 0)
+    run_status = "queued" if queued_count else "partial" if failed_count else "sent" if sent_count else "complete"
+    connection.execute(update(MarketingCampaignRun).where(
+        MarketingCampaignRun.campaign_key == run_key,
+    ).values(
+        queued_count=queued_count, accepted_count=sent_count,
+        failed_count=failed_count, suppressed_count=suppressed_count,
+        status=run_status,
+        finished_at=datetime.utcnow() if not queued_count else MarketingCampaignRun.finished_at,
+        updated_at=datetime.utcnow(),
+    ))
+
+
+def _finalize_dispatch(record: EmailMessage, claim_token: str, **values) -> bool:
+    """Fence final writes so stale/recovered workers cannot overwrite newer state."""
+    updates = {
+        "status": values["status"], "failure_reason": values.get("failure_reason", ""),
+        "error_category": values.get("error_category"),
+        "retry_count": values.get("retry_count", record.retry_count),
+        "next_attempt_at": values.get("next_attempt_at"), "sent_at": values.get("sent_at"),
+        "provider_message_id": values.get("provider_message_id"),
+        "claim_token": None, "claimed_at": None, "updated_at": datetime.utcnow(),
+    }
+    if values.get("clear_payload"):
+        updates.update(html_body=None, text_body=None)
+    with db.engine.begin() as connection:
+        changed = connection.execute(update(EmailMessage).where(
+            EmailMessage.id == record.id, EmailMessage.status == "sending",
+            EmailMessage.claim_token == claim_token,
+        ).values(**updates)).rowcount
+        if changed == 1 and values["status"] == "sent" and _is_marketing_kind(record.kind) and record.kind == "marketing_abandoned_cart":
+            episode_key = str(record.idempotency_key or "").split(":", 1)[-1]
+            if episode_key:
+                connection.execute(update(CustomerCart).where(
+                    CustomerCart.account_id == record.account_id,
+                    CustomerCart.episode_key == episode_key,
+                ).values(
+                    reminder_sent_at=values.get("sent_at") or datetime.utcnow(),
+                    # Reminder bookkeeping must not make an idle cart look newly active.
+                    updated_at=CustomerCart.updated_at,
+                ))
+        if changed == 1 and record.kind == "restock_notification":
+            alert_id = _restock_alert_id(record.kind, record.idempotency_key)
+            if alert_id is not None and values["status"] in {"sent", "delivered"}:
+                connection.execute(update(RestockAlert).where(
+                    RestockAlert.id == alert_id, RestockAlert.status == "queued",
+                ).values(status="notified", notified_at=values.get("sent_at") or datetime.utcnow()))
+            elif (alert_id is not None and values["status"] == "failed"
+                  and (values.get("error_category") == "ambiguous_outcome" or not values.get("next_attempt_at"))):
+                # A permanent or uncertain outcome is no longer an active queue
+                # item. Return it to pending for visible admin follow-up; the
+                # email's sticky idempotency key prevents an automatic resend.
+                connection.execute(update(RestockAlert).where(
+                    RestockAlert.id == alert_id, RestockAlert.status == "queued",
+                ).values(status="pending", notified_at=None, updated_at=datetime.utcnow()))
+        if changed == 1:
+            active_attempt_id = getattr(record, "_active_attempt_id", None)
+            if active_attempt_id:
+                attempt_status = {
+                    "sent": "accepted", "delivered": "accepted",
+                    "failed": "ambiguous" if values.get("error_category") == "ambiguous_outcome" else "failed",
+                    "suppressed": "suppressed",
+                }.get(values["status"], "failed")
+                connection.execute(update(EmailDeliveryAttempt.__table__).where(
+                    EmailDeliveryAttempt.id == active_attempt_id,
+                    EmailDeliveryAttempt.attempt_key == claim_token,
+                ).values(
+                    status=attempt_status, completed_at=datetime.utcnow(),
+                    provider_message_id=values.get("provider_message_id"),
+                    error_category=values.get("error_category"),
+                ))
+            _refresh_automation_campaign_counts(connection, record)
+    db.session.expire(record)
+    return changed == 1
+
+
+def _restock_alert_id(kind: str, idempotency_key: str | None) -> int | None:
+    if kind != "restock_notification":
+        return None
+    key = str(idempotency_key or "")
+    prefix = "restock-alert:"
+    suffix = key[len(prefix):] if key.startswith(prefix) else ""
+    return int(suffix) if suffix.isdigit() else None
+
+
+def process_email_queue(*, limit: int = 50, now: datetime | None = None,
+                        max_seconds: int | None = None, should_stop=None) -> dict[str, int]:
+    """Run one bounded worker process with durable liveness evidence."""
+    from app.services.email_worker import EmailWorkerHeartbeat
+    heartbeat = EmailWorkerHeartbeat()
+    try:
+        heartbeat.start()
+    except Exception as exc:
+        db.session.rollback()
+        logger.error("email_worker_start_failed error_type=%s", type(exc).__name__)
+        raise RuntimeError("Email worker tracking is unavailable; no messages were dispatched.") from None
+    failed = False
+    try:
+        return _process_email_queue_batch(
+            limit=limit, now=now, max_seconds=max_seconds,
+            should_stop=should_stop, worker_heartbeat=heartbeat,
+        )
+    except Exception:
+        failed = True
+        raise
+    finally:
+        heartbeat.stop(failed=failed, error_category="worker_batch_failed" if failed else None)
+
+
+def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
+                               max_seconds: int | None = None, should_stop=None,
+                               worker_heartbeat=None) -> dict[str, int]:
+    """Dispatch due persisted messages. No scheduler is enabled by this command."""
+    now = now or datetime.utcnow()
+    limit = max(1, min(int(limit), 500))
+    # Authentication links/codes are never dispatched after their own validity
+    # window. Quarantine and erase their rendered payload on the next worker run.
+    auth_ttls = {
+        "verify_code": timedelta(minutes=10), "login_code": timedelta(minutes=10),
+        "reset_password": timedelta(minutes=30), "verify_email": timedelta(hours=24),
+        "marketing_confirm": timedelta(hours=24),
+    }
+    for kind, ttl in auth_ttls.items():
+        db.session.execute(update(EmailMessage).where(
+            EmailMessage.status.in_(("queued", "failed")), EmailMessage.kind == kind,
+            EmailMessage.created_at <= now - ttl,
+        ).values(
+            status="failed", error_category="expired_auth_payload",
+            failure_reason="Authentication email expired before dispatch.",
+            html_body=None, text_body=None, next_attempt_at=None,
+            claim_token=None, claimed_at=None, updated_at=now,
+        ))
     db.session.commit()
-    return True
+    from sqlalchemy import inspect
+    if not inspect(db.engine).has_table("email_legacy_payload_review_event"):
+        # Fail closed for the whole batch rather than dispatching around malformed
+        # legacy rows without an auditable quarantine path.
+        return {"claimed": 0, "sent": 0, "failed": 0, "suppressed": 0,
+                "not_configured": 0, "legacy_review_schema_unavailable": 1}
+    from app.services.email_legacy_reviews import quarantine_incomplete_queued_messages
+    malformed_count = quarantine_incomplete_queued_messages(now=now)
+    configured, _reason = mail_configuration_status()
+    if not configured:
+        return {"claimed": 0, "sent": 0, "failed": int(malformed_count or 0), "suppressed": 0, "not_configured": 1}
+    due_failed = EmailMessage.query.filter(
+        EmailMessage.status == "failed", EmailMessage.error_category.in_(("retryable_provider", "retryable_infrastructure")),
+        EmailMessage.retry_count <= 3, EmailMessage.next_attempt_at <= now,
+    ).order_by(EmailMessage.next_attempt_at, EmailMessage.id).limit(limit).all()
+    for failed in due_failed:
+        db.session.execute(update(EmailMessage).where(
+            EmailMessage.id == failed.id, EmailMessage.status == "failed",
+        ).values(status="queued", failure_reason="", updated_at=now))
+    if due_failed:
+        db.session.commit()
+    remaining = max(0, limit - len(due_failed))
+    queued = EmailMessage.query.filter(
+        EmailMessage.status == "queued",
+        (EmailMessage.next_attempt_at.is_(None) | (EmailMessage.next_attempt_at <= now)),
+    ).order_by(EmailMessage.created_at, EmailMessage.id).limit(remaining).all() if remaining else []
+    row_ids = list(dict.fromkeys([row.id for row in due_failed] + [row.id for row in queued]))
+    rows = [db.session.get(EmailMessage, row_id) for row_id in row_ids]
+    counts = {"claimed": 0, "sent": 0, "failed": int(malformed_count or 0), "suppressed": 0, "not_configured": 0}
+    started = time.monotonic()
+    counts["stopped"] = 0
+    for row in rows:
+        if (should_stop and should_stop()) or (max_seconds and time.monotonic() - started >= max_seconds):
+            counts["stopped"] = 1
+            break
+        if row is None:
+            continue
+        counts["claimed"] += 1
+        if worker_heartbeat:
+            worker_heartbeat.mark_attempt(counts["claimed"])
+        deliver_email(row)
+        db.session.refresh(row)
+        if row.status == "sent":
+            counts["sent"] += 1
+            if worker_heartbeat:
+                worker_heartbeat.mark_success()
+        elif row.status == "suppressed":
+            counts["suppressed"] += 1
+        elif row.status == "failed":
+            counts["failed"] += 1
+    return counts
+
+
+def email_queue_health() -> dict:
+    """Return metadata-only queue health without dispatching or exposing payloads."""
+    now = datetime.utcnow()
+    grouped = db.session.query(EmailMessage.status, func.count(EmailMessage.id)).group_by(EmailMessage.status).all()
+    counts = {status: int(count) for status, count in grouped}
+    oldest = db.session.query(func.min(EmailMessage.created_at)).filter(
+        EmailMessage.status == "queued",
+        or_(EmailMessage.next_attempt_at.is_(None), EmailMessage.next_attempt_at <= now),
+    ).scalar()
+    return {
+        "statuses": counts,
+        "queued_oldest_at": oldest.isoformat() if oldest else None,
+        "scheduled": EmailMessage.query.filter(
+            EmailMessage.status == "queued", EmailMessage.next_attempt_at > now,
+        ).count(),
+        "retrying": EmailMessage.query.filter(
+            EmailMessage.status == "failed",
+            EmailMessage.error_category.in_(("retryable_provider", "retryable_infrastructure")),
+            EmailMessage.next_attempt_at.is_not(None),
+        ).count(),
+        "retry_attempts": int(db.session.query(func.coalesce(func.sum(EmailMessage.retry_count), 0)).scalar() or 0),
+        "failed_last_24h": EmailMessage.query.filter(
+            EmailMessage.status == "failed", EmailMessage.updated_at >= now - timedelta(hours=24),
+        ).count(),
+        "stale_claims_30m": EmailMessage.query.filter(
+            EmailMessage.status == "sending", EmailMessage.claimed_at <= now - timedelta(minutes=30),
+        ).count(),
+        "ambiguous_outcomes": EmailMessage.query.filter_by(error_category="ambiguous_outcome").count(),
+        "legacy_payload_review": EmailMessage.query.filter_by(error_category="legacy_payload_review").count(),
+    }
+
+
+def recover_stale_email_claims(*, age_minutes: int = 30, now: datetime | None = None) -> int:
+    """Fence stale worker claims as ambiguous; never automatically resend them."""
+    now = now or datetime.utcnow()
+    cutoff = now - timedelta(minutes=max(1, int(age_minutes)))
+    stale_claims = db.session.execute(select(
+        EmailMessage.id, EmailMessage.claim_token, EmailMessage.kind, EmailMessage.idempotency_key,
+    ).where(
+        EmailMessage.status == "sending", EmailMessage.claimed_at < cutoff,
+    )).all()
+    if not stale_claims:
+        db.session.commit()
+        return 0
+    recovered = 0
+    from sqlalchemy import inspect
+    has_attempts = inspect(db.engine).has_table("email_delivery_attempt")
+    for message_id, claim_token, kind, idempotency_key in stale_claims:
+        changed = db.session.execute(
+            update(EmailMessage).where(
+                EmailMessage.id == message_id, EmailMessage.status == "sending",
+                EmailMessage.claimed_at < cutoff, EmailMessage.claim_token == claim_token,
+            ).values(status="failed", error_category="ambiguous_outcome", next_attempt_at=None,
+                     claim_token=None, claimed_at=None,
+                     failure_reason="Worker stopped after dispatch claim; provider acceptance is unknown.",
+                     updated_at=now)
+        ).rowcount
+        if changed == 1:
+            recovered += 1
+            alert_id = _restock_alert_id(kind, idempotency_key)
+            if alert_id is not None:
+                db.session.execute(update(RestockAlert).where(
+                    RestockAlert.id == alert_id, RestockAlert.status == "queued",
+                ).values(status="pending", notified_at=None, updated_at=now))
+            if has_attempts and claim_token:
+                db.session.execute(update(EmailDeliveryAttempt).where(
+                    EmailDeliveryAttempt.message_id == message_id,
+                    EmailDeliveryAttempt.attempt_key == claim_token,
+                    EmailDeliveryAttempt.status == "in_flight",
+                ).values(status="ambiguous", error_category="ambiguous_outcome", completed_at=now))
+    db.session.commit()
+    return recovered
+
+
+def _marketing_suppression_reason(account):
+    """Compatibility helper backed by the authoritative eligibility policy."""
+    from app.services.marketing_eligibility import evaluate_marketing_eligibility
+    decision = evaluate_marketing_eligibility(account)
+    return None if decision.eligible else decision.reason_code
 
 
 def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str = "", button_text: str = "", unsubscribe_url: str = "", kind: str = "", order_reference: str = "", order_progress=None, security_code: str = "") -> tuple[str, str]:
@@ -318,13 +825,13 @@ def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str
     return html_body, "\n".join(lines)
 
 
-def queue_branded_email(recipient: str, subject: str, kind: str, idempotency_key: str, heading: str, paragraphs: list[str], *, account_id=None, order_id=None, campaign_id=None, button_url="", button_text="", unsubscribe_url="", order_reference="", order_progress=None, security_code="") -> EmailMessage:
+def queue_branded_email(recipient: str, subject: str, kind: str, idempotency_key: str, heading: str, paragraphs: list[str], *, account_id=None, order_id=None, campaign_id=None, button_url="", button_text="", unsubscribe_url="", order_reference="", order_progress=None, security_code="", commit: bool = True) -> EmailMessage:
     html_body, text_body = render_branded_email(
         heading, paragraphs, button_url=button_url, button_text=button_text,
         unsubscribe_url=unsubscribe_url, kind=kind, order_reference=order_reference,
         order_progress=order_progress, security_code=security_code,
     )
-    return queue_email(recipient, subject, kind, idempotency_key, account_id=account_id, order_id=order_id, campaign_id=campaign_id, html_body=html_body, text_body=text_body)
+    return queue_email(recipient, subject, kind, idempotency_key, account_id=account_id, order_id=order_id, campaign_id=campaign_id, html_body=html_body, text_body=text_body, commit=commit)
 
 
 def _order_progress_stages(order):
@@ -541,6 +1048,8 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
         return None
     if event_name == "payment_confirmed" and order.payment_status != "Paid":
         return None
+    if event_name == "payment_failed" and order.payment_status != "Failed":
+        return None
     payment_method = "Not recorded"
     if event_name == "order_received":
         order = Order.query.options(
@@ -564,6 +1073,14 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
         from app.services.settings import current_settings
         from app.services.formatting import money
         detail = f"Payment for order {order.reference} has been verified by FityStores. Confirmed amount: {money(order.total_cents, current_settings().currency)}. Payment method: {payment_method}. Payment status: {order.payment_status}. The store will now continue with {('collection preparation' if (order.fulfilment_method or '').lower() == 'collection' else 'delivery preparation')}."
+    elif event_name == "payment_failed":
+        subject = f"Payment status update: {order.reference} | FityStores"
+        heading = "Payment status needs your attention"
+        detail = (
+            f"FityStores has recorded the payment status for order {order.reference} as failed. "
+            "If you have already paid, please contact us before making another payment. "
+            "Otherwise, contact the store for help with the next step."
+        )
     elif event_name == "review_request":
         if order.status != "Completed" or order.payment_status != "Paid":
             return None
@@ -618,4 +1135,63 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
         button_text="View order status",
         order_reference=order.reference,
         order_progress=_order_progress_stages(order),
+    )
+
+
+def notify_refund_completed(refund, idempotency_key: str | None = None):
+    """Queue a factual notice after an administrator records a completed refund."""
+    from app.models import CustomerOrderLink
+    from app.services.formatting import money
+    from app.services.settings import current_settings
+
+    if (not refund or refund.status != "completed" or not refund.completed_at
+            or not str(refund.reference or "").strip() or not refund.order):
+        return None
+    link = CustomerOrderLink.query.filter_by(order_id=refund.order_id).first()
+    if not link or not link.account or not link.account.active or not link.account.email_verified_at:
+        return None
+    amount = money(refund.amount_cents, current_settings().currency)
+    return queue_branded_email(
+        link.account.email,
+        f"Refund completed: {refund.order.reference} | FityStores",
+        "refund_confirmation",
+        idempotency_key or f"refund-completed:{refund.id}",
+        "Your refund has been recorded as complete",
+        [
+            f"Refund for order {refund.order.reference} was recorded as completed by FityStores.",
+            f"Recorded refund amount: {amount}.",
+            f"Refund reference: {refund.reference.strip()[:120]}.",
+        ],
+        account_id=link.account.id,
+        order_id=refund.order_id,
+    )
+
+
+def notify_restock_alert(alert, idempotency_key: str | None = None):
+    """Queue a requested, email-only restock notice without promotional content."""
+    from email.utils import parseaddr
+    from app.models import Product
+
+    if (not alert or not alert.consent_to_contact or alert.preferred_contact != "Email"
+            or alert.status not in {"pending", "queued"}):
+        return None
+    recipient = str(alert.contact or "").strip()
+    if (parseaddr(recipient)[1] != recipient or len(recipient) > 254
+            or not re.fullmatch(r"[^@<>\s]+@[^@<>\s]+\.[^@<>\s]+", recipient)):
+        return None
+    product = alert.product or db.session.get(Product, alert.product_id)
+    if not product or not product.active or product.display_stock_quantity <= 0:
+        return None
+    variation = " ".join(part for part in (alert.size, alert.color) if part)
+    paragraphs = [f"The item you asked us to contact you about is available again: {product.name}."]
+    if variation:
+        paragraphs.append(f"Requested variation: {variation}.")
+    paragraphs.append("Availability can change. This message is only about your restock request.")
+    return queue_branded_email(
+        recipient, f"Requested item available: {product.name} | FityStores",
+        "restock_notification", idempotency_key or f"restock-alert:{alert.id}",
+        "Your requested item is available", paragraphs,
+        button_url=_email_public_base_url() + url_for("public.product_detail", slug=product.slug),
+        button_text="View item",
+        commit=False,
     )

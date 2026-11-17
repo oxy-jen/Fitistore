@@ -13,6 +13,7 @@ EMAIL_CATEGORIES = {
         "message": "Hi {{ customer_name }},\n\nYour order request is awaiting seller review. Payment status: {{ payment_status }}. Current order status: {{ order_status }}.",
         "variables": ("customer_name", "order_reference", "order_date", "order_subtotal", "discount_amount", "delivery_fee", "order_total", "payment_status", "order_status", "fulfilment_method", "fulfilment_instructions"),
         "marketing": False,
+        "group": "transactional",
     },
     "cart_reminder": {
         "label": "Cart reminder (manual only)",
@@ -21,6 +22,7 @@ EMAIL_CATEGORIES = {
         "message": "Hi {{ customer_name }}, you left these items in your cart. Would you like to continue shopping? Availability and prices can change.",
         "variables": ("customer_name", "cart_item_count", "cart_total", "unsubscribe_link"),
         "marketing": True,
+        "group": "marketing",
     },
     "thank_you": {
         "label": "Thank-you email",
@@ -29,6 +31,7 @@ EMAIL_CATEGORIES = {
         "message": "Thank you for choosing FityStores. Order {{ order_reference }} is currently {{ order_status }} and the recorded total is {{ order_total }}.",
         "variables": ("customer_name", "order_reference", "order_date", "order_subtotal", "discount_amount", "delivery_fee", "order_total", "order_status", "payment_status", "fulfilment_instructions"),
         "marketing": False,
+        "group": "transactional",
     },
     "promotion": {
         "label": "Promotions and new arrivals",
@@ -37,6 +40,7 @@ EMAIL_CATEGORIES = {
         "message": "Hi {{ customer_name }}, take a look at these selected products from our current catalogue.",
         "variables": ("customer_name", "unsubscribe_link"),
         "marketing": True,
+        "group": "marketing",
     },
     "order_status": {
         "label": "Order status / fulfilment update",
@@ -45,6 +49,7 @@ EMAIL_CATEGORIES = {
         "message": "Order {{ order_reference }} is currently {{ order_status }}. Payment status: {{ payment_status }}. Fulfilment method: {{ fulfilment_method }}.",
         "variables": ("customer_name", "order_reference", "order_date", "order_status", "payment_status", "fulfilment_method", "fulfilment_instructions"),
         "marketing": False,
+        "group": "transactional",
     },
     "customer_service": {
         "label": "Custom customer-service email",
@@ -52,9 +57,71 @@ EMAIL_CATEGORIES = {
         "headline": "A message from FityStores",
         "message": "Hi {{ customer_name }},\n\n",
         "variables": ("customer_name", "order_reference", "order_date", "order_status", "fulfilment_instructions"),
-        "marketing": False,
+        # Free-form admin-authored content cannot claim transactional purpose.
+        "marketing": True,
+        "group": "customer_service",
+    },
+    "daily_goodies": {
+        "label": "Daily Fity Goodies",
+        "subject": "Today's FityStore finds",
+        "headline": "A little Fity goodness for today",
+        "message": "Hi {{ customer_name }}, here are a few current catalogue picks for you.",
+        "variables": ("customer_name", "unsubscribe_link"), "marketing": True, "group": "marketing",
+    },
+    "weekly_picks": {
+        "label": "Weekly product picks",
+        "subject": "This week's picks from FityStores",
+        "headline": "Your weekly Fity picks",
+        "message": "Hi {{ customer_name }}, explore this week's selected products from our catalogue.",
+        "variables": ("customer_name", "unsubscribe_link"), "marketing": True, "group": "marketing",
+    },
+    "new_product_announcement": {
+        "label": "New product announcement",
+        "subject": "New at FityStores",
+        "headline": "Meet the latest arrivals",
+        "message": "Hi {{ customer_name }}, take a look at products newly added to the FityStores catalogue.",
+        "variables": ("customer_name", "unsubscribe_link"), "marketing": True, "group": "marketing",
+    },
+    "special_offers": {
+        "label": "Special offers",
+        "subject": "FityStores offers picked for you",
+        "headline": "A special FityStores offer",
+        "message": "Hi {{ customer_name }}, explore the current offers available in our catalogue.",
+        "variables": ("customer_name", "unsubscribe_link"), "marketing": True, "group": "marketing",
+    },
+    "back_in_stock": {
+        "label": "Back-in-stock announcement",
+        "subject": "A FityStore favourite is available again",
+        "headline": "Back in the catalogue",
+        "message": "Hi {{ customer_name }}, a product you may like is available again. Check the current listing for availability.",
+        "variables": ("customer_name", "unsubscribe_link"), "marketing": True, "group": "marketing",
+    },
+    "marketing_welcome": {
+        "label": "Marketing welcome",
+        "subject": "Welcome to FityStores updates",
+        "headline": "Welcome to FityStores updates",
+        "message": "Hi {{ customer_name }}, thanks for choosing to receive FityStores product and offer updates.",
+        "variables": ("customer_name", "unsubscribe_link"), "marketing": True, "group": "marketing",
+    },
+    "re_engagement": {
+        "label": "Re-engagement campaign",
+        "subject": "See what's new at FityStores",
+        "headline": "A fresh look at FityStores",
+        "message": "Hi {{ customer_name }}, take a look at current products and updates from FityStores.",
+        "variables": ("customer_name", "unsubscribe_link"), "marketing": True, "group": "marketing",
+    },
+    "custom_campaign": {
+        "label": "Custom promotional campaign",
+        "subject": "A note from FityStores",
+        "headline": "A note from FityStores",
+        "message": "Hi {{ customer_name }},\n\nAdd your campaign message here.",
+        "variables": ("customer_name", "unsubscribe_link"), "marketing": True, "group": "marketing",
     },
 }
+
+EMAIL_MARKETING_CATEGORY_KEYS = frozenset(key for key, value in EMAIL_CATEGORIES.items() if value["marketing"])
+EMAIL_PRODUCT_CATEGORY_KEYS = frozenset({"promotion", "daily_goodies", "weekly_picks", "new_product_announcement", "special_offers", "back_in_stock", "re_engagement", "custom_campaign", "customer_service"})
+EMAIL_PROMOTIONAL_LAYOUT_CATEGORIES = frozenset({"promotion", "daily_goodies", "weekly_picks", "new_product_announcement", "special_offers", "back_in_stock", "marketing_welcome", "re_engagement", "custom_campaign", "customer_service"})
 
 _VARIABLE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
 
@@ -228,7 +295,7 @@ def render_studio_message(category, subject, headline, message, context, *, bloc
             if not item["url"]:
                 raise EmailContentError("The selected button destination is unavailable for this recipient.")
         resolved_blocks.append(item)
-    template_name = "emails/promotion_message.html" if category == "promotion" else "emails/studio_message.html"
+    template_name = "emails/promotion_message.html" if category in EMAIL_PROMOTIONAL_LAYOUT_CATEGORIES else "emails/studio_message.html"
     html = render_template(
         template_name, category=category, subject=subject, headline=headline,
         message=message, blocks=resolved_blocks, products=products, order_lines=order_lines, order_summary=order_summary, cart_summary=cart_summary, shop_url=shop_url, logo_url=logo_url,

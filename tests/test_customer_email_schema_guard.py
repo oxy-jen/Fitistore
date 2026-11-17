@@ -12,11 +12,13 @@ from sqlalchemy.engine import make_url
 from app.extensions import db
 from app.models import Category, Product
 from scripts.customer_email_schema_guard import (
+    APPROVED_MISSING_TABLES,
     APPROVED_MISSING_INDEXES,
     APPROVED_MISSING_COLUMNS,
     BACKUP_CONFIRMATION,
     CONFIRMATION,
     EMAIL_STUDIO_TABLES,
+    EMAIL_DELIVERY_OPS_TABLES,
     PREFLIGHT_CONFIRMATION,
     PRE_EMAIL_STUDIO_TABLES,
     ColumnSpec,
@@ -81,8 +83,8 @@ def test_workflow_restricts_manual_trigger_and_target_branch():
     assert len(jobs) == 3
     preflight_job = jobs[1]
     migrate_job = jobs[2]
-    assert "github.ref == 'refs/heads/responsive-all-pages'" in preflight_job
-    assert "github.ref == 'refs/heads/responsive-all-pages'" in migrate_job
+    assert "github.ref == 'refs/heads/main'" in preflight_job
+    assert "github.ref == 'refs/heads/main'" in migrate_job
     assert preflight_job.count("ref: ${{ github.sha }}") == 1
     assert migrate_job.count("ref: ${{ github.sha }}") == 1
     assert "ref: responsive-all-pages" not in preflight_job + migrate_job
@@ -108,13 +110,13 @@ def test_workflow_restricts_manual_trigger_and_target_branch():
     # Model the job dependency/gates: only a successful preflight plus a migrate
     # operation on the fixed ref can make the migration job eligible.
     def migration_job_eligible(operation, preflight_succeeded, ref):
-        return (preflight_succeeded and ref == "refs/heads/responsive-all-pages"
+        return (preflight_succeeded and ref == "refs/heads/main"
                 and operation == "migrate")
-    assert not migration_job_eligible("preflight", True, "refs/heads/responsive-all-pages")
-    assert not migration_job_eligible("preflight", False, "refs/heads/responsive-all-pages")
-    assert not migration_job_eligible("migrate", False, "refs/heads/responsive-all-pages")
-    assert not migration_job_eligible("migrate", True, "refs/heads/main")
-    assert migration_job_eligible("migrate", True, "refs/heads/responsive-all-pages")
+    assert not migration_job_eligible("preflight", True, "refs/heads/main")
+    assert not migration_job_eligible("preflight", False, "refs/heads/main")
+    assert not migration_job_eligible("migrate", False, "refs/heads/main")
+    assert not migration_job_eligible("migrate", True, "refs/heads/responsive-all-pages")
+    assert migration_job_eligible("migrate", True, "refs/heads/main")
 
 
 @pytest.mark.parametrize("preflight_succeeds", [True, False])
@@ -129,7 +131,7 @@ def test_preflight_only_never_has_an_executable_migration_path(preflight_succeed
     gate_terms = {term.strip() for term in gate_match.group(1).split("&&")}
     assert gate_terms == {
         "needs.preflight.result == 'success'",
-        "github.ref == 'refs/heads/responsive-all-pages'",
+        "github.ref == 'refs/heads/main'",
         "inputs.operation == 'migrate'",
     }
     assert "needs: preflight" in migrate_job
@@ -137,7 +139,7 @@ def test_preflight_only_never_has_an_executable_migration_path(preflight_succeed
     # when its read-only check passes and when it fails.
     results = {
         "needs.preflight.result == 'success'": preflight_succeeds,
-        "github.ref == 'refs/heads/responsive-all-pages'": True,
+        "github.ref == 'refs/heads/main'": True,
         "inputs.operation == 'migrate'": False,
     }
     assert all(results[term] for term in gate_terms) is False
@@ -430,7 +432,7 @@ def test_existing_customer_email_schema_without_new_studio_tables_is_upgradeable
 
 def test_preflight_accepts_prior_schema_and_identifies_missing_studio_migration(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'prior-email-schema.db'}")
-    legacy_tables = [table for table in db.metadata.sorted_tables if table.name not in EMAIL_STUDIO_TABLES]
+    legacy_tables = [table for table in db.metadata.sorted_tables if table.name not in APPROVED_MISSING_TABLES]
     db.metadata.create_all(engine, tables=legacy_tables)
     try:
         with engine.connect() as connection:
@@ -567,6 +569,17 @@ def test_complete_local_schema_passes_strict_postcheck():
     db.metadata.create_all(engine)
     try:
         with engine.connect() as connection:
+            from app.services.email_outbox_schema import apply_email_outbox_migration
+            from app.services.email_delivery_ops import apply_email_delivery_ops_migration
+            from app.services.email_legacy_reviews import apply_email_legacy_review_migration
+            from app.services.email_test_purpose_migration import apply_email_test_purpose_migration
+            from app.services.consent_audit import apply_consent_audit_migration
+            with connection.begin():
+                apply_email_outbox_migration(connection, "sqlite")
+                apply_email_test_purpose_migration(connection, "sqlite")
+                apply_email_delivery_ops_migration(connection, "sqlite")
+                apply_email_legacy_review_migration(connection, "sqlite")
+                apply_consent_audit_migration(connection, "sqlite")
             assert validate_schema(connection, "public", allow_approved_missing=False)
     finally:
         engine.dispose()

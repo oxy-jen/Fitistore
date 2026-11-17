@@ -759,6 +759,10 @@ input:disabled,select:disabled,textarea:disabled,button:disabled { cursor: not-a
 @media(max-width:380px){.product-page .product-related-grid{grid-auto-columns:minmax(136px,56%)}}
 .product-page .product-related-grid{align-items:start;grid-auto-rows:max-content}.product-page .product-related-grid>.product-card{align-self:start;height:auto;min-height:0}.product-page .product-related-grid .product-body{flex:0 0 auto}.product-page .product-related-grid .shop-card-actions{margin-top:.12rem}.product-page .product-related-grid .most-added-view-detail{display:none!important}
 
+/* Email queue health stays readable on narrow admin screens. */
+.email-queue-health{display:flex;flex-wrap:wrap;gap:.45rem;margin:.75rem 0;padding:0;list-style:none}
+.email-queue-health li{padding:.45rem .65rem;border:1px solid #e1e5eb;border-radius:8px;background:#f7f8fa;color:#343b45;font-size:.84rem}
+.email-queue-health strong{color:#e52335}
 /* Product detail: compact admin-defined option chips, matching the variant gallery. */
 .product-page .product-variant-picker{display:grid;gap:.68rem;margin:.12rem 0}
 .product-page .product-option-picker{display:grid;gap:.34rem;min-width:0}

@@ -4,6 +4,7 @@ import click
 import csv
 import json
 import os
+import signal
 from pathlib import Path
 from flask import Flask
 from werkzeug.security import generate_password_hash
@@ -144,6 +145,9 @@ SAMPLE_IMAGES = {
 def create_app(config_object=Config, *, initialize_media_showcases=False):
     app = Flask(__name__)
     app.config.from_object(config_object)
+    validator = getattr(config_object, "validate_runtime", None)
+    if validator:
+        validator(app.config)
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 
     db.init_app(app)
@@ -242,8 +246,9 @@ def customer_email_schema_tables():
     from .models import (
         AuthRateLimit, CustomerAccount, CustomerCart, CustomerConsentEvent,
         CustomerOrderLink, CustomerToken, EmailCampaign, EmailCampaignRecipient,
-        EmailDraft, EmailMessage, EmailTemplate, MarketingAutomationSettings, MarketingCampaignRun,
-        MarketingProductExposure,
+        EmailDeliveryAttempt, EmailDeliveryInvestigation, EmailDeliveryInvestigationEvent,
+        EmailWorkerRun, EmailDraft, EmailMessage, EmailTemplate, MarketingAutomationSettings, MarketingCampaignRun,
+        MarketingProductExposure, EmailLegacyPayloadReviewEvent,
     )
     return [
         CustomerAccount.__table__, CustomerToken.__table__,
@@ -251,8 +256,10 @@ def customer_email_schema_tables():
         AuthRateLimit.__table__, EmailCampaign.__table__, EmailMessage.__table__,
         EmailCampaignRecipient.__table__, CustomerCart.__table__,
         EmailTemplate.__table__, EmailDraft.__table__,
+        EmailDeliveryAttempt.__table__, EmailDeliveryInvestigation.__table__,
+        EmailDeliveryInvestigationEvent.__table__, EmailWorkerRun.__table__,
         MarketingAutomationSettings.__table__, MarketingCampaignRun.__table__,
-        MarketingProductExposure.__table__,
+        MarketingProductExposure.__table__, EmailLegacyPayloadReviewEvent.__table__,
     ]
 
 
@@ -564,39 +571,72 @@ def register_cli(app: Flask):
                         if "provider_message_id" not in email_columns:
                             connection.exec_driver_sql("ALTER TABLE email_message ADD COLUMN provider_message_id VARCHAR(255)")
                         connection.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_email_message_provider_message_id ON email_message (provider_message_id)")
+                        from .services.email_outbox_schema import apply_email_outbox_migration
+                        apply_email_outbox_migration(connection, dialect)
+                        from .services.email_test_purpose_migration import apply_email_test_purpose_migration
+                        apply_email_test_purpose_migration(connection, dialect)
+                        from .services.email_delivery_ops import apply_email_delivery_ops_migration
+                        apply_email_delivery_ops_migration(connection, dialect)
+                        from .services.email_legacy_reviews import apply_email_legacy_review_migration
+                        apply_email_legacy_review_migration(connection, dialect)
+                        from .services.consent_audit import apply_consent_audit_migration
+                        apply_consent_audit_migration(connection, dialect)
                         validate_columns(connection)
                         transaction.commit()
                     except Exception:
                         transaction.rollback()
                         raise
             else:
-                # Keep the established Postgres DDL and advisory lock for production.
-                migration = Path(__file__).resolve().parent.parent / "migrations" / "20261017_customer_accounts_email.sql"
-                statements = migration.read_text(encoding="utf-8").split(";")
+                # All related migrations share one non-blocking transaction lock.
+                from .services.email_migrations import (
+                    HISTORICAL_MIGRATIONS, MIGRATION_HISTORY_ID, acquire_migration_lock,
+                    ensure_history_table, history_rows, record_migration,
+                    validate_history_checksums, has_legacy_email_schema,
+                )
                 with db.engine.begin() as connection:
-                    connection.execute(text("SELECT pg_advisory_xact_lock(724930117)"))
-                    for statement in statements:
-                        statement = statement.strip()
-                        if statement:
-                            connection.execute(text(statement))
-                    studio_migration = Path(__file__).resolve().parent.parent / "migrations" / "20261027_email_studio.sql"
-                    for statement in studio_migration.read_text(encoding="utf-8").split(";"):
-                        statement = statement.strip()
-                        if statement:
-                            connection.execute(text(statement))
-                    builder_migration = Path(__file__).resolve().parent.parent / "migrations" / "20261028_email_builder.sql"
-                    for statement in builder_migration.read_text(encoding="utf-8").split(";"):
-                        statement = statement.strip()
-                        if statement:
-                            connection.execute(text(statement))
-                    consent_migration = Path(__file__).resolve().parent.parent / "migrations" / "20261029_consent_wording_version.sql"
-                    for statement in consent_migration.read_text(encoding="utf-8").split(";"):
-                        statement = statement.strip()
-                        if statement:
-                            connection.execute(text(statement))
+                    acquire_migration_lock(connection)
+                    history_existed = inspect(connection).has_table("email_migration_history")
+                    if not history_existed and has_legacy_email_schema(connection):
+                        raise click.ClickException(
+                            "Existing customer/email schema has no verified migration history. "
+                            "Run the explicit reconcile-customer-email-migration-history command after review; "
+                            "no migration was applied."
+                        )
+                    ensure_history_table(connection)
+                    rows = history_rows(connection)
+                    if history_existed:
+                        validate_history_checksums(connection)
+                        missing_historical = [item for item in HISTORICAL_MIGRATIONS if item not in rows]
+                        if missing_historical:
+                            raise click.ClickException(
+                                "Historical migration evidence is incomplete: " + ", ".join(missing_historical) +
+                                ". Reconcile only after validating the existing schema."
+                            )
+                    else:
+                        record_migration(connection, MIGRATION_HISTORY_ID, state="applied",
+                                         evidence="central checksum ledger installed before first customer/email migration")
+                        for migration_id in HISTORICAL_MIGRATIONS:
+                            migration = Path(__file__).resolve().parent.parent / "migrations" / f"{migration_id}.sql"
+                            for statement in migration.read_text(encoding="utf-8").split(";"):
+                                statement = statement.strip()
+                                if statement:
+                                    connection.execute(text(statement))
+                            record_migration(connection, migration_id, state="applied",
+                                             evidence="executed by migrate-customer-email-schema in the ledger transaction")
+
                     email_columns = {column["name"] for column in inspect(connection).get_columns("email_message")}
                     if "retry_count" not in email_columns:
                         connection.execute(text("ALTER TABLE email_message ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"))
+                    from .services.email_outbox_schema import apply_email_outbox_migration
+                    apply_email_outbox_migration(connection, dialect)
+                    from .services.email_test_purpose_migration import apply_email_test_purpose_migration
+                    apply_email_test_purpose_migration(connection, dialect)
+                    from .services.email_delivery_ops import apply_email_delivery_ops_migration
+                    apply_email_delivery_ops_migration(connection, dialect)
+                    from .services.email_legacy_reviews import apply_email_legacy_review_migration
+                    apply_email_legacy_review_migration(connection, dialect)
+                    from .services.consent_audit import apply_consent_audit_migration
+                    apply_consent_audit_migration(connection, dialect)
                     validate_columns(connection)
 
             after = set(inspect(db.engine).get_table_names())
@@ -615,6 +655,176 @@ def register_cli(app: Flask):
         click.echo("Created tables: " + (", ".join(created) if created else "none"))
         click.echo("Already existing tables: " + (", ".join(existed) if existed else "none"))
         click.echo("No existing store records were changed.")
+
+
+    @app.cli.command("reconcile-customer-email-migration-history")
+    @click.option("--confirmation", required=True, help="Type RECONCILE VERIFIED CUSTOMER EMAIL SCHEMA")
+    def reconcile_customer_email_migration_history(confirmation):
+        """Record an explicit schema-based reconciliation for historic migrations."""
+        if confirmation != "RECONCILE VERIFIED CUSTOMER EMAIL SCHEMA":
+            raise click.ClickException("Confirmation phrase did not match; no history was recorded.")
+        from .services.email_migrations import (
+            HISTORICAL_MIGRATIONS, MIGRATION_HISTORY_ID, acquire_migration_lock,
+            ensure_history_table, history_rows, record_migration,
+            validate_history_checksums, verify_legacy_schema, has_legacy_email_schema,
+        )
+        try:
+            with db.engine.begin() as connection:
+                acquire_migration_lock(connection)
+                if not has_legacy_email_schema(connection):
+                    raise click.ClickException("No existing customer/email schema was found to reconcile.")
+                ensure_history_table(connection)
+                validate_history_checksums(connection)
+                evidence = verify_legacy_schema(connection, "public")
+                existing = history_rows(connection)
+                record_migration(connection, MIGRATION_HISTORY_ID, state="applied",
+                                 evidence="central checksum ledger installed by explicit schema reconciliation")
+                for migration_id in HISTORICAL_MIGRATIONS:
+                    if migration_id not in existing:
+                        record_migration(
+                            connection, migration_id, state="reconciled_schema",
+                            evidence="strict current schema guard passed; original historical file execution cannot be proven; "
+                                     + "; ".join(evidence)[:700],
+                        )
+            click.echo("Historical migration state recorded as reconciled_schema where absent. Original file execution is not asserted.")
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(
+                f"Customer/email schema reconciliation failed ({type(exc).__name__}); transaction rolled back."
+            ) from None
+
+
+    @app.cli.command("inspect-legacy-email-payloads")
+    def inspect_legacy_email_payloads_command():
+        """Read-only metadata report for legacy outbox payloads."""
+        from .services.email_legacy_reviews import inspect_legacy_email_payloads
+        try:
+            findings = inspect_legacy_email_payloads()
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(f"Legacy email payload inspection failed ({type(exc).__name__}).") from None
+        click.echo(json.dumps({"event": "legacy_email_payload_preflight", "dry_run": True,
+                               "findings": findings}, sort_keys=True, default=str))
+
+
+    @app.cli.command("process-email-queue")
+    @click.option("--limit", type=click.IntRange(1, 500), default=50, show_default=True)
+    @click.option("--max-seconds", type=click.IntRange(1, 3600), default=300, show_default=True)
+    def process_email_queue_command(limit, max_seconds):
+        """Run one bounded outbox batch; provider calls are never activated at app startup."""
+        from .services.customer_mail import process_email_queue
+        stopping = {"requested": False}
+        previous_handler = signal.getsignal(signal.SIGTERM)
+        signal.signal(signal.SIGTERM, lambda _signum, _frame: stopping.__setitem__("requested", True))
+        try:
+            result = process_email_queue(
+                limit=limit, max_seconds=max_seconds,
+                should_stop=lambda: stopping["requested"],
+            )
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(f"Email queue processing stopped ({type(exc).__name__}).") from None
+        finally:
+            signal.signal(signal.SIGTERM, previous_handler)
+        click.echo(json.dumps({"event": "email_queue_run_complete", **result}, sort_keys=True))
+        if result.get("not_configured"):
+            raise click.ClickException("Email provider is not configured; no message was dispatched.")
+        if result.get("failed"):
+            raise click.ClickException(
+                f"Queue batch recorded {result['failed']} failed message(s); inspect queue health and logs."
+            )
+
+
+    @app.cli.command("email-queue-health")
+    def email_queue_health_command():
+        """Report queue counts and oldest queued time; never dispatch messages."""
+        from .services.customer_mail import email_queue_health
+        try:
+            result = email_queue_health()
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(f"Email queue health check failed ({type(exc).__name__}).") from None
+        click.echo(json.dumps({"event": "email_queue_health", **result}, sort_keys=True))
+
+
+    @app.cli.command("cleanup-email-payloads")
+    @click.option("--retention-days", type=click.IntRange(1, 3650), default=30, show_default=True)
+    @click.option("--limit", type=click.IntRange(1, 500), default=200, show_default=True)
+    @click.option("--execute", is_flag=True, help="Clear eligible payloads. Omit for dry-run reporting.")
+    def cleanup_email_payloads_command(retention_days, limit, execute):
+        """Dry-run-first, bounded deletion of rendered email bodies only."""
+        from .services.email_retention import cleanup_email_payloads
+        try:
+            result = cleanup_email_payloads(
+                retention_days=retention_days, limit=limit, dry_run=not execute,
+            )
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(f"Email payload cleanup failed ({type(exc).__name__}).") from None
+        click.echo(json.dumps({"event": "email_payload_cleanup", **result}, sort_keys=True))
+
+
+    @app.cli.command("recover-stale-email-claims")
+    @click.option("--age-minutes", type=click.IntRange(1, 1440), default=30, show_default=True)
+    def recover_stale_email_claims_command(age_minutes):
+        """Mark interrupted provider dispatches as ambiguous for manual review."""
+        from .services.customer_mail import recover_stale_email_claims
+        try:
+            count = recover_stale_email_claims(age_minutes=age_minutes)
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(f"Stale email claim recovery failed ({type(exc).__name__}).") from None
+        click.echo(f"Marked {count} stale dispatch claim(s) as ambiguous; none were resent.")
+
+
+    @app.cli.command("migrate-marketing-suppression-schema")
+    def migrate_marketing_suppression_schema():
+        """Explicitly install the versioned, additive PostgreSQL suppression schema."""
+        if database_dialect_name() != "postgresql":
+            raise click.ClickException("Marketing suppression schema migration is PostgreSQL-only.")
+        from .services.marketing_suppressions import (
+            MIGRATION_ID, apply_marketing_suppression_migration,
+        )
+        try:
+            from .services.email_migrations import (
+                acquire_migration_lock, history_rows, validate_history_checksums,
+            )
+            with db.engine.begin() as connection:
+                acquire_migration_lock(connection)
+                if not history_rows(connection):
+                    raise click.ClickException("Customer/email migration history must be installed and reconciled first.")
+                validate_history_checksums(connection)
+                applied = apply_marketing_suppression_migration(connection)
+            click.echo(
+                "Marketing suppression schema migration "
+                + ("applied" if applied else "already applied and validated")
+                + f": {MIGRATION_ID}."
+            )
+            click.echo("Only suppression schema and conservative legacy suppression history were added.")
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(
+                f"Marketing suppression migration failed ({type(exc).__name__}); "
+                "the PostgreSQL transaction was rolled back."
+            ) from None
+
+
+    @app.cli.command("check-marketing-suppression-schema")
+    def check_marketing_suppression_schema():
+        """Read-only validation for the marketing suppression schema."""
+        from .services.marketing_suppressions import validate_marketing_suppression_schema
+        if database_dialect_name() != "postgresql":
+            raise click.ClickException("Marketing suppression schema check requires PostgreSQL.")
+        try:
+            with db.engine.connect() as connection:
+                validate_marketing_suppression_schema(connection)
+        except Exception as exc:
+            raise click.ClickException(
+                f"Marketing suppression schema validation failed ({type(exc).__name__})."
+            ) from None
+        click.echo("Marketing suppression schema validation passed.")
+
+
     @app.cli.command("migrate-postgresql-feature-schema")
     def migrate_postgresql_feature_schema():
         """Apply the existing referral/review/cart-counter DDL explicitly on PostgreSQL."""

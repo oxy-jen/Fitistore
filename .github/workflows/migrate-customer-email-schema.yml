@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   preflight:
-    if: ${{ github.ref == 'refs/heads/responsive-all-pages' && (inputs.operation == 'preflight' || inputs.operation == 'migrate') }}
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.operation == 'preflight' || inputs.operation == 'migrate') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -80,7 +80,7 @@ jobs:
 
   migrate:
     needs: preflight
-    if: ${{ needs.preflight.result == 'success' && github.ref == 'refs/heads/responsive-all-pages' && inputs.operation == 'migrate' }}
+    if: ${{ needs.preflight.result == 'success' && github.ref == 'refs/heads/main' && inputs.operation == 'migrate' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

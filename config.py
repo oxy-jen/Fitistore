@@ -7,6 +7,8 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 
 class Config:
+    APP_ENV = os.environ.get("APP_ENV", "development")
+    FLASK_ENV = os.environ.get("FLASK_ENV", "")
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-change-me")
     SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'instance' / 'fity.sqlite3'}")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -50,7 +52,29 @@ class Config:
     # Manual cart reminder idle time for the current testing window.
     CART_REMINDER_IDLE_MINUTES = max(1, int(os.environ.get("CART_REMINDER_IDLE_MINUTES", "5")))
 
+    @classmethod
+    def validate_runtime(cls, config):
+        """Reject known or missing secrets when running in a production environment."""
+        production = (
+            str(config.get("APP_ENV", "")).strip().lower() == "production"
+            or str(config.get("FLASK_ENV", "")).strip().lower() == "production"
+            or str(os.environ.get("RENDER", "")).strip().lower() == "true"
+        )
+        if not production:
+            return
+        secret = str(config.get("SECRET_KEY") or "").strip()
+        insecure = {"dev-only-change-me", "change-me", "changeme", "secret", "your-secret-key"}
+        repeated_pattern = any(
+            len(secret) % width == 0 and secret == secret[:width] * (len(secret) // width)
+            for width in range(1, min(8, len(secret) // 2) + 1)
+        )
+        if len(secret) < 32 or secret.lower() in insecure or len(set(secret)) < 12 or repeated_pattern:
+            raise RuntimeError(
+                "Production requires SECRET_KEY to be explicitly configured with a strong value."
+            )
+
 class TestConfig(Config):
+    SECRET_KEY = "test-only-explicit-secret-key-not-for-production"
     TESTING = True
     WTF_CSRF_ENABLED = False
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"

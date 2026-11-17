@@ -1,7 +1,8 @@
 from datetime import datetime
 from secrets import token_urlsafe
 from flask_login import UserMixin
-from sqlalchemy import CheckConstraint, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import JSONB
 from .extensions import db, login_manager
 
 class TimestampMixin:
@@ -618,6 +619,82 @@ class CustomerConsentEvent(TimestampMixin, db.Model):
     account = db.relationship("CustomerAccount")
 
 
+_SUPPRESSION_ID_TYPE = db.BigInteger().with_variant(db.Integer, "sqlite")
+_SUPPRESSION_JSON_TYPE = JSONB().with_variant(db.JSON, "sqlite")
+
+
+class MarketingSuppressionCase(TimestampMixin, db.Model):
+    """Current state of one independently reviewable marketing suppression."""
+    __tablename__ = "marketing_suppression_case"
+    id = db.Column(_SUPPRESSION_ID_TYPE, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id", ondelete="RESTRICT"), nullable=False)
+    source = db.Column(db.String(24), nullable=False)
+    reason_code = db.Column(db.String(48), nullable=False)
+    detected_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, server_default=db.func.current_timestamp())
+    provider_name = db.Column(db.String(48))
+    metadata_json = db.Column("metadata", _SUPPRESSION_JSON_TYPE)
+    cleared_at = db.Column(db.DateTime)
+    cleared_by_admin_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="RESTRICT"))
+    clearance_reason = db.Column(db.Text)
+    account = db.relationship("CustomerAccount")
+    cleared_by_admin = db.relationship("AdminUser")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, server_default=db.func.current_timestamp(), nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=db.func.current_timestamp(), nullable=False)
+    __table_args__ = (
+        UniqueConstraint("id", "account_id", name="uq_marketing_suppression_case_id_account"),
+        CheckConstraint("source IN ('admin', 'provider', 'legacy_unknown')", name="ck_marketing_suppression_case_source"),
+        CheckConstraint("reason_code IN ('admin_review', 'hard_bounce', 'spam_complaint', 'invalid_address', 'provider_unsubscribe_unclassified', 'legacy_unknown')", name="ck_marketing_suppression_case_reason"),
+        CheckConstraint("source <> 'provider' OR provider_name IS NOT NULL", name="ck_marketing_suppression_case_provider"),
+        CheckConstraint("(source = 'admin' AND reason_code = 'admin_review') OR (source = 'provider' AND reason_code IN ('hard_bounce', 'spam_complaint', 'invalid_address', 'provider_unsubscribe_unclassified')) OR (source = 'legacy_unknown' AND reason_code = 'legacy_unknown')", name="ck_marketing_suppression_case_source_reason"),
+        CheckConstraint("(cleared_at IS NULL AND cleared_by_admin_id IS NULL AND clearance_reason IS NULL) OR (cleared_at IS NOT NULL AND cleared_by_admin_id IS NOT NULL AND clearance_reason IS NOT NULL AND length(trim(clearance_reason)) > 0)", name="ck_marketing_suppression_case_clearance"),
+        Index("ix_marketing_suppression_case_account_detected", "account_id", "detected_at"),
+        Index("uq_marketing_suppression_case_active", "account_id", "source", "reason_code", unique=True,
+              postgresql_where=text("cleared_at IS NULL"), sqlite_where=text("cleared_at IS NULL")),
+    )
+
+
+class MarketingSuppressionEvent(TimestampMixin, db.Model):
+    """Append-only audit event for suppression and clearance lifecycle changes."""
+    __tablename__ = "marketing_suppression_event"
+    id = db.Column(_SUPPRESSION_ID_TYPE, primary_key=True)
+    suppression_case_id = db.Column(_SUPPRESSION_ID_TYPE, nullable=False)
+    account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id", ondelete="RESTRICT"), nullable=False)
+    event_type = db.Column(db.String(32), nullable=False)
+    actor_type = db.Column(db.String(24), nullable=False)
+    admin_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="RESTRICT"))
+    source = db.Column(db.String(24), nullable=False)
+    reason_code = db.Column(db.String(48), nullable=False)
+    reason_text = db.Column(db.Text)
+    occurred_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, server_default=db.func.current_timestamp())
+    provider_name = db.Column(db.String(48))
+    provider_event_id = db.Column(db.String(255))
+    provider_message_id = db.Column(db.String(255))
+    dedupe_fingerprint = db.Column(db.String(64))
+    legacy_consent_event_id = db.Column(db.Integer, db.ForeignKey("customer_consent_event.id", ondelete="RESTRICT"))
+    idempotency_key = db.Column(db.String(255))
+    metadata_json = db.Column("metadata", _SUPPRESSION_JSON_TYPE)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, server_default=db.func.current_timestamp(), nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, server_default=db.func.current_timestamp(), nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["suppression_case_id", "account_id"],
+            ["marketing_suppression_case.id", "marketing_suppression_case.account_id"],
+            name="fk_marketing_suppression_event_case_account", ondelete="RESTRICT",
+        ),
+        UniqueConstraint("idempotency_key", name="uq_marketing_suppression_event_idempotency_key"),
+        CheckConstraint("event_type IN ('suppression_detected', 'suppression_observed', 'review_started', 'suppression_cleared', 'legacy_imported')", name="ck_marketing_suppression_event_type"),
+        CheckConstraint("actor_type IN ('admin', 'provider', 'system', 'legacy')", name="ck_marketing_suppression_event_actor"),
+        CheckConstraint("(actor_type = 'admin' AND admin_id IS NOT NULL) OR (actor_type <> 'admin' AND admin_id IS NULL)", name="ck_marketing_suppression_event_admin_actor"),
+        CheckConstraint("source IN ('admin', 'provider', 'legacy_unknown')", name="ck_marketing_suppression_event_source"),
+        CheckConstraint("reason_code IN ('admin_review', 'hard_bounce', 'spam_complaint', 'invalid_address', 'provider_unsubscribe_unclassified', 'legacy_unknown')", name="ck_marketing_suppression_event_reason"),
+        CheckConstraint("(source = 'admin' AND actor_type = 'admin' AND reason_code = 'admin_review') OR (source = 'provider' AND actor_type IN ('provider', 'admin') AND provider_name IS NOT NULL AND reason_code IN ('hard_bounce', 'spam_complaint', 'invalid_address', 'provider_unsubscribe_unclassified')) OR (source = 'legacy_unknown' AND actor_type IN ('legacy', 'system', 'admin') AND reason_code = 'legacy_unknown')", name="ck_marketing_suppression_event_source_actor_reason"),
+        Index("ix_marketing_suppression_event_account_occurred", "account_id", "occurred_at"),
+        Index("ix_marketing_suppression_event_case_occurred", "suppression_case_id", "occurred_at"),
+        Index("uq_marketing_suppression_event_provider_id", "provider_name", "provider_event_id", unique=True,
+              postgresql_where=text("provider_event_id IS NOT NULL"), sqlite_where=text("provider_event_id IS NOT NULL")),
+    )
+
+
 class CustomerOrderLink(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     account_id = db.Column(db.Integer, db.ForeignKey("customer_account.id"), nullable=False, index=True)
@@ -645,8 +722,124 @@ class EmailMessage(TimestampMixin, db.Model):
     status = db.Column(db.String(24), default="queued", nullable=False, index=True)
     failure_reason = db.Column(db.String(255), default="")
     retry_count = db.Column(db.Integer, nullable=False, default=0)
+    purpose = db.Column(db.String(20), nullable=False, default="transactional", server_default="transactional", index=True)
+    frequency_override = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    html_body = db.Column(db.Text)
+    text_body = db.Column(db.Text)
+    claimed_at = db.Column(db.DateTime, index=True)
+    last_attempt_at = db.Column(db.DateTime)
+    next_attempt_at = db.Column(db.DateTime, index=True)
+    error_category = db.Column(db.String(48))
+    claim_token = db.Column(db.String(36), index=True)
     provider_message_id = db.Column(db.String(255), index=True)
     sent_at = db.Column(db.DateTime)
+    __table_args__ = (
+        Index("ix_email_message_dispatch", "status", "next_attempt_at", "created_at"),
+    )
+
+
+class EmailDeliveryAttempt(db.Model):
+    """Durable metadata for each provider handoff; never stores message bodies."""
+    __tablename__ = "email_delivery_attempt"
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(db.Integer, db.ForeignKey("email_message.id", ondelete="RESTRICT"), nullable=False)
+    attempt_number = db.Column(db.Integer, nullable=False)
+    attempt_key = db.Column(db.String(36), nullable=False, unique=True)
+    provider = db.Column(db.String(24), nullable=False)
+    status = db.Column(db.String(24), nullable=False, default="in_flight")
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime)
+    provider_message_id = db.Column(db.String(255))
+    error_category = db.Column(db.String(48))
+    recovery_of_attempt_id = db.Column(db.Integer, db.ForeignKey("email_delivery_attempt.id", ondelete="RESTRICT"))
+    __table_args__ = (
+        UniqueConstraint("message_id", "attempt_number", name="uq_email_attempt_message_number"),
+        Index("ix_email_attempt_message_started", "message_id", "started_at"),
+    )
+
+
+class EmailLegacyPayloadReviewEvent(db.Model):
+    """Append-only audit of malformed legacy outbox messages quarantined for review."""
+    __tablename__ = "email_legacy_payload_review_event"
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(db.Integer, db.ForeignKey("email_message.id", ondelete="RESTRICT"), nullable=False, index=True)
+    actor_admin_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="RESTRICT"))
+    actor_type = db.Column(db.String(16), nullable=False)
+    action = db.Column(db.String(24), nullable=False, default="quarantined")
+    reason = db.Column(db.Text, nullable=False)
+    provider_outcome = db.Column(db.String(32), nullable=False, default="unknown")
+    provider_evidence = db.Column(db.Text, nullable=False, default="")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (
+        CheckConstraint("(actor_type = 'admin' AND actor_admin_id IS NOT NULL) OR (actor_type = 'system' AND actor_admin_id IS NULL)", name="ck_email_legacy_review_actor"),
+        CheckConstraint("action IN ('quarantined', 'reviewed')", name="ck_email_legacy_review_action"),
+        CheckConstraint("provider_outcome IN ('unknown', 'confirmed_not_accepted', 'confirmed_accepted')", name="ck_email_legacy_review_provider_outcome"),
+        Index("ix_email_legacy_review_message_created", "message_id", "created_at"),
+    )
+
+
+class EmailDeliveryInvestigation(TimestampMixin, db.Model):
+    """Current investigation state; every change is mirrored to an audit event."""
+    __tablename__ = "email_delivery_investigation"
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(db.Integer, db.ForeignKey("email_message.id", ondelete="RESTRICT"), nullable=False, index=True)
+    original_attempt_id = db.Column(db.Integer, db.ForeignKey("email_delivery_attempt.id", ondelete="RESTRICT"))
+    provider = db.Column(db.String(24), nullable=False)
+    provider_message_id = db.Column(db.String(255))
+    reason = db.Column(db.String(255), nullable=False)
+    status = db.Column(db.String(40), nullable=False, default="OPEN")
+    evidence_summary = db.Column(db.Text)
+    evidence_source = db.Column(db.String(255))
+    investigator_admin_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="RESTRICT"))
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    resolved_at = db.Column(db.DateTime)
+    resolution_outcome = db.Column(db.String(40))
+    resolution_explanation = db.Column(db.Text)
+    recovered_message_id = db.Column(db.Integer, db.ForeignKey("email_message.id", ondelete="RESTRICT"), unique=True)
+    message = db.relationship("EmailMessage", foreign_keys=[message_id])
+    __table_args__ = (
+        CheckConstraint("status IN ('OPEN','INVESTIGATING','WAITING_FOR_PROVIDER_EVIDENCE','CONFIRMED_ACCEPTED','CONFIRMED_NOT_ACCEPTED','INCONCLUSIVE','RESOLVED')", name="ck_email_investigation_status"),
+        CheckConstraint("resolution_outcome IS NULL OR resolution_outcome IN ('accepted','not_accepted','inconclusive')", name="ck_email_investigation_outcome"),
+        Index("uq_email_investigation_open_message", "message_id", unique=True,
+              postgresql_where=text("status <> 'RESOLVED'"),
+              sqlite_where=text("status <> 'RESOLVED'")),
+    )
+
+
+class EmailDeliveryInvestigationEvent(db.Model):
+    """Append-only audit trail for investigation notes, decisions and recovery."""
+    __tablename__ = "email_delivery_investigation_event"
+    id = db.Column(db.Integer, primary_key=True)
+    investigation_id = db.Column(db.Integer, db.ForeignKey("email_delivery_investigation.id", ondelete="RESTRICT"), nullable=False, index=True)
+    actor_admin_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="RESTRICT"), nullable=False)
+    event_type = db.Column(db.String(32), nullable=False)
+    from_status = db.Column(db.String(40))
+    to_status = db.Column(db.String(40))
+    evidence_summary = db.Column(db.Text)
+    evidence_source = db.Column(db.String(255))
+    explanation = db.Column(db.Text)
+    related_attempt_id = db.Column(db.Integer, db.ForeignKey("email_delivery_attempt.id", ondelete="RESTRICT"))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class EmailWorkerRun(db.Model):
+    """One-shot worker instance liveness and bounded execution history."""
+    __tablename__ = "email_worker_run"
+    id = db.Column(db.Integer, primary_key=True)
+    instance_id = db.Column(db.String(36), nullable=False, unique=True)
+    worker_type = db.Column(db.String(32), nullable=False, default="queue")
+    status = db.Column(db.String(16), nullable=False, default="STARTING")
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    last_heartbeat_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    last_success_at = db.Column(db.DateTime)
+    last_attempt_at = db.Column(db.DateTime)
+    current_batch_count = db.Column(db.Integer, nullable=False, default=0)
+    stopped_at = db.Column(db.DateTime)
+    last_error_category = db.Column(db.String(48))
+    __table_args__ = (
+        CheckConstraint("status IN ('STARTING','RUNNING','STOPPING','STOPPED','FAILED')", name="ck_email_worker_run_status"),
+        Index("ix_email_worker_run_status_heartbeat", "status", "last_heartbeat_at"),
+    )
 
 
 class EmailCampaign(TimestampMixin, db.Model):
@@ -736,6 +929,7 @@ class MarketingCampaignRun(TimestampMixin, db.Model):
     finished_at = db.Column(db.DateTime)
     status = db.Column(db.String(24), nullable=False, default="queued", index=True)
     eligible_count = db.Column(db.Integer, nullable=False, default=0)
+    queued_count = db.Column(db.Integer, nullable=False, default=0, server_default="0")
     accepted_count = db.Column(db.Integer, nullable=False, default=0)
     failed_count = db.Column(db.Integer, nullable=False, default=0)
     suppressed_count = db.Column(db.Integer, nullable=False, default=0)

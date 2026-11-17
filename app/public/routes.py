@@ -1313,7 +1313,8 @@ def brevo_email_events():
     from sqlalchemy import inspect
     try:
         inspector = inspect(db.engine)
-        required_models = (EmailMessage, CustomerAccount, CustomerConsentEvent, EmailCampaignRecipient)
+        from app.models import MarketingSuppressionCase, MarketingSuppressionEvent
+        required_models = (EmailMessage, CustomerAccount, CustomerConsentEvent, EmailCampaignRecipient, MarketingSuppressionCase, MarketingSuppressionEvent)
         for model in required_models:
             table_name = model.__tablename__
             if not inspector.has_table(table_name):
@@ -1325,11 +1326,16 @@ def brevo_email_events():
     except Exception:
         db.session.rollback()
         return jsonify({"ok": False, "error": "email schema unavailable"}), 503
-    payload=request.get_json(silent=True) or {};events=payload if isinstance(payload,list) else [payload];suppressed=0
-    for event in events[:100]:
-        if not isinstance(event,dict):continue
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, (dict, list)) or not payload:
+        return jsonify({"ok": False, "error": "invalid webhook payload"}), 400
+    events = payload if isinstance(payload, list) else [payload]
+    if len(events) > 100 or any(not isinstance(item, dict) for item in events):
+        return jsonify({"ok": False, "error": "invalid webhook payload"}), 400
+    suppressed = 0
+    for event in events:
         event_name=str(event.get("event") or event.get("type") or "").strip().lower().replace("-", "_")
-        if event_name not in {"delivered","hardbounce","hard_bounce","softbounce","soft_bounce","spam","complaint","invalid","unsubscribed"}:continue
+        if event_name not in {"delivered","hardbounce","hard_bounce","softbounce","soft_bounce","spam","complaint","invalid","invalid_email","unsubscribe","unsubscribed"}:continue
         provider_id=str(event.get("message-id") or event.get("messageId") or event.get("message_id") or "").strip()[:255]
         message=EmailMessage.query.filter_by(provider_message_id=provider_id).first() if provider_id else None
         new_message_status=None
@@ -1351,23 +1357,51 @@ def brevo_email_events():
         if event_name=="delivered":
             continue
         address=str(event.get("email") or event.get("recipient") or (message.recipient if message else "")).strip().lower()[:254]
-        if not address:continue
+        if not address:
+            if event_name in {"hardbounce", "hard_bounce", "invalid", "invalid_email", "spam", "complaint", "unsubscribe", "unsubscribed"}:
+                db.session.rollback()
+                return jsonify({"ok": False, "error": "event identity unavailable"}), 422
+            continue
         account=CustomerAccount.query.filter(db.func.lower(CustomerAccount.email)==address).first()
         if not account:continue
-        if event_name=="unsubscribed":
-            target_status="unsubscribed";consent_event="unsubscribed"
-        elif event_name in {"hardbounce","hard_bounce","spam","complaint","invalid"}:
-            target_status="suppressed";consent_event="suppressed"
-        else:
-            target_status=None;consent_event=None
-        if target_status and account.marketing_status != target_status:
-            account.marketing_status=target_status;account.marketing_withdrawn_at=datetime.utcnow()
-            already_recorded=CustomerConsentEvent.query.filter_by(
-                account_id=account.id,event=consent_event,method="brevo_webhook"
-            ).first()
-            if not already_recorded:
-                db.session.add(CustomerConsentEvent(account_id=account.id,event=consent_event,method="brevo_webhook",wording_version="2026-10"))
-            if target_status=="suppressed":suppressed+=1
+        from app.services.marketing_suppressions import fingerprint_provider_event, record_suppression
+        provider_reason = {
+            "hardbounce": "hard_bounce", "hard_bounce": "hard_bounce",
+            "invalid": "invalid_address", "invalid_email": "invalid_address",
+            "spam": "spam_complaint", "complaint": "spam_complaint",
+            # Brevo's generic unsubscribe payload does not prove who initiated it.
+            "unsubscribe": "provider_unsubscribe_unclassified",
+            "unsubscribed": "provider_unsubscribe_unclassified",
+        }.get(event_name)
+        if provider_reason:
+            fingerprint = fingerprint_provider_event(event, normalized_event=event_name, email=address)
+            if not fingerprint:
+                db.session.rollback()
+                current_app.logger.warning(
+                    "brevo_event_quarantined event_type=%s reason=insufficient_identity",
+                    event_name,
+                )
+                return jsonify({"ok": False, "error": "event identity unavailable"}), 422
+            duplicate_event = bool(fingerprint and MarketingSuppressionEvent.query.filter_by(dedupe_fingerprint=fingerprint).first())
+            case = record_suppression(
+                account.id, source="provider", reason_code=provider_reason,
+                reason_text="Brevo reported " + event_name.replace("_", " ") + "; actor origin is not established by this webhook payload.",
+                actor_type="provider", provider_name="brevo",
+                provider_message_id=provider_id or None,
+                dedupe_fingerprint=fingerprint,
+                metadata={
+                    "event_type": event_name,
+                    "event_timestamp": str(event.get("ts_event") or event.get("ts") or "")[:40],
+                },
+            )
+            if case:
+                already_recorded=CustomerConsentEvent.query.filter_by(
+                    account_id=account.id,event="suppressed",method="brevo_webhook"
+                ).first()
+                if not already_recorded:
+                    db.session.add(CustomerConsentEvent(account_id=account.id,event="suppressed",method="brevo_webhook",wording_version="2026-10"))
+                if not duplicate_event and provider_reason in {"hard_bounce", "invalid_address", "spam_complaint"}:
+                    suppressed += 1
     db.session.commit();return jsonify({"ok":True,"suppressed":suppressed})
 
 

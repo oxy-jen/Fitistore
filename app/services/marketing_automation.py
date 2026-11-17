@@ -181,7 +181,14 @@ def _issue_unsubscribe(account):
 
 
 def _eligible_accounts():
-    return CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").order_by(CustomerAccount.id)
+    from app.services.marketing_eligibility import evaluate_marketing_eligibility
+    candidates = CustomerAccount.query.filter(
+        CustomerAccount.active.is_(True), CustomerAccount.email_verified_at.is_not(None),
+        CustomerAccount.marketing_status == "subscribed",
+        CustomerAccount.marketing_consent_at.is_not(None),
+        CustomerAccount.marketing_withdrawn_at.is_(None),
+    ).order_by(CustomerAccount.id).all()
+    return (account for account in candidates if evaluate_marketing_eligibility(account).eligible)
 
 
 def _recently_marketed(account_id, now):
@@ -195,7 +202,8 @@ def _recently_marketed(account_id, now):
 
 def _deliver_marketing(account, key, kind, subject, heading, intro, products, include_reviews=False):
     from app.models import MarketingCampaignRun
-    if not account.active or account.marketing_status != "subscribed":
+    from app.services.marketing_eligibility import evaluate_marketing_eligibility
+    if not evaluate_marketing_eligibility(account).eligible:
         return "suppressed"
     if _recently_marketed(account.id, datetime.utcnow()):
         return "suppressed"
@@ -231,7 +239,8 @@ def _run_campaign(campaign_type, local_now, products, intro, *, include_reviews=
     key = f"{campaign_type}:{local_now.date().isoformat()}"
     run = MarketingCampaignRun.query.filter_by(campaign_key=key).first()
     if run and run.status in {"sent", "sending"}:
-        return {"status": run.status, "accepted": run.accepted_count}
+        return {"status": run.status, "queued": run.queued_count, "sent": run.accepted_count,
+                "failed": run.failed_count, "suppressed": run.suppressed_count}
     if not run:
         run = MarketingCampaignRun(campaign_key=key, campaign_type=campaign_type, scheduled_for=local_now.replace(tzinfo=None), status="sending")
         db.session.add(run)
@@ -239,28 +248,41 @@ def _run_campaign(campaign_type, local_now, products, intro, *, include_reviews=
         except Exception:
             db.session.rollback()
             run = MarketingCampaignRun.query.filter_by(campaign_key=key).first()
-            if run and run.status in {"sent", "sending"}: return {"status":run.status,"accepted":run.accepted_count}
-            return {"status":"duplicate","accepted":0}
+            if run and run.status in {"sent", "sending", "queued"}:
+                return {"status":run.status,"queued":run.queued_count,"sent":run.accepted_count,
+                        "failed":run.failed_count,"suppressed":run.suppressed_count}
+            return {"status":"duplicate","queued":0,"sent":0,"failed":0,"suppressed":0}
     else:
         run.status="sending";run.started_at=datetime.utcnow();db.session.commit()
     run.started_at=datetime.utcnow()
     if not configured:
         run.status="not_configured";run.failure_summary=reason[:255];run.finished_at=datetime.utcnow();db.session.commit()
-        return {"status":"not_configured","accepted":0}
-    accepted=failed=suppressed=eligible=0
+        return {"status":"not_configured","queued":0,"sent":0,"failed":0,"suppressed":0}
+    failed=suppressed=eligible=0
     fresh_fallback = intro.startswith("A fresh look")
     subject = "Fity Goodies are here" if campaign_type == "daily_goodies" else ("This week's FityStores fresh picks" if fresh_fallback else "This week's FityStores popular picks")
     heading = "Your Fity Goodies" if campaign_type == "daily_goodies" else ("Fresh picks this week" if fresh_fallback else "Popular picks this week")
-    for account in _eligible_accounts().yield_per(50):
+    for account in _eligible_accounts():
         eligible += 1
         result = _deliver_marketing(account,f"automation:{key}:account:{account.id}",f"marketing_{campaign_type}",subject,heading,intro,products,include_reviews)
-        if result in {"sent","sending"}:accepted+=1
+        if result in {"sent","delivered"}: pass
+        elif result in {"queued","sending"}: pass
         elif result=="suppressed":suppressed+=1
         else:failed+=1
-    run.eligible_count=eligible;run.accepted_count=accepted;run.failed_count=failed;run.suppressed_count=suppressed
-    run.status="sent" if failed==0 else "partial"
+    prefix = f"automation:{key}:account:%"
+    rows = db.session.query(EmailMessage.status, func.count(EmailMessage.id)).filter(
+        EmailMessage.idempotency_key.like(prefix),
+    ).group_by(EmailMessage.status).all()
+    states = {status: count for status, count in rows}
+    queued = states.get("queued", 0) + states.get("sending", 0)
+    sent = states.get("sent", 0) + states.get("delivered", 0)
+    failed = states.get("failed", 0)
+    suppressed = states.get("suppressed", 0)
+    run.eligible_count=eligible;run.queued_count=queued;run.accepted_count=sent
+    run.failed_count=failed;run.suppressed_count=suppressed
+    run.status="queued" if queued else "partial" if failed else "sent" if sent else "complete"
     run.finished_at=datetime.utcnow();db.session.commit()
-    return {"status":run.status,"accepted":accepted,"failed":failed,"suppressed":suppressed}
+    return {"status":run.status,"queued":queued,"sent":sent,"failed":failed,"suppressed":suppressed}
 
 
 def _run_abandoned_carts(settings, now_utc):
@@ -274,7 +296,7 @@ def _run_abandoned_carts(settings, now_utc):
         (CustomerCart.checkout_until.is_(None)) | (CustomerCart.checkout_until<=now_utc),
         CustomerCart.reminder_sent_at.is_(None),
     ).order_by(CustomerCart.updated_at).limit(100).all()
-    accepted=failed=suppressed=0
+    queued=sent=failed=suppressed=0
     for cart in carts:
         account=cart.account
         if not account or not account.active or account.marketing_status!="subscribed":
@@ -290,7 +312,7 @@ def _run_abandoned_carts(settings, now_utc):
                 products.append(line.product)
         if not products:
             cart.items_json="[]";cart.checkout_until=None;db.session.commit();continue
-        key=f"abandoned-cart:{cart.episode_key}"
+        key=f"cart-reminder:{cart.episode_key}"
         unsubscribe=_issue_unsubscribe(account)
         payloads=[]
         for line in validation.lines:
@@ -305,11 +327,14 @@ def _run_abandoned_carts(settings, now_utc):
         for item in payloads:text_lines.extend([item["name"],item["price"],item["url"]])
         text_lines.extend(["Continue shopping: "+_public_url(url_for("public.cart")),"Unsubscribe: "+unsubscribe])
         result=queue_email(account.email,"Still interested in your picks at FityStores?","marketing_abandoned_cart",key,account_id=account.id,html_body=html,text_body="\n".join(text_lines))
-        if result.status=="sent":
-            cart.reminder_sent_at=datetime.utcnow();db.session.commit();accepted+=1
+        if result.status in {"sent", "delivered"}:
+            cart.reminder_sent_at=datetime.utcnow();db.session.commit();sent+=1
+        elif result.status=="queued":
+            queued+=1
         elif result.status=="suppressed":suppressed+=1
         else:failed+=1
-    return {"status":"complete","accepted":accepted,"failed":failed,"suppressed":suppressed}
+    status = "queued" if queued else "partial" if failed else "complete"
+    return {"status":status,"queued":queued,"sent":sent,"failed":failed,"suppressed":suppressed}
 
 
 def run_marketing_automation():

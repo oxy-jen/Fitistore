@@ -1,0 +1,88 @@
+name: Controlled email outbox processing
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type RUN EMAIL QUEUE after separate operational approval.
+        required: true
+        type: string
+      limit:
+        description: Maximum messages in this one-shot batch (1-100).
+        required: true
+        default: "25"
+        type: string
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions: {}
+
+concurrency:
+  group: fity-email-outbox
+  cancel-in-progress: false
+
+jobs:
+  process:
+    if: >-
+      ${{
+        github.ref == 'refs/heads/main' &&
+        vars.EMAIL_QUEUE_ENABLED == 'true' &&
+        (github.event_name == 'schedule' || inputs.confirmation == 'RUN EMAIL QUEUE')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out dispatch revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install application requirements
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Prepare verified database TLS settings
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+          EXPECTED_DATABASE_NAME: ${{ vars.RENDER_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
+          RENDER_DATABASE_CA_CERT_PEM: ${{ secrets.RENDER_DATABASE_CA_CERT_PEM }}
+        run: python scripts/customer_email_schema_guard.py tls-env
+      - name: Check database connection settings
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+          EXPECTED_DATABASE_NAME: ${{ vars.RENDER_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py settings
+      - name: Read-only schema and identity preflight
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+          EXPECTED_DATABASE_NAME: ${{ vars.RENDER_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.RENDER_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.RENDER_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py preflight
+      - name: Process one bounded queue batch
+        env:
+          FLASK_APP: manage:app
+          APP_ENV: production
+          SECRET_KEY: ${{ secrets.FITY_SECRET_KEY }}
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+          RENDER_DATABASE_CA_CERT_PEM: ${{ secrets.RENDER_DATABASE_CA_CERT_PEM }}
+          MAIL_PROVIDER: ${{ vars.MAIL_PROVIDER }}
+          MAIL_FROM_ADDRESS: ${{ vars.MAIL_FROM_ADDRESS }}
+          MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME }}
+          MAIL_FROM_VERIFIED: ${{ vars.MAIL_FROM_VERIFIED }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MAIL_SERVER: ${{ vars.MAIL_SERVER }}
+          MAIL_PORT: ${{ vars.MAIL_PORT }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          QUEUE_LIMIT: ${{ inputs.limit || '25' }}
+        run: python -m flask --app manage:app process-email-queue --limit "$QUEUE_LIMIT" --max-seconds 240
