@@ -1,14 +1,14 @@
 {% extends "base.html" %}{% block content %}
-<div id="email-studio-page">
+<div id="email-studio-page" data-sample-preview-allowed="{{ 'false' if requires_customer_context else 'true' }}">
 <section class="page-head admin-head"><div><p class="eyebrow">Manual sends only</p><h1>Email Studio</h1><p>Templates, drafts, previews, test emails and manual sends live here. Saving content or opening this page never sends email.</p></div><div class="actions"><a class="btn" href="{{ url_for('admin.email_center') }}">Customer email</a><a class="btn" href="{{ url_for('admin.email_studio_messages') }}">Studio messages</a><a class="btn" href="{{ url_for('admin.email_cart_activity') }}">Cart activity</a></div></section>
-<section class="form-card"><h2>Choose a reusable template and customer context</h2><p><strong>Quick guide:</strong> choose the email purpose, load a customer, edit the text and add blocks. Campaigns use the BEI FITS promotional email design; order and account notices keep their purpose-appropriate branded layouts. Desktop/Mobile preview only renders a preview. Save template stores it for reuse; it does not send. To send, select recipients, preview, then use Manual send and confirm the exact recipient count.</p>
+<section class="form-card"><h2>Choose a category and preview context</h2><p><strong>Quick guide:</strong> 1. Select a category and enter or select the content. 2. Preview the message. Generic previews use a clearly labelled sample customer; cart and order categories require genuine customer data. 3. For a test, confirm the configured test recipient and type exactly <code>SEND TEST</code>. Tests are queued only to that configured address. Manual sends still require eligible real recipients and an exact recipient-count confirmation.</p>
   <form method="get" class="actions" action="{{ url_for('admin.email_studio') }}">
     <label>Email purpose<select name="category" id="email-purpose"><optgroup label="Marketing and promotional &mdash; consent required">{% for key, value in categories.items() if value.group == 'marketing' %}<option value="{{ key }}" {% if key == category %}selected{% endif %}>{{ value.label }}</option>{% endfor %}</optgroup><optgroup label="Transactional and order service">{% for key, value in categories.items() if value.group == 'transactional' %}<option value="{{ key }}" {% if key == category %}selected{% endif %}>{{ value.label }}</option>{% endfor %}</optgroup><optgroup label="Customer service &mdash; custom content requires marketing eligibility">{% for key, value in categories.items() if value.group == 'customer_service' %}<option value="{{ key }}" {% if key == category %}selected{% endif %}>{{ value.label }}</option>{% endfor %}</optgroup></select></label>
     <label>Saved template<select name="template_id" id="email-template"><option value="">{% if category == 'promotion' %}BEI FITS Promotional Default (built-in){% else %}Use this category's current template/default{% endif %}</option>{% for item in templates %}<option value="{{ item.id }}" {% if selected_template and item.id == selected_template.id %}selected{% endif %}>{{ categories[item.category].label }} — {{ item.name }} (saved template)</option>{% endfor %}</select></label>
-    <label>Load customer context<select name="account_id"><option value="">Choose a customer</option>{% for row in accounts if row.active %}<option value="{{ row.id }}" {% if account and row.id == account.id %}selected{% endif %}>{{ row.display_name or 'Customer' }} — {{ row.email }} ({{ row.marketing_status }})</option>{% endfor %}</select></label>
+    <label>Load customer context{% if requires_customer_context %} (required){% else %} (optional for generic preview){% endif %}<select name="account_id"><option value="">Choose a customer</option>{% for row in accounts if row.active %}<option value="{{ row.id }}" {% if account and row.id == account.id %}selected{% endif %}>{{ row.display_name or 'Customer' }} — {{ row.email }} ({{ row.marketing_status }})</option>{% endfor %}</select></label>
     <button class="btn">Load context</button>
   </form>
-  {% if account %}<p>Preview customer: <strong>{{ account.display_name or account.email }}</strong> ({{ account.email }}). Preview does not send.</p>{% else %}<p>Select and load a customer before previewing personalized content.</p>{% endif %}
+  {% if account %}<p>Preview customer: <strong>{{ account.display_name or account.email }}</strong> ({{ account.email }}). Preview does not send.</p>{% elif requires_customer_context %}<p class="status-warn">Select a real customer{% if category in ['order_confirmation','thank_you','order_status'] %} with a genuine linked order{% elif category == 'cart_reminder' %} with an actual saved cart{% endif %} before previewing or testing this category.</p>{% else %}<p>Sample customer context for preview and test rendering only: <strong>{{ sample_customer_context.customer_name }}</strong> ({{ sample_customer_context.email }}). This is not a customer account; no customer record or unsubscribe token is created.</p>{% endif %}
 </section>
 <section class="form-card"><h2>Live product picker</h2>
   <form method="get" action="{{ url_for('admin.email_studio') }}" class="actions">
@@ -37,15 +37,15 @@
     <p class="account-muted">Use the catalogue selection above for product collections and banner media. A banner image must belong to a selected in-stock product.</p>
     <section class="form-card email-live-preview" id="email-live-preview" aria-live="polite">
       <h3>Rendered email preview</h3>
-      <p id="email-preview-status">Select a customer context. Preview updates as you edit; it never sends email.</p>
+      <p id="email-preview-status">{% if account %}Previewing the selected customer. Changes update automatically; no email is sent.{% elif requires_customer_context %}Load the required real customer and cart/order context to preview.{% else %}Using sample customer context. Changes update automatically; no email is sent.{% endif %}</p>
       <iframe id="email-live-preview-frame" title="Rendered email preview" sandbox hidden style="width:100%;height:calc(100vh - 230px);min-height:460px;border:1px solid #ddd;background:#fff"></iframe>
     </section>
   </section>
   <details><summary>Supported variables</summary><p>Only these plain text tokens are substituted. User-provided text is escaped; arbitrary template code is never executed.</p><ul>{% for variable in categories[category].variables %}<li><code>{{ '{{ ' ~ variable ~ ' }}' }}</code> — {% if variable == 'customer_name' %}first name from the selected verified account{% elif variable == 'order_reference' %}reference of the selected linked order{% elif variable == 'order_date' %}recorded date of the selected order{% elif variable == 'order_total' %}recorded total of that order{% elif variable == 'order_subtotal' %}sum of the order's recorded item totals{% elif variable == 'discount_amount' %}discount recorded on the selected order{% elif variable == 'delivery_fee' %}delivery fee recorded on the selected order{% elif variable == 'payment_status' %}recorded payment status{% elif variable == 'order_status' %}recorded order status{% elif variable == 'fulfilment_method' %}recorded fulfilment method{% elif variable == 'fulfilment_instructions' %}instructions stored on that selected order, when present{% elif variable == 'cart_item_count' %}sum of validated quantities in the saved cart{% elif variable == 'cart_total' %}current validated cart total when all prices are known{% elif variable == 'unsubscribe_link' %}a secure unsubscribe link added for each eligible marketing recipient{% else %}context-specific information verified by the server before sending{% endif %}</li>{% endfor %}</ul></details>
   <label>Template name<input name="template_name" maxlength="120" value="{{ selected_template.name if selected_template else '' }}" placeholder="e.g. Spring arrivals"></label>
-  <div class="actions"><button class="btn" name="action" value="preview">Preview as selected customer</button><button class="btn" name="action" value="save_template">Save template</button><button class="btn" name="action" value="save_template_as">Save as new template</button><button class="btn" name="action" value="duplicate_template">Duplicate template</button><button class="btn" name="action" value="save_draft">Save draft</button></div>
+  <div class="actions"><button class="btn" name="action" value="preview">Preview message</button><button class="btn" name="action" value="save_template">Save template</button><button class="btn" name="action" value="save_template_as">Save as new template</button><button class="btn" name="action" value="duplicate_template">Duplicate template</button><button class="btn" name="action" value="save_draft">Save draft</button></div>
   <label>Draft name<input name="draft_name" maxlength="120" value="{{ draft.name if draft else '' }}" placeholder="Optional; required when saving a draft"></label>
-  <div class="form-card"><h3>Test email</h3><p>Tests are sent only to the configured test recipient and never to the customer list. Preview the exact message first, then type SEND TEST to confirm.</p><p>Configured test recipient: <strong>{{ test_address or 'Not configured' }}</strong></p><label>Confirm test by typing SEND TEST<input name="confirm_test" maxlength="10" autocomplete="off"></label><button class="btn" name="action" value="send_test" {% if not configured or not test_address %}disabled{% endif %}>Send test email</button><p>{{ provider_note }}</p><p>This status checks that the sender settings are present. It does not verify your API key with Brevo or guarantee that Brevo will accept a message.</p></div>
+  <div class="form-card"><h3>Test email</h3><ol><li>Select a category and enter or select the content.</li><li>Preview the exact message first. Generic categories use the labelled sample customer; cart/order categories require real context.</li><li>Confirm that this configured test recipient is correct: <strong>{{ test_address or 'Not configured' }}</strong>.</li><li>Type exactly <code>SEND TEST</code> and submit. No other recipient field is accepted.</li></ol><label>Confirm test by typing SEND TEST<input name="confirm_test" maxlength="10" autocomplete="off"></label><button class="btn" name="action" value="send_test" {% if not configured or not test_address %}disabled{% endif %}>Send test email</button><p>{{ provider_note }}</p><p>This status checks that the sender settings are present. It does not verify your API key with Brevo or guarantee that Brevo will accept a message.</p></div>
   <div class="form-card"><h3>Manual send</h3><p>Review the preview, select recipients and type the exact count (for example SEND 2). {% if email_is_marketing %}Marketing eligibility, suppression and unsubscribe checks are enforced server-side. Selected count at this page load: {{ selected_account_ids|length }}.{% else %}This constrained order notice is sent only to the selected verified account. Recipient count: 1.{% endif %}</p><label>Confirmation<input name="confirm_send" maxlength="20" autocomplete="off" placeholder="SEND {{ selected_account_ids|length if email_is_marketing else 1 }}"></label><button class="btn primary" name="action" value="send" {% if not configured %}disabled{% endif %}>Send manually</button>{% if email_is_marketing %}<hr><h3>Schedule campaign</h3><p>Schedule only after previewing this exact content. The queue will recheck consent, suppression and cooldown at dispatch time. The GitHub Actions queue gate must also be enabled before anything can be delivered.</p><label>Send date and time ({{ config.TIMEZONE or 'Africa/Nairobi' }})<input type="datetime-local" name="schedule_at"></label><label>Type the exact confirmation<input name="confirm_schedule" maxlength="24" autocomplete="off" placeholder="SCHEDULE {{ selected_account_ids|length }}"></label><button class="btn" name="action" value="schedule" {% if not configured %}disabled{% endif %}>Schedule campaign</button>{% endif %}<p>{{ provider_note }}</p></div>
 </form>
 <section class="form-card"><h2>Reset reusable template</h2><form method="post" action="{{ url_for('admin.email_studio') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="category" value="{{ category }}"><label>Type RESET to restore the code-backed default<input name="confirm_reset" maxlength="5"></label><button class="btn" name="action" value="reset_template">Reset template</button></form></section>
@@ -89,7 +89,7 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
   const input = (label, value, type='text', max=2000, field='text') => {
     const escaped = String(value || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
     return type === 'textarea'
-      &mdash; `<label>${label}<textarea data-field="${field}" maxlength="${max}">${escaped}</textarea></label>`
+      ? `<label>${label}<textarea data-field="${field}" maxlength="${max}">${escaped}</textarea></label>`
       : `<label>${label}<input data-field="${field}" type="${type}" maxlength="${max}" value="${escaped}"></label>`;
   };
   function render() {
@@ -98,7 +98,7 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
       const card = document.createElement('article'); card.className = 'email-block';
       const title = block.type.replaceAll('_',' ');
       let fields = '';
-      if (['heading','paragraph','contact'].includes(block.type)) fields += input('Text', block.text, 'textarea', 2000, 'text') + `<label>Alignment<select data-field="align"><option value="left" ${block.align !== 'center' &mdash; 'selected' : ''}>Left</option><option value="center" ${block.align === 'center' &mdash; 'selected' : ''}>Centered</option></select></label>`;
+      if (['heading','paragraph','contact'].includes(block.type)) fields += input('Text', block.text, 'textarea', 2000, 'text') + `<label>Alignment<select data-field="align"><option value="left" ${block.align !== 'center' ? 'selected' : ''}>Left</option><option value="center" ${block.align === 'center' ? 'selected' : ''}>Centered</option></select></label>`;
       if (block.type === 'image_banner') fields += `<label>Catalogue image product<select data-field="product_id"><option value="">Choose a product image</option>${choices}</select></label>` + input('Alternative text', block.alt || '', 'text', 255, 'alt') + `<label>Image alignment<select data-field="align"><option value="left">Left</option><option value="center">Centered</option><option value="right">Right</option></select></label><label>Image width<select data-field="width"><option value="160">Small</option><option value="240">Medium</option><option value="360">Large</option><option value="552">Full width</option></select></label>`;
       if (block.type === 'button') fields += input('Button label', block.text || 'Shop now', 'text', 80, 'text') + `<label>Destination<select data-field="target"><option value="shop">Shop</option><option value="cart">Return to this customer’s cart</option><option value="order">Track this customer’s order</option><option value="product">Selected product</option></select></label><label class="product-destination">Destination product<select data-field="product_id"><option value="">Choose product</option>${choices}</select></label>`;
       const controls = `<button type="button" class="btn" data-move="-1" aria-label="Move block up">↑</button> <button type="button" class="btn" data-move="1" aria-label="Move block down">↓</button> <button type="button" class="btn" data-remove>Remove</button>`;
@@ -107,13 +107,13 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
         const key = el.dataset.field;
         if (key === 'product_id') el.value = block.product_id || '';
         else if (key === 'target') el.value = block.target || 'shop';
-        else if (key === 'align') el.value = block.align || (block.type === 'image_banner' &mdash; 'center' : 'left');
+        else if (key === 'align') el.value = block.align || (block.type === 'image_banner' ? 'center' : 'left');
         else if (key === 'width') el.value = block.width || 552;
         else if (key === 'text' && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) el.value = block.text || '';
         else if (key === 'alt') el.value = block.alt || '';
-        const keyForBlock = key === 'alt' &mdash; 'alt' : key;
-        el.addEventListener('input', () => { block[keyForBlock] = ['product_id','width'].includes(key) &mdash; Number(el.value) : el.value; if (key === 'product_id') chooseProduct(el.value); sync(); });
-        el.addEventListener('change', () => { block[keyForBlock] = ['product_id','width'].includes(key) &mdash; Number(el.value) : el.value; if (key === 'product_id') chooseProduct(el.value); sync(); });
+        const keyForBlock = key === 'alt' ? 'alt' : key;
+        el.addEventListener('input', () => { block[keyForBlock] = ['product_id','width'].includes(key) ? Number(el.value) : el.value; if (key === 'product_id') chooseProduct(el.value); sync(); });
+        el.addEventListener('change', () => { block[keyForBlock] = ['product_id','width'].includes(key) ? Number(el.value) : el.value; if (key === 'product_id') chooseProduct(el.value); sync(); });
       });
       const target = card.querySelector('[data-field="target"]');
       if (target) { const show = () => card.querySelector('.product-destination').hidden = target.value !== 'product'; show(); target.addEventListener('change', show); }
@@ -133,7 +133,7 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
   document.getElementById('email-add-block').addEventListener('click', () => {
     const type = document.getElementById('email-block-kind').value;
     const block = {type};
-    if (['heading','paragraph','contact'].includes(type)) { block.text = type === 'heading' &mdash; 'New heading' : type === 'contact' &mdash; 'Questions? Contact our team.' : 'Write your message here.'; block.align='left'; }
+    if (['heading','paragraph','contact'].includes(type)) { block.text = type === 'heading' ? 'New heading' : type === 'contact' ? 'Questions? Contact our team.' : 'Write your message here.'; block.align='left'; }
     if (type === 'image_banner') { block.product_id=products[0]?.id || ''; block.alt='Product banner'; if (block.product_id) chooseProduct(block.product_id); }
     if (type === 'button') { block.text='Shop now'; block.target='shop'; }
     blocks.push(block); render();
@@ -156,13 +156,15 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
     return true;
   };
   const updatePreview = async () => {
-    if (!form.querySelector('[name="account_id"]')?.value) {
-      previewStatus.textContent = 'Load a customer context above to preview personalized content.';
+    const accountId = form.querySelector('[name="account_id"]')?.value;
+    const samplePreviewAllowed = document.getElementById('email-studio-page')?.dataset.samplePreviewAllowed === 'true';
+    if (!accountId && !samplePreviewAllowed) {
+      previewStatus.textContent = 'Load the required real customer and cart/order context above before previewing.';
       return;
     }
     sync();
     const requestNumber = ++previewRequest;
-    previewStatus.textContent = 'Updating preview…';
+    previewStatus.textContent = accountId ? 'Updating customer preview…' : 'Updating sample customer preview…';
     const data = new FormData(form);
     data.set('action', 'preview');
     try {
@@ -179,7 +181,7 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
       previewFrame.hidden = false;
       previewFrame.classList.toggle('email-preview-mobile', previewSize.value === 'mobile');
       const notice = parsed.querySelector('#cart-reminder-preview-notice')?.textContent?.trim();
-      previewStatus.textContent = notice || `${previewSize.value === 'mobile' &mdash; 'Mobile' : 'Desktop'} preview · updates automatically · not sent`;
+      previewStatus.textContent = notice || `${previewSize.value === 'mobile' ? 'Mobile' : 'Desktop'} preview · updates automatically · not sent`;
     } catch (_) {
       if (requestNumber === previewRequest) previewStatus.textContent = 'Preview connection failed. Try again after checking the page connection.';
     }
@@ -193,7 +195,7 @@ document.getElementById('email-purpose')?.addEventListener('change', () => { con
     else schedulePreview();
   }));
   if (showServerPreview()) document.getElementById('server-email-preview').scrollIntoView({block:'start'});
-  else if (form.querySelector('[name="account_id"]')?.value) schedulePreview();
+  else if (form.querySelector('[name="account_id"]')?.value || document.getElementById('email-studio-page')?.dataset.samplePreviewAllowed === 'true') schedulePreview();
 })();
 </script>
 {% endblock %}

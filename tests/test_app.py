@@ -4985,6 +4985,152 @@ def test_email_studio_test_send_rejects_missing_or_customer_test_recipient(clien
     assert EmailMessage.query.filter_by(kind="admin_test").count() == 0
 
 
+def test_email_studio_previews_marketing_without_customer_and_keeps_csrf(client, app, app_context):
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    app.config["WTF_CSRF_ENABLED"] = True
+    page = client.get("/admin/email/studio?category=promotion")
+    assert page.status_code == 200
+    assert b"Sample Customer" in page.data
+    assert b"sample@example.invalid" in page.data
+    assert b"generic preview" in page.data
+    csrf_token = re.search(rb'name="csrf_token" value="([^"]+)"', page.data).group(1).decode()
+
+    payload = {
+        "category": "promotion",
+        "subject": "Welcome to FityStores updates",
+        "headline": "Welcome to FityStores updates",
+        "message": "Hi {{ customer_name }}, a sample promotional preview.",
+        "action": "preview",
+    }
+    rejected = client.post("/admin/email/studio", data=payload)
+    assert rejected.status_code == 400
+    assert EmailMessage.query.count() == 0
+
+    preview = client.post("/admin/email/studio", data={**payload, "csrf_token": csrf_token})
+    assert preview.status_code == 200
+    assert b"Sample Customer" in preview.data
+    assert b"sample@example.invalid" in preview.data
+    assert b"TEST PREVIEW" in preview.data
+    assert EmailMessage.query.count() == 0
+    assert CustomerAccount.query.filter_by(email="sample@example.invalid").count() == 0
+    assert CustomerToken.query.filter_by(purpose="unsubscribe").count() == 0
+
+
+def test_email_studio_sample_test_is_confirmed_and_queued_only_to_configured_recipient(client, app, app_context):
+    _configure_brevo_test(app)
+    app.config["MAIL_TEST_ADDRESS"] = "owner-controlled@example.test"
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    payload = {
+        "category": "promotion",
+        "subject": "Welcome to FityStores updates",
+        "headline": "Welcome to FityStores updates",
+        "message": "Hi {{ customer_name }}, a sample promotional preview.",
+    }
+    preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
+    assert preview.status_code == 200
+
+    not_confirmed = client.post("/admin/email/studio", data={
+        **payload, "action": "send_test", "confirm_test": "SEND",
+        "test_email": "attacker-controlled@example.test",
+    }, follow_redirects=True)
+    assert not_confirmed.status_code == 200
+    assert b"Type SEND TEST" in not_confirmed.data
+    assert EmailMessage.query.filter_by(kind="admin_test").count() == 0
+
+    queued = client.post("/admin/email/studio", data={
+        **payload, "action": "send_test", "confirm_test": "SEND TEST",
+        "test_email": "attacker-controlled@example.test",
+    }, follow_redirects=True)
+    assert queued.status_code == 200
+    row = EmailMessage.query.filter_by(kind="admin_test").one()
+    assert row.status == "queued"
+    assert row.recipient == "owner-controlled@example.test"
+    assert row.account_id is None
+    assert row.purpose == "test"
+    assert row.subject.startswith("[TEST PREVIEW]")
+    assert "TEST PREVIEW" in row.html_body
+    assert "TEST PREVIEW" in row.text_body
+    assert "Sample Customer" in row.html_body
+    assert CustomerAccount.query.filter_by(email="sample@example.invalid").count() == 0
+    assert CustomerToken.query.filter_by(purpose="unsubscribe").count() == 0
+
+
+def test_email_studio_cart_and_order_categories_require_real_context(client, app, app_context):
+    account = CustomerAccount(
+        email="studio-context@example.test", display_name="Real Context",
+        email_verified_at=datetime.utcnow(),
+    )
+    db.session.add(account)
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+
+    cart_page = client.get("/admin/email/studio?category=cart_reminder")
+    assert b"actual saved cart" in cart_page.data
+    cart_preview = client.post("/admin/email/studio", data={
+        "category": "cart_reminder", "subject": "Cart", "headline": "Your cart",
+        "message": "Your saved cart.", "action": "preview",
+    })
+    assert b"Choose an actual customer for this email context" in cart_preview.data
+
+    cart_without_items = client.post("/admin/email/studio", data={
+        "category": "cart_reminder", "account_id": str(account.id),
+        "subject": "Cart", "headline": "Your cart", "message": "Your saved cart.",
+        "action": "preview",
+    })
+    assert b"no saved cart items" in cart_without_items.data
+
+    for category in ("order_confirmation", "thank_you", "order_status"):
+        page = client.get(f"/admin/email/studio?category={category}&account_id={account.id}")
+        assert b"No order is linked to this customer" in page.data
+        response = client.post("/admin/email/studio", data={
+            "category": category, "account_id": str(account.id), "subject": "Order",
+            "headline": "Order update", "message": "An order update.", "action": "preview",
+        })
+        assert b"Select an order linked to the chosen customer" in response.data
+
+    assert EmailMessage.query.count() == 0
+
+
+def test_email_studio_manual_marketing_send_rejects_unconsented_and_suppressed_accounts(client, app, app_context):
+    from app.services.marketing_suppressions import record_suppression
+
+    _configure_brevo_test(app)
+    unconsented = CustomerAccount(
+        email="studio-no-consent@example.test", display_name="No Consent",
+        email_verified_at=datetime.utcnow(), marketing_status="none",
+    )
+    suppressed = CustomerAccount(
+        email="studio-suppressed@example.test", display_name="Suppressed",
+        email_verified_at=datetime.utcnow(), marketing_status="subscribed",
+        marketing_consent_at=datetime.utcnow(),
+    )
+    db.session.add_all([unconsented, suppressed])
+    db.session.commit()
+    record_suppression(
+        suppressed.id, source="provider", reason_code="hard_bounce",
+        reason_text="Test suppression", actor_type="provider", provider_name="brevo",
+    )
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+
+    for account in (unconsented, suppressed):
+        payload = {
+            "category": "marketing_welcome", "account_id": str(account.id),
+            "account_ids": [str(account.id)], "subject": "Welcome",
+            "headline": "Welcome", "message": "A promotional message.",
+        }
+        preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
+        assert preview.status_code == 200
+        result = client.post("/admin/email/studio", data={
+            **payload, "action": "send", "confirm_send": "SEND 1",
+            "operation_id": "12345678-1234-5678-1234-567812345678",
+        }, follow_redirects=True)
+        assert result.status_code == 200
+        assert b"eligible recipient" in result.data
+
+    assert EmailMessage.query.filter_by(account_id=unconsented.id).count() == 0
+    assert EmailMessage.query.filter_by(account_id=suppressed.id).count() == 0
+
+
 def test_email_studio_promotion_requires_preview_consent_and_real_catalogue_items(client, app, app_context, monkeypatch):
     from datetime import timedelta
     from uuid import uuid4

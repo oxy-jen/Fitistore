@@ -1,7 +1,7 @@
 from pathlib import Path
-import base64
 import os
 import re
+import ssl
 import sys
 from types import ModuleType, SimpleNamespace
 
@@ -103,7 +103,15 @@ def test_workflow_restricts_manual_trigger_and_target_branch():
     assert "CONFIRMATION_INPUT: ${{ inputs.confirmation }}" in migrate_job
     assert "BACKUP_CONFIRMATION_INPUT: ${{ inputs.backup_confirmation }}" in migrate_job
     assert "RUNNER_TEMP" not in migrate_job
-    assert "RENDER_DATABASE_CA_CERT_PEM: ${{ secrets.RENDER_DATABASE_CA_CERT_PEM }}" in workflow
+    for setting in (
+        "DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}",
+        "EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}",
+        "EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}",
+        "EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}",
+    ):
+        assert setting in workflow
+    assert "RENDER_DATABASE_" not in workflow
+    assert "NEON_DATABASE_CA" not in workflow
     assert "cleanup-ca" not in workflow
     command_step = migrate_job.split("- name: Apply the scoped customer email migration", 1)[1].split("- name:", 1)[0]
     assert migration_command in command_step
@@ -180,54 +188,64 @@ def test_required_settings_needs_no_ca_secret_and_checks_expected_identity():
 
 
 def test_engine_url_overrides_weaker_tls_query_settings(tmp_path, monkeypatch):
-    ca_file = tmp_path / "render-ca.pem"
+    ca_file = tmp_path / "system-ca.pem"
     ca_file.write_text("fixture", encoding="ascii")
-    monkeypatch.setenv("DATABASE_CA_CERT_FILE", str(ca_file))
+    monkeypatch.setattr("scripts.customer_email_schema_guard.trusted_system_ca_bundle", lambda: ca_file)
     url = _engine_url(_database_settings()["DATABASE_URL"])
     query = make_url(url).query
     assert query["sslmode"] == "verify-full"
     assert query["sslrootcert"] == str(ca_file)
 
 
-def test_engine_url_requires_explicit_trusted_provider_ca(monkeypatch):
-    monkeypatch.delenv("DATABASE_CA_CERT_FILE", raising=False)
-    with pytest.raises(GuardError, match="trusted PostgreSQL CA bundle"):
-        _engine_url(_database_settings()["DATABASE_URL"])
-
-
-def test_tls_environment_generation_uses_validated_provider_ca(tmp_path, monkeypatch, capsys):
-    from pathlib import Path
-
-    ca_pem = (
-        "-----BEGIN CERTIFICATE-----\n"
-        + base64.b64encode(b"fixture trusted CA").decode("ascii")
-        + "\n-----END CERTIFICATE-----\n"
+def _write_valid_ca_bundle(path):
+    certificates = ssl.create_default_context().get_ca_certs(binary_form=True)
+    assert certificates
+    path.write_text(
+        "".join(ssl.DER_cert_to_PEM_cert(certificate) for certificate in certificates),
+        encoding="ascii",
     )
+
+
+def test_system_ca_bundle_must_exist_and_load(monkeypatch, tmp_path):
+    from scripts.customer_email_schema_guard import trusted_system_ca_bundle
+
+    missing = tmp_path / "missing-ca.pem"
+    monkeypatch.setattr("scripts.customer_email_schema_guard.SYSTEM_CA_BUNDLE", missing)
+    with pytest.raises(GuardError, match="system PostgreSQL CA bundle is missing"):
+        trusted_system_ca_bundle()
+
+    invalid = tmp_path / "invalid-ca.pem"
+    invalid.write_text("not a certificate bundle", encoding="ascii")
+    monkeypatch.setattr("scripts.customer_email_schema_guard.SYSTEM_CA_BUNDLE", invalid)
+    with pytest.raises(GuardError, match="system PostgreSQL CA bundle could not be loaded"):
+        trusted_system_ca_bundle()
+
+
+def test_tls_environment_generation_uses_validated_system_ca(tmp_path, monkeypatch, capsys):
     settings = _database_settings()
     for key, value in settings.items():
         monkeypatch.setenv(key, value)
-    monkeypatch.setenv("RENDER_DATABASE_CA_CERT_PEM", ca_pem)
+    ca_file = tmp_path / "ca-certificates.crt"
+    _write_valid_ca_bundle(ca_file)
+    monkeypatch.setattr("scripts.customer_email_schema_guard.SYSTEM_CA_BUNDLE", ca_file)
     github_env = tmp_path / "github-env"
     github_env.write_text("", encoding="utf-8")
     monkeypatch.setenv("GITHUB_ENV", str(github_env))
-    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
 
     export_verified_migration_environment()
 
     contents = github_env.read_text(encoding="utf-8")
     assert "sslmode=verify-full" in contents
     generated_url = contents.split("DATABASE_URL=", 1)[1].splitlines()[0]
-    assert make_url(generated_url).query["sslrootcert"] == str(tmp_path / "render-postgres-ca.pem")
+    assert make_url(generated_url).query["sslrootcert"] == str(ca_file)
+    assert f"DATABASE_CA_CERT_FILE={ca_file}" in contents
     assert "PGSSLMODE=verify-full" in contents
-    assert f"PGSSLROOTCERT={tmp_path / 'render-postgres-ca.pem'}" in contents
-    assert (tmp_path / "render-postgres-ca.pem").is_file()
-    assert ca_pem not in contents
-    if os.name == "posix":
-        assert (Path(tmp_path / "render-postgres-ca.pem").stat().st_mode & 0o777) == 0o600
+    assert f"PGSSLROOTCERT={ca_file}" in contents
+    assert "-----BEGIN CERTIFICATE-----" not in contents
     assert "unit-test-password" not in capsys.readouterr().out
 
 
-def test_read_only_connect_uses_provider_ca_and_verify_full(tmp_path, monkeypatch):
+def test_read_only_connect_uses_system_ca_and_verify_full(tmp_path, monkeypatch):
     import sqlalchemy
 
     calls = {}
@@ -255,9 +273,9 @@ def test_read_only_connect_uses_provider_ca_and_verify_full(tmp_path, monkeypatc
         return FakeEngine()
 
     monkeypatch.setattr(sqlalchemy, "create_engine", fake_create_engine)
-    ca_file = tmp_path / "render-ca.pem"
+    ca_file = tmp_path / "system-ca.pem"
     ca_file.write_text("fixture", encoding="ascii")
-    monkeypatch.setenv("DATABASE_CA_CERT_FILE", str(ca_file))
+    monkeypatch.setattr("scripts.customer_email_schema_guard.trusted_system_ca_bundle", lambda: ca_file)
     monkeypatch.setattr("scripts.customer_email_schema_guard.required_settings", lambda: (
         _database_settings()["DATABASE_URL"], "store_db", "public", "db.example.invalid"
     ))

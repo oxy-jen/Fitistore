@@ -13,6 +13,7 @@ from app.services.sql_schema_utils import normalize_sql_definition
 CONFIRMATION = "MIGRATE CUSTOMER EMAIL SCHEMA"
 BACKUP_CONFIRMATION = "I HAVE A VERIFIED RESTORABLE BACKUP"
 PREFLIGHT_CONFIRMATION = "PREFLIGHT CUSTOMER EMAIL SCHEMA"
+SYSTEM_CA_BUNDLE = Path("/etc/ssl/certs/ca-certificates.crt")
 EXPECTED_TABLES = {
     "customer_account", "customer_token", "customer_consent_event",
     "customer_order_link", "auth_rate_limit", "email_campaign",
@@ -689,15 +690,23 @@ def validate_identity(database: str, schema: str, expected_database: str, expect
         raise IdentityCheckError("Connected database/schema identity does not match the configured expected identity.")
 
 
+def trusted_system_ca_bundle() -> Path:
+    import ssl
+
+    ca_file = SYSTEM_CA_BUNDLE
+    if not ca_file.is_file():
+        raise GuardError("The Ubuntu system PostgreSQL CA bundle is missing.")
+    try:
+        ssl.create_default_context(cafile=str(ca_file))
+    except (OSError, ssl.SSLError, ValueError):
+        raise GuardError("The Ubuntu system PostgreSQL CA bundle could not be loaded.") from None
+    return ca_file
+
+
 def _engine_url(url: str) -> str:
     # SQLAlchemy uses psycopg 3; caller URL TLS values cannot weaken verification.
     from sqlalchemy.engine import make_url
-    ca_file = Path(os.environ.get("DATABASE_CA_CERT_FILE", ""))
-    if not ca_file.is_file():
-        raise GuardError(
-            "A trusted PostgreSQL CA bundle is required for verify-full TLS; "
-            "configure RENDER_DATABASE_CA_CERT_PEM in GitHub Actions and rerun."
-        )
+    ca_file = trusted_system_ca_bundle()
     try:
         parsed = make_url(url)
     except Exception:
@@ -1181,7 +1190,7 @@ def _connect() -> object:
             _engine_url(url),
             connect_args={
                 "sslmode": "verify-full",
-                "sslrootcert": os.environ["DATABASE_CA_CERT_FILE"],
+                "sslrootcert": str(trusted_system_ca_bundle()),
                 "options": "-c default_transaction_read_only=on",
             },
             hide_parameters=True,
@@ -1198,37 +1207,15 @@ def _connect() -> object:
 
 
 def export_verified_migration_environment() -> None:
-    """Install the trusted Render CA bundle and export strict-TLS settings to GitHub."""
+    """Export the verified Neon URL and Ubuntu system CA settings to GitHub."""
     from sqlalchemy.engine import make_url
-    import ssl
 
     url, _database, _schema, _host = required_settings()
     github_env = Path(os.environ.get("GITHUB_ENV", ""))
     if not github_env.is_file():
         raise GuardError("GitHub runner environment files are unavailable.")
     try:
-        ca_pem = os.environ.get("RENDER_DATABASE_CA_CERT_PEM", "")
-        blocks = re.findall(
-            r"-----BEGIN CERTIFICATE-----\s+.+?\s+-----END CERTIFICATE-----",
-            ca_pem,
-            flags=re.S,
-        )
-        remainder = re.sub(
-            r"-----BEGIN CERTIFICATE-----\s+.+?\s+-----END CERTIFICATE-----",
-            "",
-            ca_pem,
-            flags=re.S,
-        ).strip()
-        if not blocks or remainder:
-            raise GuardError("The trusted PostgreSQL CA bundle is missing or malformed.")
-        for block in blocks:
-            ssl.PEM_cert_to_DER_cert(block)
-        runner_temp = Path(os.environ.get("RUNNER_TEMP", ""))
-        if not runner_temp.is_dir():
-            raise GuardError("GitHub runner temporary storage is unavailable.")
-        ca_file = runner_temp / "render-postgres-ca.pem"
-        ca_file.write_text("\n".join(blocks) + "\n", encoding="ascii")
-        os.chmod(ca_file, 0o600)
+        ca_file = trusted_system_ca_bundle()
         parsed = make_url(url)
         query = {key: value for key, value in parsed.query.items() if key.lower() not in {"sslmode", "sslrootcert"}}
         query.update({"sslmode": "verify-full", "sslrootcert": str(ca_file)})
@@ -1244,8 +1231,9 @@ def export_verified_migration_environment() -> None:
         raise
     except Exception:
         raise GuardError("Verified TLS environment could not be prepared; details suppressed.") from None
-    print("Migration environment prepared with verify-full TLS and the supplied provider CA; no connection opened.")
-    write_summary(["Migration environment prepared with verify-full TLS and the supplied provider CA."])
+    print("Verified TLS environment prepared with the Ubuntu system CA bundle; no connection opened.")
+    write_summary(["Verified TLS environment prepared with the Ubuntu system CA bundle.",
+                   "No database connection opened."])
 
 
 def run(mode: str) -> None:
@@ -1316,8 +1304,10 @@ if __name__ == "__main__":
             raise GuardError("Usage: customer_email_schema_guard.py confirm|dispatch-check|settings|preflight|postcheck|suppression-check|tls-env")
         if sys.argv[1] == "settings":
             required_settings()
-            print("Connection settings are present; TLS policy is verify-full. No database connection opened.")
-            write_summary(["Required identity and CA settings are present.", "TLS policy is verify-full.", "No database connection opened."])
+            trusted_system_ca_bundle()
+            print("Connection settings and Ubuntu system CA bundle are valid; TLS policy is verify-full. No database connection opened.")
+            write_summary(["Required identity settings and Ubuntu system CA bundle are valid.",
+                           "TLS policy is verify-full.", "No database connection opened."])
         else:
             if sys.argv[1] == "tls-env":
                 export_verified_migration_environment()

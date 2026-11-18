@@ -21,7 +21,12 @@ from app.models import (
     Order, OrderItem, Product,
 )
 from app.services.cart import validate_cart
-from app.services.email_studio import EMAIL_CATEGORIES, EMAIL_MARKETING_CATEGORY_KEYS, EMAIL_PRODUCT_CATEGORY_KEYS, EmailContentError, render_studio_message, validate_email_blocks, validate_variables
+from app.services.email_studio import (
+    EMAIL_CATEGORIES, EMAIL_CATEGORIES_REQUIRING_REAL_CONTEXT,
+    EMAIL_MARKETING_CATEGORY_KEYS, EMAIL_PRODUCT_CATEGORY_KEYS,
+    SAMPLE_CUSTOMER_CONTEXT, EmailContentError, render_studio_message,
+    validate_email_blocks, validate_variables,
+)
 from app.services.email_purpose import studio_email_kind_for_category, STUDIO_TRANSACTIONAL_CATEGORY_KINDS
 from app.services.email_template_inventory import SYSTEM_TEMPLATES, build_email_template_inventory
 from app.services.formatting import money
@@ -150,9 +155,13 @@ def _account_for_preview(raw_id):
 
 def _render_for(category, form, account, *, test_mode=False, unsubscribe_url=""):
     """Re-fetch and validate all structured context from the database."""
-    if not account or not account.active:
+    if not account and (
+        not test_mode or category in EMAIL_CATEGORIES_REQUIRING_REAL_CONTEXT
+    ):
+        raise EmailContentError("Choose an actual customer for this email context.")
+    if account and not account.active:
         raise EmailContentError("Choose an active customer for this preview/context.")
-    if not account.email_verified_at and not (
+    if account and not account.email_verified_at and not (
         category in EMAIL_MARKETING_CATEGORY_KEYS and account.marketing_status == "subscribed"
     ):
         raise EmailContentError("This email category requires a verified customer email address.")
@@ -210,6 +219,8 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
     if order_id and category not in {"order_confirmation", "thank_you", "order_status", "customer_service"}:
         raise EmailContentError("This category does not use order context.")
     if order_id:
+        if not account:
+            raise EmailContentError("Select an actual customer for linked order context.")
         try:
             order = Order.query.join(CustomerOrderLink, CustomerOrderLink.order_id == Order.id).filter(
                 Order.id == int(order_id), CustomerOrderLink.account_id == account.id,
@@ -332,7 +343,10 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
         if category in EMAIL_PRODUCT_CATEGORY_KEYS and not products and any(block["type"] in {"product_grid", "image_banner"} for block in blocks):
             raise EmailContentError("Select at least one active, in-stock catalogue product for this campaign.")
 
-    customer_name = (account.display_name or account.email.partition("@")[0]).strip().split()[0]
+    customer_name = (
+        (account.display_name or account.email.partition("@")[0]).strip().split()[0]
+        if account else SAMPLE_CUSTOMER_CONTEXT["customer_name"]
+    )
     context = {"customer_name": customer_name}
     if order:
         context.update({
@@ -357,11 +371,13 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
     )
     unsubscribe_url = ""
     if promotional:
-        if account.marketing_status != "subscribed" and not test_mode:
+        if account and account.marketing_status != "subscribed" and not test_mode:
             raise EmailContentError("This address is not currently subscribed to marketing email.")
         if test_mode:
             context["unsubscribe_link"] = "[an unsubscribe link is included in a real send]"
         else:
+            if not account:
+                raise EmailContentError("A real customer account is required for marketing delivery.")
             unsubscribe_url = unsubscribe_url or _issue_unsubscribe(account)
             context["unsubscribe_link"] = unsubscribe_url
 
@@ -874,8 +890,8 @@ def register_email_studio_routes(admin_bp):
                         configured_now, note_now = mail_configuration_status()
                         if not configured_now:
                             raise EmailContentError("Test was not sent: " + note_now)
-                        if not selected_account:
-                            raise EmailContentError("Choose a customer context for the preview; test emails never choose one automatically.")
+                        if not selected_account and category in EMAIL_CATEGORIES_REQUIRING_REAL_CONTEXT:
+                            raise EmailContentError("Choose the actual customer and cart/order context before testing this category.")
                         recent_tests = FinancialAuditEvent.query.filter_by(admin_id=current_user.id, event_type="email_studio_test").filter(
                             FinancialAuditEvent.created_at >= datetime.utcnow() - timedelta(hours=1)
                         ).count()
@@ -894,10 +910,8 @@ def register_email_studio_routes(admin_bp):
                         flash("Test result: " + ("queued for delivery" if row.status == "queued" else row.status) + "." + detail + (" The message is not yet provider-accepted or delivered." if row.status == "queued" else " Provider acceptance is not inbox delivery."), "success" if row.status in {"sent", "queued"} else "warning")
                         return redirect(url_for("admin.email_studio", category=category))
 
-                    if not selected_account:
-                        raise EmailContentError("Choose a customer context before previewing this category.")
                     rendered_subject, html, text, order, cards = _render_for(category, request.form, selected_account, test_mode=True)
-                    eligible_count = 1
+                    eligible_count = 1 if selected_account else 0
                     if marketing_message:
                         try:
                             selected_ids = list(dict.fromkeys(int(value) for value in request.form.getlist("account_ids")))
@@ -954,6 +968,11 @@ def register_email_studio_routes(admin_bp):
             configured=configured, provider_note=provider_note, operation_id=operation_id,
             test_address=(current_app.config.get("MAIL_TEST_ADDRESS") or "").strip(),
             product_search=search, email_is_marketing=editor_marketing_message,
+            requires_customer_context=(
+                category in EMAIL_CATEGORIES_REQUIRING_REAL_CONTEXT
+                or bool(request.values.get("order_id"))
+            ),
+            sample_customer_context=SAMPLE_CUSTOMER_CONTEXT,
         )
 
     @admin_bp.get("/email/cart-activity")

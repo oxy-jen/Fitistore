@@ -141,23 +141,24 @@ optional 15-minute schedule. Both are inert unless repository variable
 the confirmation phrase shown by the workflow. Configure it as `false` or leave
 it unset until queue deployment, database migration, sender verification, and
 controlled tests have all received separate approval. The workflow uses the
-production database secret only after the identity/schema preflight. It does
-not migrate the database. Ensure these repository variables/secrets are set
-privately and match the approved production target before enabling the queue:
+Neon PostgreSQL secret only after the identity/schema preflight. It does not
+migrate the database. Set the following GitHub repository configuration
+privately to the approved Neon production target before separately enabling
+the queue:
 
-- Secret: `RENDER_DATABASE_URL`.
-- Variables: `RENDER_DATABASE_NAME`, `RENDER_DATABASE_SCHEMA`,
-  `RENDER_DATABASE_HOST`.
-- Secret: `RENDER_DATABASE_CA_CERT_PEM`.
+- Secret: `NEON_DATABASE_URL`.
+- Variables: `NEON_DATABASE_HOST` (exact Neon hostname),
+  `NEON_DATABASE_NAME` (`neondb`), and `NEON_DATABASE_SCHEMA` (`public`).
 - Variable: `EMAIL_QUEUE_ENABLED` (default/unset is paused).
 - Secret: `FITY_SECRET_KEY`.
 - Mail provider variables and the corresponding provider credential secrets.
 
-Do not enable the workflow as part of deployment. Render plan capabilities and
-cost were not available for inspection. A Render Cron Job is compatible with a
-one-shot command if the chosen plan supports it; otherwise this guarded GitHub
-Actions option is available after approval. No always-on polling worker is
-needed for the current one-shot interface.
+The workflows use Ubuntu's `/etc/ssl/certs/ca-certificates.crt` system CA
+bundle and enforce `sslmode=verify-full` with hostname verification. The guard
+validates that the bundle exists and can be loaded before connecting; it passes
+the verified URL and CA settings to later steps through `GITHUB_ENV`.
+Do not enable the queue workflow as part of deployment. No always-on polling
+worker is needed for the current one-shot interface.
 
 ## Migration workflow branch
 
@@ -207,7 +208,7 @@ identity and runs its report in a PostgreSQL READ ONLY transaction. It does
 not load or modify `.env`. Do not save the report in the repository if it
 contains internal catalog or operational counts.
 
-The existing GitHub migration workflow is wired to the Render database secret;
+The GitHub migration workflow uses the Neon repository secret and variables;
 it is not the isolated restore-test runner. Do not dispatch it for isolated
 testing or use it before its production-target approval gates are reviewed.
 
@@ -231,7 +232,7 @@ also require their exact `--confirmation` phrase and
 Calling those commands without both confirmations stops before database changes.
 
 Do not use the GitHub migration workflow for this isolated target; it is wired
-to the Render database secret. The exact-target wrapper and a separately
+to the Neon production database secret. The exact-target wrapper and a separately
 approved operation are prerequisites. Never set or echo the connection URL in
 command arguments or logs.
 

@@ -122,6 +122,13 @@ EMAIL_CATEGORIES = {
 EMAIL_MARKETING_CATEGORY_KEYS = frozenset(key for key, value in EMAIL_CATEGORIES.items() if value["marketing"])
 EMAIL_PRODUCT_CATEGORY_KEYS = frozenset({"promotion", "daily_goodies", "weekly_picks", "new_product_announcement", "special_offers", "back_in_stock", "re_engagement", "custom_campaign", "customer_service"})
 EMAIL_PROMOTIONAL_LAYOUT_CATEGORIES = frozenset({"promotion", "daily_goodies", "weekly_picks", "new_product_announcement", "special_offers", "back_in_stock", "marketing_welcome", "re_engagement", "custom_campaign", "customer_service"})
+EMAIL_CATEGORIES_REQUIRING_REAL_CONTEXT = frozenset({
+    "cart_reminder", "order_confirmation", "thank_you", "order_status",
+})
+SAMPLE_CUSTOMER_CONTEXT = {
+    "customer_name": "Sample Customer",
+    "email": "sample@example.invalid",
+}
 
 _VARIABLE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
 

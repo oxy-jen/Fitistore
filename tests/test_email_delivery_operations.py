@@ -7,13 +7,15 @@ from sqlalchemy.exc import IntegrityError
 from test_app import app, app_context, client
 from app.extensions import db
 from app.models import (
-    AdminUser, EmailDeliveryAttempt, EmailDeliveryInvestigation,
-    EmailDeliveryInvestigationEvent, EmailMessage, EmailWorkerRun,
+    AdminUser, CustomerAccount, CustomerToken, EmailDeliveryAttempt,
+    EmailDeliveryInvestigation, EmailDeliveryInvestigationEvent, EmailMessage,
+    EmailWorkerRun,
 )
 from app.services.email_delivery_investigations import (
     InvestigationError, open_investigation, recover_confirmed_non_acceptance,
     update_investigation,
 )
+from app.services.marketing_suppressions import record_suppression
 from app.services.sql_schema_utils import normalize_sql_definition
 
 
@@ -258,3 +260,144 @@ def test_operations_schema_validator_rejects_missing_required_index(app, app_con
     with db.engine.connect() as connection:
         with pytest.raises(ValueError, match="index ix_email_delivery_investigation_message_id"):
             validate_email_delivery_ops_schema(connection)
+
+
+def _confirmed_marketing_recovery(key):
+    admin = AdminUser.query.filter_by(username="owner").one()
+    now = datetime.utcnow()
+    account = CustomerAccount(
+        email=f"{key}@example.test",
+        display_name="Marketing Recovery Test",
+        email_verified_at=now,
+        marketing_status="subscribed",
+        marketing_consent_at=now,
+    )
+    db.session.add(account)
+    db.session.flush()
+    message = EmailMessage(
+        recipient=account.email,
+        account_id=account.id,
+        kind="marketing_campaign",
+        purpose="marketing",
+        subject="Original campaign",
+        idempotency_key=f"marketing-recovery-{key}",
+        status="failed",
+        error_category="ambiguous_outcome",
+        failure_reason="Provider outcome unknown.",
+    )
+    db.session.add(message)
+    db.session.flush()
+    attempt = EmailDeliveryAttempt(
+        message_id=message.id,
+        attempt_number=1,
+        attempt_key=f"marketing-recovery-attempt-{key}",
+        provider="brevo",
+        status="ambiguous",
+        started_at=now,
+    )
+    db.session.add(attempt)
+    db.session.commit()
+    investigation = open_investigation(
+        message.id, admin.id, "Verify marketing provider outcome",
+    )
+    investigation = update_investigation(
+        investigation.id, admin.id,
+        status="CONFIRMED_NOT_ACCEPTED",
+        evidence_summary="Provider lookup confirms the message was not accepted.",
+        evidence_source="Brevo transaction log review",
+        explanation="The provider confirms no accepted message for this attempt.",
+    )
+    return account, message, attempt, admin, investigation
+
+
+def _recover_marketing(investigation, admin):
+    return recover_confirmed_non_acceptance(
+        investigation.id, admin.id,
+        authorization="RECOVER AFTER VERIFIED NON-ACCEPTANCE",
+        replacement_subject="Reviewed marketing update",
+        replacement_text="This is the reviewed replacement marketing message.",
+    )
+
+
+def test_marketing_recovery_rejects_unsubscribed_account(app, app_context):
+    account, message, _attempt, admin, investigation = _confirmed_marketing_recovery(
+        "unsubscribed-recovery",
+    )
+    account.marketing_status = "unsubscribed"
+    db.session.commit()
+    original_count = EmailMessage.query.filter_by(account_id=account.id).count()
+
+    with pytest.raises(InvestigationError, match="eligibility check blocked recovery"):
+        _recover_marketing(investigation, admin)
+
+    assert EmailMessage.query.filter_by(account_id=account.id).count() == original_count
+    assert investigation.recovered_message_id is None
+    assert EmailMessage.query.filter_by(id=message.id).one()
+
+
+def test_marketing_recovery_rejects_active_suppression(app, app_context):
+    account, _message, _attempt, admin, investigation = _confirmed_marketing_recovery(
+        "suppressed-recovery",
+    )
+    record_suppression(
+        account.id,
+        source="provider",
+        reason_code="hard_bounce",
+        reason_text="Provider reported a permanent delivery failure.",
+        actor_type="provider",
+        provider_name="brevo",
+    )
+    db.session.commit()
+    original_count = EmailMessage.query.filter_by(account_id=account.id).count()
+
+    with pytest.raises(InvestigationError, match="eligibility check blocked recovery"):
+        _recover_marketing(investigation, admin)
+
+    assert EmailMessage.query.filter_by(account_id=account.id).count() == original_count
+    assert investigation.recovered_message_id is None
+
+
+def test_marketing_recovery_rejects_recent_marketing_delivery(app, app_context):
+    account, _message, _attempt, admin, investigation = _confirmed_marketing_recovery(
+        "frequency-limited-recovery",
+    )
+    recent_message = EmailMessage(
+        recipient=account.email,
+        account_id=account.id,
+        kind="marketing_campaign",
+        purpose="marketing",
+        subject="Recent campaign",
+        idempotency_key="recent-marketing-delivery-frequency-limited",
+        status="sent",
+        sent_at=datetime.utcnow(),
+    )
+    db.session.add(recent_message)
+    db.session.commit()
+    original_count = EmailMessage.query.filter_by(account_id=account.id).count()
+
+    with pytest.raises(InvestigationError, match="eligibility check blocked recovery"):
+        _recover_marketing(investigation, admin)
+
+    assert EmailMessage.query.filter_by(account_id=account.id).count() == original_count
+    assert investigation.recovered_message_id is None
+
+
+def test_eligible_marketing_recovery_includes_unsubscribe_link(app, app_context):
+    app.config["PUBLIC_BASE_URL"] = "https://fitystore.top"
+    account, _message, _attempt, admin, investigation = _confirmed_marketing_recovery(
+        "eligible-recovery",
+    )
+
+    recovered = _recover_marketing(investigation, admin)
+
+    assert recovered.status == "queued"
+    assert recovered.account_id == account.id
+    assert recovered.html_body
+    assert 'href="https://fitystore.top/account/unsubscribe/' in recovered.html_body
+    assert "https://fitystore.top/account/unsubscribe/" in recovered.text_body
+    token = CustomerToken.query.filter_by(
+        account_id=account.id, purpose="unsubscribe",
+    ).one()
+    assert token.token_hash
+    assert len(token.token_hash) == 64
+    assert investigation.recovered_message_id == recovered.id
