@@ -1,0 +1,125 @@
+name: Reconcile verified customer email migration history
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type RECONCILE VERIFIED CUSTOMER EMAIL SCHEMA.
+        required: true
+        type: string
+      backup_confirmation:
+        description: Type I HAVE A VERIFIED RESTORABLE BACKUP.
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: migrate-customer-email-schema
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the dispatch commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install application requirements
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Validate reconciliation and backup confirmations before database access
+        env:
+          RECONCILIATION_CONFIRMATION: ${{ inputs.confirmation }}
+          BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+        run: |
+          test "$RECONCILIATION_CONFIRMATION" = "RECONCILE VERIFIED CUSTOMER EMAIL SCHEMA"
+          test "$BACKUP_CONFIRMATION" = "I HAVE A VERIFIED RESTORABLE BACKUP"
+      - name: Prepare verified TLS using the Ubuntu system CA bundle
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py tls-env
+      - name: Validate connection settings without connecting
+        env:
+          EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py settings
+      - name: Read-only schema and identity preflight
+        env:
+          EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py preflight
+
+  reconcile:
+    needs: preflight
+    if: ${{ needs.preflight.result == 'success' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the dispatch commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install application requirements
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Recheck reconciliation and backup confirmations
+        env:
+          RECONCILIATION_CONFIRMATION: ${{ inputs.confirmation }}
+          BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+        run: |
+          test "$RECONCILIATION_CONFIRMATION" = "RECONCILE VERIFIED CUSTOMER EMAIL SCHEMA"
+          test "$BACKUP_CONFIRMATION" = "I HAVE A VERIFIED RESTORABLE BACKUP"
+      - name: Prepare verified TLS using the Ubuntu system CA bundle
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py tls-env
+      - name: Reconcile only validated historical migration state
+        env:
+          FLASK_APP: manage:app
+          RECONCILIATION_CONFIRMATION: ${{ inputs.confirmation }}
+          BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+        run: >-
+          python -m flask --app manage:app reconcile-customer-email-migration-history
+          --confirmation "$RECONCILIATION_CONFIRMATION"
+          --backup-confirmation "$BACKUP_CONFIRMATION"
+      - name: Verify checksummed history after reconciliation
+        run: |
+          python - <<'PY'
+          from manage import app
+          from app import db
+          from app.services.email_migrations import validate_customer_email_history
+
+          with app.app_context():
+              with db.engine.connect() as connection:
+                  validate_customer_email_history(connection)
+
+          print("Verified customer/email migration history; later additive migrations remain pending.")
+          PY
