@@ -765,10 +765,10 @@ class EmailLegacyPayloadReviewEvent(db.Model):
     message_id = db.Column(db.Integer, db.ForeignKey("email_message.id", ondelete="RESTRICT"), nullable=False, index=True)
     actor_admin_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="RESTRICT"))
     actor_type = db.Column(db.String(16), nullable=False)
-    action = db.Column(db.String(24), nullable=False, default="quarantined")
+    action = db.Column(db.String(24), nullable=False, default="quarantined", server_default=text("'quarantined'"))
     reason = db.Column(db.Text, nullable=False)
-    provider_outcome = db.Column(db.String(32), nullable=False, default="unknown")
-    provider_evidence = db.Column(db.Text, nullable=False, default="")
+    provider_outcome = db.Column(db.String(32), nullable=False, default="unknown", server_default=text("'unknown'"))
+    provider_evidence = db.Column(db.Text, nullable=False, default="", server_default=text("''"))
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     __table_args__ = (
         CheckConstraint("(actor_type = 'admin' AND actor_admin_id IS NOT NULL) OR (actor_type = 'system' AND actor_admin_id IS NULL)", name="ck_email_legacy_review_actor"),

@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app, flash, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
@@ -645,7 +645,7 @@ def register_email_studio_routes(admin_bp):
                 "order_id": request.values.get("order_id", ""),
                 "products": sorted(str(value) for value in request.values.getlist("product_ids")),
                 "accounts": sorted(str(value) for value in request.values.getlist("account_ids")),
-                "test_email": request.values.get("test_email", "").strip().lower(),
+                "test_email": (current_app.config.get("MAIL_TEST_ADDRESS") or "").strip().lower(),
             }
             return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
 
@@ -862,9 +862,11 @@ def register_email_studio_routes(admin_bp):
                         return redirect(url_for("admin.email_studio", category=category))
 
                     if action == "send_test":
-                        target_email = request.form.get("test_email", "").strip()
+                        target_email = (current_app.config.get("MAIL_TEST_ADDRESS") or "").strip().lower()
                         if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", target_email) or len(target_email) > 254:
-                            raise EmailContentError("Enter an email address you control for this test.")
+                            raise EmailContentError("Set MAIL_TEST_ADDRESS to a valid address you control before sending a test.")
+                        if CustomerAccount.query.filter(func.lower(CustomerAccount.email) == target_email).first():
+                            raise EmailContentError("MAIL_TEST_ADDRESS matches a customer account; change it before sending a test.")
                         if request.form.get("confirm_test", "").strip() != "SEND TEST":
                             raise EmailContentError("Type SEND TEST to confirm the isolated test message.")
                         if session.get("email_studio_preview") != preview_fingerprint():
@@ -950,6 +952,7 @@ def register_email_studio_routes(admin_bp):
             subject=subject, headline=headline, message=message, draft=draft, preview=preview,
             preview_size=preview_size,
             configured=configured, provider_note=provider_note, operation_id=operation_id,
+            test_address=(current_app.config.get("MAIL_TEST_ADDRESS") or "").strip(),
             product_search=search, email_is_marketing=editor_marketing_message,
         )
 

@@ -78,10 +78,10 @@ python -m flask --app manage:app email-queue-health
 ```
 
 Process one bounded local batch only after separate approval and verified test
-provider setup:
+provider setup. The command requires the exact confirmation phrase:
 
 ```powershell
-python -m flask --app manage:app process-email-queue --limit 25 --max-seconds 240
+python -m flask --app manage:app process-email-queue --limit 25 --max-seconds 240 --confirmation "RUN EMAIL QUEUE"
 ```
 
 The command emits JSON counts and returns a nonzero CLI result if mail is not
@@ -121,6 +121,17 @@ in advance cannot bypass the cooldown. Transactional messages cannot be
 scheduled through Email Studio. Delivery still depends on the separately gated
 queue workflow; marketing automation itself remains paused. A scheduled row is
 not a provider acceptance or a guaranteed delivery.
+
+### Email Studio test messages
+
+Test messages are queued only to the server-configured `MAIL_TEST_ADDRESS`;
+the submitted form cannot override it. The address must be syntactically valid
+and must not match any customer account in the database. Configure it privately
+to an address controlled by an administrator. A test still requires an exact
+preview, the `SEND TEST` confirmation, configured sender settings, and the
+per-admin rate limit. Test messages are labelled and queued as purpose `test`;
+they are not transactional customer notices or marketing. Queue execution
+remains subject to the separate explicit worker confirmation and workflow gate.
 
 ### GitHub Actions queue workflow
 
@@ -214,17 +225,35 @@ python scripts/run_isolated_email_cli.py migrate-marketing-suppression-schema --
 python scripts/run_isolated_email_cli.py check-marketing-suppression-schema
 ```
 
+The underlying Flask migration and migration-history reconciliation commands
+also require their exact `--confirmation` phrase and
+`--backup-confirmation "I HAVE A VERIFIED RESTORABLE BACKUP"` arguments.
+Calling those commands without both confirmations stops before database changes.
+
 Do not use the GitHub migration workflow for this isolated target; it is wired
 to the Render database secret. The exact-target wrapper and a separately
 approved operation are prerequisites. Never set or echo the connection URL in
 command arguments or logs.
 
-Focused PostgreSQL concurrency validation must use two independent connections
-to that isolated database and cover transaction advisory locking, shared
-customer-row locks, suppression/withdrawal versus dispatch, worker claims,
-claim-token fencing, trigger enforcement, valid indexes, sequence defaults,
-rollback, and reruns. SQLite tests are not evidence for these PostgreSQL
-behaviors.
+The order-completion concurrency test in
+`tests/test_order_completion_concurrency.py` is PostgreSQL-only. It requires
+`FITY_ORDER_CONCURRENCY_TEST_DATABASE_URL` to point to a local PostgreSQL
+instance (`localhost`, `127.0.0.1`, or `::1`) and a database name ending in
+`_test`. It uses two independent sessions and requires PostgreSQL to report
+the second session waiting on the order row lock before releasing the first
+transaction. Run it with:
+
+```powershell
+python -m pytest -q -rs tests\test_order_completion_concurrency.py
+```
+
+This focused test covers concurrent completion, stock/reservation updates,
+and the single status-email event only. It does not prove PostgreSQL
+concurrency for worker claims, suppression versus dispatch, or migration
+triggers/indexes/sequences. Those remain unverified until separately
+authorized, isolated PostgreSQL integration tests are available. SQLite tests
+are not evidence for PostgreSQL row-lock behavior. Do not point the local-only
+test at Neon or a production database.
 
 ## Render and Brevo administrator checklist
 

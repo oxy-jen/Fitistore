@@ -6,7 +6,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import make_url
 
 from app.extensions import db
@@ -19,6 +19,7 @@ from scripts.customer_email_schema_guard import (
     CONFIRMATION,
     EMAIL_STUDIO_TABLES,
     EMAIL_DELIVERY_OPS_TABLES,
+    HISTORICAL_REQUIRED_TABLES,
     PREFLIGHT_CONFIRMATION,
     PRE_EMAIL_STUDIO_TABLES,
     ColumnSpec,
@@ -41,7 +42,11 @@ from scripts.customer_email_schema_guard import (
     validate_dispatch_request,
     validate_column_snapshot,
     validate_fk_options,
+    validate_historical_schema,
+    validate_postgres_foreign_key_catalog,
     validate_postgres_index_snapshot,
+    postgres_foreign_key_catalog,
+    postgres_index_catalog,
     validate_identity,
     validate_missing_state,
     validate_schema,
@@ -101,7 +106,9 @@ def test_workflow_restricts_manual_trigger_and_target_branch():
     assert "RENDER_DATABASE_CA_CERT_PEM: ${{ secrets.RENDER_DATABASE_CA_CERT_PEM }}" in workflow
     assert "cleanup-ca" not in workflow
     command_step = migrate_job.split("- name: Apply the scoped customer email migration", 1)[1].split("- name:", 1)[0]
-    assert "run: " + migration_command in command_step
+    assert migration_command in command_step
+    assert '--confirmation "$MIGRATION_CONFIRMATION"' in command_step
+    assert '--backup-confirmation "$BACKUP_CONFIRMATION"' in command_step
     assert ">/dev/null" not in command_step
     assert "2>&1" not in command_step
     assert "post-migration schema validation" in migrate_job
@@ -503,9 +510,11 @@ def test_foreign_key_match_mode_and_deferrability_are_checked():
 def _index_snapshot(**changes):
     snapshot = {
         "name": "ix_sample", "table": "sample", "columns": ("account_id",),
-        "unique": False, "valid": True, "has_predicate": False,
+        "unique": False, "valid": True, "has_predicate": False, "predicate": None,
         "included_columns": (), "access_method": "btree",
         "key_count": 1, "total_count": 1,
+        "key_order": ("ASC NULLS LAST",), "collations_match": (True,),
+        "operator_classes_default": (True,), "ready": True, "live": True,
     }
     snapshot.update(changes)
     return snapshot
@@ -513,8 +522,52 @@ def _index_snapshot(**changes):
 
 def test_postgres_index_catalog_snapshot_accepts_expected_plain_btree():
     validate_postgres_index_snapshot(
-        "ix_sample", "sample", ("account_id",), False, _index_snapshot()
+        "ix_sample", "sample", ("account_id",), False, _index_snapshot(),
+        strict_definition=True,
     )
+
+
+def test_postgres_index_catalog_snapshot_accepts_expected_partial_btree():
+    snapshot = _index_snapshot(
+        name="uq_email_investigation_open_message",
+        table="email_delivery_investigation",
+        columns=("message_id",),
+        unique=True,
+        has_predicate=True,
+        predicate="(status)::text <> 'RESOLVED'::text",
+    )
+    validate_postgres_index_snapshot(
+        "uq_email_investigation_open_message",
+        "email_delivery_investigation",
+        ("message_id",),
+        True,
+        snapshot,
+        expected_predicate="status <> 'RESOLVED'",
+        strict_definition=True,
+    )
+
+
+@pytest.mark.parametrize(("has_predicate", "predicate"), [
+    (False, None),
+    (True, "status = 'RESOLVED'"),
+])
+def test_postgres_index_catalog_snapshot_rejects_wrong_partial_predicate(has_predicate, predicate):
+    with pytest.raises(GuardError, match="Incompatible PostgreSQL index"):
+        validate_postgres_index_snapshot(
+            "uq_email_investigation_open_message",
+            "email_delivery_investigation",
+            ("message_id",),
+            True,
+            _index_snapshot(
+                name="uq_email_investigation_open_message",
+                table="email_delivery_investigation",
+                unique=True,
+                has_predicate=has_predicate,
+                predicate=predicate,
+            ),
+            expected_predicate="status <> 'RESOLVED'",
+            strict_definition=True,
+        )
 
 
 @pytest.mark.parametrize("changes", [
@@ -525,19 +578,167 @@ def test_postgres_index_catalog_snapshot_accepts_expected_plain_btree():
     {"unique": True},
     {"valid": False},
     {"table": "other_table"},
+    {"key_order": ("DESC NULLS FIRST",)},
+    {"collations_match": (False,)},
+    {"operator_classes_default": (False,)},
+    {"ready": False},
+    {"live": False},
 ])
 def test_postgres_index_catalog_snapshot_rejects_incompatible_indexes(changes):
     with pytest.raises(GuardError, match="Incompatible PostgreSQL index"):
         validate_postgres_index_snapshot(
-            "ix_sample", "sample", ("account_id",), False, _index_snapshot(**changes)
+            "ix_sample", "sample", ("account_id",), False, _index_snapshot(**changes),
+            strict_definition=True,
         )
 
 
 def test_postgres_index_catalog_snapshot_fails_closed_on_missing_metadata():
     incomplete = _index_snapshot()
-    del incomplete["access_method"]
+    del incomplete["operator_classes_default"]
     with pytest.raises(GuardError, match="metadata incomplete"):
-        validate_postgres_index_snapshot("ix_sample", "sample", ("account_id",), False, incomplete)
+        validate_postgres_index_snapshot(
+            "ix_sample", "sample", ("account_id",), False, incomplete,
+            strict_definition=True,
+        )
+
+
+def test_non_strict_index_preflight_ignores_historical_catalog_details():
+    altered = _index_snapshot(
+        key_order=("DESC NULLS FIRST",),
+        collations_match=(False,),
+        operator_classes_default=(False,),
+    )
+    validate_postgres_index_snapshot(
+        "ix_sample", "sample", ("account_id",), False, altered
+    )
+
+
+class _CatalogResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def mappings(self):
+        return self.rows
+
+
+class _MockPostgresCatalogConnection:
+    class dialect:
+        name = "postgresql"
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.statement = ""
+        self.params = None
+
+    def execute(self, statement, params):
+        self.statement = str(statement)
+        self.params = params
+        return _CatalogResult(self.rows)
+
+
+def test_postgres_index_catalog_reads_order_collation_and_operator_class_from_mocked_catalog():
+    connection = _MockPostgresCatalogConnection([{
+        "index_name": "ix_sample", "table_name": "sample", "is_unique": False,
+        "is_valid": True, "is_ready": True, "is_live": True,
+        "has_predicate": False, "key_count": 1, "total_count": 1,
+        "predicate": None,
+        "access_method": "btree", "key_columns": ["account_id"],
+        "included_columns": [], "key_order": ["ASC NULLS LAST"],
+        "collations_match": [True], "operator_classes_default": [True],
+    }])
+
+    catalog = postgres_index_catalog(
+        connection, "public", "sample", {"ix_sample"}, strict_definition=True
+    )["ix_sample"]
+
+    assert catalog == _index_snapshot()
+    assert "indoption" in connection.statement
+    assert "indcollation" in connection.statement
+    assert "pg_opclass" in connection.statement
+
+
+def _inspected_foreign_key(**changes):
+    foreign_key = {
+        "name": "fk_sample_account",
+        "constrained_columns": ["account_id"],
+        "referred_schema": "public",
+        "referred_table": "customer_account",
+        "referred_columns": ["id"],
+        "options": {},
+    }
+    foreign_key.update(changes)
+    return foreign_key
+
+
+def _foreign_key_catalog_snapshot(**changes):
+    snapshot = {
+        "name": "fk_sample_account",
+        "table": "sample",
+        "referred_schema": "public",
+        "referred_table": "customer_account",
+        "validated": True,
+        "deferrable": False,
+        "initially_deferred": False,
+        "match_type": "SIMPLE",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "columns": ("account_id",),
+        "referred_columns": ("id",),
+    }
+    snapshot.update(changes)
+    return snapshot
+
+
+def test_postgres_foreign_key_catalog_accepts_matching_validated_mocked_constraint():
+    validate_postgres_foreign_key_catalog(
+        [_inspected_foreign_key()], [_foreign_key_catalog_snapshot()], "public", "sample"
+    )
+
+
+@pytest.mark.parametrize("changes", [
+    {"validated": False},
+    {"columns": ("purpose",)},
+    {"referred_schema": "other"},
+    {"referred_table": "other_table"},
+    {"referred_columns": ("email",)},
+    {"match_type": "FULL"},
+    {"on_update": "CASCADE"},
+    {"on_delete": "CASCADE"},
+    {"deferrable": True},
+    {"initially_deferred": True},
+])
+def test_postgres_foreign_key_catalog_rejects_incompatible_mocked_constraints(changes):
+    with pytest.raises(GuardError):
+        validate_postgres_foreign_key_catalog(
+            [_inspected_foreign_key()],
+            [_foreign_key_catalog_snapshot(**changes)],
+            "public", "sample",
+        )
+
+
+def test_postgres_foreign_key_catalog_reads_validation_and_options_from_mocked_catalog():
+    connection = _MockPostgresCatalogConnection([{
+        "constraint_name": "fk_sample_account",
+        "table_name": "sample",
+        "referred_schema": "public",
+        "referred_table": "customer_account",
+        "validated": True,
+        "deferrable": False,
+        "initially_deferred": False,
+        "match_type": "SIMPLE",
+        "on_update": "NO ACTION",
+        "on_delete": "NO ACTION",
+        "columns": ["account_id"],
+        "referred_columns": ["id"],
+    }])
+
+    catalog = postgres_foreign_key_catalog(connection, "public", "sample")
+
+    assert catalog == [_foreign_key_catalog_snapshot()]
+    assert "convalidated" in connection.statement
+    assert "confmatchtype" in connection.statement
+    assert "confupdtype" in connection.statement
+    assert "confdeltype" in connection.statement
 
 
 def test_unrelated_additional_indexes_are_allowed_by_policy():
@@ -554,7 +755,10 @@ def test_manifest_reads_the_actual_sql_indexes_and_defaults():
     columns = migration_column_manifest()
     unique, named_unique, foreign_keys = migration_constraint_manifest()
     assert indexes["ix_marketing_campaign_run_campaign_key"] == (
-        "marketing_campaign_run", ("campaign_key",), True
+        "marketing_campaign_run", ("campaign_key",), True, None
+    )
+    assert indexes["uq_email_investigation_open_message"] == (
+        "email_delivery_investigation", ("message_id",), True, "status <> 'RESOLVED'"
     )
     assert defaults[("customer_account", "two_factor_enabled")] == "FALSE"
     assert defaults[("email_message", "retry_count")] == "0"
@@ -580,6 +784,13 @@ def test_complete_local_schema_passes_strict_postcheck():
                 apply_email_delivery_ops_migration(connection, "sqlite")
                 apply_email_legacy_review_migration(connection, "sqlite")
                 apply_consent_audit_migration(connection, "sqlite")
+            legacy_columns = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("email_legacy_payload_review_event")
+            }
+            assert legacy_columns["action"]["default"] == "'quarantined'"
+            assert legacy_columns["provider_outcome"]["default"] == "'unknown'"
+            assert legacy_columns["provider_evidence"]["default"] == "''"
             assert validate_schema(connection, "public", allow_approved_missing=False)
     finally:
         engine.dispose()
@@ -593,5 +804,220 @@ def test_postcheck_fails_when_required_index_is_missing():
             connection.exec_driver_sql(f"DROP INDEX {next(iter(APPROVED_MISSING_INDEXES))}")
         with engine.connect() as connection, pytest.raises(GuardError, match="missing index"):
             validate_schema(connection, "public", allow_approved_missing=False)
+    finally:
+        engine.dispose()
+
+
+def _create_sqlite_migration_schema(engine, tables):
+    from sqlalchemy import text
+    from sqlalchemy.schema import DefaultClause
+
+    manifest = migration_column_manifest()
+    original_defaults = []
+    for table in tables:
+        for column in table.columns:
+            spec = manifest.get((table.name, column.name))
+            if spec:
+                original_defaults.append((column, column.server_default, column.nullable))
+                column.nullable = spec.nullable
+                if spec.default not in {None, "__serial__"}:
+                    column.server_default = DefaultClause(text(spec.default))
+    try:
+        db.metadata.create_all(engine, tables=tables, checkfirst=True)
+    finally:
+        for column, server_default, nullable in original_defaults:
+            column.server_default = server_default
+            column.nullable = nullable
+
+
+def _historical_schema_engine():
+    engine = create_engine("sqlite://")
+    _create_sqlite_migration_schema(engine, db.metadata.sorted_tables)
+    with engine.begin() as connection:
+        for table in (
+            "email_delivery_investigation_event",
+            "email_delivery_investigation",
+            "email_delivery_attempt",
+            "email_worker_run",
+            "email_legacy_payload_review_event",
+        ):
+            connection.exec_driver_sql(f"DROP TABLE {table}")
+    return engine
+
+
+def test_strict_historical_schema_accepts_complete_historical_state():
+    engine = _historical_schema_engine()
+    try:
+        with engine.connect() as connection:
+            notes = validate_historical_schema(connection)
+        assert any("Complete historical customer/email schema validated" in note for note in notes)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("table", sorted(HISTORICAL_REQUIRED_TABLES))
+def test_strict_historical_schema_rejects_each_missing_historical_table(table):
+    engine = _historical_schema_engine()
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(f"DROP TABLE {table}")
+        with engine.connect() as connection, pytest.raises(
+            GuardError, match=f"required tables are missing: {table}"
+        ):
+            validate_historical_schema(connection)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("table,column", sorted({
+    ("customer_account", "two_factor_enabled"),
+    ("email_message", "retry_count"),
+    ("email_message", "provider_message_id"),
+    ("email_template", "name"),
+    ("email_template", "blocks_json"),
+    ("email_draft", "blocks_json"),
+    ("email_message", "template_id"),
+}))
+def test_strict_historical_schema_rejects_each_missing_historical_column(table, column):
+    engine = _historical_schema_engine()
+    try:
+        with engine.begin() as connection:
+            if (table, column) == ("email_message", "provider_message_id"):
+                connection.exec_driver_sql("DROP INDEX ix_email_message_provider_message_id")
+            elif (table, column) == ("email_message", "template_id"):
+                connection.exec_driver_sql("DROP INDEX ix_email_message_template_id")
+            connection.exec_driver_sql(f"ALTER TABLE {table} DROP COLUMN {column}")
+        with engine.connect() as connection, pytest.raises(
+            GuardError, match=f"approved missing column: {table}.{column}"
+        ):
+            validate_historical_schema(connection)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("index", sorted({
+    "ix_email_message_provider_message_id",
+    "ix_email_message_template_id",
+}))
+def test_strict_historical_schema_rejects_each_missing_historical_index(index):
+    engine = _historical_schema_engine()
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(f"DROP INDEX {index}")
+        with engine.connect() as connection, pytest.raises(
+            GuardError, match=f"approved missing index: {index}"
+        ):
+            validate_historical_schema(connection)
+    finally:
+        engine.dispose()
+
+
+def test_strict_historical_schema_rejects_removed_campaign_recipient_unique_constraint():
+    engine = _historical_schema_engine()
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("DROP TABLE email_campaign_recipient")
+            connection.exec_driver_sql("""
+                CREATE TABLE email_campaign_recipient (
+                    id INTEGER PRIMARY KEY,
+                    campaign_id INTEGER NOT NULL,
+                    account_id INTEGER NOT NULL,
+                    recipient VARCHAR(254) NOT NULL,
+                    status VARCHAR(24) NOT NULL DEFAULT 'queued',
+                    failure_reason VARCHAR(255) NOT NULL DEFAULT '',
+                    sent_at DATETIME
+                )
+            """)
+            connection.exec_driver_sql(
+                "CREATE INDEX ix_email_campaign_recipient_campaign_id "
+                "ON email_campaign_recipient (campaign_id)"
+            )
+            connection.exec_driver_sql(
+                "CREATE INDEX ix_email_campaign_recipient_account_id "
+                "ON email_campaign_recipient (account_id)"
+            )
+            connection.exec_driver_sql(
+                "CREATE INDEX ix_email_campaign_recipient_status "
+                "ON email_campaign_recipient (status)"
+            )
+        with engine.connect() as connection, pytest.raises(
+            GuardError, match="Missing or incompatible unique constraint on email_campaign_recipient"
+        ):
+            validate_historical_schema(connection)
+    finally:
+        engine.dispose()
+
+
+def test_strict_historical_schema_rejects_missing_historical_foreign_key():
+    engine = _historical_schema_engine()
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("DROP TABLE customer_token")
+            connection.exec_driver_sql("""
+                CREATE TABLE customer_token (
+                    id INTEGER PRIMARY KEY,
+                    account_id INTEGER NOT NULL,
+                    purpose VARCHAR(24) NOT NULL,
+                    token_hash VARCHAR(64) NOT NULL,
+                    expires_at DATETIME NOT NULL,
+                    used_at DATETIME,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT uq_customer_token_token_hash UNIQUE (token_hash)
+                )
+            """)
+            for name, column in (
+                ("ix_customer_token_account_id", "account_id"),
+                ("ix_customer_token_purpose", "purpose"),
+                ("ix_customer_token_token_hash", "token_hash"),
+                ("ix_customer_token_expires_at", "expires_at"),
+            ):
+                connection.exec_driver_sql(f"CREATE INDEX {name} ON customer_token ({column})")
+        with engine.connect() as connection, pytest.raises(
+            GuardError, match="Missing or incompatible foreign key on customer_token"
+        ):
+            validate_historical_schema(connection)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "column_type,window_nullability,attempts_default,match",
+    [
+        ("INTEGER", "NOT NULL", "0", "test-database type"),
+        ("VARCHAR(64)", "", "0", "test-database nullability"),
+        ("VARCHAR(64)", "NOT NULL", "1", "test-database default"),
+    ],
+)
+def test_strict_historical_schema_rejects_incompatible_sqlite_column_definitions(
+    column_type, window_nullability, attempts_default, match
+):
+    engine = _historical_schema_engine()
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("DROP TABLE auth_rate_limit")
+            connection.exec_driver_sql(
+                "CREATE TABLE auth_rate_limit ("
+                f"key {column_type} NOT NULL PRIMARY KEY, "
+                f"window_started_at DATETIME {window_nullability}, "
+                f"attempts INTEGER NOT NULL DEFAULT {attempts_default})"
+            )
+        with engine.connect() as connection, pytest.raises(GuardError, match=match):
+            validate_historical_schema(connection)
+    finally:
+        engine.dispose()
+
+
+def test_strict_historical_schema_rejects_email_template_category_uniqueness():
+    engine = _historical_schema_engine()
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "CREATE UNIQUE INDEX uq_email_template_category_test ON email_template (category)"
+            )
+        with engine.connect() as connection, pytest.raises(
+            GuardError, match="Missing or incompatible unique constraint on email_template"
+        ):
+            validate_historical_schema(connection)
     finally:
         engine.dispose()

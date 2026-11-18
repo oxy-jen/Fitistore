@@ -5,6 +5,8 @@ import re
 from datetime import datetime
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 import app as app_module
 from werkzeug.security import check_password_hash, generate_password_hash
 from app import create_app
@@ -50,6 +52,15 @@ def accept_current_terms_for_test(account):
     from app.customer.routes import TERMS_ACCEPTANCE_VERSION
     db.session.add(CustomerConsentEvent(account_id=account.id, event="terms_accepted", method="test_setup", wording_version=TERMS_ACCEPTANCE_VERSION))
     db.session.commit()
+
+
+def _confirmed_customer_email_migration_args():
+    return [
+        "migrate-customer-email-schema",
+        "--confirmation", "MIGRATE CUSTOMER EMAIL SCHEMA",
+        "--backup-confirmation", "I HAVE A VERIFIED RESTORABLE BACKUP",
+    ]
+
 
 def test_homepage_renders(client):
     rv = client.get("/")
@@ -2059,6 +2070,7 @@ def test_email_studio_library_lists_purposes_and_previews_system_templates_witho
     assert account_preview.status_code == 200
     assert b"does not create tokens" in account_preview.data
     assert b"Verify your email address" in account_preview.data
+    assert b'<iframe title="Static email template sample" sandbox' in account_preview.data
     order_preview = client.get("/admin/email/studio/system-preview/order_received")
     assert order_preview.status_code == 200
     assert b"SAMPLE-ORDER" in order_preview.data
@@ -2458,10 +2470,50 @@ def _isolated_legacy_sqlite_app(tmp_path, monkeypatch):
     return isolated_app, feature_tables, snapshot
 
 
+def _create_historical_reconciliation_schema(isolated_app, omitted_tables=()):
+    from app import customer_email_schema_tables
+    from scripts.customer_email_schema_guard import (
+        HISTORICAL_REQUIRED_TABLES, migration_column_manifest,
+    )
+    from sqlalchemy import text
+    from sqlalchemy.schema import DefaultClause
+
+    with isolated_app.app_context():
+        with db.engine.begin() as connection:
+            for table in (
+                "email_delivery_investigation_event",
+                "email_delivery_investigation",
+                "email_delivery_attempt",
+                "email_worker_run",
+                "email_legacy_payload_review_event",
+            ):
+                connection.exec_driver_sql(f"DROP TABLE IF EXISTS {table}")
+        tables = [
+            table for table in customer_email_schema_tables()
+            if table.name in HISTORICAL_REQUIRED_TABLES and table.name not in omitted_tables
+        ]
+        manifest = migration_column_manifest()
+        original_defaults = []
+        for table in tables:
+            for column in table.columns:
+                spec = manifest.get((table.name, column.name))
+                if spec:
+                    original_defaults.append((column, column.server_default, column.nullable))
+                    column.nullable = spec.nullable
+                    if spec.default not in {None, "__serial__"}:
+                        column.server_default = DefaultClause(text(spec.default))
+        try:
+            db.metadata.create_all(bind=db.engine, tables=tables, checkfirst=True)
+        finally:
+            for column, server_default, nullable in original_defaults:
+                column.server_default = server_default
+                column.nullable = nullable
+
+
 def test_customer_email_migration_creates_schema_on_fresh_sqlite_database(tmp_path, monkeypatch):
     import sys
     monkeypatch.setenv("FLASK_RUN_FROM_CLI", "true")
-    monkeypatch.setattr(sys, "argv", ["flask", "--app", "wsgi:app", "migrate-customer-email-schema"])
+    monkeypatch.setattr(sys, "argv", ["flask", "--app", "wsgi:app", *_confirmed_customer_email_migration_args()])
     config = type(
         "FreshMigrationSQLiteConfig",
         (TestConfig,),
@@ -2472,7 +2524,7 @@ def test_customer_email_migration_creates_schema_on_fresh_sqlite_database(tmp_pa
         from sqlalchemy import inspect
         assert inspect(db.engine).get_table_names() == []
         db.metadata.create_all(bind=db.engine, tables=[AdminUser.__table__, Order.__table__, Category.__table__, Product.__table__])
-    result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+    result = isolated_app.test_cli_runner().invoke(args=_confirmed_customer_email_migration_args())
     assert result.exit_code == 0, result.output
     assert "Created tables:" in result.output
     with isolated_app.app_context():
@@ -2508,6 +2560,184 @@ def test_customer_email_schema_preflight_is_read_only_and_recommends_migration(t
         assert not (feature_tables & before_tables)
         assert Product.query.count() == before_product_count
         assert AdminUser.query.one().password_hash == before_admin_hash
+
+
+def test_customer_email_migration_requires_exact_operation_and_backup_confirmations(app, app_context):
+    from sqlalchemy import inspect
+
+    before = set(inspect(db.engine).get_table_names())
+    runner = app.test_cli_runner()
+    missing = runner.invoke(args=["migrate-customer-email-schema"])
+    wrong_backup = runner.invoke(args=[
+        "migrate-customer-email-schema",
+        "--confirmation", "MIGRATE CUSTOMER EMAIL SCHEMA",
+        "--backup-confirmation", "wrong",
+    ])
+    assert missing.exit_code != 0
+    assert wrong_backup.exit_code != 0
+    assert "verified-backup confirmations are required" in missing.output
+    assert "verified-backup confirmations are required" in wrong_backup.output
+    assert set(inspect(db.engine).get_table_names()) == before
+
+
+def test_customer_email_history_reconciliation_requires_both_confirmations(app, app_context):
+    from sqlalchemy import inspect
+
+    before = set(inspect(db.engine).get_table_names())
+    result = app.test_cli_runner().invoke(args=[
+        "reconcile-customer-email-migration-history",
+        "--confirmation", "RECONCILE VERIFIED CUSTOMER EMAIL SCHEMA",
+    ])
+    assert result.exit_code != 0
+    assert "verified-backup confirmations are required" in result.output
+    assert set(inspect(db.engine).get_table_names()) == before
+
+
+def _confirmed_reconciliation_args():
+    return [
+        "reconcile-customer-email-migration-history",
+        "--confirmation", "RECONCILE VERIFIED CUSTOMER EMAIL SCHEMA",
+        "--backup-confirmation", "I HAVE A VERIFIED RESTORABLE BACKUP",
+    ]
+
+
+def test_reconciliation_rejects_missing_historical_table_without_recording_history(tmp_path, monkeypatch):
+    from sqlalchemy import inspect
+
+    isolated_app, _feature_tables, expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    _create_historical_reconciliation_schema(isolated_app, {"email_template"})
+    with isolated_app.app_context():
+        result = isolated_app.test_cli_runner().invoke(args=_confirmed_reconciliation_args())
+        assert result.exit_code != 0
+        assert "required tables are missing: email_template" in result.output
+        assert not inspect(db.engine).has_table("email_migration_history")
+        product = Product.query.filter_by(slug="existing-product").one()
+        order = Order.query.filter_by(reference="KEEP-ORDER").one()
+        assert (product.name, product.stock_quantity, product.reserved_quantity) == (
+            expected["product"][0], expected["product"][3], expected["product"][4]
+        )
+        assert (order.reference, order.total_cents, len(order.items)) == expected["order"]
+
+
+def test_reconciliation_records_history_only_after_complete_schema_and_preserves_records(tmp_path, monkeypatch):
+    from sqlalchemy import inspect, text
+
+    isolated_app, _feature_tables, expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    _create_historical_reconciliation_schema(isolated_app)
+    with isolated_app.app_context():
+        account = CustomerAccount(email="reconcile@example.test", display_name="Keep customer")
+        db.session.add(account)
+        db.session.flush()
+        consent = CustomerConsentEvent(
+            account_id=account.id, event="consent_granted", method="test",
+            wording_version="2026-10",
+        )
+        message = EmailMessage(
+            recipient=account.email, account_id=account.id,
+            subject="Keep email", kind="order_received",
+            idempotency_key="reconcile-preserve-email",
+        )
+        link = CustomerOrderLink(account_id=account.id, order_id=Order.query.filter_by(reference="KEEP-ORDER").one().id)
+        db.session.add_all([consent, message, link])
+        db.session.commit()
+        ids = (account.id, consent.id, message.id, link.id)
+
+        result = isolated_app.test_cli_runner().invoke(args=_confirmed_reconciliation_args())
+        assert result.exit_code == 0, result.output
+        history = db.session.execute(text(
+            "SELECT migration_id, state FROM email_migration_history ORDER BY migration_id"
+        )).all()
+        assert {migration_id: state for migration_id, state in history} == {
+            "20261117_email_migration_history": "applied",
+            "20261017_customer_accounts_email": "reconciled_schema",
+            "20261027_email_studio": "reconciled_schema",
+            "20261028_email_builder": "reconciled_schema",
+            "20261029_consent_wording_version": "reconciled_schema",
+        }
+        account_after = db.session.get(CustomerAccount, ids[0])
+        consent_after = db.session.get(CustomerConsentEvent, ids[1])
+        message_after = db.session.get(EmailMessage, ids[2])
+        link_after = db.session.get(CustomerOrderLink, ids[3])
+        assert (account_after.email, account_after.display_name) == ("reconcile@example.test", "Keep customer")
+        assert (consent_after.event, consent_after.method, consent_after.wording_version) == (
+            "consent_granted", "test", "2026-10"
+        )
+        assert (message_after.recipient, message_after.subject, message_after.kind) == (
+            "reconcile@example.test", "Keep email", "order_received"
+        )
+        assert link_after.order.reference == "KEEP-ORDER"
+        product = Product.query.filter_by(slug="existing-product").one()
+        order = Order.query.filter_by(reference="KEEP-ORDER").one()
+        assert (product.name, product.stock_quantity, product.reserved_quantity) == (
+            expected["product"][0], expected["product"][3], expected["product"][4]
+        )
+        assert (order.reference, order.total_cents, len(order.items)) == expected["order"]
+
+
+def test_reconciliation_rolls_back_ledger_and_entries_if_history_insert_fails(tmp_path, monkeypatch):
+    from sqlalchemy import inspect
+    from app.services import email_migrations
+
+    isolated_app, _feature_tables, _expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    _create_historical_reconciliation_schema(isolated_app)
+    original_record = email_migrations.record_migration
+
+    def fail_after_one_history_row(connection, migration_id, *, state, evidence):
+        if migration_id == "20261027_email_studio":
+            raise RuntimeError("simulated history insert failure")
+        original_record(connection, migration_id, state=state, evidence=evidence)
+
+    monkeypatch.setattr(email_migrations, "record_migration", fail_after_one_history_row)
+    with isolated_app.app_context():
+        result = isolated_app.test_cli_runner().invoke(args=_confirmed_reconciliation_args())
+        assert result.exit_code != 0
+        assert "RuntimeError" in result.output
+        assert not inspect(db.engine).has_table("email_migration_history")
+
+
+def test_customer_email_migration_rejects_incomplete_history_before_applying_additive_schema(app, app_context, monkeypatch):
+    from sqlalchemy import inspect
+    from app.services.email_migrations import ensure_history_table, record_migration
+
+    monkeypatch.setattr(app_module, "database_dialect_name", lambda: "postgresql")
+    with db.engine.begin() as connection:
+        ensure_history_table(connection)
+        record_migration(
+            connection, "20261117_email_migration_history",
+            state="applied", evidence="test",
+        )
+    result = app.test_cli_runner().invoke(args=_confirmed_customer_email_migration_args())
+    assert result.exit_code != 0
+    assert "Required customer/email migration history entries are missing" in result.output
+    assert not inspect(db.engine).has_table("email_schema_migration")
+
+
+def test_customer_email_migration_rejects_invalid_history_checksum_before_applying(app, app_context, monkeypatch):
+    from sqlalchemy import inspect, text
+    from app.services.email_migrations import (
+        HISTORICAL_MIGRATIONS, ensure_history_table, record_migration,
+    )
+
+    monkeypatch.setattr(app_module, "database_dialect_name", lambda: "postgresql")
+    with db.engine.begin() as connection:
+        ensure_history_table(connection)
+        record_migration(
+            connection, "20261117_email_migration_history",
+            state="applied", evidence="test ledger",
+        )
+        for migration_id in HISTORICAL_MIGRATIONS:
+            record_migration(
+                connection, migration_id, state="reconciled_schema", evidence="test schema"
+            )
+        connection.execute(text(
+            "UPDATE email_migration_history SET checksum=:checksum "
+            "WHERE migration_id=:migration_id"
+        ), {"checksum": "0" * 64, "migration_id": HISTORICAL_MIGRATIONS[0]})
+
+    result = app.test_cli_runner().invoke(args=_confirmed_customer_email_migration_args())
+    assert result.exit_code != 0
+    assert "checksum mismatch" in result.output
+    assert not inspect(db.engine).has_table("email_schema_migration")
 
 
 def test_customer_email_schema_preflight_reports_incomplete_table_without_changes(tmp_path, monkeypatch):
@@ -2551,10 +2781,10 @@ def test_customer_email_migrations_share_one_lock_definition():
 def test_customer_email_migration_creates_missing_sqlite_tables_and_preserves_store_records(tmp_path, monkeypatch):
     isolated_app, feature_tables, expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
     runner = isolated_app.test_cli_runner()
-    result = runner.invoke(args=["migrate-customer-email-schema"])
+    result = runner.invoke(args=_confirmed_customer_email_migration_args())
     assert result.exit_code == 0, result.output
     assert "Created tables:" in result.output
-    assert "No existing store records were changed." in result.output
+    assert "Existing customer, order, and product records were not modified." in result.output
     status = runner.invoke(args=["check-customer-email-schema"])
     assert status.exit_code == 0, status.output
     assert "Schema status: complete" in status.output
@@ -2594,8 +2824,8 @@ def test_customer_email_migration_creates_missing_sqlite_tables_and_preserves_st
 def test_customer_email_sqlite_migration_is_idempotent_and_enforces_uniqueness(tmp_path, monkeypatch):
     isolated_app, feature_tables, _expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
     runner = isolated_app.test_cli_runner()
-    first = runner.invoke(args=["migrate-customer-email-schema"])
-    second = runner.invoke(args=["migrate-customer-email-schema"])
+    first = runner.invoke(args=_confirmed_customer_email_migration_args())
+    second = runner.invoke(args=_confirmed_customer_email_migration_args())
     assert first.exit_code == 0, first.output
     assert second.exit_code == 0, second.output
     assert "Created tables: none" in second.output
@@ -2618,13 +2848,57 @@ def test_customer_email_builder_migration_preserves_legacy_template_and_allows_d
         db.session.execute(text("CREATE INDEX ix_email_template_category ON email_template (category)"))
         db.session.execute(text("INSERT INTO email_template (id, category, subject, headline, message, created_at, updated_at) VALUES (7, 'promotion', 'Old subject', 'Old headline', 'Old body', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
         db.session.commit()
-        result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+        result = isolated_app.test_cli_runner().invoke(args=_confirmed_customer_email_migration_args())
         assert result.exit_code == 0, result.output
         assert db.session.execute(text("SELECT subject, message, name, blocks_json FROM email_template WHERE id = 7")).one() == ("Old subject", "Old body", "Saved template", "[]")
         db.session.execute(text("INSERT INTO email_template (category, name, subject, headline, message, blocks_json, created_at, updated_at) VALUES ('promotion', 'Second', 'Another', '', 'Body', '[]', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
         db.session.commit()
         assert db.session.execute(text("SELECT COUNT(*) FROM email_template WHERE category = 'promotion'")).scalar_one() == 2
         assert not any(tuple(row.get("column_names") or ()) == ("category",) for row in inspect(db.engine).get_unique_constraints("email_template"))
+
+
+def test_customer_email_sqlite_migration_rejects_unsupported_template_columns_without_changes(tmp_path, monkeypatch):
+    isolated_app, _feature_tables, _expected = _isolated_legacy_sqlite_app(tmp_path, monkeypatch)
+    with isolated_app.app_context():
+        from sqlalchemy import inspect, text
+
+        db.session.execute(text(
+            "CREATE TABLE email_template ("
+            "id INTEGER PRIMARY KEY, category VARCHAR(32) NOT NULL UNIQUE, "
+            "subject VARCHAR(200) NOT NULL, headline VARCHAR(200) NOT NULL DEFAULT '', "
+            "message TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL, "
+            "updated_at DATETIME NOT NULL, custom_payload TEXT NOT NULL DEFAULT '')"
+        ))
+        db.session.execute(text(
+            "CREATE INDEX ix_email_template_category ON email_template (category)"
+        ))
+        db.session.execute(text(
+            "INSERT INTO email_template "
+            "(id, category, subject, headline, message, created_at, updated_at, custom_payload) "
+            "VALUES (9, 'saved', 'Subject', 'Headline', 'Body', CURRENT_TIMESTAMP, "
+            "CURRENT_TIMESTAMP, 'keep-this-value')"
+        ))
+        db.session.commit()
+        inspector = inspect(db.engine)
+        before_tables = set(inspector.get_table_names())
+        before_columns = [column["name"] for column in inspector.get_columns("email_template")]
+        before_indexes = inspector.get_indexes("email_template")
+        before_unique = inspector.get_unique_constraints("email_template")
+
+        result = isolated_app.test_cli_runner().invoke(
+            args=_confirmed_customer_email_migration_args()
+        )
+
+        assert result.exit_code != 0
+        assert "unsupported column(s) would be lost: custom_payload" in result.output
+        inspector = inspect(db.engine)
+        assert set(inspector.get_table_names()) == before_tables
+        assert [column["name"] for column in inspector.get_columns("email_template")] == before_columns
+        assert inspector.get_indexes("email_template") == before_indexes
+        assert inspector.get_unique_constraints("email_template") == before_unique
+        assert db.session.execute(text(
+            "SELECT subject, message, custom_payload FROM email_template WHERE id = 9"
+        )).one() == ("Subject", "Body", "keep-this-value")
 
 
 def test_customer_email_sqlite_migration_rolls_back_failed_ddl(tmp_path, monkeypatch):
@@ -2637,7 +2911,7 @@ def test_customer_email_sqlite_migration_rolls_back_failed_ddl(tmp_path, monkeyp
 
     with isolated_app.app_context():
         monkeypatch.setattr(db.metadata, "create_all", fail_after_first_table)
-        result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+        result = isolated_app.test_cli_runner().invoke(args=_confirmed_customer_email_migration_args())
         assert result.exit_code != 0
         assert "RuntimeError" in result.output
         assert not (feature_tables & set(__import__("sqlalchemy").inspect(db.engine).get_table_names()))
@@ -2650,7 +2924,7 @@ def test_customer_email_migration_fails_safely_on_partial_existing_table(tmp_pat
         db.session.execute(text("CREATE TABLE customer_account (id INTEGER PRIMARY KEY, email VARCHAR(254))"))
         db.session.execute(text("INSERT INTO customer_account (id, email) VALUES (1, 'keep@example.test')"))
         db.session.commit()
-        result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+        result = isolated_app.test_cli_runner().invoke(args=_confirmed_customer_email_migration_args())
         assert result.exit_code != 0
         assert "customer/email table is incomplete" in result.output
         assert "missing columns" in result.output
@@ -2666,7 +2940,7 @@ def test_customer_email_migration_rejects_incomplete_email_studio_table_without_
         db.session.execute(text("CREATE TABLE email_template (id INTEGER PRIMARY KEY, category VARCHAR(32))"))
         db.session.execute(text("INSERT INTO email_template (id, category) VALUES (7, 'saved')"))
         db.session.commit()
-        result = isolated_app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+        result = isolated_app.test_cli_runner().invoke(args=_confirmed_customer_email_migration_args())
         assert result.exit_code != 0
         assert "email_template (missing columns" in result.output
         inspector = inspect(db.engine)
@@ -2677,7 +2951,7 @@ def test_customer_email_migration_rejects_incomplete_email_studio_table_without_
 
 def test_customer_email_migration_rejects_unsupported_dialect(app, monkeypatch):
     monkeypatch.setattr(app_module, "database_dialect_name", lambda: "mysql")
-    result = app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+    result = app.test_cli_runner().invoke(args=_confirmed_customer_email_migration_args())
     assert result.exit_code != 0
     assert "Unsupported database dialect" in result.output
 
@@ -2685,7 +2959,7 @@ def test_customer_email_migration_rejects_unsupported_dialect(app, monkeypatch):
 def test_customer_email_migration_refuses_sqlite_on_render(app, monkeypatch):
     monkeypatch.setenv("RENDER", "true")
     monkeypatch.setattr(app_module, "database_dialect_name", lambda: "sqlite")
-    result = app.test_cli_runner().invoke(args=["migrate-customer-email-schema"])
+    result = app.test_cli_runner().invoke(args=_confirmed_customer_email_migration_args())
     assert result.exit_code != 0
     assert "requires the configured PostgreSQL DATABASE_URL" in result.output
 
@@ -2794,7 +3068,7 @@ def test_order_status_and_completion_review_notifications_are_idempotent(app_con
     first = customer_mail.notify_order_event(order, "order_status", "order-status:history-1")
     second = customer_mail.notify_order_event(order, "order_status", "order-status:history-1")
     assert first.id == second.id
-    assert first.kind == "order_status"
+    assert first.kind == "ready_for_collection"
     assert EmailMessage.query.filter_by(idempotency_key="order-status:history-1").count() == 1
 
     assert customer_mail.notify_order_event(order, "review_request", "order-review-request:status-order") is None
@@ -2803,6 +3077,51 @@ def test_order_status_and_completion_review_notifications_are_idempotent(app_con
     duplicate = customer_mail.notify_order_event(order, "review_request", "order-review-request:status-order")
     assert review_email.id == duplicate.id
     assert EmailMessage.query.filter_by(kind="review_request", order_id=order.id).count() == 1
+
+
+@pytest.mark.parametrize(
+    ("order_status", "fulfilment_method", "expected_kind", "expected_text"),
+    [
+        ("Preparing order", "Collection", "order_processing", "Your order is being prepared"),
+        ("Ready for collection", "Collection", "ready_for_collection", "ready for collection"),
+        ("Out for delivery", "Delivery", "order_dispatched", "out for delivery"),
+        ("Cancelled", "Delivery", "order_cancellation", "cancelled"),
+        ("Completed", "Collection", "order_completed", "completed"),
+    ],
+)
+def test_order_status_workflows_are_distinct_transactional_notifications(app_context, order_status, fulfilment_method, expected_kind, expected_text):
+    import app.services.customer_mail as customer_mail
+    account = CustomerAccount(email=f"{order_status.lower().replace(' ', '-')}-workflow@example.com", display_name="Workflow Buyer", email_verified_at=datetime.utcnow())
+    order = Order(reference=f"FITY-{order_status.upper().replace(' ', '-')}", fulfilment_method=fulfilment_method, status=order_status, payment_status="Paid")
+    db.session.add_all([account, order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+
+    message = customer_mail.notify_order_event(order, "order_status", f"order-status:{order_status}:workflow")
+    assert message is not None
+    assert message.kind == expected_kind
+    assert message.purpose == "transactional"
+    body = (message.html_body or "") + "\n" + (message.text_body or "")
+    assert expected_text.lower() in body.lower()
+    if order_status == "Completed":
+        assert "delivered" not in body.lower()
+
+
+def test_order_status_workflow_skips_guest_and_unverified_customers(app_context):
+    import app.services.customer_mail as customer_mail
+    guest_order = Order(reference="FITY-GUEST-STATUS", fulfilment_method="Collection", status="Preparing order", payment_status="Paid")
+    db.session.add(guest_order)
+    db.session.commit()
+    assert customer_mail.notify_order_event(guest_order, "order_status", "guest-order-status") is None
+
+    verified_account = CustomerAccount(email="unverified-order@example.com", display_name="Pending Buyer", email_verified_at=None)
+    linked_order = Order(reference="FITY-UNVERIFIED-STATUS", fulfilment_method="Collection", status="Preparing order", payment_status="Paid")
+    db.session.add_all([verified_account, linked_order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=verified_account.id, order_id=linked_order.id))
+    db.session.commit()
+    assert customer_mail.notify_order_event(linked_order, "order_status", "unverified-order-status") is None
 
 
 def test_admin_completion_transition_sends_one_review_request(client, app_context):
@@ -2818,8 +3137,617 @@ def test_admin_completion_transition_sends_one_review_request(client, app_contex
     second = client.post(f"/admin/orders/{order.id}", data={"status": "Completed", "payment_status": "Paid", "notes": ""})
     assert first.status_code == 302
     assert second.status_code == 302
-    assert EmailMessage.query.filter_by(kind="order_status", order_id=order.id).count() == 1
+    assert EmailMessage.query.filter_by(kind="order_completed", order_id=order.id).count() == 1
     assert EmailMessage.query.filter_by(kind="review_request", order_id=order.id).count() == 1
+
+
+APPROVED_ORDER_TRANSITIONS = {
+    "Order received": {"Awaiting payment", "Payment confirmed", "Preparing order", "Cancelled"},
+    "Awaiting payment": {"Payment confirmed", "Preparing order", "Cancelled"},
+    "Payment confirmed": {"Preparing order", "Ready for collection", "Out for delivery", "Cancelled"},
+    "Preparing order": {"Ready for collection", "Out for delivery", "Cancelled"},
+    "Ready for collection": {"Completed", "Cancelled"},
+    "Out for delivery": {"Completed", "Cancelled"},
+    "Completed": set(),
+    "Cancelled": set(),
+}
+
+PERMITTED_ADMIN_TRANSITIONS = [
+    ("Order received", "Collection", "Awaiting payment", "Awaiting payment", "Awaiting payment", "order_status"),
+    ("Order received", "Collection", "Payment confirmed", "Awaiting payment", "Paid", "order_status"),
+    ("Order received", "Collection", "Preparing order", "Awaiting payment", "Awaiting payment", "order_processing"),
+    ("Order received", "Nearby delivery", "Cancelled", "Awaiting payment", "Awaiting payment", "order_cancellation"),
+    ("Awaiting payment", "Collection", "Payment confirmed", "Awaiting payment", "Paid", "order_status"),
+    ("Awaiting payment", "Collection", "Preparing order", "Awaiting payment", "Awaiting payment", "order_processing"),
+    ("Awaiting payment", "Nearby delivery", "Cancelled", "Awaiting payment", "Awaiting payment", "order_cancellation"),
+    ("Payment confirmed", "Collection", "Preparing order", "Paid", "Paid", "order_processing"),
+    ("Payment confirmed", "Collection", "Ready for collection", "Paid", "Paid", "ready_for_collection"),
+    ("Payment confirmed", "Nearby delivery", "Out for delivery", "Paid", "Paid", "order_dispatched"),
+    ("Payment confirmed", "Collection", "Cancelled", "Paid", "Paid", "order_cancellation"),
+    ("Preparing order", "Collection", "Ready for collection", "Paid", "Paid", "ready_for_collection"),
+    ("Preparing order", "Nearby delivery", "Out for delivery", "Paid", "Paid", "order_dispatched"),
+    ("Preparing order", "Collection", "Cancelled", "Awaiting payment", "Awaiting payment", "order_cancellation"),
+    ("Ready for collection", "Collection", "Completed", "Paid", "Paid", "order_completed"),
+    ("Ready for collection", "Collection", "Cancelled", "Paid", "Paid", "order_cancellation"),
+    ("Out for delivery", "Nearby delivery", "Completed", "Paid", "Paid", "order_completed"),
+    ("Out for delivery", "Nearby delivery", "Cancelled", "Awaiting payment", "Awaiting payment", "order_cancellation"),
+]
+
+
+@pytest.mark.parametrize(
+    (
+        "starting_status", "fulfilment_method", "new_status",
+        "current_payment_status", "submitted_payment_status", "email_kind",
+    ),
+    PERMITTED_ADMIN_TRANSITIONS,
+)
+def test_admin_order_status_transitions_queue_distinct_idempotent_emails(
+    client, app_context, starting_status, fulfilment_method, new_status,
+    current_payment_status, submitted_payment_status, email_kind,
+):
+    account = CustomerAccount(
+        email=f"{email_kind}-route@example.com",
+        display_name="Route Buyer",
+        email_verified_at=datetime.utcnow(),
+    )
+    order = Order(
+        reference=f"FITY-RT-{email_kind[:15]}",
+        fulfilment_method=fulfilment_method,
+        status=starting_status,
+        payment_status=current_payment_status,
+    )
+    db.session.add_all([account, order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    form = {"status": new_status, "payment_status": submitted_payment_status, "notes": ""}
+    first = client.post(f"/admin/orders/{order.id}", data=form, follow_redirects=True)
+    duplicate = client.post(f"/admin/orders/{order.id}", data=form, follow_redirects=True)
+
+    assert first.status_code == duplicate.status_code == 200
+    assert b"Customer status email queued" in first.data
+    assert b"Customer status email queued" not in duplicate.data
+    assert b"No status change was needed." in duplicate.data
+    status_events = OrderStatusHistory.query.filter_by(
+        order_id=order.id, field="status", new_value=new_status,
+    ).all()
+    assert len(status_events) == 1
+    messages = EmailMessage.query.filter_by(order_id=order.id, kind=email_kind).all()
+    assert len(messages) == 1
+    assert messages[0].purpose == "transactional"
+    assert messages[0].idempotency_key == f"{email_kind}:{status_events[0].id}"
+    if new_status == "Completed":
+        assert EmailMessage.query.filter_by(order_id=order.id, kind="review_request").count() == 1
+
+
+@pytest.mark.parametrize(
+    ("starting_status", "fulfilment_method", "new_status", "current_payment_status", "submitted_payment_status"),
+    [
+        ("Preparing order", "Collection", "Out for delivery", "Paid", "Paid"),
+        ("Preparing order", "Nearby delivery", "Ready for collection", "Paid", "Paid"),
+        ("Preparing order", "Collection", "Payment confirmed", "Paid", "Paid"),
+        ("Cancelled", "Collection", "Preparing order", "Paid", "Paid"),
+        ("Completed", "Nearby delivery", "Preparing order", "Paid", "Paid"),
+        ("Payment confirmed", "Collection", "Ready for collection", "Awaiting payment", "Awaiting payment"),
+        ("Payment confirmed", "Nearby delivery", "Out for delivery", "Payment reported", "Payment reported"),
+    ],
+)
+def test_admin_rejects_inconsistent_or_invalid_order_status_transitions(
+    client, app_context, starting_status, fulfilment_method, new_status,
+    current_payment_status, submitted_payment_status,
+):
+    order = Order(
+        reference=f"FITY-MISMATCH-{new_status.split()[0]}",
+        fulfilment_method=fulfilment_method,
+        status=starting_status,
+        payment_status=current_payment_status,
+    )
+    db.session.add(order)
+    db.session.commit()
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post(
+        f"/admin/orders/{order.id}",
+        data={"status": new_status, "payment_status": submitted_payment_status, "notes": ""},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert order.status == starting_status
+    assert OrderStatusHistory.query.filter_by(order_id=order.id, field="status").count() == 0
+    assert EmailMessage.query.filter_by(order_id=order.id).count() == 0
+
+
+ALL_ORDER_STATUSES = tuple(APPROVED_ORDER_TRANSITIONS)
+REJECTED_GRAPH_TRANSITIONS = tuple(
+    (starting_status, new_status)
+    for starting_status in ALL_ORDER_STATUSES
+    for new_status in ALL_ORDER_STATUSES
+    if new_status != starting_status
+    and new_status not in APPROVED_ORDER_TRANSITIONS[starting_status]
+) + (("Order received", "Delivered"),)
+
+
+def test_permitted_transition_cases_cover_the_complete_approved_matrix():
+    tested_edges = {
+        (starting_status, new_status)
+        for starting_status, _method, new_status, _old_payment, _new_payment, _kind
+        in PERMITTED_ADMIN_TRANSITIONS
+    }
+    expected_edges = {
+        (starting_status, new_status)
+        for starting_status, next_statuses in APPROVED_ORDER_TRANSITIONS.items()
+        for new_status in next_statuses
+    }
+    assert tested_edges == expected_edges
+
+
+@pytest.mark.parametrize(("starting_status", "new_status"), REJECTED_GRAPH_TRANSITIONS)
+def test_service_rejects_every_unlisted_order_status_transition(starting_status, new_status):
+    from types import SimpleNamespace
+    from app.services.orders import validate_order_status_transition
+
+    order = SimpleNamespace(
+        status=starting_status,
+        fulfilment_method="Collection",
+        payment_status="Paid",
+    )
+    with pytest.raises(ValueError):
+        validate_order_status_transition(order, new_status)
+
+
+@pytest.mark.parametrize(
+    ("starting_status", "fulfilment_method", "new_status"),
+    [
+        ("Payment confirmed", "Nearby delivery", "Ready for collection"),
+        ("Preparing order", "Nearby delivery", "Ready for collection"),
+        ("Payment confirmed", "Collection", "Out for delivery"),
+        ("Preparing order", "Collection", "Out for delivery"),
+    ],
+)
+def test_service_rejects_every_cross_fulfilment_stage(
+    starting_status, fulfilment_method, new_status,
+):
+    from types import SimpleNamespace
+    from app.services.orders import validate_order_status_transition
+
+    order = SimpleNamespace(
+        status=starting_status,
+        fulfilment_method=fulfilment_method,
+        payment_status="Paid",
+    )
+    with pytest.raises(ValueError, match="Only .* orders can be marked"):
+        validate_order_status_transition(order, new_status)
+
+
+UNPAID_FULFILMENT_EDGES = [
+    ("Payment confirmed", "Collection", "Ready for collection"),
+    ("Payment confirmed", "Nearby delivery", "Out for delivery"),
+    ("Preparing order", "Collection", "Ready for collection"),
+    ("Preparing order", "Nearby delivery", "Out for delivery"),
+    ("Ready for collection", "Collection", "Completed"),
+    ("Out for delivery", "Nearby delivery", "Completed"),
+]
+UNCONFIRMED_PAYMENT_STATUSES = [
+    "Awaiting payment", "Payment reported", "Processing", "Failed", "Cancelled",
+    "Unknown", "Reconciliation required", "Refund requested", "Refund processing",
+    "Partially refunded", "Refunded", "Refund failed",
+]
+UNPAID_TRANSITION_CASES = [
+    (*edge, payment_status)
+    for edge in UNPAID_FULFILMENT_EDGES
+    for payment_status in UNCONFIRMED_PAYMENT_STATUSES
+]
+
+
+@pytest.mark.parametrize(
+    ("starting_status", "fulfilment_method", "new_status", "payment_status"),
+    UNPAID_TRANSITION_CASES,
+)
+def test_service_rejects_fulfilment_and_completion_without_paid_status(
+    starting_status, fulfilment_method, new_status, payment_status,
+):
+    from types import SimpleNamespace
+    from app.services.orders import validate_order_status_transition
+
+    order = SimpleNamespace(
+        status=starting_status,
+        fulfilment_method=fulfilment_method,
+        payment_status=payment_status,
+    )
+    with pytest.raises(ValueError, match="Confirm payment"):
+        validate_order_status_transition(order, new_status, payment_status=payment_status)
+
+
+def test_admin_order_form_only_offers_permitted_statuses(client, app_context):
+    collection_order = Order(
+        reference="FITY-OPTIONS-COLLECTION",
+        fulfilment_method="Collection",
+        status="Payment confirmed",
+        payment_status="Paid",
+    )
+    delivery_order = Order(
+        reference="FITY-OPTIONS-DELIVERY",
+        fulfilment_method="Nearby delivery",
+        status="Payment confirmed",
+        payment_status="Paid",
+    )
+    unpaid_order = Order(
+        reference="FITY-OPTIONS-UNPAID",
+        fulfilment_method="Collection",
+        status="Payment confirmed",
+        payment_status="Awaiting payment",
+    )
+    db.session.add_all([collection_order, delivery_order, unpaid_order])
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+
+    response = client.get("/admin/orders")
+    assert response.status_code == 200
+    html = response.data.decode()
+    expected_options = {
+        collection_order.reference: {"Payment confirmed", "Preparing order", "Ready for collection", "Cancelled"},
+        delivery_order.reference: {"Payment confirmed", "Preparing order", "Out for delivery", "Cancelled"},
+        unpaid_order.reference: {"Payment confirmed", "Preparing order", "Cancelled"},
+    }
+    for reference, expected in expected_options.items():
+        position = html.index(f"<h2>{reference}</h2>")
+        card_start = html.rfind('<article class="order-card">', 0, position)
+        card_end = html.index("</article>", position)
+        card = html[card_start:card_end]
+        status_select = card.split('<select name="status">', 1)[1].split("</select>", 1)[0]
+        options = set(re.findall(r"<option[^>]*>(.*?)</option>", status_select))
+        assert options == expected
+
+
+def test_distinct_status_history_events_queue_distinct_notifications(client, app_context):
+    account = CustomerAccount(
+        email="distinct-status-events@example.com",
+        display_name="Event Buyer",
+        email_verified_at=datetime.utcnow(),
+    )
+    order = Order(
+        reference="FITY-DISTINCT-EVENTS",
+        fulfilment_method="Collection",
+        status="Payment confirmed",
+        payment_status="Paid",
+    )
+    db.session.add_all([account, order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+
+    client.post(f"/admin/orders/{order.id}", data={"status": "Preparing order", "payment_status": "Paid", "notes": ""})
+    client.post(f"/admin/orders/{order.id}", data={"status": "Ready for collection", "payment_status": "Paid", "notes": ""})
+
+    events = OrderStatusHistory.query.filter(
+        OrderStatusHistory.order_id == order.id,
+        OrderStatusHistory.field == "status",
+        OrderStatusHistory.new_value.in_(["Preparing order", "Ready for collection"]),
+    ).order_by(OrderStatusHistory.id).all()
+    messages = EmailMessage.query.filter_by(order_id=order.id).order_by(EmailMessage.id).all()
+    assert [message.kind for message in messages] == ["order_processing", "ready_for_collection"]
+    assert [message.idempotency_key for message in messages] == [
+        f"order_processing:{events[0].id}",
+        f"ready_for_collection:{events[1].id}",
+    ]
+
+
+@pytest.mark.parametrize("queue_result", ["exception", "none", "unsuccessful"])
+def test_admin_reports_status_queue_failure_without_reversing_order_update(
+    client, app_context, monkeypatch, queue_result,
+):
+    from types import SimpleNamespace
+    import app.services.customer_mail as customer_mail
+
+    account = CustomerAccount(
+        email=f"route-queue-{queue_result}@example.com",
+        display_name="Queue Buyer",
+        email_verified_at=datetime.utcnow(),
+    )
+    order = Order(
+        reference=f"FITY-ROUTE-QUEUE-{queue_result[:4].upper()}",
+        fulfilment_method="Collection",
+        status="Payment confirmed",
+        payment_status="Paid",
+    )
+    db.session.add_all([account, order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+
+    def fake_queue(*args, **kwargs):
+        if queue_result == "exception":
+            raise RuntimeError("queue unavailable")
+        if queue_result == "unsuccessful":
+            return SimpleNamespace(status="failed")
+        return None
+
+    monkeypatch.setattr(customer_mail, "queue_branded_email", fake_queue)
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post(
+        f"/admin/orders/{order.id}",
+        data={"status": "Preparing order", "payment_status": "Paid", "notes": ""},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Order updated." in response.data
+    assert b"customer status email could not be queued" in response.data
+    assert b"Customer status email queued" not in response.data
+    assert order.status == "Preparing order"
+    assert EmailMessage.query.filter_by(order_id=order.id).count() == 0
+
+
+def test_repeated_completion_deducts_each_product_and_variant_once(client, app_context):
+    product = Product.query.filter_by(slug="plain-socks").first()
+    product.stock_quantity = 10
+    product.reserved_quantity = 3
+    variant = ProductVariant(
+        product=product,
+        size="M",
+        color="Navy",
+        stock_quantity=8,
+        reserved_quantity=4,
+    )
+    order = Order(
+        reference="FITY-COMPLETE-STOCK",
+        fulfilment_method="Collection",
+        status="Ready for collection",
+        payment_status="Paid",
+    )
+    order.items.extend([
+        OrderItem(product=product, product_name=product.name, quantity=1, price_cents=100, subtotal_cents=100),
+        OrderItem(product=product, product_name=product.name, quantity=2, price_cents=100, subtotal_cents=200),
+        OrderItem(product=product, variant=variant, product_name=product.name, quantity=4, price_cents=100, subtotal_cents=400),
+    ])
+    db.session.add(order)
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+
+    for _ in range(2):
+        response = client.post(
+            f"/admin/orders/{order.id}",
+            data={"status": "Completed", "payment_status": "Paid", "notes": ""},
+        )
+        assert response.status_code == 302
+
+    db.session.expire_all()
+    product = Product.query.filter_by(slug="plain-socks").first()
+    variant = ProductVariant.query.filter_by(product_id=product.id, size="M", color="Navy").first()
+    assert product.stock_quantity == 7
+    assert product.reserved_quantity == 0
+    assert variant.stock_quantity == 4
+    assert variant.reserved_quantity == 0
+    assert OrderStatusHistory.query.filter_by(order_id=order.id, field="status", new_value="Completed").count() == 1
+
+
+def test_repeated_cancellation_releases_reservations_without_deducting_stock(client, app_context):
+    product = Product.query.filter_by(slug="plain-socks").first()
+    product.stock_quantity = 10
+    product.reserved_quantity = 3
+    variant = ProductVariant(
+        product=product,
+        size="L",
+        color="Green",
+        stock_quantity=8,
+        reserved_quantity=2,
+    )
+    order = Order(
+        reference="FITY-CANCEL-STOCK",
+        fulfilment_method="Collection",
+        status="Preparing order",
+        payment_status="Paid",
+    )
+    order.items.extend([
+        OrderItem(product=product, product_name=product.name, quantity=3, price_cents=100, subtotal_cents=300),
+        OrderItem(product=product, variant=variant, product_name=product.name, quantity=2, price_cents=100, subtotal_cents=200),
+    ])
+    db.session.add(order)
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+
+    for _ in range(2):
+        response = client.post(
+            f"/admin/orders/{order.id}",
+            data={"status": "Cancelled", "payment_status": "Paid", "notes": ""},
+        )
+        assert response.status_code == 302
+
+    db.session.expire_all()
+    product = Product.query.filter_by(slug="plain-socks").first()
+    variant = ProductVariant.query.filter_by(product_id=product.id, size="L", color="Green").first()
+    assert product.stock_quantity == 10
+    assert product.reserved_quantity == 0
+    assert variant.stock_quantity == 8
+    assert variant.reserved_quantity == 0
+    assert OrderStatusHistory.query.filter_by(order_id=order.id, field="status", new_value="Cancelled").count() == 1
+
+
+def test_failed_completion_commit_rolls_back_inventory_and_retry_deducts_once(
+    client, app_context, monkeypatch,
+):
+    product = Product.query.filter_by(slug="plain-socks").first()
+    product.stock_quantity = 5
+    product.reserved_quantity = 2
+    order = Order(
+        reference="FITY-COMPLETE-RETRY",
+        fulfilment_method="Collection",
+        status="Ready for collection",
+        payment_status="Paid",
+    )
+    order.items.append(OrderItem(
+        product=product,
+        product_name=product.name,
+        quantity=2,
+        price_cents=100,
+        subtotal_cents=200,
+    ))
+    db.session.add(order)
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+
+    original_commit = Session.commit
+    state = {"fail": True}
+
+    def fail_first_commit(session):
+        if state["fail"]:
+            state["fail"] = False
+            session.flush()
+            raise SQLAlchemyError("simulated commit failure")
+        return original_commit(session)
+
+    monkeypatch.setattr(Session, "commit", fail_first_commit)
+    failed = client.post(
+        f"/admin/orders/{order.id}",
+        data={"status": "Completed", "payment_status": "Paid", "notes": ""},
+        follow_redirects=True,
+    )
+    assert b"order update could not be confirmed" in failed.data
+    db.session.expire_all()
+    assert Order.query.get(order.id).status == "Ready for collection"
+    assert Product.query.filter_by(slug="plain-socks").first().stock_quantity == 5
+    assert Product.query.filter_by(slug="plain-socks").first().reserved_quantity == 2
+
+    retry = client.post(
+        f"/admin/orders/{order.id}",
+        data={"status": "Completed", "payment_status": "Paid", "notes": ""},
+        follow_redirects=True,
+    )
+    assert b"Order updated." in retry.data
+    db.session.expire_all()
+    assert Order.query.get(order.id).status == "Completed"
+    assert Product.query.filter_by(slug="plain-socks").first().stock_quantity == 3
+    assert Product.query.filter_by(slug="plain-socks").first().reserved_quantity == 0
+    assert OrderStatusHistory.query.filter_by(order_id=order.id, field="status", new_value="Completed").count() == 1
+
+
+@pytest.mark.parametrize("link_account", [False, True])
+def test_admin_order_status_transition_skips_guest_and_unverified_accounts(
+    client, app_context, link_account,
+):
+    order = Order(
+        reference=f"FITY-STATUS-{'UNVERIFIED' if link_account else 'GUEST'}",
+        fulfilment_method="Collection",
+        status="Payment confirmed",
+        payment_status="Paid",
+    )
+    db.session.add(order)
+    if link_account:
+        account = CustomerAccount(
+            email="unverified-route@example.com",
+            display_name="Unverified Buyer",
+            email_verified_at=None,
+        )
+        db.session.add(account)
+        db.session.flush()
+        db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post(
+        f"/admin/orders/{order.id}",
+        data={"status": "Preparing order", "payment_status": "Paid", "notes": ""},
+    )
+
+    assert response.status_code == 302
+    assert order.status == "Preparing order"
+    assert EmailMessage.query.filter_by(order_id=order.id).count() == 0
+
+
+@pytest.mark.parametrize("queue_result", [None, "failed"], ids=["no-message", "failed-message"])
+def test_order_status_notification_does_not_report_unsuccessful_queue_result(
+    app_context, monkeypatch, queue_result,
+):
+    from types import SimpleNamespace
+    import app.services.customer_mail as customer_mail
+
+    account = CustomerAccount(
+        email=f"queue-result-{queue_result or 'none'}@example.com",
+        display_name="Queue Buyer",
+        email_verified_at=datetime.utcnow(),
+    )
+    order = Order(
+        reference=f"FITY-QUEUE-{queue_result or 'NONE'}",
+        fulfilment_method="Collection",
+        status="Preparing order",
+        payment_status="Paid",
+    )
+    db.session.add_all([account, order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+
+    message = None if queue_result is None else SimpleNamespace(status=queue_result)
+    monkeypatch.setattr(customer_mail, "queue_branded_email", lambda *args, **kwargs: message)
+
+    assert customer_mail.notify_order_event(order, "order_status", "failed-queue-event") is None
+    assert EmailMessage.query.filter_by(order_id=order.id).count() == 0
+
+
+def test_order_status_notification_propagates_queue_exception(app_context, monkeypatch):
+    import app.services.customer_mail as customer_mail
+
+    account = CustomerAccount(
+        email="queue-exception@example.com",
+        display_name="Queue Buyer",
+        email_verified_at=datetime.utcnow(),
+    )
+    order = Order(
+        reference="FITY-QUEUE-EXCEPTION",
+        fulfilment_method="Collection",
+        status="Preparing order",
+        payment_status="Paid",
+    )
+    db.session.add_all([account, order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+
+    def fail_queue(*args, **kwargs):
+        raise RuntimeError("queue unavailable")
+
+    monkeypatch.setattr(customer_mail, "queue_branded_email", fail_queue)
+
+    with pytest.raises(RuntimeError, match="queue unavailable"):
+        customer_mail.notify_order_event(order, "order_status", "queue-exception-event")
+    assert EmailMessage.query.filter_by(order_id=order.id).count() == 0
+
+
+@pytest.mark.parametrize(
+    ("order_status", "fulfilment_method", "event_name"),
+    [
+        ("Out for delivery", "Collection", "order_status"),
+        ("Ready for collection", "Nearby delivery", "order_status"),
+        ("Preparing order", "Collection", "order_dispatched"),
+    ],
+)
+def test_order_status_notification_refuses_mismatched_fulfilment_or_status(
+    app_context, order_status, fulfilment_method, event_name,
+):
+    import app.services.customer_mail as customer_mail
+
+    account = CustomerAccount(
+        email=f"mismatched-{order_status.lower().replace(' ', '-')}@example.com",
+        display_name="Mismatch Buyer",
+        email_verified_at=datetime.utcnow(),
+    )
+    order = Order(
+        reference=f"FITY-MISMATCH-{order_status.split()[0]}",
+        fulfilment_method=fulfilment_method,
+        status=order_status,
+        payment_status="Paid",
+    )
+    db.session.add_all([account, order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+
+    assert customer_mail.notify_order_event(order, event_name, "mismatched-status-event") is None
+    assert EmailMessage.query.filter_by(order_id=order.id).count() == 0
 
 
 def test_payment_confirmation_email_requires_paid_order(client, app_context, app, monkeypatch):
@@ -3367,9 +4295,30 @@ def test_queue_health_and_retention_cli_are_read_only_or_dry_run_by_default(app,
 def test_queue_cli_reports_unconfigured_sender_as_nonzero_without_sending(app, app_context, monkeypatch):
     from app.services import customer_mail
     monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (False, "not configured"))
-    result = app.test_cli_runner().invoke(args=["process-email-queue", "--limit", "1"])
+    result = app.test_cli_runner().invoke(args=[
+        "process-email-queue", "--limit", "1", "--confirmation", "RUN EMAIL QUEUE",
+    ])
     assert result.exit_code != 0
     assert "Email provider is not configured" in result.output
+
+
+@pytest.mark.parametrize("confirmation", [None, "not the phrase"])
+def test_queue_cli_requires_explicit_confirmation_before_processing(
+    app, app_context, monkeypatch, confirmation,
+):
+    from app.services import customer_mail
+
+    def unexpected_processing(**kwargs):
+        pytest.fail("The queue worker must not run without the exact confirmation.")
+
+    monkeypatch.setattr(customer_mail, "process_email_queue", unexpected_processing)
+    args = ["process-email-queue", "--limit", "1"]
+    if confirmation is not None:
+        args.extend(["--confirmation", confirmation])
+    result = app.test_cli_runner().invoke(args=args)
+
+    assert result.exit_code != 0
+    assert "requires --confirmation 'RUN EMAIL QUEUE'" in result.output
 
 
 def test_queue_worker_honors_graceful_stop_between_messages(app, app_context, monkeypatch):
@@ -3815,6 +4764,8 @@ def test_email_studio_preview_is_personalized_escaped_and_does_not_send(client, 
     assert response.status_code == 200
     assert b"Preview" in response.data
     assert b"&lt;script&gt;Customer&lt;/script&gt;" in response.data
+    assert b'<iframe title="Email preview" sandbox' in response.data
+    assert b'<iframe id="email-live-preview-frame" title="Rendered email preview" sandbox' in response.data
     assert sent == []
 
 
@@ -3978,6 +4929,7 @@ def test_email_studio_visual_template_duplicate_blocks_preview_and_send(client, 
 def test_email_studio_test_send_requires_prior_preview_and_explicit_address(client, app, app_context, monkeypatch):
     import app.services.customer_mail as customer_mail
     _configure_brevo_test(app)
+    app.config["MAIL_TEST_ADDRESS"] = "owner-controlled@example.test"
     sent = []
     monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html, text: sent.append((recipient, subject, html, text)) or "studio-test-id")
     account = CustomerAccount(email="studio-test-context@example.test", display_name="Test Context", email_verified_at=datetime.utcnow())
@@ -3986,11 +4938,16 @@ def test_email_studio_test_send_requires_prior_preview_and_explicit_address(clie
     payload = {
         "category": "customer_service", "account_id": str(account.id),
         "subject": "Hello {{ customer_name }}", "headline": "Test greeting",
-        "message": "This is test data.", "test_email": "owner-controlled@example.test",
+        "message": "This is test data.",
     }
     preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
     assert preview.status_code == 200 and sent == []
-    result = client.post("/admin/email/studio", data={**payload, "action": "send_test", "confirm_test": "SEND TEST"}, follow_redirects=True)
+    result = client.post(
+        "/admin/email/studio",
+        data={**payload, "action": "send_test", "confirm_test": "SEND TEST",
+              "test_email": "attacker-controlled@example.test"},
+        follow_redirects=True,
+    )
     assert result.status_code == 200
     assert sent == []
     customer_mail.process_email_queue(limit=5)
@@ -3999,6 +4956,33 @@ def test_email_studio_test_send_requires_prior_preview_and_explicit_address(clie
     assert sent[0][1].startswith("[TEST PREVIEW]")
     assert b"TEST PREVIEW" in sent[0][2].encode()
     assert EmailMessage.query.filter_by(kind="admin_test", status="sent").count() == 1
+
+
+def test_email_studio_test_send_rejects_missing_or_customer_test_recipient(client, app, app_context):
+    account = CustomerAccount(
+        email="studio-test-collision@example.test",
+        display_name="Test Context",
+        email_verified_at=datetime.utcnow(),
+    )
+    db.session.add(account)
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    payload = {
+        "category": "customer_service", "account_id": str(account.id),
+        "subject": "Hello {{ customer_name }}", "headline": "Test greeting",
+        "message": "This is test data.", "action": "send_test",
+        "confirm_test": "SEND TEST",
+    }
+
+    app.config["MAIL_TEST_ADDRESS"] = ""
+    result = client.post("/admin/email/studio", data=payload, follow_redirects=True)
+    assert b"Set MAIL_TEST_ADDRESS" in result.data
+    assert EmailMessage.query.filter_by(kind="admin_test").count() == 0
+
+    app.config["MAIL_TEST_ADDRESS"] = account.email
+    result = client.post("/admin/email/studio", data=payload, follow_redirects=True)
+    assert b"matches a customer account" in result.data
+    assert EmailMessage.query.filter_by(kind="admin_test").count() == 0
 
 
 def test_email_studio_promotion_requires_preview_consent_and_real_catalogue_items(client, app, app_context, monkeypatch):
@@ -4797,6 +5781,8 @@ def test_stale_claim_recovery_marks_linked_attempt_ambiguous(app, app_context):
     db.session.refresh(attempt)
     assert row.status == "failed"
     assert row.error_category == "ambiguous_outcome"
+    assert row.html_body is None
+    assert row.text_body is None
     assert attempt.status == "ambiguous"
     assert attempt.error_category == "ambiguous_outcome"
     assert attempt.completed_at is not None
@@ -4840,9 +5826,13 @@ def test_legacy_email_admin_routes_require_admin_identity(client, app):
         browser_session["_user_id"] = customer_id
         browser_session["_fresh"] = True
     assert client.get("/admin/email").status_code == 403
+    assert client.get("/admin/email/studio").status_code == 403
+    assert client.post("/admin/email/studio", data={"action": "send_test"}).status_code == 403
+    assert client.get("/admin/email/studio-messages").status_code == 403
     _sign_in_admin(client, app)
     app.config["WTF_CSRF_ENABLED"] = True
     assert client.post("/admin/email/send-manual", data={}).status_code == 400
+    assert client.post("/admin/email/studio", data={"action": "send_test"}).status_code == 400
 
 
 def test_expired_authentication_payload_cleanup_stops_retry_and_erases_body(app, app_context):

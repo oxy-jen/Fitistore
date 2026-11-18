@@ -891,8 +891,36 @@ def unsubscribe(token):
             row.used_at = datetime.utcnow()
             _record_consent(account, "withdrawn", "unsubscribe_link")
             db.session.commit()
-            from app.services.customer_mail import queue_branded_email
-            queue_branded_email(account.email, "FityStores email preferences updated", "unsubscribe_confirmation", f"unsubscribe-link:{row.id}", "Promotional email stopped", ["You have been unsubscribed from promotional FityStores emails. Essential account and order messages may still be sent."], account_id=account.id)
+            try:
+                queued = queue_branded_email(
+                    account.email, "FityStores email preferences updated",
+                    "unsubscribe_confirmation", f"unsubscribe-link:{row.id}",
+                    "Promotional email stopped",
+                    ["You have been unsubscribed from promotional FityStores emails. Essential account and order messages may still be sent."],
+                    account_id=account.id,
+                )
+            except Exception as exc:
+                db.session.rollback()
+                logger.warning(
+                    "unsubscribe_confirmation_queue_failed account_id=%s error_type=%s",
+                    account.id, type(exc).__name__,
+                )
+                flash(
+                    "Your unsubscribe is complete, but we couldn't queue a confirmation email.",
+                    "warning",
+                )
+            else:
+                status = getattr(queued, "status", None)
+                if status not in {"queued", "sent", "delivered"}:
+                    db.session.rollback()
+                    logger.warning(
+                        "unsubscribe_confirmation_queue_failed account_id=%s result_status=%s",
+                        account.id, status if isinstance(status, str) else "missing",
+                    )
+                    flash(
+                        "Your unsubscribe is complete, but we couldn't queue a confirmation email.",
+                        "warning",
+                    )
     return render_template("customer/unsubscribed.html", title="Email preferences updated")
 
 

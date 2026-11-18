@@ -22,6 +22,13 @@ HISTORICAL_MIGRATIONS = (
     "20261028_email_builder",
     "20261029_consent_wording_version",
 )
+CUSTOMER_EMAIL_ADDITIVE_MIGRATIONS = (
+    "20261113_email_outbox",
+    "20261117_email_admin_test_purpose",
+    "20261116_email_delivery_ops",
+    "20261117_email_legacy_review",
+    "20261117_customer_consent_audit_immutable",
+)
 HISTORY_TABLE = "email_migration_history"
 _HISTORY_DDL = """CREATE TABLE IF NOT EXISTS email_migration_history (
     migration_id VARCHAR(120) PRIMARY KEY,
@@ -142,14 +149,39 @@ def validate_history_checksums(connection) -> list[str]:
             mismatches.append(migration_id)
     if mismatches:
         raise ValueError("Email migration history checksum mismatch: " + ", ".join(sorted(mismatches)))
+    for migration_id, row in rows.items():
+        allowed_states = (
+            {"applied", "reconciled_schema"}
+            if migration_id in HISTORICAL_MIGRATIONS
+            else {"applied"}
+        )
+        if row["state"] not in allowed_states:
+            raise ValueError(f"Email migration history state is invalid for {migration_id}.")
     return sorted(set(expected_ids) - set(rows))
 
 
-def verify_legacy_schema(connection, schema: str | None = None) -> list[str]:
-    """Use the strict existing schema guard before reconciling untracked legacy state."""
-    from scripts.customer_email_schema_guard import validate_schema
+def validate_customer_email_history(connection, *, require_complete: bool = False) -> None:
+    """Require checksummed customer/email history entries in valid states."""
+    if not inspect(connection).has_table(HISTORY_TABLE):
+        raise ValueError("Customer/email migration history table is missing.")
+    ensure_history_table(connection)
+    missing = set(validate_history_checksums(connection))
+    required = {MIGRATION_HISTORY_ID, *HISTORICAL_MIGRATIONS}
+    if require_complete:
+        required.update(CUSTOMER_EMAIL_ADDITIVE_MIGRATIONS)
+    missing_required = sorted(required & missing)
+    if missing_required:
+        raise ValueError(
+            "Required customer/email migration history entries are missing: "
+            + ", ".join(missing_required)
+        )
 
-    return validate_schema(connection, schema or "public", allow_approved_missing=True)
+
+def verify_legacy_schema(connection, schema: str | None = None) -> list[str]:
+    """Require the complete historical schema before reconciling legacy state."""
+    from scripts.customer_email_schema_guard import validate_historical_schema
+
+    return validate_historical_schema(connection, schema or "public")
 
 
 def current_table_names(connection) -> set[str]:

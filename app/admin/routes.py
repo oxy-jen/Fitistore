@@ -15,6 +15,7 @@ from urllib.parse import unquote, urlparse
 from flask import Blueprint, Response, current_app, flash, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 from app.extensions import db
@@ -23,7 +24,7 @@ from app.services.mamba_collection import MAMBA_CATEGORY_NAMES, mamba_collection
 from app.services.category_thumbnails import CATEGORY_GROUPS, CATEGORY_GROUPS_BY_KEY, category_group_key, category_thumbnails_schema_ready
 from app.services.formatting import parse_money
 from app.services.inventory import InventoryError, adjust_stock, adjust_variant_stock, low_stock_products
-from app.services.orders import FULFILMENT_STATUSES, PAYMENT_STATUSES, award_loyalty_for_order, refundable_cents, sales_summary, update_order_status
+from app.services.orders import FULFILMENT_STATUSES, PAYMENT_STATUSES, allowed_order_statuses, award_loyalty_for_order, refundable_cents, sales_summary, update_order_status
 from app.services.product_images import ImageStorageError, cloudinary_configured, cloudinary_public_id, delete_cloudinary_asset, legacy_local_image_path, upload_image_bytes
 
 admin_bp = Blueprint("admin", __name__, template_folder="../templates/admin")
@@ -1484,7 +1485,8 @@ def orders():
     if status:
         query = query.filter(Order.status == status)
     orders = query.order_by(Order.created_at.desc()).all()
-    return render_template("admin/orders.html", title="Orders", orders=orders, fulfilment_statuses=FULFILMENT_STATUSES, payment_statuses=PAYMENT_STATUSES, q=q, status=status, payment_status=payment_status)
+    status_options = {order.id: allowed_order_statuses(order) for order in orders}
+    return render_template("admin/orders.html", title="Orders", orders=orders, fulfilment_statuses=FULFILMENT_STATUSES, status_options=status_options, payment_statuses=PAYMENT_STATUSES, q=q, status=status, payment_status=payment_status)
 
 @admin_bp.post("/orders/<int:order_id>")
 @login_required
@@ -1493,13 +1495,25 @@ def update_order(order_id):
     try:
         changes = update_order_status(order, request.form.get("status", order.status), request.form.get("payment_status", order.payment_status), request.form.get("notes", order.notes), current_user)
         db.session.commit()
+        status_email_outcome = None
         if any(field == "status" for field, _old, _new in changes):
             event = OrderStatusHistory.query.filter_by(order_id=order.id, field="status").order_by(OrderStatusHistory.id.desc()).first()
+            link = CustomerOrderLink.query.filter_by(order_id=order.id).first()
+            account = link.account if link else None
+            status_email_eligible = bool(account and account.active and account.email_verified_at)
             try:
-                from app.services.customer_mail import notify_order_event
-                notify_order_event(order, "order_status", f"order-status:{event.id}" if event else f"order-status:{order.id}:{order.status}")
-            except Exception:
-                current_app.logger.error("Order status notification could not be prepared for order %s", order.id)
+                from app.services.customer_mail import notify_order_event, order_status_event_kind
+                status_kind = order_status_event_kind(order.status)
+                message = notify_order_event(order, status_kind, f"{status_kind}:{event.id}" if event else f"{status_kind}:{order.id}:{order.status}")
+                if status_email_eligible:
+                    status_email_outcome = getattr(message, "status", None) if message else "failed"
+                    if status_email_outcome not in {"queued", "sending", "sent"}:
+                        status_email_outcome = "failed"
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.error("order_status_notification_queue_failed order_id=%s error_type=%s", order.id, type(exc).__name__)
+                if status_email_eligible:
+                    status_email_outcome = "failed"
             if order.status == "Completed":
                 try:
                     from app.services.customer_mail import notify_order_event
@@ -1518,9 +1532,21 @@ def update_order(order_id):
             except Exception as exc:
                 current_app.logger.error("payment_failure_notification_queue_failed order_id=%s error_type=%s", order.id, type(exc).__name__)
         flash("Order updated." if changes else "No status change was needed.", "success")
+        if status_email_outcome == "queued":
+            flash("Customer status email queued; delivery has not yet been confirmed.", "info")
+        elif status_email_outcome == "sending":
+            flash("Customer status email is already being processed.", "info")
+        elif status_email_outcome == "sent":
+            flash("Customer status email was already sent.", "info")
+        elif status_email_outcome == "failed":
+            flash("Order updated, but the customer status email could not be queued.", "warning")
     except ValueError as exc:
         db.session.rollback()
         flash(str(exc), "error")
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        current_app.logger.error("order_update_database_failure order_id=%s error_type=%s", order_id, type(exc).__name__)
+        flash("The order update could not be confirmed. Refresh the page before retrying.", "error")
     return redirect(url_for("admin.orders"))
 @admin_bp.route("/suggestions")
 @login_required

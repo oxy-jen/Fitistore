@@ -68,10 +68,10 @@ def test_disabled_trigger_is_rejected():
 def _expected_index_rows():
     definitions = {
         "ix_marketing_suppression_case_account_detected": ("marketing_suppression_case", ("account_id", "detected_at"), False, None),
-        "uq_marketing_suppression_case_active": ("marketing_suppression_case", ("account_id", "source", "reason_code"), True, "cleared_atISNULL"),
+        "uq_marketing_suppression_case_active": ("marketing_suppression_case", ("account_id", "source", "reason_code"), True, "cleared_at IS NULL"),
         "ix_marketing_suppression_event_account_occurred": ("marketing_suppression_event", ("account_id", "occurred_at"), False, None),
         "ix_marketing_suppression_event_case_occurred": ("marketing_suppression_event", ("suppression_case_id", "occurred_at"), False, None),
-        "uq_marketing_suppression_event_provider_id": ("marketing_suppression_event", ("provider_name", "provider_event_id"), True, "provider_event_idISNOTNULL"),
+        "uq_marketing_suppression_event_provider_id": ("marketing_suppression_event", ("provider_name", "provider_event_id"), True, "provider_event_id IS NOT NULL"),
     }
     rows = []
     for name, (table, columns, unique, predicate) in definitions.items():

@@ -471,14 +471,25 @@ def register_cli(app: Flask):
             click.echo("Next step: no customer/email schema migration is needed.")
         else:
             click.echo("After confirming the target database and making a backup, the migration command is:")
-            click.echo("python -m flask --app manage:app migrate-customer-email-schema")
+            click.echo(
+                'python -m flask --app manage:app migrate-customer-email-schema '
+                '--confirmation "MIGRATE CUSTOMER EMAIL SCHEMA" '
+                '--backup-confirmation "I HAVE A VERIFIED RESTORABLE BACKUP"'
+            )
 
 
     @app.cli.command("migrate-customer-email-schema")
-    def migrate_customer_email_schema():
+    @click.option("--confirmation", default="", help="Type MIGRATE CUSTOMER EMAIL SCHEMA.")
+    @click.option("--backup-confirmation", default="", help="Type I HAVE A VERIFIED RESTORABLE BACKUP.")
+    def migrate_customer_email_schema(confirmation, backup_confirmation):
         """Create only the additive account/email tables for the active database."""
         from sqlalchemy import inspect, text
 
+        if (confirmation != "MIGRATE CUSTOMER EMAIL SCHEMA"
+                or backup_confirmation != "I HAVE A VERIFIED RESTORABLE BACKUP"):
+            raise click.ClickException(
+                "Exact migration and verified-backup confirmations are required; no schema changes were made."
+            )
         dialect = database_dialect_name()
         if dialect not in {"sqlite", "postgresql", "postgres"}:
             raise click.ClickException(
@@ -545,6 +556,15 @@ def register_cli(app: Flask):
                                 # Leave an unexpected partial table untouched; validation below fails closed.
                                 template_has_category_unique = False
                             else:
+                                supported_template_columns = required_legacy_columns | {"name", "blocks_json"}
+                                unexpected_template_columns = template_columns - supported_template_columns
+                                if unexpected_template_columns:
+                                    raise click.ClickException(
+                                        "Cannot rebuild email_template because unsupported column(s) would be lost: "
+                                        + ", ".join(sorted(unexpected_template_columns))
+                                        + ". Preserve or migrate these columns explicitly, then retry; "
+                                        "the transaction was rolled back."
+                                    )
                                 connection.exec_driver_sql("DROP INDEX IF EXISTS ix_email_template_category")
                                 connection.exec_driver_sql("ALTER TABLE email_template RENAME TO email_template_legacy")
                                 db.metadata.tables["email_template"].create(bind=connection)
@@ -590,8 +610,9 @@ def register_cli(app: Flask):
                 # All related migrations share one non-blocking transaction lock.
                 from .services.email_migrations import (
                     HISTORICAL_MIGRATIONS, MIGRATION_HISTORY_ID, acquire_migration_lock,
-                    ensure_history_table, history_rows, record_migration,
-                    validate_history_checksums, has_legacy_email_schema,
+                    ensure_history_table, record_migration,
+                    validate_customer_email_history, validate_history_checksums,
+                    has_legacy_email_schema,
                 )
                 with db.engine.begin() as connection:
                     acquire_migration_lock(connection)
@@ -603,15 +624,8 @@ def register_cli(app: Flask):
                             "no migration was applied."
                         )
                     ensure_history_table(connection)
-                    rows = history_rows(connection)
                     if history_existed:
                         validate_history_checksums(connection)
-                        missing_historical = [item for item in HISTORICAL_MIGRATIONS if item not in rows]
-                        if missing_historical:
-                            raise click.ClickException(
-                                "Historical migration evidence is incomplete: " + ", ".join(missing_historical) +
-                                ". Reconcile only after validating the existing schema."
-                            )
                     else:
                         record_migration(connection, MIGRATION_HISTORY_ID, state="applied",
                                          evidence="central checksum ledger installed before first customer/email migration")
@@ -624,6 +638,7 @@ def register_cli(app: Flask):
                             record_migration(connection, migration_id, state="applied",
                                              evidence="executed by migrate-customer-email-schema in the ledger transaction")
 
+                    validate_customer_email_history(connection)
                     email_columns = {column["name"] for column in inspect(connection).get_columns("email_message")}
                     if "retry_count" not in email_columns:
                         connection.execute(text("ALTER TABLE email_message ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"))
@@ -644,9 +659,10 @@ def register_cli(app: Flask):
             raise
         except Exception as exc:
             db.session.rollback()
+            detail = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
             raise click.ClickException(
                 f"Customer/email schema migration failed for {dialect} "
-                f"({type(exc).__name__}); the transaction was rolled back where supported."
+                f"({detail}); the transaction was rolled back where supported."
             ) from None
 
         created = sorted((after - before) & table_names)
@@ -654,43 +670,81 @@ def register_cli(app: Flask):
         click.echo(f"Customer account/email schema ready for {dialect}.")
         click.echo("Created tables: " + (", ".join(created) if created else "none"))
         click.echo("Already existing tables: " + (", ".join(existed) if existed else "none"))
-        click.echo("No existing store records were changed.")
+        click.echo(
+            "Existing customer, order, and product records were not modified. "
+            "Legacy email-purpose metadata may have been normalized."
+        )
 
 
     @app.cli.command("reconcile-customer-email-migration-history")
-    @click.option("--confirmation", required=True, help="Type RECONCILE VERIFIED CUSTOMER EMAIL SCHEMA")
-    def reconcile_customer_email_migration_history(confirmation):
+    @click.option("--confirmation", default="", help="Type RECONCILE VERIFIED CUSTOMER EMAIL SCHEMA.")
+    @click.option("--backup-confirmation", default="", help="Type I HAVE A VERIFIED RESTORABLE BACKUP.")
+    def reconcile_customer_email_migration_history(confirmation, backup_confirmation):
         """Record an explicit schema-based reconciliation for historic migrations."""
-        if confirmation != "RECONCILE VERIFIED CUSTOMER EMAIL SCHEMA":
-            raise click.ClickException("Confirmation phrase did not match; no history was recorded.")
+        if (confirmation != "RECONCILE VERIFIED CUSTOMER EMAIL SCHEMA"
+                or backup_confirmation != "I HAVE A VERIFIED RESTORABLE BACKUP"):
+            raise click.ClickException(
+                "Exact reconciliation and verified-backup confirmations are required; no history was recorded."
+            )
         from .services.email_migrations import (
             HISTORICAL_MIGRATIONS, MIGRATION_HISTORY_ID, acquire_migration_lock,
             ensure_history_table, history_rows, record_migration,
             validate_history_checksums, verify_legacy_schema, has_legacy_email_schema,
         )
         try:
+            from sqlalchemy import inspect
+
             with db.engine.begin() as connection:
                 acquire_migration_lock(connection)
+                if connection.dialect.name == "sqlite":
+                    connection.exec_driver_sql("BEGIN IMMEDIATE")
                 if not has_legacy_email_schema(connection):
                     raise click.ClickException("No existing customer/email schema was found to reconcile.")
-                ensure_history_table(connection)
-                validate_history_checksums(connection)
+
+                history_exists = inspect(connection).has_table("email_migration_history")
+                if history_exists:
+                    ensure_history_table(connection)
+                missing_ids = set(validate_history_checksums(connection))
                 evidence = verify_legacy_schema(connection, "public")
                 existing = history_rows(connection)
+                if not history_exists:
+                    ensure_history_table(connection)
+
+                # The checksum registry also contains later migrations that are
+                # intentionally pending at reconciliation time. Account for
+                # every reported omission explicitly; only the history ledger
+                # and the four validated historical entries are written here.
+                reconciliation_ids = {MIGRATION_HISTORY_ID, *HISTORICAL_MIGRATIONS}
+                pending_ids = missing_ids - reconciliation_ids
+                pending_evidence = (
+                    " Later registered migrations remain pending: " + ", ".join(sorted(pending_ids)) + "."
+                    if pending_ids else ""
+                )
+
                 record_migration(connection, MIGRATION_HISTORY_ID, state="applied",
-                                 evidence="central checksum ledger installed by explicit schema reconciliation")
+                                 evidence="central checksum ledger installed after strict historical schema validation."
+                                 + pending_evidence)
                 for migration_id in HISTORICAL_MIGRATIONS:
-                    if migration_id not in existing:
+                    if migration_id in missing_ids and migration_id not in existing:
                         record_migration(
                             connection, migration_id, state="reconciled_schema",
-                            evidence="strict current schema guard passed; original historical file execution cannot be proven; "
-                                     + "; ".join(evidence)[:700],
+                            evidence="complete historical schema strictly validated; historical SQL was not executed; "
+                                     + "; ".join(evidence)[:700] + pending_evidence,
                         )
+                from .services.email_migrations import validate_customer_email_history
+                validate_customer_email_history(connection)
             click.echo("Historical migration state recorded as reconciled_schema where absent. Original file execution is not asserted.")
         except Exception as exc:
             db.session.rollback()
+            from scripts.customer_email_schema_guard import GuardError
+            from .services.email_migrations import MigrationLockBusy
+            detail = (
+                str(exc)
+                if isinstance(exc, (GuardError, MigrationLockBusy, ValueError))
+                else type(exc).__name__
+            )
             raise click.ClickException(
-                f"Customer/email schema reconciliation failed ({type(exc).__name__}); transaction rolled back."
+                f"Customer/email schema reconciliation failed ({detail}); transaction rolled back."
             ) from None
 
 
@@ -710,8 +764,11 @@ def register_cli(app: Flask):
     @app.cli.command("process-email-queue")
     @click.option("--limit", type=click.IntRange(1, 500), default=50, show_default=True)
     @click.option("--max-seconds", type=click.IntRange(1, 3600), default=300, show_default=True)
-    def process_email_queue_command(limit, max_seconds):
+    @click.option("--confirmation", default="", help="Type RUN EMAIL QUEUE to authorize this one-shot batch.")
+    def process_email_queue_command(limit, max_seconds, confirmation):
         """Run one bounded outbox batch; provider calls are never activated at app startup."""
+        if confirmation != "RUN EMAIL QUEUE":
+            raise click.ClickException("Email queue execution requires --confirmation 'RUN EMAIL QUEUE'; no messages were dispatched.")
         from .services.customer_mail import process_email_queue
         stopping = {"requested": False}
         previous_handler = signal.getsignal(signal.SIGTERM)
@@ -778,8 +835,15 @@ def register_cli(app: Flask):
 
 
     @app.cli.command("migrate-marketing-suppression-schema")
-    def migrate_marketing_suppression_schema():
+    @click.option("--confirmation", default="", help="Type APPLY MARKETING SUPPRESSION MIGRATION.")
+    @click.option("--backup-confirmation", default="", help="Type I HAVE A VERIFIED RESTORABLE BACKUP.")
+    def migrate_marketing_suppression_schema(confirmation, backup_confirmation):
         """Explicitly install the versioned, additive PostgreSQL suppression schema."""
+        if (confirmation != "APPLY MARKETING SUPPRESSION MIGRATION"
+                or backup_confirmation != "I HAVE A VERIFIED RESTORABLE BACKUP"):
+            raise click.ClickException(
+                "Exact migration and verified-backup confirmations are required; no schema changes were made."
+            )
         if database_dialect_name() != "postgresql":
             raise click.ClickException("Marketing suppression schema migration is PostgreSQL-only.")
         from .services.marketing_suppressions import (
@@ -787,13 +851,13 @@ def register_cli(app: Flask):
         )
         try:
             from .services.email_migrations import (
-                acquire_migration_lock, history_rows, validate_history_checksums,
+                acquire_migration_lock, validate_customer_email_history,
             )
             with db.engine.begin() as connection:
                 acquire_migration_lock(connection)
-                if not history_rows(connection):
-                    raise click.ClickException("Customer/email migration history must be installed and reconciled first.")
-                validate_history_checksums(connection)
+                validate_customer_email_history(connection, require_complete=True)
+                from scripts.customer_email_schema_guard import validate_schema
+                validate_schema(connection, "public", allow_approved_missing=False)
                 applied = apply_marketing_suppression_migration(connection)
             click.echo(
                 "Marketing suppression schema migration "
@@ -803,8 +867,9 @@ def register_cli(app: Flask):
             click.echo("Only suppression schema and conservative legacy suppression history were added.")
         except Exception as exc:
             db.session.rollback()
+            detail = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
             raise click.ClickException(
-                f"Marketing suppression migration failed ({type(exc).__name__}); "
+                f"Marketing suppression migration failed ({detail}); "
                 "the PostgreSQL transaction was rolled back."
             ) from None
 

@@ -115,7 +115,12 @@ jobs:
       - name: Apply the scoped customer email migration
         env:
           FLASK_APP: manage:app
-        run: python -m flask --app manage:app migrate-customer-email-schema
+          MIGRATION_CONFIRMATION: ${{ inputs.confirmation }}
+          BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+        run: >-
+          python -m flask --app manage:app migrate-customer-email-schema
+          --confirmation "$MIGRATION_CONFIRMATION"
+          --backup-confirmation "$BACKUP_CONFIRMATION"
       - name: Strict post-migration schema validation
         env:
           DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}

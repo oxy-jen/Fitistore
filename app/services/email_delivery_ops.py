@@ -8,6 +8,7 @@ from pathlib import Path
 from sqlalchemy import text
 
 from app.extensions import db
+from app.services.sql_schema_utils import normalize_sql_definition
 
 MIGRATION_ID = "20261116_email_delivery_ops"
 _MIGRATION_FILE = Path(__file__).resolve().parents[2] / "migrations" / f"{MIGRATION_ID}.sql"
@@ -117,23 +118,6 @@ def validate_email_delivery_ops_schema(connection, *, schema: str | None = None)
         actual = {row["name"] for row in inspector.get_columns(name, schema=schema_arg)}
         if not columns <= actual:
             raise ValueError(f"Email delivery operations table {name} is missing required columns.")
-    def normalize_definition(value: str) -> str:
-        value = re.sub(r"::(?:character varying|varchar|text|bpchar)\b", "", value.lower())
-        value = re.sub(r"\s+", "", value).replace('"', "").replace("`", "")
-        while value.startswith("(") and value.endswith(")"):
-            depth = 0
-            wraps_all = True
-            for index, char in enumerate(value):
-                depth += char == "("
-                depth -= char == ")"
-                if depth == 0 and index != len(value) - 1:
-                    wraps_all = False
-                    break
-            if not wraps_all:
-                break
-            value = value[1:-1]
-        return value
-
     from app.models import (
         EmailDeliveryAttempt, EmailDeliveryInvestigation,
         EmailDeliveryInvestigationEvent, EmailWorkerRun,
@@ -141,12 +125,12 @@ def validate_email_delivery_ops_schema(connection, *, schema: str | None = None)
     for model in (EmailDeliveryAttempt, EmailDeliveryInvestigation,
                   EmailDeliveryInvestigationEvent, EmailWorkerRun):
         expected_checks = {
-            item.name: normalize_definition(str(item.sqltext))
+            item.name: normalize_sql_definition(str(item.sqltext))
             for item in model.__table__.constraints
             if item.__class__.__name__ == "CheckConstraint"
         }
         actual_checks = {
-            row.get("name"): normalize_definition(row.get("sqltext") or "")
+            row.get("name"): normalize_sql_definition(row.get("sqltext") or "")
             for row in inspector.get_check_constraints(model.__tablename__, schema=schema_arg)
         }
         for check_name, expected_definition in expected_checks.items():
@@ -176,10 +160,10 @@ def validate_email_delivery_ops_schema(connection, *, schema: str | None = None)
             actual_predicate = options.get("postgresql_where")
             if actual_predicate is None:
                 actual_predicate = options.get("sqlite_where")
-            predicate = normalize_definition(str(actual_predicate) if actual_predicate is not None else "")
+            predicate = normalize_sql_definition(str(actual_predicate) if actual_predicate is not None else "")
             if (not item or tuple(item.get("column_names") or ()) != columns
                     or bool(item.get("unique")) != unique
-                    or predicate != normalize_definition(expected_predicate)):
+                    or predicate != normalize_sql_definition(expected_predicate)):
                 raise ValueError(f"Email operations index {index_name} is missing or incompatible.")
     for model in (EmailDeliveryAttempt, EmailDeliveryInvestigation,
                   EmailDeliveryInvestigationEvent, EmailWorkerRun):
@@ -236,7 +220,7 @@ def validate_email_delivery_ops_schema(connection, *, schema: str | None = None)
                     or row["relname"] != "email_delivery_investigation_event"
                     or row["nspname"] != (schema or connection.execute(text("SELECT current_schema()")).scalar_one())
                     or row["tgtype"] != expected_tgtype
-                    or normalize_definition(row["prosrc"]) != expected_source):
+                    or normalize_sql_definition(row["prosrc"]) != expected_source):
                 raise ValueError(f"Append-only trigger {name} is missing, disabled, or miswired.")
         mutation = by_name["trg_email_investigation_event_immutable"]
         truncate = by_name["trg_email_investigation_event_no_truncate"]
@@ -268,7 +252,7 @@ def validate_email_delivery_ops_schema(connection, *, schema: str | None = None)
                   AND col.attname='id'
             """), {"sequence_name": sequence_name or "", "schema_name": schema or connection.execute(
                 text("SELECT current_schema()")).scalar_one(), "table_name": table_name}).mappings().first()
-            expression = normalize_definition(str((default_ref or {}).get("expression") or ""))
+            expression = normalize_sql_definition(str((default_ref or {}).get("expression") or ""))
             if (not id_column or not sequence_name or not default_ref
                     or not expression.startswith("nextval(")
                     or not default_ref["uses_owned_sequence"]):
@@ -288,16 +272,16 @@ def validate_email_delivery_ops_schema(connection, *, schema: str | None = None)
                 if not state or not state["indisvalid"] or not state["indisready"]:
                     raise ValueError(f"Email operations index {index_name} is invalid or not ready.")
     else:
-        trigger_definitions = {row["name"]: normalize_definition(row["sql"] or "")
+        trigger_definitions = {row["name"]: normalize_sql_definition(row["sql"] or "")
                                for row in connection.execute(text(
                                    "SELECT name, sql FROM sqlite_master WHERE type='trigger'"
                                )).mappings()}
         expected_trigger_definitions = {
-            "trg_email_investigation_event_immutable": normalize_definition(
+            "trg_email_investigation_event_immutable": normalize_sql_definition(
                 "CREATE TRIGGER trg_email_investigation_event_immutable BEFORE UPDATE ON "
                 "email_delivery_investigation_event BEGIN SELECT RAISE(ABORT, "
                 "'email investigation events are append-only'); END"),
-            "trg_email_investigation_event_no_delete": normalize_definition(
+            "trg_email_investigation_event_no_delete": normalize_sql_definition(
                 "CREATE TRIGGER trg_email_investigation_event_no_delete BEFORE DELETE ON "
                 "email_delivery_investigation_event BEGIN SELECT RAISE(ABORT, "
                 "'email investigation events are append-only'); END"),

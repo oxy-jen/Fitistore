@@ -235,6 +235,54 @@ def test_voluntary_unsubscribe_remains_separate_from_sticky_suppression(app, app
     assert account.marketing_status == "unsubscribed"
     assert account.marketing_withdrawn_at is not None
     assert MarketingSuppressionCase.query.filter_by(account_id=account.id).count() == 0
+    confirmation = EmailMessage.query.filter_by(
+        idempotency_key=f"unsubscribe-link:{CustomerToken.query.filter_by(purpose='unsubscribe').one().id}",
+    ).one()
+    assert confirmation.status == "queued"
+
+
+@pytest.mark.parametrize("queue_result", ["exception", "none", "failed"])
+def test_unsubscribe_stays_effective_when_confirmation_queue_fails(
+    app, app_context, client, monkeypatch, caplog, queue_result,
+):
+    from types import SimpleNamespace
+
+    account = _account("unsubscribe-queue-failure@example.test")
+    raw_token = "unsubscribe-queue-failure-token"
+    token = CustomerToken(
+        account_id=account.id, purpose="unsubscribe",
+        token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+        expires_at=datetime.utcnow() + timedelta(hours=2),
+    )
+    db.session.add(token)
+    db.session.commit()
+
+    if queue_result == "exception":
+        def fail_confirmation(*_args, **_kwargs):
+            raise RuntimeError("queue unavailable")
+        monkeypatch.setattr("app.customer.routes.queue_branded_email", fail_confirmation)
+    elif queue_result == "none":
+        monkeypatch.setattr("app.customer.routes.queue_branded_email", lambda *_args, **_kwargs: None)
+    else:
+        monkeypatch.setattr(
+            "app.customer.routes.queue_branded_email",
+            lambda *_args, **_kwargs: SimpleNamespace(status="failed"),
+        )
+    response = client.post(f"/account/unsubscribe/{raw_token}")
+
+    db.session.refresh(account)
+    db.session.refresh(token)
+    assert response.status_code == 200
+    assert account.marketing_status == "unsubscribed"
+    assert account.marketing_withdrawn_at is not None
+    assert token.used_at is not None
+    assert CustomerConsentEvent.query.filter_by(
+        account_id=account.id, event="withdrawn", method="unsubscribe_link",
+    ).count() == 1
+    response_text = response.get_data(as_text=True)
+    assert "Your unsubscribe is complete" in response_text
+    assert "confirmation email" in response_text
+    assert "unsubscribe_confirmation_queue_failed" in caplog.text
 
 
 def test_marketing_generic_unsubscribe_maps_to_unclassified_provider_suppression(client, app, app_context, monkeypatch):
@@ -410,7 +458,39 @@ def test_migration_is_postgres_only_and_has_whole_trigger_statement(app, app_con
 
 def test_migration_cli_is_explicit_and_rejects_sqlite_without_schema_changes(app, app_context):
     before = set(inspect(db.engine).get_table_names())
-    result = app.test_cli_runner().invoke(args=["migrate-marketing-suppression-schema"])
+    missing_confirmation = app.test_cli_runner().invoke(
+        args=["migrate-marketing-suppression-schema"]
+    )
+    assert missing_confirmation.exit_code != 0
+    assert "verified-backup confirmations are required" in missing_confirmation.output
+    assert set(inspect(db.engine).get_table_names()) == before
+    result = app.test_cli_runner().invoke(args=[
+        "migrate-marketing-suppression-schema",
+        "--confirmation", "APPLY MARKETING SUPPRESSION MIGRATION",
+        "--backup-confirmation", "I HAVE A VERIFIED RESTORABLE BACKUP",
+    ])
     assert result.exit_code != 0
     assert "PostgreSQL-only" in result.output
     assert set(inspect(db.engine).get_table_names()) == before
+
+
+def test_suppression_migration_rejects_incomplete_customer_email_history(app, app_context, monkeypatch):
+    import app as app_module
+    from app.services.email_migrations import ensure_history_table, record_migration
+
+    monkeypatch.setattr(app_module, "database_dialect_name", lambda: "postgresql")
+    with db.engine.begin() as connection:
+        ensure_history_table(connection)
+        record_migration(
+            connection, "20261117_email_migration_history",
+            state="applied", evidence="test ledger",
+        )
+
+    result = app.test_cli_runner().invoke(args=[
+        "migrate-marketing-suppression-schema",
+        "--confirmation", "APPLY MARKETING SUPPRESSION MIGRATION",
+        "--backup-confirmation", "I HAVE A VERIFIED RESTORABLE BACKUP",
+    ])
+    assert result.exit_code != 0
+    assert "Required customer/email migration history entries are missing" in result.output
+    assert not inspect(db.engine).has_table("marketing_suppression_schema_migration")

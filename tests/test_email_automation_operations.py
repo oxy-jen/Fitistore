@@ -8,6 +8,7 @@ def test_email_queue_workflow_is_explicitly_disabled_until_repository_variable_e
     assert "vars.EMAIL_QUEUE_ENABLED == 'true'" in workflow
     assert "inputs.confirmation == 'RUN EMAIL QUEUE'" in workflow
     assert "github.ref == 'refs/heads/main'" in workflow
+    assert '--confirmation "$QUEUE_CONFIRMATION"' in workflow
     assert "DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}" in workflow
     assert "python scripts/customer_email_schema_guard.py preflight" in workflow
     assert "process-email-queue" in workflow

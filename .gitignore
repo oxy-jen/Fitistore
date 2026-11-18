@@ -26,6 +26,7 @@ app/static/uploads/*
 
 # Testing and coverage
 .pytest_cache/
+.pytest-*/
 .coverage
 htmlcov/
 

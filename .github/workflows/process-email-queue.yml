@@ -85,4 +85,5 @@ jobs:
           MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
           MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
           QUEUE_LIMIT: ${{ inputs.limit || '25' }}
-        run: python -m flask --app manage:app process-email-queue --limit "$QUEUE_LIMIT" --max-seconds 240
+          QUEUE_CONFIRMATION: ${{ inputs.confirmation || 'RUN EMAIL QUEUE' }}
+        run: python -m flask --app manage:app process-email-queue --limit "$QUEUE_LIMIT" --max-seconds 240 --confirmation "$QUEUE_CONFIRMATION"

@@ -741,6 +741,7 @@ def recover_stale_email_claims(*, age_minutes: int = 30, now: datetime | None = 
             ).values(status="failed", error_category="ambiguous_outcome", next_attempt_at=None,
                      claim_token=None, claimed_at=None,
                      failure_reason="Worker stopped after dispatch claim; provider acceptance is unknown.",
+                     html_body=None, text_body=None,
                      updated_at=now)
         ).rowcount
         if changed == 1:
@@ -1039,6 +1040,31 @@ def _render_order_received_email(order, account):
     return html_body, "\n".join(text_lines)
 
 
+ORDER_STATUS_EMAIL_KINDS = {
+    "Preparing order": "order_processing",
+    "Ready for collection": "ready_for_collection",
+    "Out for delivery": "order_dispatched",
+    "Cancelled": "order_cancellation",
+    "Completed": "order_completed",
+}
+
+
+def order_status_event_kind(order_status: str | None) -> str:
+    return ORDER_STATUS_EMAIL_KINDS.get((order_status or "").strip(), "order_status")
+
+
+def _order_status_notification_matches_fulfilment(order, event_name: str) -> bool:
+    if order_status_event_kind(order.status) != event_name:
+        return False
+    if event_name == "ready_for_collection":
+        from app.services.orders import fulfilment_type
+        return fulfilment_type(order.fulfilment_method) == "collection"
+    if event_name == "order_dispatched":
+        from app.services.orders import fulfilment_type
+        return fulfilment_type(order.fulfilment_method) == "delivery"
+    return True
+
+
 def notify_order_event(order, event_name: str, idempotency_key: str):
     from sqlalchemy.orm import selectinload
     from app.models import CustomerOrderLink, Order, OrderItem, Product, ProductVariant
@@ -1050,6 +1076,11 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
         return None
     if event_name == "payment_failed" and order.payment_status != "Failed":
         return None
+    if event_name == "order_status":
+        event_name = order_status_event_kind(order.status)
+    if event_name in ORDER_STATUS_EMAIL_KINDS.values():
+        if not _order_status_notification_matches_fulfilment(order, event_name):
+            return None
     payment_method = "Not recorded"
     if event_name == "order_received":
         order = Order.query.options(
@@ -1094,6 +1125,18 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
             button_url=(_email_public_base_url() + url_for("public.reviews", _external=False)),
             button_text="Write a review",
         )
+    elif event_name in ORDER_STATUS_EMAIL_KINDS.values():
+        payment_attempt = next(iter(order.payment_attempts or []), None)
+        payment_method = payment_attempt.payment_method if payment_attempt else "Not recorded"
+        status_copy = {
+            "order_processing": ("Your order is being prepared", "The store has started preparing your order."),
+            "ready_for_collection": ("Your order is ready for collection", "Your order is ready. Follow the collection instructions and confirm the meeting point before travelling."),
+            "order_dispatched": ("Your order is out for delivery", "Your order is out for delivery. Keep your phone available for delivery coordination."),
+            "order_cancellation": ("Your order was cancelled", "The store has marked this order cancelled. Contact us if you need help."),
+            "order_completed": ("Your order is complete", "The store has marked this order completed."),
+        }
+        heading, detail = status_copy[event_name]
+        subject = f"{heading}: {order.reference} | FITYStores"
     elif event_name == "order_status":
         payment_attempt = next(iter(order.payment_attempts or []), None)
         payment_method = payment_attempt.payment_method if payment_attempt else "Not recorded"
@@ -1101,11 +1144,6 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
             "Order received": ("We received your order", "Your order request is waiting for seller review."),
             "Awaiting payment": ("Payment is pending", "The order is awaiting payment. Follow the payment instructions confirmed by the store; a reference or screenshot alone does not confirm payment."),
             "Payment confirmed": ("Order update: payment confirmed", "The store recorded this order at the payment-confirmed stage."),
-            "Preparing order": ("Your order is being prepared", "The store has started preparing your order."),
-            "Ready for collection": ("Your order is ready for collection", "Your order is ready. Follow the collection instructions and confirm the meeting point before travelling."),
-            "Out for delivery": ("Your order is out for delivery", "Your order is out for delivery. Keep your phone available for delivery coordination."),
-            "Completed": ("Your order is complete", "The store has marked this order completed."),
-            "Cancelled": ("Your order was cancelled", "The store has marked this order cancelled. Contact us if you need help."),
         }
         heading, detail = status_copy.get(order.status, ("Your order status was updated", f"The current order status is {order.status}."))
         subject = f"{heading}: {order.reference} | FITYStores"
@@ -1123,7 +1161,7 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
             detail += " " + configured_instructions
     base_url = _email_public_base_url()
     tracking_url = base_url + url_for("public.track_order_link", reference=order.reference, tracking_token=order.tracking_token, _external=False)
-    return queue_branded_email(
+    message = queue_branded_email(
         link.account.email, subject, event_name, idempotency_key,
         heading, [
             f"Order reference: {order.reference}.", detail,
@@ -1136,6 +1174,18 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
         order_reference=order.reference,
         order_progress=_order_progress_stages(order),
     )
+    if event_name in {*ORDER_STATUS_EMAIL_KINDS.values(), "order_status"}:
+        if not message:
+            logger.error("order_status_email_queue_returned_no_message order_id=%s kind=%s", order.id, event_name)
+            return None
+        message_status = getattr(message, "status", None)
+        if message_status not in {"queued", "sending", "sent"}:
+            logger.error(
+                "order_status_email_queue_not_accepted order_id=%s kind=%s status=%s",
+                order.id, event_name, str(message_status or "unknown")[:48],
+            )
+            return None
+    return message
 
 
 def notify_refund_completed(refund, idempotency_key: str | None = None):

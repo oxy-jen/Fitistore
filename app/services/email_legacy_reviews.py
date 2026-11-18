@@ -9,15 +9,21 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import inspect, select, text, update
+from sqlalchemy import CheckConstraint, inspect, select, text, update
 
 from app.extensions import db
 from app.models import EmailLegacyPayloadReviewEvent, EmailMessage
+from app.services.sql_schema_utils import normalize_sql_definition
 
 MIGRATION_ID = "20261117_email_legacy_review"
 _MIGRATION_FILE = Path(__file__).resolve().parents[2] / "migrations" / f"{MIGRATION_ID}.sql"
 _TABLE = EmailLegacyPayloadReviewEvent.__tablename__
 _TRIGGER_FUNCTION = "fity_reject_email_legacy_review_mutation"
+_POSTGRESQL_SERVER_DEFAULTS = {
+    "action": "'quarantined'",
+    "provider_outcome": "'unknown'",
+    "provider_evidence": "''",
+}
 
 
 def migration_checksum() -> str:
@@ -26,14 +32,10 @@ def migration_checksum() -> str:
 
 def normalize_check_definition(definition: str) -> str:
     """Normalize CHECK deparser output across SQLite and PostgreSQL casts."""
-    value = "".join(str(definition or "").lower().replace('"', "").split())
-    for cast in (
-        "::charactervarying[]", "::charactervarying", "::varchar[]", "::varchar",
-        "::text[]", "::text", "::boolean", "::integer", "::smallint", "::bigint",
-    ):
-        value = value.replace(cast, "")
-    value = value.replace("check", "").replace("(", "").replace(")", "")
-    return value
+    value = str(definition or "").strip()
+    if value.lower().startswith("check"):
+        value = value[5:].strip()
+    return normalize_sql_definition(value)
 
 
 def apply_email_legacy_review_migration(connection, dialect: str) -> bool:
@@ -50,6 +52,10 @@ def apply_email_legacy_review_migration(connection, dialect: str) -> bool:
         raise ValueError("Email message and administrator tables must exist before legacy review migration.")
     db.metadata.create_all(bind=connection, tables=[EmailLegacyPayloadReviewEvent.__table__], checkfirst=True)
     if dialect in {"postgres", "postgresql"}:
+        for column, default in _POSTGRESQL_SERVER_DEFAULTS.items():
+            connection.execute(text(
+                f"ALTER TABLE {_TABLE} ALTER COLUMN {column} SET DEFAULT {default}"
+            ))
         connection.execute(text(f"""
             CREATE OR REPLACE FUNCTION {_TRIGGER_FUNCTION}()
             RETURNS trigger LANGUAGE plpgsql AS $$
@@ -102,8 +108,13 @@ def validate_email_legacy_review_schema(connection) -> None:
         "id", "message_id", "actor_admin_id", "actor_type", "action", "reason",
         "provider_outcome", "provider_evidence", "created_at",
     }
-    if {row["name"] for row in inspector.get_columns(_TABLE)} != expected_columns:
+    columns = {row["name"]: row for row in inspector.get_columns(_TABLE)}
+    if set(columns) != expected_columns:
         raise ValueError("Legacy email review event columns are incompatible.")
+    for name in _POSTGRESQL_SERVER_DEFAULTS:
+        expected_default = str(EmailLegacyPayloadReviewEvent.__table__.c[name].server_default.arg)
+        if normalize_sql_definition(str(columns[name].get("default") or "")) != normalize_sql_definition(expected_default):
+            raise ValueError(f"Legacy email review event default for {name} is incompatible.")
     if tuple(inspector.get_pk_constraint(_TABLE).get("constrained_columns") or ()) != ("id",):
         raise ValueError("Legacy email review event primary key is incompatible.")
     fk_shapes = {
@@ -119,18 +130,13 @@ def validate_email_legacy_review_schema(connection) -> None:
     checks = {row.get("name"): normalize_check_definition(row.get("sqltext") or "")
               for row in inspector.get_check_constraints(_TABLE)}
     expected_checks = {
-        "ck_email_legacy_review_actor": "(actor_type='admin'andactor_admin_idisnotnull)or(actor_type='system'andactor_admin_idisnull)",
-        "ck_email_legacy_review_action": "actionin('quarantined','reviewed')",
-        "ck_email_legacy_review_provider_outcome": "provider_outcomein('unknown','confirmed_not_accepted','confirmed_accepted')",
+        constraint.name: normalize_sql_definition(str(constraint.sqltext))
+        for constraint in EmailLegacyPayloadReviewEvent.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
     }
     for name, expected in expected_checks.items():
         actual = checks.get(name, "")
-        expected = expected.replace("(", "").replace(")", "")
-        any_form = expected.replace("actionin", "action=anyarray", 1) if expected.startswith("actionin") else (
-            expected.replace("provider_outcomein", "provider_outcome=anyarray", 1)
-            if expected.startswith("provider_outcomein") else ""
-        )
-        if actual != expected and actual != any_form:
+        if actual != expected:
             raise ValueError(f"Legacy email review constraint {name} is missing or altered.")
     index = next((row for row in inspector.get_indexes(_TABLE)
                   if row["name"] == "ix_email_legacy_review_message_created"), None)

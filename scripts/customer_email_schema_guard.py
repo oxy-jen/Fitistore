@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from dataclasses import dataclass
 
+from app.services.sql_schema_utils import normalize_sql_definition
+
 CONFIRMATION = "MIGRATE CUSTOMER EMAIL SCHEMA"
 BACKUP_CONFIRMATION = "I HAVE A VERIFIED RESTORABLE BACKUP"
 PREFLIGHT_CONFIRMATION = "PREFLIGHT CUSTOMER EMAIL SCHEMA"
@@ -29,6 +31,20 @@ EMAIL_DELIVERY_OPS_TABLES = {
 }
 EMAIL_LEGACY_REVIEW_TABLES = {"email_legacy_payload_review_event"}
 PRE_EMAIL_STUDIO_TABLES = EXPECTED_TABLES - EMAIL_STUDIO_TABLES - EMAIL_DELIVERY_OPS_TABLES - EMAIL_LEGACY_REVIEW_TABLES
+HISTORICAL_REQUIRED_TABLES = PRE_EMAIL_STUDIO_TABLES | EMAIL_STUDIO_TABLES
+HISTORICAL_APPROVED_MISSING_COLUMNS = {
+    ("customer_account", "two_factor_enabled"),
+    ("email_message", "retry_count"),
+    ("email_message", "provider_message_id"),
+    ("email_template", "name"),
+    ("email_template", "blocks_json"),
+    ("email_draft", "blocks_json"),
+    ("email_message", "template_id"),
+}
+HISTORICAL_APPROVED_MISSING_INDEXES = {
+    "ix_email_message_provider_message_id",
+    "ix_email_message_template_id",
+}
 APPROVED_MISSING_TABLES = EMAIL_STUDIO_TABLES | EMAIL_DELIVERY_OPS_TABLES | {"email_legacy_payload_review_event"}
 BASE_COLUMNS = {"admin_user": {"id"}, "order": {"id"}, "product": {"id"}}
 # These are the only missing objects approved for an existing feature schema.
@@ -57,17 +73,22 @@ APPROVED_MISSING_INDEXES = {
     "ix_email_message_claimed_at", "ix_email_message_next_attempt_at",
     "ix_email_message_claim_token",
 }
-def migration_index_manifest() -> dict[str, tuple[str, tuple[str, ...], bool]]:
+def migration_index_manifest() -> dict[str, tuple[str, tuple[str, ...], bool, str | None]]:
     sql = migration_sql()
     pattern = re.compile(
         r"CREATE\s+(UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+"
-        r"ON\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]+)\)",
-        re.IGNORECASE,
+        r"ON\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]+)\)(?:\s+WHERE\s+([^;]+))?",
+        re.IGNORECASE | re.DOTALL,
     )
     result = {}
     for match in pattern.finditer(sql):
-        unique, name, table, columns = match.groups()
-        result[name] = (table.lower(), tuple(part.strip().strip('"').lower() for part in columns.split(",")), bool(unique))
+        unique, name, table, columns, predicate = match.groups()
+        result[name] = (
+            table.lower(),
+            tuple(part.strip().strip('"').lower() for part in columns.split(",")),
+            bool(unique),
+            predicate.strip() if predicate else None,
+        )
     if not result:
         raise GuardError("Migration index definitions could not be verified.")
     statement_count = len(re.findall(r"CREATE\s+(?:UNIQUE\s+)?INDEX\b", sql, re.I))
@@ -281,6 +302,24 @@ def validate_column_snapshot(table, column, actual_type, actual_nullable, actual
         raise GuardError(f"Incompatible default for {table}.{column}.")
 
 
+def validate_sqlite_column_snapshot(
+    table, column, actual_type, actual_nullable, actual_default, expected, *, primary_key
+):
+    actual_type = canonical_sql_type(actual_type)
+    if actual_type == "DATETIME":
+        actual_type = "TIMESTAMP WITHOUT TIME ZONE"
+    if actual_type != expected.sql_type:
+        raise GuardError(f"Incompatible test-database type for {table}.{column}.")
+    if bool(actual_nullable) != expected.nullable:
+        raise GuardError(f"Incompatible test-database nullability for {table}.{column}.")
+    if expected.default == "__serial__":
+        default_matches = primary_key and actual_type == "INTEGER"
+    else:
+        default_matches = normalize_default(actual_default) == normalize_default(expected.default)
+    if not default_matches:
+        raise GuardError(f"Incompatible test-database default for {table}.{column}.")
+
+
 def missing_objects(table, expected, actual, approved, kind):
     missing = expected - actual
     if missing - approved:
@@ -305,7 +344,10 @@ def validate_fk_options(options):
         raise GuardError("Incompatible foreign-key timing mode.")
 
 
-def validate_postgres_index_snapshot(index_name, expected_table, expected_columns, expected_unique, snapshot):
+def validate_postgres_index_snapshot(
+    index_name, expected_table, expected_columns, expected_unique, snapshot, *,
+    expected_predicate=None, strict_definition=False,
+):
     """Fail closed unless PostgreSQL catalog metadata matches a plain btree index."""
     if not isinstance(snapshot, dict):
         raise GuardError(f"PostgreSQL metadata unavailable for index {index_name}.")
@@ -313,6 +355,10 @@ def validate_postgres_index_snapshot(index_name, expected_table, expected_column
         "name", "table", "columns", "unique", "valid", "has_predicate",
         "included_columns", "access_method", "key_count", "total_count",
     }
+    if strict_definition:
+        required.update({
+            "key_order", "collations_match", "operator_classes_default", "ready", "live", "predicate",
+        })
     if not required <= snapshot.keys():
         raise GuardError(f"PostgreSQL metadata incomplete for index {index_name}.")
     if (
@@ -321,22 +367,186 @@ def validate_postgres_index_snapshot(index_name, expected_table, expected_column
         or tuple(snapshot["columns"] or ()) != tuple(expected_columns)
         or bool(snapshot["unique"]) != bool(expected_unique)
         or snapshot["valid"] is not True
-        or snapshot["has_predicate"] is not False
+        or bool(snapshot["has_predicate"]) != (expected_predicate is not None)
         or tuple(snapshot["included_columns"] or ())
         or str(snapshot["access_method"]).lower() != "btree"
         or snapshot["key_count"] != len(expected_columns)
         or snapshot["total_count"] != len(expected_columns)
     ):
         raise GuardError(f"Incompatible PostgreSQL index definition: {index_name}.")
+    if strict_definition and (
+        tuple(snapshot["key_order"] or ()) != ("ASC NULLS LAST",) * len(expected_columns)
+        or tuple(snapshot["collations_match"] or ()) != (True,) * len(expected_columns)
+        or tuple(snapshot["operator_classes_default"] or ()) != (True,) * len(expected_columns)
+        or normalize_sql_definition(snapshot["predicate"] or "") != normalize_sql_definition(expected_predicate or "")
+        or snapshot["ready"] is not True
+        or snapshot["live"] is not True
+    ):
+        raise GuardError(f"Incompatible PostgreSQL index definition: {index_name}.")
 
 
-def postgres_index_catalog(connection, schema, table, index_names):
+def postgres_foreign_key_catalog(connection, schema, table):
+    """Read exact PostgreSQL foreign-key definitions and validation state."""
+    from sqlalchemy import text
+
+    if connection.dialect.name != "postgresql":
+        raise GuardError("PostgreSQL foreign-key catalog requested for a non-PostgreSQL connection.")
+    statement = text("""
+        SELECT constraint_data.conname AS constraint_name,
+               table_class.relname AS table_name,
+               referenced_namespace.nspname AS referred_schema,
+               referenced_class.relname AS referred_table,
+               constraint_data.convalidated AS validated,
+               constraint_data.condeferrable AS deferrable,
+               constraint_data.condeferred AS initially_deferred,
+               CASE constraint_data.confmatchtype
+                   WHEN 's' THEN 'SIMPLE'
+                   WHEN 'f' THEN 'FULL'
+                   WHEN 'p' THEN 'PARTIAL'
+                   ELSE 'UNKNOWN'
+               END AS match_type,
+               CASE constraint_data.confupdtype
+                   WHEN 'a' THEN 'NO ACTION'
+                   WHEN 'r' THEN 'RESTRICT'
+                   WHEN 'c' THEN 'CASCADE'
+                   WHEN 'n' THEN 'SET NULL'
+                   WHEN 'd' THEN 'SET DEFAULT'
+                   ELSE 'UNKNOWN'
+               END AS on_update,
+               CASE constraint_data.confdeltype
+                   WHEN 'a' THEN 'NO ACTION'
+                   WHEN 'r' THEN 'RESTRICT'
+                   WHEN 'c' THEN 'CASCADE'
+                   WHEN 'n' THEN 'SET NULL'
+                   WHEN 'd' THEN 'SET DEFAULT'
+                   ELSE 'UNKNOWN'
+               END AS on_delete,
+               ARRAY(
+                   SELECT attribute.attname
+                   FROM unnest(constraint_data.conkey) WITH ORDINALITY AS key_column(attnum, ordinal)
+                   JOIN pg_attribute AS attribute
+                     ON attribute.attrelid = table_class.oid
+                    AND attribute.attnum = key_column.attnum
+                   ORDER BY key_column.ordinal
+               ) AS columns,
+               ARRAY(
+                   SELECT attribute.attname
+                   FROM unnest(constraint_data.confkey) WITH ORDINALITY AS key_column(attnum, ordinal)
+                   JOIN pg_attribute AS attribute
+                     ON attribute.attrelid = referenced_class.oid
+                    AND attribute.attnum = key_column.attnum
+                   ORDER BY key_column.ordinal
+               ) AS referred_columns
+        FROM pg_class AS table_class
+        JOIN pg_namespace AS table_namespace ON table_namespace.oid = table_class.relnamespace
+        JOIN pg_constraint AS constraint_data ON constraint_data.conrelid = table_class.oid
+        JOIN pg_class AS referenced_class ON referenced_class.oid = constraint_data.confrelid
+        JOIN pg_namespace AS referenced_namespace ON referenced_namespace.oid = referenced_class.relnamespace
+        WHERE constraint_data.contype = 'f'
+          AND table_namespace.nspname = :schema
+          AND table_class.relname = :table
+    """)
+    try:
+        rows = connection.execute(statement, {"schema": schema, "table": table}).mappings()
+        return [
+            {
+                "name": row["constraint_name"],
+                "table": row["table_name"],
+                "referred_schema": row["referred_schema"],
+                "referred_table": row["referred_table"],
+                "validated": row["validated"],
+                "deferrable": row["deferrable"],
+                "initially_deferred": row["initially_deferred"],
+                "match_type": row["match_type"],
+                "on_update": row["on_update"],
+                "on_delete": row["on_delete"],
+                "columns": tuple(row["columns"] or ()),
+                "referred_columns": tuple(row["referred_columns"] or ()),
+            }
+            for row in rows
+        ]
+    except GuardError:
+        raise
+    except Exception as exc:
+        raise GuardError(
+            f"PostgreSQL foreign-key catalog inspection failed ({type(exc).__name__}); diagnostic details suppressed."
+        ) from None
+
+
+def validate_postgres_foreign_key_catalog(foreign_keys, catalog_rows, schema, table):
+    """Require catalog constraints to exactly match inspected FKs and be validated."""
+    if len(foreign_keys) != len(catalog_rows):
+        raise GuardError("PostgreSQL foreign-key catalog is incomplete or contains unexpected constraints.")
+
+    remaining = list(catalog_rows)
+    for foreign_key in foreign_keys:
+        options = foreign_key.get("options") or {}
+        expected = {
+            "name": foreign_key.get("name"),
+            "table": table,
+            "referred_schema": foreign_key.get("referred_schema") or schema,
+            "referred_table": foreign_key.get("referred_table"),
+            "columns": tuple(foreign_key.get("constrained_columns") or ()),
+            "referred_columns": tuple(foreign_key.get("referred_columns") or ()),
+            "match_type": (options.get("match") or "SIMPLE").upper(),
+            "deferrable": bool(options.get("deferrable", False)),
+            "initially_deferred": str(options.get("initially") or "").upper() == "DEFERRED",
+            "on_update": (options.get("onupdate") or "NO ACTION").upper(),
+            "on_delete": (options.get("ondelete") or "NO ACTION").upper(),
+        }
+        matches = [row for row in remaining if row.get("name") == expected["name"]]
+        if len(matches) != 1:
+            raise GuardError("PostgreSQL foreign-key catalog does not match inspected constraints.")
+        actual = matches[0]
+        remaining.remove(actual)
+        if actual.get("validated") is not True:
+            raise GuardError(f"PostgreSQL foreign key {expected['name']} is not validated.")
+        if any(actual.get(key) != value for key, value in expected.items() if key != "name"):
+            raise GuardError(f"Incompatible PostgreSQL foreign-key definition: {expected['name']}.")
+    if remaining:
+        raise GuardError("PostgreSQL foreign-key catalog contains unexpected constraints.")
+
+
+def postgres_index_catalog(connection, schema, table, index_names, *, strict_definition=False):
     """Read exact index properties from PostgreSQL catalogs; unsupported metadata fails closed."""
     from sqlalchemy import text
 
     if connection.dialect.name != "postgresql":
         raise GuardError("PostgreSQL index catalog requested for a non-PostgreSQL connection.")
-    statement = text("""
+    strict_fields = ""
+    if strict_definition:
+        strict_fields = """
+               , index_data.indisready AS is_ready
+               , index_data.indislive AS is_live
+               , pg_get_expr(index_data.indpred, index_data.indrelid) AS predicate
+               , ARRAY(
+                   SELECT
+                       CASE WHEN (index_data.indoption[key_column.ordinal - 1] & 1) = 1
+                            THEN 'DESC' ELSE 'ASC' END
+                       || CASE WHEN (index_data.indoption[key_column.ordinal - 1] & 2) = 2
+                               THEN ' NULLS FIRST' ELSE ' NULLS LAST' END
+                   FROM unnest(index_data.indkey) WITH ORDINALITY AS key_column(attnum, ordinal)
+                   WHERE key_column.ordinal <= index_data.indnkeyatts
+                   ORDER BY key_column.ordinal
+               ) AS key_order
+               , ARRAY(
+                   SELECT index_data.indcollation[key_column.ordinal - 1] = attribute.attcollation
+                   FROM unnest(index_data.indkey) WITH ORDINALITY AS key_column(attnum, ordinal)
+                   JOIN pg_attribute AS attribute
+                     ON attribute.attrelid = table_class.oid
+                    AND attribute.attnum = key_column.attnum
+                   WHERE key_column.ordinal <= index_data.indnkeyatts
+                   ORDER BY key_column.ordinal
+               ) AS collations_match
+               , ARRAY(
+                   SELECT operator_class.opcdefault
+                   FROM unnest(index_data.indclass) WITH ORDINALITY AS class_column(class_oid, ordinal)
+                   JOIN pg_opclass AS operator_class ON operator_class.oid = class_column.class_oid
+                   WHERE class_column.ordinal <= index_data.indnkeyatts
+                   ORDER BY class_column.ordinal
+               ) AS operator_classes_default
+        """
+    statement = text(f"""
         SELECT index_class.relname AS index_name,
                table_class.relname AS table_name,
                index_data.indisunique AS is_unique,
@@ -363,6 +573,7 @@ def postgres_index_catalog(connection, schema, table, index_names):
                    WHERE key_column.ordinal > index_data.indnkeyatts
                    ORDER BY key_column.ordinal
                ) AS included_columns
+               {strict_fields}
         FROM pg_class AS table_class
         JOIN pg_namespace AS table_namespace ON table_namespace.oid = table_class.relnamespace
         JOIN pg_index AS index_data ON index_data.indrelid = table_class.oid
@@ -374,8 +585,9 @@ def postgres_index_catalog(connection, schema, table, index_names):
     """)
     try:
         rows = connection.execute(statement, {"schema": schema, "table": table, "index_names": list(index_names)}).mappings()
-        return {
-            row["index_name"]: {
+        snapshots = {}
+        for row in rows:
+            snapshot = {
                 "name": row["index_name"], "table": row["table_name"],
                 "columns": tuple(row["key_columns"] or ()), "unique": row["is_unique"],
                 "valid": row["is_valid"],
@@ -384,8 +596,16 @@ def postgres_index_catalog(connection, schema, table, index_names):
                 "access_method": row["access_method"],
                 "key_count": row["key_count"], "total_count": row["total_count"],
             }
-            for row in rows
-        }
+            if strict_definition:
+                snapshot.update({
+                    "ready": row["is_ready"], "live": row["is_live"],
+                    "predicate": row["predicate"],
+                    "key_order": tuple(row["key_order"] or ()),
+                    "collations_match": tuple(row["collations_match"] or ()),
+                    "operator_classes_default": tuple(row["operator_classes_default"] or ()),
+                })
+            snapshots[row["index_name"]] = snapshot
+        return snapshots
     except GuardError:
         raise
     except Exception as exc:
@@ -491,7 +711,9 @@ def _engine_url(url: str) -> str:
     return parsed.render_as_string(hide_password=False)
 
 
-def validate_schema(connection, schema: str, *, allow_approved_missing: bool) -> list[str]:
+def validate_schema(
+    connection, schema: str, *, allow_approved_missing: bool, strict_postgres_catalog: bool = False
+) -> list[str]:
     """Compare every expected customer/email object with application metadata."""
     from sqlalchemy import inspect, text
     from app import customer_email_schema_tables
@@ -562,8 +784,8 @@ def validate_schema(connection, schema: str, *, allow_approved_missing: bool) ->
                 raise GuardError(f"Incompatible test-database type for {name}.{col_name}.")
 
         expected_indexes = {
-            index_name: (columns, unique)
-            for index_name, (index_table, columns, unique) in index_manifest.items()
+            index_name: (columns, unique, predicate)
+            for index_name, (index_table, columns, unique, predicate) in index_manifest.items()
             if index_table == name
         }
         inspected_indexes = inspector.get_indexes(name, schema=schema_arg)
@@ -577,18 +799,30 @@ def validate_schema(connection, schema: str, *, allow_approved_missing: bool) ->
         # by the migration is still checked exactly; unique extras are caught by
         # the exact unique-constraint comparison below.
         pg_index_metadata = (
-            postgres_index_catalog(connection, schema, name, expected_indexes)
+            postgres_index_catalog(
+                connection, schema, name, expected_indexes,
+                strict_definition=strict_postgres_catalog,
+            )
             if connection.dialect.name == "postgresql" and expected_indexes else {}
         )
-        for index_name, (columns, unique) in expected_indexes.items():
+        for index_name, (columns, unique, expected_predicate) in expected_indexes.items():
             if index_name not in actual_indexes:
                 if index_name in missing_indexes:
                     problems.append(f"approved missing index: {index_name}")
                     continue
                 raise GuardError(f"Unexpected missing index: {index_name}.")
+            actual_index = next(index for index in inspected_indexes if index["name"] == index_name)
+            dialect_options = actual_index.get("dialect_options") or {}
+            actual_predicate = dialect_options.get("postgresql_where") or dialect_options.get("sqlite_where")
+            if actual_predicate is None:
+                actual_predicate = ""
+            if normalize_sql_definition(str(actual_predicate)) != normalize_sql_definition(expected_predicate or ""):
+                raise GuardError(f"Incompatible index predicate: {index_name}.")
             if connection.dialect.name == "postgresql":
                 validate_postgres_index_snapshot(
-                    index_name, name, columns, unique, pg_index_metadata.get(index_name)
+                    index_name, name, columns, unique, pg_index_metadata.get(index_name),
+                    expected_predicate=expected_predicate,
+                    strict_definition=strict_postgres_catalog,
                 )
             elif actual_indexes[index_name] != columns:
                 raise GuardError(f"Incompatible index definition: {index_name}.")
@@ -623,6 +857,9 @@ def validate_schema(connection, schema: str, *, allow_approved_missing: bool) ->
                 raise GuardError(f"Missing or incompatible named unique constraint on {name}.")
         expected_fk = foreign_key_manifest.get(name, set())
         foreign_keys = inspector.get_foreign_keys(name, schema=schema_arg)
+        if connection.dialect.name == "postgresql" and strict_postgres_catalog:
+            fk_catalog = postgres_foreign_key_catalog(connection, schema, name)
+            validate_postgres_foreign_key_catalog(foreign_keys, fk_catalog, schema, name)
         for foreign_key in foreign_keys:
             validate_fk_options(foreign_key.get("options"))
         actual_fk = {
@@ -714,6 +951,81 @@ def validate_marketing_suppression_schema(connection, schema: str) -> list[str]:
     from app.services.marketing_suppressions import validate_marketing_suppression_schema as validate
     validate(connection, schema=schema)
     return ["Marketing suppression schema, constraints, indexes, ledger trigger, and migration checksum are complete."]
+
+
+def validate_historical_schema(connection, schema: str = "public") -> list[str]:
+    """Require the complete post-state of all four historical email migrations."""
+    from sqlalchemy import inspect
+
+    schema_arg = schema if connection.dialect.name == "postgresql" else None
+    inspector = inspect(connection)
+    existing_tables = set(inspector.get_table_names(schema=schema_arg))
+    missing_tables = HISTORICAL_REQUIRED_TABLES - existing_tables
+    if missing_tables:
+        raise GuardError(
+            "Historical reconciliation blocked; required tables are missing: "
+            + ", ".join(sorted(missing_tables))
+            + ". Apply an explicitly approved non-destructive schema upgrade, then revalidate."
+        )
+
+    try:
+        notes = validate_schema(
+            connection,
+            schema,
+            allow_approved_missing=True,
+            strict_postgres_catalog=True,
+        )
+    except GuardError as exc:
+        raise GuardError(f"Historical schema validation failed: {exc}") from None
+
+    historical_omissions = []
+    for note in notes:
+        for table in EMAIL_STUDIO_TABLES:
+            if note.startswith(f"approved missing table: {table} "):
+                historical_omissions.append(note)
+        for table, column in HISTORICAL_APPROVED_MISSING_COLUMNS:
+            if note == f"approved missing column: {table}.{column}":
+                historical_omissions.append(note)
+        if any(note == f"approved missing index: {name}" for name in HISTORICAL_APPROVED_MISSING_INDEXES):
+            historical_omissions.append(note)
+
+    if historical_omissions:
+        raise GuardError(
+            "Historical reconciliation blocked; required historical objects are missing: "
+            + "; ".join(sorted(set(historical_omissions)))
+            + ". No migration history should be recorded until these objects are restored and validated."
+        )
+
+    if connection.dialect.name == "sqlite":
+        from app import customer_email_schema_tables
+
+        column_manifest = migration_column_manifest()
+        tables_by_name = {
+            table.name: table for table in customer_email_schema_tables()
+        }
+        for table_name in HISTORICAL_REQUIRED_TABLES:
+            table = tables_by_name[table_name]
+            actual_columns = {
+                row["name"]: row for row in inspector.get_columns(table_name)
+            }
+            for (manifest_table, column_name), expected in column_manifest.items():
+                if manifest_table != table_name or column_name not in actual_columns:
+                    continue
+                actual = actual_columns[column_name]
+                validate_sqlite_column_snapshot(
+                    table_name,
+                    column_name,
+                    actual["type"].compile(dialect=connection.dialect),
+                    actual["nullable"],
+                    actual.get("default"),
+                    expected,
+                    primary_key=table.columns[column_name].primary_key,
+                )
+
+    return [
+        "Complete historical customer/email schema validated; historical SQL was not executed.",
+        *[note for note in notes if not note.startswith("Preflight:")],
+    ]
 
 
 def write_summary(lines: list[str]) -> None:

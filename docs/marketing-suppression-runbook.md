@@ -72,7 +72,7 @@ failed/retry behavior; duplicate workers cannot claim the same queued message.
 
 `queue_email()` now persists a rendered message and returns with status `queued`;
 it does not contact SMTP, Resend, or Brevo. Dispatch is a separate explicit
-operation through `python -m flask --app manage:app process-email-queue --limit 50`.
+operation through `python -m flask --app manage:app process-email-queue --limit 50 --confirmation "RUN EMAIL QUEUE"`.
 No scheduler or Render worker has been configured by this change, so queued mail
 will remain queued until an operator-managed worker invokes that command after
 deployment prerequisites and the outbox schema have been reviewed.
@@ -176,7 +176,7 @@ No worker or marketing schedule is configured by this change. The existing
 one-shot transactional queue operation is:
 
 ```text
-python -m flask --app manage:app process-email-queue --limit 50
+python -m flask --app manage:app process-email-queue --limit 50 --confirmation "RUN EMAIL QUEUE"
 ```
 
 The stale-claim review command is:

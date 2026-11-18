@@ -1,8 +1,8 @@
 from datetime import datetime
 from secrets import token_hex
-from sqlalchemy import func
+from sqlalchemy import func, select
 from app.extensions import db
-from app.models import CustomerProfile, Expense, FinancialAuditEvent, LoyaltyTransaction, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, RefundRequest
+from app.models import CustomerProfile, Expense, FinancialAuditEvent, LoyaltyTransaction, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductVariant, RefundRequest
 from .cart import validate_cart
 from .referrals import normalize_phone
 
@@ -10,6 +10,56 @@ FULFILMENT_STATUSES = ["Order received", "Awaiting payment", "Payment confirmed"
 PAYMENT_STATUSES = ["Awaiting payment", "Payment reported", "Processing", "Paid", "Failed", "Cancelled", "Unknown", "Reconciliation required", "Refund requested", "Refund processing", "Partially refunded", "Refunded", "Refund failed"]
 COMPLETED_STATUSES = ["Completed"]
 ACTIVE_SALE_STATUSES = ["Payment confirmed", "Preparing order", "Ready for collection", "Out for delivery", "Completed"]
+ORDER_STATUS_TRANSITIONS = {
+    "Order received": {"Awaiting payment", "Payment confirmed", "Preparing order", "Cancelled"},
+    "Awaiting payment": {"Payment confirmed", "Preparing order", "Cancelled"},
+    "Payment confirmed": {"Preparing order", "Ready for collection", "Out for delivery", "Cancelled"},
+    "Preparing order": {"Ready for collection", "Out for delivery", "Cancelled"},
+    "Ready for collection": {"Completed", "Cancelled"},
+    "Out for delivery": {"Completed", "Cancelled"},
+    "Completed": set(),
+    "Cancelled": set(),
+}
+
+
+def fulfilment_type(fulfilment_method):
+    normalized = " ".join((fulfilment_method or "").strip().lower().split())
+    if normalized == "collection":
+        return "collection"
+    if normalized in {"delivery", "nearby delivery"}:
+        return "delivery"
+    return None
+
+
+def validate_order_status_transition(order, new_status, payment_status=None):
+    if new_status not in FULFILMENT_STATUSES:
+        raise ValueError("Choose a valid order status.")
+    if new_status == order.status:
+        return
+    if new_status not in ORDER_STATUS_TRANSITIONS.get(order.status, set()):
+        raise ValueError(f"Order status cannot change from {order.status} to {new_status}.")
+    order_fulfilment = fulfilment_type(order.fulfilment_method)
+    if new_status == "Ready for collection" and order_fulfilment != "collection":
+        raise ValueError("Only collection orders can be marked ready for collection.")
+    if new_status == "Out for delivery" and order_fulfilment != "delivery":
+        raise ValueError("Only delivery orders can be marked out for delivery.")
+    effective_payment_status = payment_status or order.payment_status
+    if new_status in {"Ready for collection", "Out for delivery", "Completed"} and effective_payment_status != "Paid":
+        raise ValueError("Confirm payment before moving this order to fulfilment or completion.")
+
+
+def allowed_order_statuses(order):
+    """Return only the current status and valid next admin choices."""
+    options = [order.status]
+    for candidate in FULFILMENT_STATUSES:
+        if candidate == order.status:
+            continue
+        try:
+            validate_order_status_transition(order, candidate)
+        except ValueError:
+            continue
+        options.append(candidate)
+    return options
 
 def make_reference():
     return "FITYSTORES-" + datetime.utcnow().strftime("%y%m%d") + "-" + token_hex(3).upper()
@@ -65,12 +115,11 @@ def create_checkout_order(raw_items, customer_name, customer_phone, fulfilment_m
     return order, validation
 
 def update_order_status(order, status=None, payment_status=None, notes=None, admin=None):
+    db.session.refresh(order, with_for_update=True)
     changes = []
-    if status and status != order.status:
-        if order.status == "Completed" and status not in {"Completed"}:
-            raise ValueError("Completed orders cannot be moved backwards from this screen.")
-        if status == "Completed" and order.payment_status != "Paid":
-            raise ValueError("Confirm payment before marking an order completed.")
+    status_changed = bool(status and status != order.status)
+    if status_changed:
+        validate_order_status_transition(order, status, payment_status=payment_status)
         changes.append(("status", order.status, status))
         order.status = status
     if payment_status and payment_status != order.payment_status:
@@ -80,23 +129,39 @@ def update_order_status(order, status=None, payment_status=None, notes=None, adm
         order.notes = notes
     for field, old, new in changes:
         db.session.add(OrderStatusHistory(order=order, admin=admin if getattr(admin, "is_authenticated", False) else None, field=field, old_value=old, new_value=new, note=notes or ""))
-    if status == "Completed":
+    if status_changed and status == "Completed":
         release_reserved_stock(order, complete_sale=True)
-    if status == "Cancelled":
+    if status_changed and status == "Cancelled":
         release_reserved_stock(order, complete_sale=False)
     return changes
 
 def release_reserved_stock(order, complete_sale):
+    quantities_by_stock = {}
     for item in order.items:
-        product = item.product
-        variant = item.variant
-        stock_item = variant or product
+        stock_item = item.variant or item.product
         if not stock_item:
             continue
-        reserved_release = min(stock_item.reserved_quantity or 0, item.quantity)
+        model = ProductVariant if item.variant else Product
+        key = (model.__tablename__, stock_item.id)
+        if key not in quantities_by_stock:
+            quantities_by_stock[key] = (model, item.quantity)
+        else:
+            current_model, quantity = quantities_by_stock[key]
+            quantities_by_stock[key] = (current_model, quantity + item.quantity)
+
+    for (table_name, stock_id), (model, quantity) in sorted(quantities_by_stock.items()):
+        stock_item = db.session.execute(
+            select(model).where(model.id == stock_id).with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if not stock_item:
+            continue
+        reserved_release = min(max(stock_item.reserved_quantity or 0, 0), quantity)
         stock_item.reserved_quantity = max(0, (stock_item.reserved_quantity or 0) - reserved_release)
         if complete_sale:
-            new_quantity = max(0, stock_item.stock_quantity - item.quantity)
+            if stock_item.stock_quantity < quantity:
+                raise ValueError("Reserved inventory is no longer sufficient to complete this order.")
+            new_quantity = stock_item.stock_quantity - quantity
             if new_quantity != stock_item.stock_quantity:
                 stock_item.stock_quantity = new_quantity
         db.session.add(stock_item)

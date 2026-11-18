@@ -11,8 +11,9 @@ TRANSACTIONAL_EMAIL_KINDS = frozenset({
     "verify_email", "verify_code", "login_code", "reset_password",
     "welcome", "account_security", "unsubscribe_confirmation",
     "order_received", "order_update", "payment_confirmed", "payment_failed",
-    "order_status", "refund_confirmation", "restock_notification",
-    "review_request", "marketing_confirm",
+    "order_status", "order_processing", "ready_for_collection", "order_dispatched",
+    "order_cancellation", "order_completed", "refund_confirmation",
+    "restock_notification", "review_request", "marketing_confirm",
     # Email Studio only emits these for unchanged, code-defined order notices.
     "studio_order_confirmation", "studio_thank_you", "studio_order_status",
 })

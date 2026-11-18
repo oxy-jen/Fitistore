@@ -15,6 +15,7 @@ from app.models import (
     AdminUser, CustomerAccount, CustomerConsentEvent, CustomerToken,
     MarketingSuppressionCase, MarketingSuppressionEvent,
 )
+from app.services.sql_schema_utils import normalize_sql_definition as normalized_definition
 
 MIGRATION_ID = "20261113_marketing_suppression"
 MIGRATION_LOCK_ID = 724930117
@@ -144,43 +145,6 @@ LEGACY_IMPORT_DDL = (
 def migration_checksum() -> str:
     payload = "\n-- statement boundary --\n".join((*SUPPRESSION_DDL, *LEGACY_IMPORT_DDL))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def normalized_definition(value: str) -> str:
-    value = str(value or "").lower().replace('"', "")
-    value = re.sub(r"::(?:character varying|varchar|text|boolean)(?:\[\])?", "", value)
-    value = re.sub(r"\bbtrim\s*\(([^()]*)\)", r"trim(\1)", value)
-    value = re.sub(r"\btrim\s*\(\s*both\s+from\s+([^()]*)\)", r"trim(\1)", value)
-    value = re.sub(
-        r"=\s*any\s*\(\s*(?:\(\s*array\s*\[(.*?)\]\s*\)|array\s*\[(.*?)\])\s*\)",
-        lambda match: " in (" + (match.group(1) if match.group(1) is not None else match.group(2)) + ")",
-        value,
-    )
-    value = re.sub(r"(?<![a-z0-9_])\(([a-z_][a-z0-9_.]*)\)", r"\1", value)
-    # PostgreSQL adds parentheses while deparsing CHECK expressions. Remove
-    # only wrappers that enclose the complete expression; retain boolean
-    # grouping and string literal contents.
-    value = re.sub(r"\s+", "", value)
-    prefix = "check" if value.startswith("check") else ""
-    expression = value[len(prefix):].lstrip()
-    while expression.startswith("(") and expression.endswith(")"):
-        depth = 0
-        wraps_all = True
-        quote = False
-        for index, char in enumerate(expression):
-            if char == "'":
-                quote = not quote
-            elif not quote and char == "(":
-                depth += 1
-            elif not quote and char == ")":
-                depth -= 1
-                if depth == 0 and index != len(expression) - 1:
-                    wraps_all = False
-                    break
-        if not wraps_all:
-            break
-        expression = expression[1:-1]
-    return prefix + expression
 
 
 def _expected_check_definitions() -> dict[str, str]:
@@ -344,10 +308,10 @@ def validate_marketing_suppression_schema(connection, *, schema: str = "public")
     )
     expected_indexes = {
         "ix_marketing_suppression_case_account_detected": ("marketing_suppression_case", ("account_id", "detected_at"), False, None),
-        "uq_marketing_suppression_case_active": ("marketing_suppression_case", ("account_id", "source", "reason_code"), True, "cleared_atISNULL"),
+        "uq_marketing_suppression_case_active": ("marketing_suppression_case", ("account_id", "source", "reason_code"), True, "cleared_at IS NULL"),
         "ix_marketing_suppression_event_account_occurred": ("marketing_suppression_event", ("account_id", "occurred_at"), False, None),
         "ix_marketing_suppression_event_case_occurred": ("marketing_suppression_event", ("suppression_case_id", "occurred_at"), False, None),
-        "uq_marketing_suppression_event_provider_id": ("marketing_suppression_event", ("provider_name", "provider_event_id"), True, "provider_event_idISNOTNULL"),
+        "uq_marketing_suppression_event_provider_id": ("marketing_suppression_event", ("provider_name", "provider_event_id"), True, "provider_event_id IS NOT NULL"),
     }
     actual_indexes = {}
     for table_name in ("marketing_suppression_case", "marketing_suppression_event"):
@@ -376,7 +340,8 @@ def validate_marketing_suppression_schema(connection, *, schema: str = "public")
         raise ValueError("Missing or unexpected marketing suppression index.")
     for name, (table, columns, unique, predicate) in expected_indexes.items():
         actual = actual_indexes[name]
-        if actual != (table, columns, unique, predicate):
+        expected_predicate = normalized_definition(predicate)
+        if actual != (table, columns, unique, expected_predicate):
             raise ValueError(f"Incompatible marketing suppression index: {name}.")
     _verify_catalog_indexes(index_rows, expected_indexes, schema=schema)
     expected_fks = {

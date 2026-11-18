@@ -14,6 +14,7 @@ from app.services.email_delivery_investigations import (
     InvestigationError, open_investigation, recover_confirmed_non_acceptance,
     update_investigation,
 )
+from app.services.sql_schema_utils import normalize_sql_definition
 
 
 @pytest.fixture(autouse=True)
@@ -192,6 +193,62 @@ def test_operations_schema_validator_checks_append_only_triggers(app, app_contex
     )).all()
     assert len(triggers) == 2
     assert all("append-only" in row.sql for row in triggers)
+
+
+def test_postgresql_check_normalization_accepts_equivalent_any_array_and_rejects_changed_values():
+    expected = (
+        "status IN ('OPEN','INVESTIGATING','WAITING_FOR_PROVIDER_EVIDENCE',"
+        "'CONFIRMED_ACCEPTED','CONFIRMED_NOT_ACCEPTED','INCONCLUSIVE','RESOLVED')"
+    )
+    deparsed = (
+        "(((status)::character varying = ANY ((ARRAY['OPEN'::character varying, "
+        "'INVESTIGATING'::character varying, 'WAITING_FOR_PROVIDER_EVIDENCE'::character varying, "
+        "'CONFIRMED_ACCEPTED'::character varying, 'CONFIRMED_NOT_ACCEPTED'::character varying, "
+        "'INCONCLUSIVE'::character varying, 'RESOLVED'::character varying])::character varying[])))"
+    )
+
+    assert normalize_sql_definition(deparsed) == normalize_sql_definition(expected)
+    assert normalize_sql_definition(deparsed) != normalize_sql_definition(
+        expected.replace("'RESOLVED'", "'CLOSED'")
+    )
+
+
+def test_postgresql_check_normalization_accepts_parenthesized_null_or_any_and_rejects_changes():
+    expected = "resolution_outcome IS NULL OR resolution_outcome IN ('accepted','not_accepted','inconclusive')"
+    deparsed = (
+        "((resolution_outcome IS NULL) OR ((resolution_outcome)::character varying = "
+        "ANY ((ARRAY['accepted'::character varying, 'not_accepted'::character varying, "
+        "'inconclusive'::character varying])::character varying[])))"
+    )
+
+    assert normalize_sql_definition(deparsed) == normalize_sql_definition(expected)
+    assert normalize_sql_definition(deparsed) != normalize_sql_definition(
+        expected.replace("'inconclusive'", "'unknown'")
+    )
+
+
+def test_postgresql_check_normalization_preserves_actor_boolean_grouping():
+    expected = (
+        "(actor_type = 'admin' AND actor_admin_id IS NOT NULL) OR "
+        "(actor_type = 'system' AND actor_admin_id IS NULL)"
+    )
+    deparsed_forms = (
+        "actor_type::text = 'admin'::text AND actor_admin_id IS NOT NULL OR "
+        "actor_type::text = 'system'::text AND actor_admin_id IS NULL",
+        "(((actor_type)::character varying = 'admin'::character varying) "
+        "AND (actor_admin_id IS NOT NULL)) OR "
+        "(((actor_type)::character varying = 'system'::character varying) "
+        "AND (actor_admin_id IS NULL))"
+    )
+
+    for deparsed in deparsed_forms:
+        assert normalize_sql_definition(deparsed) == normalize_sql_definition(expected)
+        assert normalize_sql_definition(deparsed) != normalize_sql_definition(
+            expected.replace("'system'", "'provider'")
+        )
+    assert normalize_sql_definition("NOT (a = 'x' AND b = 'y')") != normalize_sql_definition(
+        "NOT a = 'x' AND b = 'y'"
+    )
 
 
 def test_operations_schema_validator_rejects_missing_required_index(app, app_context):
