@@ -34,6 +34,8 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' && (inputs.operation == 'preflight' || inputs.operation == 'migrate') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     permissions:
       contents: read
     steps:
@@ -80,6 +82,8 @@ jobs:
     if: ${{ needs.preflight.result == 'success' && github.ref == 'refs/heads/main' && inputs.operation == 'migrate' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     permissions:
       contents: read
     steps:

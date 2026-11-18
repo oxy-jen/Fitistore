@@ -88,6 +88,8 @@ def test_workflow_restricts_manual_trigger_and_target_branch():
     assert len(jobs) == 3
     preflight_job = jobs[1]
     migrate_job = jobs[2]
+    assert "PYTHONPATH: ${{ github.workspace }}" in preflight_job
+    assert "PYTHONPATH: ${{ github.workspace }}" in migrate_job
     assert "github.ref == 'refs/heads/main'" in preflight_job
     assert "github.ref == 'refs/heads/main'" in migrate_job
     assert preflight_job.count("ref: ${{ github.sha }}") == 1
