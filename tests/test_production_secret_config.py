@@ -1,7 +1,17 @@
 import pytest
 
 from app import create_app
-from config import Config, TestConfig
+from config import Config, TestConfig, _sqlalchemy_database_uri
+
+
+@pytest.mark.parametrize("url", [
+    "postgresql://test-user:test-password@db.example.invalid:5432/store?sslmode=verify-full",
+    "postgres://test-user:test-password@db.example.invalid:5432/store?sslmode=verify-full",
+])
+def test_standard_postgres_urls_use_psycopg3_for_sqlalchemy(url):
+    sqlalchemy_url = _sqlalchemy_database_uri(url)
+    assert sqlalchemy_url.startswith("postgresql+psycopg://")
+    assert "sslmode=verify-full" in sqlalchemy_url
 
 
 def test_valid_production_secret_is_accepted(monkeypatch):

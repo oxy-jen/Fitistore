@@ -1219,7 +1219,7 @@ def export_verified_migration_environment() -> None:
         parsed = make_url(url)
         query = {key: value for key, value in parsed.query.items() if key.lower() not in {"sslmode", "sslrootcert"}}
         query.update({"sslmode": "verify-full", "sslrootcert": str(ca_file)})
-        verified_url = parsed.set(drivername="postgresql+psycopg", query=query).render_as_string(hide_password=False)
+        verified_url = parsed.set(drivername="postgresql", query=query).render_as_string(hide_password=False)
         if "\n" in verified_url or "\r" in verified_url:
             raise GuardError("Database URL format is invalid; details suppressed.")
         with github_env.open("a", encoding="utf-8", newline="\n") as output:

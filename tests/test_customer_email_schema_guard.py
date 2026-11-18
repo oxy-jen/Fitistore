@@ -239,7 +239,13 @@ def test_tls_environment_generation_uses_validated_system_ca(tmp_path, monkeypat
     contents = github_env.read_text(encoding="utf-8")
     assert "sslmode=verify-full" in contents
     generated_url = contents.split("DATABASE_URL=", 1)[1].splitlines()[0]
+    assert generated_url.startswith("postgresql://")
     assert make_url(generated_url).query["sslrootcert"] == str(ca_file)
+    next_step_settings = {**settings, "DATABASE_URL": generated_url}
+    assert required_settings(next_step_settings) == (
+        generated_url, "store_db", "public", "db.example.invalid"
+    )
+    assert make_url(_engine_url(generated_url)).drivername == "postgresql+psycopg"
     assert f"DATABASE_CA_CERT_FILE={ca_file}" in contents
     assert "PGSSLMODE=verify-full" in contents
     assert f"PGSSLROOTCERT={ca_file}" in contents

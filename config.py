@@ -6,11 +6,20 @@ from dotenv import load_dotenv
 load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 
+
+def _sqlalchemy_database_uri(database_url: str) -> str:
+    if database_url.startswith(("postgresql://", "postgres://")):
+        return "postgresql+psycopg://" + database_url.split("://", 1)[1]
+    return database_url
+
+
 class Config:
     APP_ENV = os.environ.get("APP_ENV", "development")
     FLASK_ENV = os.environ.get("FLASK_ENV", "")
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-change-me")
-    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'instance' / 'fity.sqlite3'}")
+    SQLALCHEMY_DATABASE_URI = _sqlalchemy_database_uri(
+        os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'instance' / 'fity.sqlite3'}")
+    )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_TIME_LIMIT = None
     MAX_CONTENT_LENGTH = 4 * 1024 * 1024
