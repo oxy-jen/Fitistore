@@ -19,7 +19,8 @@ class AdminUser(UserMixin, TimestampMixin, db.Model):
 def load_user(user_id):
     try:
         if str(user_id).startswith("customer:"):
-            return CustomerAccount.query.get(int(str(user_id).split(":", 1)[1]))
+            account = CustomerAccount.query.get(int(str(user_id).split(":", 1)[1]))
+            return account if account and account.active else None
         return AdminUser.query.get(int(user_id))
     except (ValueError, TypeError):
         return None

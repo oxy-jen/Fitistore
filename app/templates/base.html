@@ -39,6 +39,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}?v=contextual-nav-actions-20261113">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/media-showcases.css') }}?v=media-admin-bulk-publish-20261106">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/pwa.css') }}?v=pwa-install-v1">
+  {% if request.endpoint == 'admin.email_center' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-email.css') }}?v=admin-email-responsive-20261119">{% endif %}
   <script type="application/ld+json">
   {{ {"@context": "https://schema.org", "@type": "Organization", "name": settings.shop_name, "url": "https://fitystore.top/", "logo": url_for('static', filename='images/mainLogo-160.png', _external=True), "owner": {"@type": "Organization", "name": "Oxy-Jen Tech"}, "sameAs": ["https://www.facebook.com/oxy.jen.975729", "https://www.tiktok.com/@official_fitystore"]}|tojson }}
   </script>

@@ -202,6 +202,19 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
     normalized_recipient = str(recipient or "").strip()
     if len(normalized_recipient) > 254:
         raise ValueError("Email recipient addresses cannot exceed 254 characters.")
+    removed_account = False
+    if account_id is not None:
+        account_identity = db.session.execute(
+            select(CustomerAccount.email, CustomerAccount.active)
+            .where(CustomerAccount.id == account_id)
+            .with_for_update()
+        ).one_or_none()
+        if (account_identity and not account_identity.active
+                and account_identity.email == f"removed-customer-{account_id}@redacted.invalid"):
+            account_email = account_identity.email
+            normalized_recipient = account_email
+            subject = "Customer data redacted"
+            removed_account = True
 
     def reuse_existing(existing: EmailMessage) -> EmailMessage:
         if existing.kind != normalized_kind or existing.purpose != purpose:
@@ -226,6 +239,7 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
         "eligibility_unavailable", "suppression_schema_unavailable", "suppression_schema_incomplete",
     })
     queued_status = (
+        "suppressed" if removed_account else
         "failed" if infrastructure_failure else
         "queued" if not decision or decision.eligible else "suppressed"
     )
@@ -238,14 +252,19 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
         frequency_override=False,
         status=queued_status,
         failure_reason=(
+            "Customer account removed; message content was redacted."
+            if removed_account else
             "Marketing eligibility could not be verified; retry after the service recovers."
             if infrastructure_failure else
             "" if not decision or decision.eligible else decision.reason_code[:255]
         ),
-        error_category="retryable_infrastructure" if infrastructure_failure else None,
-        next_attempt_at=(datetime.utcnow() + timedelta(minutes=15)) if infrastructure_failure else not_before,
-        html_body=html_body if not decision or decision.eligible or infrastructure_failure else None,
-        text_body=text_body if not decision or decision.eligible or infrastructure_failure else None,
+        error_category="retryable_infrastructure" if infrastructure_failure and not removed_account else None,
+        next_attempt_at=(
+            None if removed_account else
+            datetime.utcnow() + timedelta(minutes=15) if infrastructure_failure else not_before
+        ),
+        html_body=html_body if not removed_account and (not decision or decision.eligible or infrastructure_failure) else None,
+        text_body=text_body if not removed_account and (not decision or decision.eligible or infrastructure_failure) else None,
     )
     db.session.add(record)
     try:
@@ -478,6 +497,43 @@ def _claim_marketing_dispatch(record: EmailMessage, *, claim_token: str | None =
 def _claim_transactional_dispatch(record: EmailMessage, claim_token: str) -> bool:
     """Claim transactional messages without consulting marketing consent state."""
     with db.engine.begin() as connection:
+        if record.account_id is not None:
+            account_identity = connection.execute(
+                select(CustomerAccount.email, CustomerAccount.active)
+                .where(CustomerAccount.id == record.account_id)
+                .with_for_update()
+            ).one_or_none()
+            if (account_identity and not account_identity.active
+                    and account_identity.email == f"removed-customer-{record.account_id}@redacted.invalid"):
+                account_email = account_identity.email
+                redacted = connection.execute(
+                    update(EmailMessage).where(
+                        EmailMessage.id == record.id,
+                        EmailMessage.status == "queued",
+                    ).values(
+                        status="suppressed",
+                        recipient=account_email,
+                        subject="Customer data redacted",
+                        failure_reason="Customer account removed; message content was redacted.",
+                        html_body=None,
+                        text_body=None,
+                        next_attempt_at=None,
+                        claim_token=None,
+                        claimed_at=None,
+                        updated_at=datetime.utcnow(),
+                    )
+                ).rowcount
+                if redacted == 1:
+                    record.status = "suppressed"
+                    record.recipient = account_email
+                    record.subject = "Customer data redacted"
+                    record.failure_reason = "Customer account removed; message content was redacted."
+                    record.html_body = None
+                    record.text_body = None
+                    record.next_attempt_at = None
+                    record.claim_token = None
+                    record.claimed_at = None
+                return False
         result = connection.execute(
             update(EmailMessage).where(EmailMessage.id == record.id, EmailMessage.status == "queued")
             .values(status="sending", claim_token=claim_token, claimed_at=datetime.utcnow(),
@@ -1372,6 +1428,14 @@ def notify_restock_alert(alert, idempotency_key: str | None = None):
     from email.utils import parseaddr
     from app.models import Product
 
+    if not alert or not getattr(alert, "id", None):
+        return None
+    alert = db.session.execute(
+        select(RestockAlert)
+        .where(RestockAlert.id == alert.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
     if (not alert or not alert.consent_to_contact or alert.preferred_contact != "Email"
             or alert.status not in {"pending", "queued"}):
         return None

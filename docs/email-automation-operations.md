@@ -30,8 +30,8 @@ customer reauthentication window and review signed-link lifetimes first.
 | Provider accepted / sent | Sender clears payload immediately; cleanup clears any legacy body after 30 days | Retain |
 | Permanent failure or suppression | Clear body after 30 days; do not alter status | Retain |
 | Ambiguous provider outcome | Clear body immediately; never requeue automatically | Retain ambiguous outcome and provider metadata |
-| Suppression and consent audit events | Do not purge through email payload cleanup | Retain; any future deletion policy requires separate privacy/legal review |
-| Email message metadata/recipient | This command does not delete or anonymize rows | Retain until a separately approved retention schedule and referential-impact review exist |
+| Suppression and consent audit events | Do not purge through email payload cleanup or account anonymization | Retain; any deletion policy requires separate privacy/legal review |
+| Email message metadata/recipient | This command does not delete or anonymize rows | Account anonymization redacts recipient/content but preserves delivery-attempt metadata |
 
 The 30-day terminal-body period is a maximum for legacy payloads; normal
 successful and ambiguous paths erase bodies sooner. Authentication expiry uses
@@ -42,6 +42,37 @@ history and suppression/audit rows are outside this cleanup operation.
 Rendered bodies are not application-layer encrypted by this code. Provider-
 side database encryption and backups must be verified with the database host;
 their current settings were not inspected during this local-only task.
+
+## Admin customer account removal
+
+The Registered customers section in the admin email center provides a
+CSRF-protected, typed-confirmation account-removal action. It disables sign-in,
+replaces the account email/name with non-routable redacted values, clears
+password/Google identity, verification tokens, and the saved cart, and removes
+the old referral code from active use. The account row remains as an anonymous
+tombstone so existing foreign keys and audit relationships remain valid; this
+does not require or run a migration. Inactive customer sessions are rejected
+by the user loader.
+
+The action suppresses queued and retryable messages for the account, redacts
+message recipients and bodies, and retains delivery attempts and provider
+outcome metadata. If a message is already in `sending` state or has an active
+claim, removal stops without changing data; wait for that provider attempt to
+finish and retry. Ambiguous delivery outcomes remain ambiguous and are not
+requeued. Campaign-recipient addresses are redacted and queued recipients are
+suppressed.
+
+Optional checkboxes select permanent deletion of linked orders/payment
+records, payment proof files, public reviews, referral/loyalty history,
+product-exposure history, account-addressed email drafts, and email-matched
+product enquiries/restock alerts. Unselected enquiries have contact details
+redacted; pending restock alerts are cancelled and their contact details are
+redacted so a later inventory event cannot requeue them.
+Consent and suppression audit records are always retained, with free-text PII
+redacted; deleting those records requires a separately reviewed privacy/legal
+retention policy. Review text remains public unless its deletion checkbox is
+selected. Check applicable payment, tax, and record-retention obligations
+before selecting order or audit data for deletion.
 
 Run a bounded report first:
 

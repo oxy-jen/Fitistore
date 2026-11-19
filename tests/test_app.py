@@ -2017,6 +2017,462 @@ def test_admin_email_center_excludes_unverified_opt_ins_from_marketing_candidate
     assert b"Checkbox Subscriber" in response.data
     assert b"Active, verified subscribers with recorded consent" in response.data
     assert b"before suppression and frequency checks): 1" in response.data
+    assert b"admin-email.css?v=admin-email-responsive-20261119" in response.data
+    assert b'class="admin-email-overview"' in response.data
+    assert b'class="form-card admin-email-section"' in response.data
+
+
+def test_admin_customer_removal_anonymizes_identity_and_retains_delivery_audit(client, app, app_context, monkeypatch, tmp_path):
+    from app.models import (
+        CustomerProfile, CustomerOrderLink, CustomerToken, EmailDeliveryAttempt,
+        FinancialAuditEvent, ProductEnquiry, ReferralClick, RestockAlert,
+    )
+    import app.services.customer_mail as customer_mail
+
+    sent = []
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args, **kwargs: sent.append(args))
+    admin = AdminUser.query.filter_by(username="owner").one()
+    account = CustomerAccount(
+        email="remove-customer@example.test",
+        display_name="Remove Me",
+        password_hash=generate_password_hash("test-password-123"),
+        email_verified_at=datetime.utcnow(),
+        marketing_status="subscribed",
+        marketing_consent_at=datetime.utcnow(),
+    )
+    db.session.add(account)
+    db.session.flush()
+    order = Order(
+        reference="REMOVE001",
+        customer_name="Remove Me",
+        customer_phone="254700000001",
+        fulfilment_method="collection",
+        instructions="Call Remove Me",
+        notes="Contact remove-customer@example.test",
+        payment_proof_filename="remove-proof.png",
+    )
+    app.config["PAYMENT_PROOF_FOLDER"] = str(tmp_path)
+    proof_path = tmp_path / "remove-proof.png"
+    proof_path.write_bytes(b"test proof")
+    db.session.add(order)
+    db.session.flush()
+    message = EmailMessage(
+        recipient=account.email,
+        account_id=account.id,
+        order_id=order.id,
+        kind="order_status",
+        subject="Hello Remove Me",
+        idempotency_key="remove-customer-email-queued",
+        status="queued",
+        html_body="<p>Remove Me at remove-customer@example.test</p>",
+        text_body="Remove Me at remove-customer@example.test",
+    )
+    legacy_message = EmailMessage(
+        recipient=account.email,
+        kind="verification",
+        subject="Verify remove-customer@example.test",
+        idempotency_key="remove-customer-email-legacy",
+        status="queued",
+        html_body="<p>Verify remove-customer@example.test</p>",
+        text_body="Verify remove-customer@example.test",
+    )
+    ambiguous_message = EmailMessage(
+        recipient=account.email,
+        account_id=account.id,
+        kind="verification",
+        subject="Ambiguous verification",
+        idempotency_key="remove-customer-email-ambiguous",
+        status="failed",
+        error_category="ambiguous_outcome",
+        html_body="<p>Ambiguous</p>",
+        text_body="Ambiguous",
+    )
+    enquiry = ProductEnquiry(
+        product_name="Test product",
+        contact=account.email,
+        message=f"Please contact Remove Me at {account.email}",
+        internal_response=f"Reply to {account.email}",
+        consent_to_contact=True,
+    )
+    restock_alert = RestockAlert(
+        product_id=Product.query.first().id,
+        contact=account.email,
+        preferred_contact="Email",
+        consent_to_contact=True,
+        status="queued",
+    )
+    profile = CustomerProfile(
+        account_id=account.id,
+        phone="254700000001",
+        display_name="Remove Me",
+        referral_code="REMOVEME01",
+    )
+    db.session.add_all([
+        CustomerToken(
+            account_id=account.id,
+            purpose="verify_email",
+            token_hash=hashlib.sha256(b"remove-token").hexdigest(),
+            expires_at=datetime.utcnow(),
+        ),
+        CustomerCart(account_id=account.id, items_json='[{"id": 1}]'),
+        CustomerOrderLink(account_id=account.id, order=order),
+        message,
+        legacy_message,
+        ambiguous_message,
+        enquiry,
+        restock_alert,
+        profile,
+        Review(
+            customer_account_id=account.id,
+            display_name="Remove Me",
+            rating=5,
+            text="A public review",
+        ),
+    ])
+    db.session.flush()
+    db.session.add_all([
+        ReferralClick(
+            referrer_id=profile.id,
+            referral_code=profile.referral_code,
+            visitor_key="anonymous-visitor-hash",
+        ),
+        EmailDraft(
+            name="Customer follow-up",
+            category="customer_service",
+            subject="Hello Remove Me",
+            headline="Remove Me",
+            message="Email remove-customer@example.test",
+            account_ids_json=json.dumps([account.id]),
+            created_by_id=admin.id,
+        ),
+        EmailDeliveryAttempt(
+            message_id=message.id,
+            attempt_number=1,
+            attempt_key="remove-customer-attempt-key",
+            provider="brevo",
+            status="accepted",
+        ),
+    ])
+    db.session.commit()
+    account_id = account.id
+    message_id = message.id
+    legacy_message_id = legacy_message.id
+    ambiguous_message_id = ambiguous_message.id
+    enquiry_id = enquiry.id
+    restock_alert_id = restock_alert.id
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post(
+        f"/admin/email/customers/{account_id}/remove",
+        data={
+            "confirmation": f"DELETE CUSTOMER {account_id}",
+            "delete_payment_proofs": "yes",
+        },
+        follow_redirects=True,
+    )
+
+    db.session.expire_all()
+    removed = db.session.get(CustomerAccount, account_id)
+    queued = db.session.get(EmailMessage, message_id)
+    legacy_queued = db.session.get(EmailMessage, legacy_message_id)
+    ambiguous = db.session.get(EmailMessage, ambiguous_message_id)
+    redacted_enquiry = db.session.get(ProductEnquiry, enquiry_id)
+    cancelled_alert = db.session.get(RestockAlert, restock_alert_id)
+    retained_order = Order.query.filter_by(reference="REMOVE001").one()
+    review = Review.query.one()
+    draft = EmailDraft.query.one()
+    profile = CustomerProfile.query.filter_by(account_id=account_id).one()
+    assert response.status_code == 200
+    assert b"anonymous account record remains" in response.data
+    assert removed.email == f"removed-customer-{account_id}@redacted.invalid"
+    assert removed.active is False
+    assert removed.password_hash is None
+    assert CustomerToken.query.filter_by(account_id=account_id).count() == 0
+    assert CustomerCart.query.filter_by(account_id=account_id).count() == 0
+    assert CustomerOrderLink.query.filter_by(account_id=account_id).count() == 0
+    assert queued.status == "suppressed"
+    assert queued.recipient == removed.email
+    assert queued.html_body is None and queued.text_body is None
+    assert legacy_queued.status == "suppressed"
+    assert legacy_queued.recipient == removed.email
+    assert ambiguous.status == "failed"
+    assert ambiguous.error_category == "ambiguous_outcome"
+    assert ambiguous.recipient == removed.email
+    assert redacted_enquiry.contact == removed.email
+    assert account.email not in redacted_enquiry.message
+    assert account.email not in redacted_enquiry.internal_response
+    assert redacted_enquiry.consent_to_contact is False
+    assert cancelled_alert.contact == removed.email
+    assert cancelled_alert.status == "cancelled"
+    assert cancelled_alert.consent_to_contact is False
+    assert EmailDeliveryAttempt.query.filter_by(message_id=message_id).count() == 1
+    assert retained_order.customer_name == "Deleted customer"
+    assert retained_order.customer_phone == ""
+    assert retained_order.instructions == ""
+    assert retained_order.payment_proof_filename == ""
+    assert not proof_path.exists()
+    assert "remove-customer@example.test" not in retained_order.notes
+    assert review.customer_account_id is None
+    assert review.display_name == "Deleted customer"
+    assert profile.phone.startswith("REMOVED-CUSTOMER-")
+    assert ReferralClick.query.filter_by(referrer_id=profile.id).count() == 1
+    assert json.loads(draft.account_ids_json) == []
+    assert "remove-customer@example.test" not in draft.message
+    assert FinancialAuditEvent.query.filter_by(
+        event_type="customer_account_anonymized", entity_id=account_id
+    ).count() == 1
+    assert sent == []
+
+    from types import SimpleNamespace
+    stale_alert = SimpleNamespace(
+        id=restock_alert_id, status="queued", consent_to_contact=True,
+        preferred_contact="Email", contact="remove-customer@example.test",
+    )
+    assert customer_mail.notify_restock_alert(stale_alert) is None
+    assert EmailMessage.query.filter_by(
+        idempotency_key=f"restock-alert:{restock_alert_id}"
+    ).count() == 0
+
+    late_enqueue = customer_mail.queue_email(
+        "remove-customer@example.test", "Customer message", "order_status",
+        "remove-customer-late-enqueue", account_id=account_id,
+        html_body="<p>Remove Me</p>", text_body="Remove Me",
+    )
+    assert late_enqueue.status == "suppressed"
+    assert late_enqueue.recipient == removed.email
+    assert late_enqueue.html_body is None and late_enqueue.text_body is None
+
+    stale_message = EmailMessage(
+        recipient="remove-customer@example.test",
+        account_id=account_id,
+        kind="order_status",
+        purpose="transactional",
+        subject="Stale transactional message",
+        idempotency_key="remove-customer-stale-transactional",
+        status="queued",
+        html_body="<p>Remove Me</p>",
+        text_body="Remove Me",
+    )
+    db.session.add(stale_message)
+    db.session.commit()
+    app.config.update(
+        MAIL_PROVIDER="brevo",
+        MAIL_FROM_VERIFIED=True,
+        MAIL_FROM_ADDRESS="orders@example.test",
+        BREVO_API_KEY="test-brevo-key",
+    )
+    assert customer_mail.deliver_email(stale_message) is False
+    assert stale_message.status == "suppressed"
+    assert stale_message.recipient == removed.email
+    assert stale_message.html_body is None and stale_message.text_body is None
+    assert sent == []
+
+    with client.session_transaction() as browser_session:
+        browser_session["_user_id"] = f"customer:{account_id}"
+        browser_session["_fresh"] = True
+    denied = client.get("/account/")
+    assert denied.status_code == 302
+    assert "/account/login" in denied.headers["Location"]
+
+
+def test_admin_customer_removal_deletes_only_selected_order_and_review_data(client, app, app_context):
+    from app.models import (
+        CustomerConsentEvent, CustomerProfile, EmailDraft, MarketingProductExposure,
+        MarketingSuppressionCase, MarketingSuppressionEvent, PaymentAttempt,
+        PaymentTransaction, Referral, ReferralClick, RefundRequest, LoyaltyTransaction,
+        ProductEnquiry, RestockAlert,
+    )
+
+    admin = AdminUser.query.filter_by(username="owner").one()
+    account = CustomerAccount(email="remove-selected@example.test", display_name="Selected Customer")
+    db.session.add(account)
+    db.session.flush()
+    profile = CustomerProfile(
+        account_id=account.id,
+        phone="254700000002",
+        display_name="Selected Customer",
+        referral_code="REMOVEME02",
+    )
+    db.session.add(profile)
+    order = Order(
+        reference="REMOVE002",
+        customer_name="Selected Customer",
+        customer_phone="254700000002",
+        fulfilment_method="collection",
+    )
+    db.session.add(order)
+    db.session.flush()
+    attempt = PaymentAttempt(order_id=order.id, customer_phone="254700000002")
+    db.session.add(attempt)
+    db.session.flush()
+    transaction = PaymentTransaction(
+        order_id=order.id,
+        payment_attempt_id=attempt.id,
+        amount_cents=1000,
+        phone="254700000002",
+    )
+    db.session.add(transaction)
+    db.session.flush()
+    db.session.add_all([
+        ProductEnquiry(
+            product_name="Test product",
+            contact=account.email,
+            message="Remove selected contact activity",
+            consent_to_contact=True,
+        ),
+        RestockAlert(
+            product_id=Product.query.first().id,
+            contact=account.email,
+            preferred_contact="Email",
+            consent_to_contact=True,
+            status="pending",
+        ),
+        RefundRequest(
+            order_id=order.id,
+            payment_transaction_id=transaction.id,
+            amount_cents=100,
+            reason="Customer requested refund",
+        ),
+        CustomerOrderLink(account_id=account.id, order_id=order.id),
+        Referral(
+            referrer_key="254700000002",
+            referred_key="254700000003",
+            referral_code="REF-HISTORY-002",
+            qualifying_order_id=order.id,
+        ),
+        LoyaltyTransaction(
+            customer_key="254700000002",
+            order_id=order.id,
+            transaction_type="earn",
+            points=10,
+        ),
+        CustomerConsentEvent(
+            account_id=account.id,
+            event="confirmed",
+            method="registration_checkbox",
+        ),
+        MarketingProductExposure(
+            account_id=account.id,
+            product_id=Product.query.first().id,
+            last_sent_at=datetime.utcnow(),
+        ),
+        EmailDraft(
+            name="Selected customer draft",
+            category="customer_service",
+            subject="For Selected Customer",
+            headline="Selected Customer",
+            message="Selected customer email",
+            account_ids_json=json.dumps([account.id]),
+            created_by_id=admin.id,
+        ),
+        Review(
+            customer_account_id=account.id,
+            display_name="Selected Customer",
+            rating=4,
+            text="Remove this review",
+        ),
+    ])
+    db.session.flush()
+    case = MarketingSuppressionCase(
+        account_id=account.id,
+        source="admin",
+        reason_code="admin_review",
+        clearance_reason=None,
+        metadata_json={"email": account.email},
+    )
+    db.session.add(case)
+    db.session.flush()
+    db.session.add(MarketingSuppressionEvent(
+        suppression_case_id=case.id,
+        account_id=account.id,
+        event_type="suppression_detected",
+        actor_type="admin",
+        admin_id=admin.id,
+        source="admin",
+        reason_code="admin_review",
+        reason_text=f"Review {account.email}",
+        idempotency_key="remove-selected-suppression",
+        metadata_json={"email": account.email},
+    ))
+    db.session.commit()
+    account_id = account.id
+    order_id = order.id
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post(
+        f"/admin/email/customers/{account_id}/remove",
+        data={
+            "confirmation": f"DELETE CUSTOMER {account_id}",
+            "delete_orders": "yes",
+            "delete_reviews": "yes",
+            "delete_referral_history": "yes",
+            "delete_product_exposure": "yes",
+            "delete_email_drafts": "yes",
+            "delete_contact_activity": "yes",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert db.session.get(Order, order_id) is None
+    assert PaymentAttempt.query.filter_by(order_id=order_id).count() == 0
+    assert PaymentTransaction.query.filter_by(order_id=order_id).count() == 0
+    assert RefundRequest.query.filter_by(order_id=order_id).count() == 0
+    assert Review.query.filter_by(customer_account_id=account_id).count() == 0
+    assert db.session.get(CustomerAccount, account_id).active is False
+    assert CustomerProfile.query.filter_by(account_id=account_id).count() == 0
+    assert ReferralClick.query.count() == 0
+    assert Referral.query.filter_by(referral_code="REF-HISTORY-002").count() == 0
+    assert LoyaltyTransaction.query.filter_by(customer_key="254700000002").count() == 0
+    assert CustomerConsentEvent.query.filter_by(account_id=account_id).count() == 1
+    suppression_event = MarketingSuppressionEvent.query.filter_by(account_id=account_id).one()
+    suppression_case = MarketingSuppressionCase.query.filter_by(account_id=account_id).one()
+    assert suppression_event.reason_text is None
+    assert suppression_event.metadata_json is None
+    assert suppression_case.metadata_json is None
+    assert MarketingProductExposure.query.filter_by(account_id=account_id).count() == 0
+    assert EmailDraft.query.count() == 0
+    assert ProductEnquiry.query.filter_by(contact="remove-selected@example.test").count() == 0
+    assert RestockAlert.query.filter_by(contact="remove-selected@example.test").count() == 0
+
+
+def test_admin_customer_removal_requires_confirmation_and_waits_for_dispatch(client, app, app_context):
+    account = CustomerAccount(email="remove-in-flight@example.test", display_name="In Flight")
+    db.session.add(account)
+    db.session.flush()
+    message = EmailMessage(
+        recipient=account.email,
+        account_id=account.id,
+        kind="order_status",
+        subject="In flight",
+        idempotency_key="remove-customer-in-flight",
+        status="sending",
+        claim_token="in-flight-claim",
+        claimed_at=datetime.utcnow(),
+    )
+    db.session.add(message)
+    db.session.commit()
+    account_id = account.id
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    wrong_confirmation = client.post(
+        f"/admin/email/customers/{account_id}/remove",
+        data={"confirmation": "DELETE"},
+        follow_redirects=True,
+    )
+    db.session.expire_all()
+    assert b"Type DELETE CUSTOMER" in wrong_confirmation.data
+    assert db.session.get(CustomerAccount, account_id).active is True
+
+    blocked = client.post(
+        f"/admin/email/customers/{account_id}/remove",
+        data={"confirmation": f"DELETE CUSTOMER {account_id}"},
+        follow_redirects=True,
+    )
+    db.session.expire_all()
+    assert b"Wait for the provider attempt to finish" in blocked.data
+    assert db.session.get(CustomerAccount, account_id).email == "remove-in-flight@example.test"
+    assert EmailMessage.query.filter_by(account_id=account_id).one().status == "sending"
 
 
 def test_admin_email_history_supports_search_status_and_pagination(client, app, app_context):
@@ -2036,6 +2492,7 @@ def test_admin_email_history_supports_search_status_and_pagination(client, app, 
     page_two = client.get("/admin/email?message_page=2")
     assert page_two.status_code == 200
     assert b"Page 2 of 2" in page_two.data
+    assert b'data-label="Recipient"' in page_two.data
     filtered = client.get("/admin/email?message_q=history-0%40example.test&message_status=failed")
     assert filtered.status_code == 200
     assert b"history-0@example.test" in filtered.data

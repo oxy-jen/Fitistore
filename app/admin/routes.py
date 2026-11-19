@@ -709,6 +709,72 @@ def set_customer_active(account_id):
     flash("Customer account updated.", "success")
     return redirect(url_for("admin.email_center"))
 
+
+@admin_bp.post("/email/customers/<int:account_id>/remove")
+@login_required
+def remove_customer_account(account_id):
+    from app.services.customer_account_cleanup import (
+        CustomerCleanupBlocked,
+        anonymize_customer_account,
+    )
+
+    if request.form.get("confirmation", "").strip() != f"DELETE CUSTOMER {account_id}":
+        flash(f"Account removal stopped. Type DELETE CUSTOMER {account_id} exactly to confirm.", "error")
+        return redirect(url_for("admin.email_center"))
+
+    try:
+        result = anonymize_customer_account(
+            account_id,
+            admin_id=current_user.id,
+            delete_orders=request.form.get("delete_orders") == "yes",
+            delete_payment_proofs=request.form.get("delete_payment_proofs") == "yes",
+            delete_reviews=request.form.get("delete_reviews") == "yes",
+            delete_referral_history=request.form.get("delete_referral_history") == "yes",
+            delete_product_exposure=request.form.get("delete_product_exposure") == "yes",
+            delete_email_drafts=request.form.get("delete_email_drafts") == "yes",
+            delete_contact_activity=request.form.get("delete_contact_activity") == "yes",
+        )
+        if result is None:
+            db.session.rollback()
+            flash("Customer account was not found; no data was changed.", "warning")
+            return redirect(url_for("admin.email_center"))
+        db.session.commit()
+    except CustomerCleanupBlocked as exc:
+        db.session.rollback()
+        flash(str(exc), "warning")
+        return redirect(url_for("admin.email_center"))
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception("Customer account removal failed; transaction rolled back")
+        flash("Account removal failed and was rolled back. Check the server log for details.", "error")
+        return redirect(url_for("admin.email_center"))
+
+    failed_proof_deletes = 0
+    for path in result["proof_paths"]:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            failed_proof_deletes += 1
+            current_app.logger.exception("Could not remove customer payment proof %s", path.name)
+
+    counts = result["counts"]
+    message = (
+        "Account access and personal identifiers were removed. Pending email was suppressed; "
+        "message content and recipient details were redacted while delivery audit metadata was retained. "
+        "The anonymous account record remains to preserve existing database relationships."
+    )
+    if counts.get("orders"):
+        message += f" Deleted {counts['orders']} linked order(s)."
+    if counts.get("reviews"):
+        message += f" Deleted {counts['reviews']} review(s)."
+    if failed_proof_deletes:
+        message += f" {failed_proof_deletes} payment proof file(s) could not be removed; check the server log."
+        flash(message, "warning")
+    else:
+        flash(message, "success")
+    return redirect(url_for("admin.email_center"))
+
+
 @admin_bp.before_request
 def require_admin_identity():
     if current_user.is_authenticated and not isinstance(current_user._get_current_object(), AdminUser):
