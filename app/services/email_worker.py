@@ -15,9 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 class EmailWorkerHeartbeat:
-    def __init__(self, *, interval_seconds: int | None = None, instance_id: str | None = None):
+    def __init__(self, *, interval_seconds: int | None = None, instance_id: str | None = None,
+                 worker_type: str = "queue"):
         self.app = current_app._get_current_object()
         self.instance_id = instance_id or str(uuid4())
+        self.worker_type = worker_type
         self.interval_seconds = max(2, int(interval_seconds or self.app.config.get("EMAIL_WORKER_HEARTBEAT_SECONDS", 15)))
         self._stop = threading.Event()
         self._thread = None
@@ -25,7 +27,7 @@ class EmailWorkerHeartbeat:
     def start(self) -> None:
         now = datetime.utcnow()
         db.session.add(EmailWorkerRun(
-            instance_id=self.instance_id, worker_type="queue", status="STARTING",
+            instance_id=self.instance_id, worker_type=self.worker_type, status="STARTING",
             started_at=now, last_heartbeat_at=now,
         ))
         db.session.commit()

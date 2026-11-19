@@ -1,0 +1,84 @@
+name: Dispatch one administrator test email
+
+on:
+  workflow_dispatch:
+    inputs:
+      message_id:
+        description: ID of one queued admin_test message addressed to MAIL_TEST_ADDRESS.
+        required: true
+        type: number
+      confirmation:
+        description: Type RUN SINGLE ADMIN TEST EMAIL after verifying the message.
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: fity-admin-test-email
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      ${{
+        github.ref == 'refs/heads/main' &&
+        vars.EMAIL_TEST_DISPATCH_ENABLED == 'true' &&
+        inputs.confirmation == 'RUN SINGLE ADMIN TEST EMAIL'
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out dispatch revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install application requirements
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Prepare verified database TLS settings
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py tls-env
+      - name: Check database connection settings
+        env:
+          EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py settings
+      - name: Read-only schema and identity preflight
+        env:
+          EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py preflight
+      - name: Dispatch the selected admin test message
+        env:
+          FLASK_APP: manage:app
+          APP_ENV: production
+          SECRET_KEY: ${{ secrets.FITY_SECRET_KEY }}
+          MAIL_PROVIDER: ${{ vars.MAIL_PROVIDER }}
+          MAIL_FROM_ADDRESS: ${{ vars.MAIL_FROM_ADDRESS }}
+          MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME }}
+          MAIL_FROM_VERIFIED: ${{ vars.MAIL_FROM_VERIFIED }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MAIL_SERVER: ${{ vars.MAIL_SERVER }}
+          MAIL_PORT: ${{ vars.MAIL_PORT || '587' }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MAIL_TEST_ADDRESS: ${{ secrets.MAIL_TEST_ADDRESS }}
+          TEST_MESSAGE_ID: ${{ inputs.message_id }}
+          TEST_CONFIRMATION: ${{ inputs.confirmation }}
+        run: python -m flask --app manage:app dispatch-admin-test-email --message-id "$TEST_MESSAGE_ID" --confirmation "$TEST_CONFIRMATION"

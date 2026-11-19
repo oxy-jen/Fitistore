@@ -791,6 +791,73 @@ def register_cli(app: Flask):
                 f"Queue batch recorded {result['failed']} failed message(s); inspect queue health and logs."
             )
 
+    @app.cli.command("process-transactional-email-queue")
+    @click.option("--limit", type=click.IntRange(1, 500), default=25, show_default=True)
+    @click.option("--max-seconds", type=click.IntRange(1, 3600), default=240, show_default=True)
+    @click.option("--confirmation", default="", help="Type RUN TRANSACTIONAL EMAIL QUEUE.")
+    def process_transactional_email_queue_command(limit, max_seconds, confirmation):
+        """Run one bounded batch restricted to approved transactional kinds."""
+        if confirmation != "RUN TRANSACTIONAL EMAIL QUEUE":
+            raise click.ClickException(
+                "Transactional queue execution requires --confirmation "
+                "'RUN TRANSACTIONAL EMAIL QUEUE'; no messages were dispatched."
+            )
+        from .services.customer_mail import process_transactional_email_queue
+        stopping = {"requested": False}
+        previous_handler = signal.getsignal(signal.SIGTERM)
+        signal.signal(signal.SIGTERM, lambda _signum, _frame: stopping.__setitem__("requested", True))
+        try:
+            result = process_transactional_email_queue(
+                limit=limit, max_seconds=max_seconds,
+                should_stop=lambda: stopping["requested"],
+            )
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(
+                f"Transactional email queue processing stopped ({type(exc).__name__})."
+            ) from None
+        finally:
+            signal.signal(signal.SIGTERM, previous_handler)
+        click.echo(json.dumps({"event": "transactional_email_queue_run_complete", **result}, sort_keys=True))
+        if result.get("not_configured"):
+            raise click.ClickException("Email provider is not configured; no message was dispatched.")
+        if result.get("legacy_review_schema_unavailable"):
+            raise click.ClickException(
+                "Legacy email payload review schema is unavailable; no transactional message was dispatched."
+            )
+        if result.get("failed"):
+            raise click.ClickException(
+                f"Transactional queue batch recorded {result['failed']} failed message(s); inspect queue health and logs."
+            )
+
+    @app.cli.command("dispatch-admin-test-email")
+    @click.option("--message-id", type=click.IntRange(1), required=True)
+    @click.option("--confirmation", default="", help="Type RUN SINGLE ADMIN TEST EMAIL.")
+    def dispatch_admin_test_email_command(message_id, confirmation):
+        """Dispatch one queued, unlinked admin test only to MAIL_TEST_ADDRESS."""
+        if confirmation != "RUN SINGLE ADMIN TEST EMAIL":
+            raise click.ClickException(
+                "Admin test dispatch requires --confirmation "
+                "'RUN SINGLE ADMIN TEST EMAIL'; no message was dispatched."
+            )
+        from .services.customer_mail import process_admin_test_email
+        try:
+            result = process_admin_test_email(message_id)
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(
+                f"Admin test dispatch stopped ({type(exc).__name__}); no other message was selected."
+            ) from None
+        click.echo(json.dumps({"event": "admin_test_email_dispatch_complete", **result}, sort_keys=True))
+        if result.get("not_configured"):
+            raise click.ClickException("Email provider is not configured; no message was dispatched.")
+        if result.get("failed"):
+            raise click.ClickException("Admin test message failed; it was not automatically retried.")
+        if result.get("sent") != 1:
+            raise click.ClickException(
+                "This invocation did not dispatch the selected admin test; inspect its current status."
+            )
+
 
     @app.cli.command("email-queue-health")
     def email_queue_health_command():

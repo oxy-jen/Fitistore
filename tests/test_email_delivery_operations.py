@@ -47,6 +47,21 @@ def _ambiguous_message(key="ambiguous-test", *, payload=False, purpose="marketin
     return row, attempt
 
 
+def _queued_worker_message(key, kind, purpose, *, status="queued", recipient="recipient@example.test",
+                           account_id=None, created_at=None, next_attempt_at=None, retry_count=0):
+    row = EmailMessage(
+        recipient=recipient, account_id=account_id, kind=kind, purpose=purpose,
+        subject="Worker test", idempotency_key=key, status=status,
+        html_body="<p>Worker test</p>", text_body="Worker test",
+        created_at=created_at or datetime.utcnow(),
+        next_attempt_at=next_attempt_at, retry_count=retry_count,
+        error_category="retryable_provider" if status == "failed" else None,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return row
+
+
 def test_investigation_requires_ambiguous_message_and_preserves_append_only_history(app, app_context):
     admin = AdminUser.query.filter_by(username="owner").one()
     message, attempt = _ambiguous_message("investigation-open")
@@ -165,6 +180,252 @@ def test_delivery_claim_persists_attempt_and_stops_worker_history(app, app_conte
     assert attempt.status == "accepted"
     assert attempt.completed_at is not None
     assert EmailWorkerRun.query.filter_by(status="STOPPED").count() == 1
+
+
+def test_transactional_worker_dispatches_only_account_and_order_allowlist(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    permitted = [
+        _queued_worker_message("isolated-verify", "verify_code", "transactional"),
+        _queued_worker_message("isolated-order", "order_received", "transactional"),
+    ]
+    excluded = [
+        _queued_worker_message("isolated-marketing", "marketing_campaign", "marketing"),
+        _queued_worker_message("isolated-admin-test", "admin_test", "test"),
+        _queued_worker_message("isolated-restock", "restock_notification", "transactional"),
+        _queued_worker_message("isolated-review", "review_request", "transactional"),
+        _queued_worker_message("isolated-marketing-confirm", "marketing_confirm", "transactional"),
+        _queued_worker_message("isolated-wrong-purpose", "order_update", "marketing"),
+    ]
+    sent_ids = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *_args: sent_ids.append(1) or "isolated-provider-id")
+
+    result = customer_mail.process_transactional_email_queue(limit=50)
+
+    assert result["sent"] == 2
+    assert len(sent_ids) == 2
+    assert all(EmailMessage.query.get(row.id).status == "sent" for row in permitted)
+    assert all(EmailMessage.query.get(row.id).status == row.status == "queued" for row in excluded)
+    assert EmailWorkerRun.query.filter_by(worker_type="transactional_queue", status="STOPPED").count() == 1
+
+
+def test_transactional_worker_retries_only_due_allowlisted_failures(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    now = datetime.utcnow()
+    due = _queued_worker_message(
+        "isolated-retry-order", "order_received", "transactional",
+        status="failed", next_attempt_at=now - timedelta(seconds=1), retry_count=1,
+    )
+    marketing = _queued_worker_message(
+        "isolated-retry-marketing", "marketing_campaign", "marketing",
+        status="failed", next_attempt_at=now - timedelta(seconds=1), retry_count=1,
+    )
+    excluded_transactional = _queued_worker_message(
+        "isolated-retry-review", "review_request", "transactional",
+        status="failed", next_attempt_at=now - timedelta(seconds=1), retry_count=1,
+    )
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *_args: "isolated-retry-provider-id")
+
+    result = customer_mail.process_transactional_email_queue(limit=50, now=now)
+
+    db.session.refresh(due)
+    db.session.refresh(marketing)
+    db.session.refresh(excluded_transactional)
+    assert result["sent"] == 1
+    assert due.status == "sent"
+    assert marketing.status == "failed"
+    assert excluded_transactional.status == "failed"
+
+
+def test_transactional_worker_expires_old_codes_without_touching_excluded_kinds(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    now = datetime.utcnow()
+    expired_code = _queued_worker_message(
+        "isolated-expired-code", "verify_code", "transactional",
+        created_at=now - timedelta(minutes=11),
+    )
+    expired_retry = _queued_worker_message(
+        "isolated-expired-reset", "reset_password", "transactional",
+        status="failed", created_at=now - timedelta(minutes=31),
+        next_attempt_at=now - timedelta(seconds=1), retry_count=1,
+    )
+    excluded_expired_confirmation = _queued_worker_message(
+        "isolated-expired-marketing-confirm", "marketing_confirm", "transactional",
+        created_at=now - timedelta(days=2),
+    )
+    send_attempts = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *_args: send_attempts.append(1) or "unused-id")
+
+    result = customer_mail.process_transactional_email_queue(limit=50, now=now)
+
+    db.session.refresh(expired_code)
+    db.session.refresh(expired_retry)
+    db.session.refresh(excluded_expired_confirmation)
+    assert result["sent"] == 0
+    assert expired_code.status == "failed"
+    assert expired_code.error_category == "expired_auth_payload"
+    assert expired_code.html_body is None and expired_code.text_body is None
+    assert expired_retry.status == "failed"
+    assert expired_retry.error_category == "expired_auth_payload"
+    assert expired_retry.next_attempt_at is None
+    assert expired_retry.html_body is None and expired_retry.text_body is None
+    assert excluded_expired_confirmation.status == "queued"
+    assert not send_attempts
+
+
+def test_admin_test_claim_is_atomic_and_prevents_duplicate_provider_attempts(app, app_context):
+    from app.services import customer_mail
+
+    row = _queued_worker_message("single-admin-test-claim-race", "admin_test", "test",
+                                 recipient="admin@example.test")
+    first_claimed = customer_mail._claim_admin_test_dispatch(row, "test-claim-first", "admin@example.test")
+    second_claimed = customer_mail._claim_admin_test_dispatch(row, "test-claim-second", "admin@example.test")
+
+    assert first_claimed is True
+    assert second_claimed is False
+    assert EmailDeliveryAttempt.query.filter_by(message_id=row.id).count() == 1
+
+
+def test_single_admin_test_dispatch_is_recipient_scoped_and_not_repeatable(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    app.config["MAIL_TEST_ADDRESS"] = "admin@example.test"
+    row = _queued_worker_message(
+        "single-admin-test", "admin_test", "test", recipient="ADMIN@example.test",
+    )
+    sent = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *_args: sent.append(1) or "admin-test-provider-id")
+
+    result = customer_mail.process_admin_test_email(row.id)
+
+    db.session.refresh(row)
+    assert result["claimed"] == 1
+    assert result["sent"] == 1
+    assert row.status == "sent"
+    assert len(sent) == 1
+    assert EmailDeliveryAttempt.query.filter_by(message_id=row.id).count() == 1
+    assert EmailWorkerRun.query.filter_by(worker_type="admin_test", status="STOPPED").count() == 1
+    with pytest.raises(ValueError, match="queued, unlinked admin test"):
+        customer_mail.process_admin_test_email(row.id)
+    assert len(sent) == 1
+    assert CustomerAccount.query.count() == 0
+
+
+def test_general_worker_leaves_admin_tests_for_single_message_dispatch(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    app.config["MAIL_TEST_ADDRESS"] = "admin@example.test"
+    row = _queued_worker_message(
+        "general-worker-admin-test", "admin_test", "test",
+        recipient="admin@example.test",
+    )
+    malformed_test = _queued_worker_message(
+        "general-worker-malformed-test", "admin_test", "test",
+        recipient="admin@example.test",
+    )
+    malformed_test.html_body = None
+    malformed_test.text_body = ""
+    db.session.commit()
+    sends = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *_args: sends.append(1) or "must-not-send")
+
+    assert customer_mail.deliver_email(row) is False
+    result = customer_mail.process_email_queue(limit=50)
+
+    db.session.refresh(row)
+    db.session.refresh(malformed_test)
+    assert result["claimed"] == 0
+    assert row.status == "queued"
+    assert malformed_test.status == "queued"
+    assert not sends
+    assert EmailDeliveryAttempt.query.filter_by(message_id=row.id).count() == 0
+
+
+def test_single_admin_test_dispatch_rejects_customer_link_and_wrong_recipient(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    app.config["MAIL_TEST_ADDRESS"] = "admin@example.test"
+    account = CustomerAccount(email="linked-customer@example.test", display_name="Linked")
+    db.session.add(account)
+    db.session.commit()
+    linked = _queued_worker_message(
+        "single-admin-test-linked", "admin_test", "test",
+        recipient="admin@example.test", account_id=account.id,
+    )
+    wrong_recipient = _queued_worker_message(
+        "single-admin-test-wrong-recipient", "admin_test", "test",
+        recipient="customer@example.test",
+    )
+    sends = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *_args: sends.append(1) or "must-not-send")
+
+    for row in (linked, wrong_recipient):
+        with pytest.raises(ValueError, match="queued, unlinked admin test"):
+            customer_mail.process_admin_test_email(row.id)
+    assert not sends
+    assert linked.status == wrong_recipient.status == "queued"
+
+
+def test_single_admin_test_dispatch_rejects_test_address_owned_by_customer(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    app.config["MAIL_TEST_ADDRESS"] = "customer@example.test"
+    account = CustomerAccount(email="customer@example.test", display_name="Owner")
+    db.session.add(account)
+    db.session.commit()
+    row = _queued_worker_message(
+        "single-admin-test-customer-address", "admin_test", "test",
+        recipient="customer@example.test",
+    )
+    sends = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *_args: sends.append(1) or "must-not-send")
+
+    with pytest.raises(ValueError, match="must not match a customer account"):
+        customer_mail.process_admin_test_email(row.id)
+    assert not sends
+    assert row.status == "queued"
+
+
+def test_isolated_email_cli_commands_require_exact_confirmation_before_database_work(app, app_context):
+    runner = app.test_cli_runner()
+
+    transactional = runner.invoke(
+        args=["process-transactional-email-queue", "--confirmation", "run transactional email queue"],
+    )
+    test_dispatch = runner.invoke(
+        args=["dispatch-admin-test-email", "--message-id", "1", "--confirmation", "SEND TEST"],
+    )
+
+    assert transactional.exit_code != 0
+    assert "no messages were dispatched" in transactional.output
+    assert test_dispatch.exit_code != 0
+    assert "no message was dispatched" in test_dispatch.output
+    assert EmailWorkerRun.query.count() == 0
+
+
+def test_transactional_cli_surfaces_missing_legacy_review_schema(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    monkeypatch.setattr(
+        customer_mail, "process_transactional_email_queue",
+        lambda **_kwargs: {"legacy_review_schema_unavailable": 1},
+    )
+    result = app.test_cli_runner().invoke(args=[
+        "process-transactional-email-queue",
+        "--confirmation", "RUN TRANSACTIONAL EMAIL QUEUE",
+    ])
+
+    assert result.exit_code != 0
+    assert "Legacy email payload review schema is unavailable" in result.output
 
 
 def test_investigation_routes_require_admin_and_csrf(client, app, app_context):

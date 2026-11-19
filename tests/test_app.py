@@ -4950,7 +4950,8 @@ def test_email_studio_test_send_requires_prior_preview_and_explicit_address(clie
     )
     assert result.status_code == 200
     assert sent == []
-    customer_mail.process_email_queue(limit=5)
+    test_message = EmailMessage.query.filter_by(kind="admin_test").one()
+    customer_mail.process_admin_test_email(test_message.id)
     assert len(sent) == 1
     assert sent[0][0] == "owner-controlled@example.test"
     assert sent[0][1].startswith("[TEST PREVIEW]")

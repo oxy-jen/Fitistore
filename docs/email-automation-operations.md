@@ -133,6 +133,47 @@ per-admin rate limit. Test messages are labelled and queued as purpose `test`;
 they are not transactional customer notices or marketing. Queue execution
 remains subject to the separate explicit worker confirmation and workflow gate.
 
+### Isolated transactional and administrator-test workers
+
+The general `process-email-queue` command and its `EMAIL_QUEUE_ENABLED` gate
+remain in place. It now leaves kind `admin_test` rows untouched; those must use
+the single-message test path. Do not enable that general worker to activate
+transactional mail: it can still select other purposes and kinds.
+
+The separate `process-transactional-email-queue` command accepts only rows
+whose purpose is `transactional` and whose kind belongs to the explicit
+account-security or order-lifecycle allowlist in
+`app/services/email_purpose.py`. Account-security kinds are verification,
+login/reset, welcome, account-security, and unsubscribe-confirmation messages.
+Order-lifecycle kinds are order receipt/status, payment, cancellation,
+completion/refund, and the three trusted Email Studio order notices. Restock,
+review-request, marketing-confirmation, all marketing, test, and unknown kinds
+are excluded from both queued and retryable-failure selection. Expiry cleanup
+and malformed-payload quarantine are scoped to that same allowlist.
+
+The isolated workflow is manual or scheduled every 15 minutes, but remains
+inert unless repository variable `EMAIL_TRANSACTIONAL_QUEUE_ENABLED` is exactly
+`true`; a manual run also requires `RUN TRANSACTIONAL EMAIL QUEUE`. Its CLI
+command independently enforces that confirmation and the same kind/purpose
+filter. Leave the new variable unset or `false` until separately approved.
+`EMAIL_QUEUE_ENABLED` must remain `false`; the isolated workflow does not need
+or change it.
+
+For a provider test, the separate `dispatch-admin-test-email` command accepts
+one message ID only. It fails closed unless the row is queued, has kind
+`admin_test` and purpose `test`, has no customer account link, contains complete
+stored content, its recipient exactly matches `MAIL_TEST_ADDRESS`, and that
+address is not attached to any customer account. The claim rechecks these
+properties atomically before provider handoff, so two concurrent invocations
+cannot send the same row. Failed test messages are not retried by this
+one-message command. The manual-only
+`.github/workflows/dispatch-admin-test-email.yml` additionally requires
+`EMAIL_TEST_DISPATCH_ENABLED=true` and exact confirmation
+`RUN SINGLE ADMIN TEST EMAIL`. Configure the GitHub Actions secret
+`MAIL_TEST_ADDRESS` privately to the same administrator-controlled address used
+by the application; an unset value prevents dispatch. This workflow does not
+select, retry, or process any other outbox row.
+
 ### GitHub Actions queue workflow
 
 `.github/workflows/process-email-queue.yml` supports manual dispatch and an
@@ -144,14 +185,41 @@ controlled tests have all received separate approval. The workflow uses the
 Neon PostgreSQL secret only after the identity/schema preflight. It does not
 migrate the database. Set the following GitHub repository configuration
 privately to the approved Neon production target before separately enabling
-the queue:
+the queue. The three processing workflows consume the following configuration:
 
-- Secret: `NEON_DATABASE_URL`.
-- Variables: `NEON_DATABASE_HOST` (exact Neon hostname),
-  `NEON_DATABASE_NAME` (`neondb`), and `NEON_DATABASE_SCHEMA` (`public`).
-- Variable: `EMAIL_QUEUE_ENABLED` (default/unset is paused).
-- Secret: `FITY_SECRET_KEY`.
-- Mail provider variables and the corresponding provider credential secrets.
+| Exact name | GitHub location | Requirement / use |
+| --- | --- | --- |
+| `NEON_DATABASE_URL` | Actions secret | Required by each workflow for the guarded database connection. |
+| `FITY_SECRET_KEY` | Actions secret | Required by each production-mode Flask command. |
+| `NEON_DATABASE_HOST` | Actions variable | Required exact host identity for preflight. |
+| `NEON_DATABASE_NAME` | Actions variable | Required database identity; production value is `neondb`. |
+| `NEON_DATABASE_SCHEMA` | Actions variable | Required schema identity; production value is `public`. |
+| `MAIL_PROVIDER` | Actions variable | Required; `brevo`, `resend`, or `smtp`. |
+| `MAIL_FROM_ADDRESS` | Actions variable | Required verified sender address. |
+| `MAIL_FROM_VERIFIED` | Actions variable | Required true only after provider sender verification. |
+| `MAIL_FROM_NAME` | Actions variable | Optional display name; code falls back to `FityStores`. |
+| `BREVO_API_KEY` | Actions secret | Required only when `MAIL_PROVIDER=brevo`. |
+| `RESEND_API_KEY` | Actions secret | Required only when `MAIL_PROVIDER=resend`. |
+| `MAIL_SERVER` | Actions variable | Required only when `MAIL_PROVIDER=smtp`. |
+| `MAIL_PORT` | Actions variable | SMTP only; defaults to `587` in the workflows. |
+| `MAIL_USERNAME` | Actions secret | SMTP only; optional when both username and password are blank. |
+| `MAIL_PASSWORD` | Actions secret | SMTP only; optional when both username and password are blank. |
+| `EMAIL_QUEUE_ENABLED` | Actions variable | Existing general queue gate; keep unset or `false`. |
+| `EMAIL_TRANSACTIONAL_QUEUE_ENABLED` | Actions variable | Transactional worker gate; unset/false is paused. |
+| `EMAIL_TEST_DISPATCH_ENABLED` | Actions variable | Single-test workflow gate; unset/false is paused. |
+| `MAIL_TEST_ADDRESS` | Actions secret | Required only for the single-test workflow; match the app's administrator-controlled address. |
+
+The GitHub workflows default `MAIL_PORT` to `587`. SMTP encryption defaults in
+`config.py` to `MAIL_USE_TLS=1` and `MAIL_USE_SSL=0`; neither is overridden by
+these workflows. For SMTP authentication, configure both username and password
+or leave both blank. Configure only the credential for the selected API
+provider; do not copy secret values into variables or logs.
+
+The isolated transactional workflow additionally uses
+`EMAIL_TRANSACTIONAL_QUEUE_ENABLED` (unset/false is paused). The single-admin-
+test workflow additionally uses `EMAIL_TEST_DISPATCH_ENABLED` (unset/false is
+paused) and Actions secret `MAIL_TEST_ADDRESS`. These new gates do not enable
+the general queue or trigger processing by themselves.
 
 The workflows use Ubuntu's `/etc/ssl/certs/ca-certificates.crt` system CA
 bundle and enforce `sslmode=verify-full` with hostname verification. The guard

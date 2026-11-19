@@ -18,6 +18,25 @@ TRANSACTIONAL_EMAIL_KINDS = frozenset({
     "studio_order_confirmation", "studio_thank_you", "studio_order_status",
 })
 
+ACCOUNT_SECURITY_EMAIL_KINDS = frozenset({
+    "verify_email", "verify_code", "login_code", "reset_password",
+    "welcome", "account_security", "unsubscribe_confirmation",
+})
+
+ORDER_LIFECYCLE_EMAIL_KINDS = frozenset({
+    "order_received", "order_update", "payment_confirmed", "payment_failed",
+    "order_status", "order_processing", "ready_for_collection", "order_dispatched",
+    "order_cancellation", "order_completed", "refund_confirmation",
+    "studio_order_confirmation", "studio_thank_you", "studio_order_status",
+})
+
+TRANSACTIONAL_QUEUE_EMAIL_KINDS = (
+    ACCOUNT_SECURITY_EMAIL_KINDS | ORDER_LIFECYCLE_EMAIL_KINDS
+)
+
+if not TRANSACTIONAL_QUEUE_EMAIL_KINDS <= TRANSACTIONAL_EMAIL_KINDS:
+    raise RuntimeError("Transactional queue kinds must have transactional purpose mappings.")
+
 MARKETING_EMAIL_KINDS = frozenset({
     "marketing_campaign", "marketing_daily_goodies", "marketing_weekly_picks",
     "marketing_abandoned_cart", "marketing_review_highlight",

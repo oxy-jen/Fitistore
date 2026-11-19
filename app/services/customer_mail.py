@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import logging
 import re
@@ -15,15 +16,24 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app, render_template, url_for
 from sqlalchemy import func, or_, select, update
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from app.extensions import db
-from app.services.email_purpose import UnknownEmailKind, email_purpose_for_kind
+from app.services.email_purpose import (
+    TEST_EMAIL_KINDS,
+    TRANSACTIONAL_QUEUE_EMAIL_KINDS,
+    UnknownEmailKind,
+    email_purpose_for_kind,
+)
 from app.models import (CustomerAccount, CustomerCart, EmailDeliveryAttempt,
                         EmailDeliveryInvestigation, EmailMessage, MarketingCampaignRun,
                         RestockAlert)
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from app.services.email_worker import EmailWorkerHeartbeat
 
 
 def _email_public_base_url() -> str:
@@ -255,8 +265,15 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
     return record
 
 
-def deliver_email(record: EmailMessage, html_body: str | None = None, text_body: str | None = None) -> bool:
+def deliver_email(record: EmailMessage, html_body: str | None = None, text_body: str | None = None,
+                  *, expected_test_recipient: str | None = None) -> bool:
     """Dispatch one persisted outbox row; this is called by the explicit worker."""
+    if expected_test_recipient is not None:
+        target = _normalized_test_address(expected_test_recipient)
+        if (record.status != "queued" or not target or record.kind != "admin_test"
+                or record.purpose != "test" or record.account_id is not None
+                or _normalized_test_address(record.recipient) != target):
+            return False
     if record.status != "queued":
         return record.status == "sent"
     try:
@@ -273,6 +290,9 @@ def deliver_email(record: EmailMessage, html_body: str | None = None, text_body:
                  updated_at=datetime.utcnow()))
         db.session.commit()
         db.session.refresh(record)
+        return False
+    if record.kind in TEST_EMAIL_KINDS and expected_test_recipient is None:
+        logger.warning("admin_test_requires_isolated_dispatch message_id=%s", record.id)
         return False
     marketing = expected_purpose == "marketing"
     configured, reason = mail_configuration_status()
@@ -332,6 +352,10 @@ def deliver_email(record: EmailMessage, html_body: str | None = None, text_body:
         # transaction released its account-row lock before this network call.
         record.status = "sending"
         record.failure_reason = ""
+    elif expected_test_recipient is not None:
+        if not _claim_admin_test_dispatch(record, claim_token, expected_test_recipient):
+            return False
+        record.status = "sending"
     else:
         if not _claim_transactional_dispatch(record, claim_token):
             return False
@@ -465,6 +489,37 @@ def _claim_transactional_dispatch(record: EmailMessage, claim_token: str) -> boo
         return True
 
 
+def _claim_admin_test_dispatch(record: EmailMessage, claim_token: str, recipient: str) -> bool:
+    """Atomically claim only a queued, unlinked admin test for the configured address."""
+    normalized = _normalized_test_address(recipient)
+    if not normalized:
+        return False
+    with db.engine.begin() as connection:
+        result = connection.execute(
+            update(EmailMessage).where(
+                EmailMessage.id == record.id,
+                EmailMessage.status == "queued",
+                EmailMessage.kind == "admin_test",
+                EmailMessage.purpose == "test",
+                EmailMessage.account_id.is_(None),
+                func.lower(func.trim(EmailMessage.recipient)) == normalized,
+                EmailMessage.html_body.is_not(None),
+                func.trim(EmailMessage.html_body) != "",
+                EmailMessage.text_body.is_not(None),
+                func.trim(EmailMessage.text_body) != "",
+                ~select(CustomerAccount.id).where(
+                    func.lower(func.trim(CustomerAccount.email)) == normalized,
+                ).exists(),
+            ).values(status="sending", claim_token=claim_token, claimed_at=datetime.utcnow(),
+                     last_attempt_at=datetime.utcnow(), updated_at=datetime.utcnow())
+        )
+        if result.rowcount != 1:
+            return False
+        record._active_attempt_id = _insert_delivery_attempt(connection, record, claim_token)
+        record._admin_test_claimed = True
+        return True
+
+
 def _insert_delivery_attempt(connection, record: EmailMessage, claim_token: str) -> int:
     """Persist provider handoff metadata in the same transaction as the claim."""
     attempt_number = connection.execute(
@@ -585,11 +640,13 @@ def _restock_alert_id(kind: str, idempotency_key: str | None) -> int | None:
     return int(suffix) if suffix.isdigit() else None
 
 
-def process_email_queue(*, limit: int = 50, now: datetime | None = None,
-                        max_seconds: int | None = None, should_stop=None) -> dict[str, int]:
-    """Run one bounded worker process with durable liveness evidence."""
+def _run_email_worker(
+    process_batch: Callable[["EmailWorkerHeartbeat"], dict[str, int]],
+    *,
+    worker_type: str = "queue",
+) -> dict[str, int]:
     from app.services.email_worker import EmailWorkerHeartbeat
-    heartbeat = EmailWorkerHeartbeat()
+    heartbeat = EmailWorkerHeartbeat(worker_type=worker_type)
     try:
         heartbeat.start()
     except Exception as exc:
@@ -598,10 +655,7 @@ def process_email_queue(*, limit: int = 50, now: datetime | None = None,
         raise RuntimeError("Email worker tracking is unavailable; no messages were dispatched.") from None
     failed = False
     try:
-        return _process_email_queue_batch(
-            limit=limit, now=now, max_seconds=max_seconds,
-            should_stop=should_stop, worker_heartbeat=heartbeat,
-        )
+        return process_batch(heartbeat)
     except Exception:
         failed = True
         raise
@@ -609,9 +663,84 @@ def process_email_queue(*, limit: int = 50, now: datetime | None = None,
         heartbeat.stop(failed=failed, error_category="worker_batch_failed" if failed else None)
 
 
+def process_email_queue(*, limit: int = 50, now: datetime | None = None,
+                        max_seconds: int | None = None, should_stop=None) -> dict[str, int]:
+    """Run one bounded worker process with durable liveness evidence."""
+    return _run_email_worker(lambda heartbeat: _process_email_queue_batch(
+        limit=limit, now=now, max_seconds=max_seconds,
+        should_stop=should_stop, worker_heartbeat=heartbeat,
+    ))
+
+
+def process_transactional_email_queue(*, limit: int = 50, now: datetime | None = None,
+                                      max_seconds: int | None = None,
+                                      should_stop=None) -> dict[str, int]:
+    """Dispatch only approved account-security and order-lifecycle messages."""
+    return _run_email_worker(lambda heartbeat: _process_email_queue_batch(
+        limit=limit, now=now, max_seconds=max_seconds, should_stop=should_stop,
+        worker_heartbeat=heartbeat, allowed_kinds=TRANSACTIONAL_QUEUE_EMAIL_KINDS,
+        required_purpose="transactional",
+    ), worker_type="transactional_queue")
+
+
+def _normalized_test_address(address: str | None) -> str:
+    value = str(address or "").strip()
+    parsed = parseaddr(value)[1]
+    if (parsed != value or len(value) > 254
+            or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value)):
+        return ""
+    return value.casefold()
+
+
+def _validate_admin_test_message(record: EmailMessage | None, recipient: str) -> EmailMessage:
+    if (record is None or record.status != "queued" or record.kind != "admin_test"
+            or record.purpose != "test" or record.account_id is not None
+            or _normalized_test_address(record.recipient) != recipient):
+        raise ValueError("Only a queued, unlinked admin test for MAIL_TEST_ADDRESS can be dispatched.")
+    if CustomerAccount.query.filter(
+        func.lower(func.trim(CustomerAccount.email)) == recipient,
+    ).first():
+        raise ValueError("MAIL_TEST_ADDRESS must not match a customer account.")
+    if (not isinstance(record.html_body, str) or not record.html_body.strip()
+            or not isinstance(record.text_body, str) or not record.text_body.strip()):
+        raise ValueError("The admin test message must have complete stored content.")
+    return record
+
+
+def process_admin_test_email(message_id: int) -> dict[str, int]:
+    """Dispatch exactly one queued admin test message to MAIL_TEST_ADDRESS."""
+    recipient = _normalized_test_address(current_app.config.get("MAIL_TEST_ADDRESS"))
+    if not recipient:
+        raise ValueError("A valid MAIL_TEST_ADDRESS is required for single-message test dispatch.")
+    record = _validate_admin_test_message(db.session.get(EmailMessage, int(message_id)), recipient)
+    configured, _reason = mail_configuration_status()
+    if not configured:
+        return {"claimed": 0, "sent": 0, "failed": 0, "suppressed": 0, "not_configured": 1}
+
+    def dispatch_one(heartbeat: EmailWorkerHeartbeat) -> dict[str, int]:
+        row = _validate_admin_test_message(db.session.get(EmailMessage, record.id), recipient)
+        heartbeat.mark_attempt(1)
+        row._admin_test_claimed = False
+        delivered = deliver_email(row, expected_test_recipient=recipient)
+        db.session.refresh(row)
+        sent = int(delivered and row.status == "sent")
+        if sent:
+            heartbeat.mark_success()
+        return {
+            "claimed": int(row._admin_test_claimed),
+            "sent": sent,
+            "failed": int(row.status == "failed"),
+            "suppressed": int(row.status == "suppressed"),
+            "not_configured": 0,
+        }
+
+    return _run_email_worker(dispatch_one, worker_type="admin_test")
+
+
 def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
                                max_seconds: int | None = None, should_stop=None,
-                               worker_heartbeat=None) -> dict[str, int]:
+                               worker_heartbeat=None, allowed_kinds: frozenset[str] | None = None,
+                               required_purpose: str | None = None) -> dict[str, int]:
     """Dispatch due persisted messages. No scheduler is enabled by this command."""
     now = now or datetime.utcnow()
     limit = max(1, min(int(limit), 500))
@@ -623,10 +752,15 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
         "marketing_confirm": timedelta(hours=24),
     }
     for kind, ttl in auth_ttls.items():
-        db.session.execute(update(EmailMessage).where(
+        if allowed_kinds is not None and kind not in allowed_kinds:
+            continue
+        expiry_query = update(EmailMessage).where(
             EmailMessage.status.in_(("queued", "failed")), EmailMessage.kind == kind,
             EmailMessage.created_at <= now - ttl,
-        ).values(
+        )
+        if required_purpose is not None:
+            expiry_query = expiry_query.where(EmailMessage.purpose == required_purpose)
+        db.session.execute(expiry_query.values(
             status="failed", error_category="expired_auth_payload",
             failure_reason="Authentication email expired before dispatch.",
             html_body=None, text_body=None, next_attempt_at=None,
@@ -640,14 +774,24 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
         return {"claimed": 0, "sent": 0, "failed": 0, "suppressed": 0,
                 "not_configured": 0, "legacy_review_schema_unavailable": 1}
     from app.services.email_legacy_reviews import quarantine_incomplete_queued_messages
-    malformed_count = quarantine_incomplete_queued_messages(now=now)
+    excluded_test_kinds = frozenset({"admin_test"}) if allowed_kinds is None else None
+    malformed_count = quarantine_incomplete_queued_messages(
+        now=now, kinds=allowed_kinds, purpose=required_purpose,
+        excluded_kinds=excluded_test_kinds,
+    )
     configured, _reason = mail_configuration_status()
     if not configured:
         return {"claimed": 0, "sent": 0, "failed": int(malformed_count or 0), "suppressed": 0, "not_configured": 1}
-    due_failed = EmailMessage.query.filter(
+    due_failed_query = EmailMessage.query.filter(
         EmailMessage.status == "failed", EmailMessage.error_category.in_(("retryable_provider", "retryable_infrastructure")),
         EmailMessage.retry_count <= 3, EmailMessage.next_attempt_at <= now,
-    ).order_by(EmailMessage.next_attempt_at, EmailMessage.id).limit(limit).all()
+        EmailMessage.kind != "admin_test",
+    )
+    if allowed_kinds is not None:
+        due_failed_query = due_failed_query.filter(EmailMessage.kind.in_(allowed_kinds))
+    if required_purpose is not None:
+        due_failed_query = due_failed_query.filter(EmailMessage.purpose == required_purpose)
+    due_failed = due_failed_query.order_by(EmailMessage.next_attempt_at, EmailMessage.id).limit(limit).all()
     for failed in due_failed:
         db.session.execute(update(EmailMessage).where(
             EmailMessage.id == failed.id, EmailMessage.status == "failed",
@@ -655,10 +799,16 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
     if due_failed:
         db.session.commit()
     remaining = max(0, limit - len(due_failed))
-    queued = EmailMessage.query.filter(
+    queued_query = EmailMessage.query.filter(
         EmailMessage.status == "queued",
         (EmailMessage.next_attempt_at.is_(None) | (EmailMessage.next_attempt_at <= now)),
-    ).order_by(EmailMessage.created_at, EmailMessage.id).limit(remaining).all() if remaining else []
+        EmailMessage.kind != "admin_test",
+    )
+    if allowed_kinds is not None:
+        queued_query = queued_query.filter(EmailMessage.kind.in_(allowed_kinds))
+    if required_purpose is not None:
+        queued_query = queued_query.filter(EmailMessage.purpose == required_purpose)
+    queued = queued_query.order_by(EmailMessage.created_at, EmailMessage.id).limit(remaining).all() if remaining else []
     row_ids = list(dict.fromkeys([row.id for row in due_failed] + [row.id for row in queued]))
     rows = [db.session.get(EmailMessage, row_id) for row_id in row_ids]
     counts = {"claimed": 0, "sent": 0, "failed": int(malformed_count or 0), "suppressed": 0, "not_configured": 0}
