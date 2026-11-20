@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import hashlib
 
 import pytest
 from sqlalchemy import text
@@ -60,6 +61,32 @@ def _queued_worker_message(key, kind, purpose, *, status="queued", recipient="re
     db.session.add(row)
     db.session.commit()
     return row
+
+
+def _queued_auth_code(key, purpose="verify_code", *, created_at=None, expires_at=None):
+    account = CustomerAccount(
+        email=f"{key}@example.test", display_name="Auth test",
+        email_verified_at=datetime.utcnow() if purpose == "login_code" else None,
+    )
+    db.session.add(account)
+    db.session.flush()
+    token = CustomerToken(
+        account_id=account.id, purpose=purpose,
+        token_hash=hashlib.sha256((key + "-code").encode()).hexdigest(),
+        expires_at=expires_at or datetime.utcnow() + timedelta(minutes=10),
+    )
+    db.session.add(token)
+    db.session.flush()
+    row = EmailMessage(
+        recipient=account.email, account_id=account.id, kind=purpose,
+        purpose="transactional", subject="Authentication code",
+        idempotency_key=f"{purpose}:{token.id}", status="queued",
+        html_body="<p>Code</p>", text_body="Code",
+        created_at=created_at or datetime.utcnow(),
+    )
+    db.session.add(row)
+    db.session.commit()
+    return account, token, row
 
 
 def test_investigation_requires_ambiguous_message_and_preserves_append_only_history(app, app_context):
@@ -185,8 +212,9 @@ def test_delivery_claim_persists_attempt_and_stops_worker_history(app, app_conte
 def test_transactional_worker_dispatches_only_account_and_order_allowlist(app, app_context, monkeypatch):
     from app.services import customer_mail
 
+    _account, _token, valid_verify = _queued_auth_code("isolated-verify-account")
     permitted = [
-        _queued_worker_message("isolated-verify", "verify_code", "transactional"),
+        valid_verify,
         _queued_worker_message("isolated-order", "order_received", "transactional"),
     ]
     excluded = [
@@ -267,6 +295,7 @@ def test_transactional_worker_expires_old_codes_without_touching_excluded_kinds(
     db.session.refresh(expired_retry)
     db.session.refresh(excluded_expired_confirmation)
     assert result["sent"] == 0
+    assert result["expired_verify_codes"] == 1
     assert expired_code.status == "failed"
     assert expired_code.error_category == "expired_auth_payload"
     assert expired_code.html_body is None and expired_code.text_body is None
@@ -276,6 +305,144 @@ def test_transactional_worker_expires_old_codes_without_touching_excluded_kinds(
     assert expired_retry.html_body is None and expired_retry.text_body is None
     assert excluded_expired_confirmation.status == "queued"
     assert not send_attempts
+
+
+def test_new_verification_code_dispatches_promptly_through_outbox(app, app_context, monkeypatch):
+    from app.customer import routes as customer_routes
+    from app.services import customer_mail
+
+    account = CustomerAccount(email="prompt-verification@example.test", display_name="Prompt")
+    db.session.add(account)
+    db.session.commit()
+    sent = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args) or "prompt-provider-id")
+
+    row = customer_routes._start_email_code(account, "verify_code")
+
+    assert row.status == "sent"
+    assert len(sent) == 1
+    assert row.purpose == "transactional"
+    assert row.account_id == account.id
+    assert EmailDeliveryAttempt.query.filter_by(message_id=row.id).count() == 1
+    assert row.html_body is None and row.text_body is None
+
+
+def test_auth_code_approaching_expiry_is_delivered_if_token_is_still_valid(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    now = datetime.utcnow()
+    _account, token, row = _queued_auth_code(
+        "auth-near-expiry", created_at=now - timedelta(minutes=9, seconds=50),
+        expires_at=now + timedelta(seconds=10),
+    )
+    sent = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args) or "near-expiry-id")
+
+    result = customer_mail.dispatch_authentication_email_now(
+        row, account_id=row.account_id, purpose="verify_code",
+    )
+
+    assert result.status == "sent"
+    assert len(sent) == 1
+    assert token.used_at is None
+
+
+def test_expired_or_superseded_auth_code_is_rejected_before_provider_call(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    account, token, row = _queued_auth_code(
+        "auth-expired-token", expires_at=datetime.utcnow() - timedelta(seconds=1),
+    )
+    sent = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args) or "should-not-send")
+
+    result = customer_mail.dispatch_authentication_email_now(
+        row, account_id=account.id, purpose="verify_code",
+    )
+
+    assert result.status == "failed"
+    assert result.error_category == "expired_auth_payload"
+    assert result.html_body is None and result.text_body is None
+    assert not sent
+    assert EmailDeliveryAttempt.query.filter_by(message_id=row.id).count() == 0
+
+
+def test_unlinked_verification_message_is_terminalized_without_provider_handoff(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    row = _queued_worker_message("unlinked-verification", "verify_code", "transactional")
+    sent = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args) or "must-not-send")
+
+    result = customer_mail.process_transactional_email_queue(limit=10)
+
+    db.session.refresh(row)
+    assert result["failed"] == 1
+    assert row.status == "failed"
+    assert row.error_category == "invalid_auth_challenge"
+    assert row.html_body is None and row.text_body is None
+    assert EmailDeliveryAttempt.query.filter_by(message_id=row.id).count() == 0
+    assert not sent
+
+
+def test_duplicate_prompt_dispatch_uses_atomic_outbox_claim(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    account, _token, row = _queued_auth_code("auth-duplicate")
+    sent = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args) or "duplicate-safe-id")
+
+    customer_mail.dispatch_authentication_email_now(row, account_id=account.id, purpose="verify_code")
+    customer_mail.dispatch_authentication_email_now(row, account_id=account.id, purpose="verify_code")
+
+    assert row.status == "sent"
+    assert len(sent) == 1
+    assert EmailDeliveryAttempt.query.filter_by(message_id=row.id).count() == 1
+
+
+def test_auth_provider_throttle_uses_short_retry_only_inside_code_lifetime(app, app_context, monkeypatch):
+    from urllib.error import HTTPError
+    from app.services import customer_mail
+
+    account, _token, row = _queued_auth_code("auth-provider-retry")
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+
+    def throttled(*_args):
+        raise HTTPError("https://provider.invalid", 429, "rate limited", {}, None)
+
+    monkeypatch.setattr(customer_mail, "_send_brevo", throttled)
+    result = customer_mail.dispatch_authentication_email_now(
+        row, account_id=account.id, purpose="verify_code",
+    )
+
+    assert result.status == "failed"
+    assert result.error_category == "retryable_provider"
+    assert result.next_attempt_at is not None
+    assert result.next_attempt_at <= datetime.utcnow() + timedelta(minutes=2)
+    assert result.html_body is not None and result.text_body is not None
+
+
+def test_prompt_auth_dispatch_rejects_marketing_and_preserves_worker_isolation(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    marketing = _queued_worker_message(
+        "auth-helper-marketing-isolation", "marketing_campaign", "marketing",
+    )
+    sent = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args) or "must-not-send")
+
+    result = customer_mail.dispatch_authentication_email_now(
+        marketing, account_id=marketing.account_id, purpose="marketing",
+    )
+
+    assert result.status == "queued"
+    assert not sent
 
 
 def test_admin_test_claim_is_atomic_and_prevents_duplicate_provider_attempts(app, app_context):

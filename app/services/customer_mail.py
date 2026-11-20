@@ -27,7 +27,7 @@ from app.services.email_purpose import (
     email_purpose_for_kind,
 )
 from app.models import (CustomerAccount, CustomerCart, EmailDeliveryAttempt,
-                        EmailDeliveryInvestigation, EmailMessage, MarketingCampaignRun,
+                        CustomerToken, EmailDeliveryInvestigation, EmailMessage, MarketingCampaignRun,
                         RestockAlert)
 
 logger = logging.getLogger(__name__)
@@ -398,10 +398,18 @@ def deliver_email(record: EmailMessage, html_body: str | None = None, text_body:
         retryable = ((provider in {"resend", "brevo"} and http_status == 429)
                      or (provider == "smtp" and code in transient_smtp_codes))
         retry_count = record.retry_count + 1
-        next_attempt_at = (
-            datetime.utcnow() + timedelta(minutes=min(240, 15 * (2 ** max(0, retry_count - 1))))
-            if retryable and retry_count <= 3 else None
-        )
+        failed_at = datetime.utcnow()
+        if record.kind in {"verify_code", "login_code"}:
+            # Explicit provider throttling is safe to retry, but a 15-minute
+            # backoff exceeds the code's 10-minute lifetime. Retry promptly
+            # only while the original challenge remains valid.
+            retry_at = failed_at + timedelta(minutes=1)
+            challenge_deadline = record.created_at + timedelta(minutes=10)
+            retry_window_open = retry_at < challenge_deadline
+        else:
+            retry_at = failed_at + timedelta(minutes=min(240, 15 * (2 ** max(0, retry_count - 1))))
+            retry_window_open = True
+        next_attempt_at = retry_at if retryable and retry_count <= 3 and retry_window_open else None
         if provider == "smtp" and code:
             failure_reason = f"SMTP error {code}."
         elif provider in {"resend", "brevo"} and isinstance(http_status, int):
@@ -442,6 +450,38 @@ def deliver_email(record: EmailMessage, html_body: str | None = None, text_body:
         error_category=None, next_attempt_at=None, provider_message_id=record.provider_message_id,
         clear_payload=True,
     )
+
+
+def dispatch_authentication_email_now(record: EmailMessage, *, account_id: int,
+                                      purpose: str) -> EmailMessage:
+    """Attempt prompt, outbox-backed delivery of one verification/sign-in code.
+
+    This is intentionally limited to the two short-lived code workflows. The
+    normal deliverer and transactional claim remain the only provider path; an
+    unavailable provider leaves the durable queued message for the fallback
+    worker. The committed dispatch claim is the point of no return: provider
+    I/O may already be in flight and cannot reliably be recalled.
+    """
+    allowed = {"verify_code", "login_code"}
+    if (purpose not in allowed or record is None or record.kind != purpose
+            or record.purpose != "transactional" or record.account_id != account_id
+            or record.status != "queued"):
+        return record
+    configured, _reason = mail_configuration_status()
+    if not configured:
+        return record
+    try:
+        deliver_email(record)
+        db.session.refresh(record)
+    except Exception as exc:
+        db.session.rollback()
+        logger.warning(
+            "authentication_email_dispatch_deferred message_id=%s error_type=%s",
+            record.id, type(exc).__name__,
+        )
+        refreshed = db.session.get(EmailMessage, record.id)
+        return refreshed or record
+    return record
 
 
 def _claim_marketing_dispatch(record: EmailMessage, *, claim_token: str | None = None) -> tuple[bool, str | None, str | None]:
@@ -495,14 +535,86 @@ def _claim_marketing_dispatch(record: EmailMessage, *, claim_token: str | None =
 
 
 def _claim_transactional_dispatch(record: EmailMessage, claim_token: str) -> bool:
-    """Claim transactional messages without consulting marketing consent state."""
+    """Atomically claim transactional mail without marketing-consent gating.
+
+    Authentication codes receive an additional account/token linkage check
+    while the account row is locked. Challenge issuance takes the same lock,
+    so a superseded or consumed code cannot be newly handed to the provider.
+    """
     with db.engine.begin() as connection:
+        auth_code = record.kind in {"verify_code", "login_code"}
+        if auth_code and record.account_id is None:
+            connection.execute(update(EmailMessage).where(
+                EmailMessage.id == record.id, EmailMessage.status == "queued",
+                EmailMessage.kind == record.kind, EmailMessage.purpose == "transactional",
+                EmailMessage.account_id.is_(None),
+            ).values(
+                status="failed", error_category="invalid_auth_challenge",
+                failure_reason="Authentication challenge is not linked to a customer account.",
+                next_attempt_at=None, claim_token=None, claimed_at=None,
+                html_body=None, text_body=None, updated_at=datetime.utcnow(),
+            ))
+            record.status = "failed"
+            record.error_category = "invalid_auth_challenge"
+            record.html_body = None
+            record.text_body = None
+            return False
         if record.account_id is not None:
             account_identity = connection.execute(
-                select(CustomerAccount.email, CustomerAccount.active)
+                select(CustomerAccount.email, CustomerAccount.active, CustomerAccount.email_verified_at)
                 .where(CustomerAccount.id == record.account_id)
                 .with_for_update()
             ).one_or_none()
+            if auth_code:
+                now = datetime.utcnow()
+                key_match = re.fullmatch(r"(verify_code|login_code):([1-9][0-9]*)", record.idempotency_key or "")
+                token_id = int(key_match.group(2)) if key_match and key_match.group(1) == record.kind else None
+                token = connection.execute(
+                    select(CustomerToken.id, CustomerToken.account_id, CustomerToken.purpose,
+                           CustomerToken.used_at, CustomerToken.expires_at)
+                    .where(CustomerToken.id == token_id)
+                ).one_or_none() if token_id else None
+                normalized_recipient = str(record.recipient or "").strip().casefold()
+                normalized_account_email = str(account_identity.email or "").strip().casefold() if account_identity else ""
+                valid_email = bool(
+                    normalized_recipient and len(normalized_recipient) <= 254
+                    and parseaddr(normalized_recipient)[1] == normalized_recipient
+                    and re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized_recipient)
+                )
+                verification_state_matches = bool(account_identity) and (
+                    (record.kind == "verify_code" and account_identity.email_verified_at is None)
+                    or (record.kind == "login_code" and account_identity.email_verified_at is not None)
+                )
+                token_is_valid = bool(
+                    token and token.account_id == record.account_id and token.purpose == record.kind
+                    and token.used_at is None and token.expires_at > now
+                )
+                auth_valid = bool(
+                    account_identity and account_identity.active and verification_state_matches
+                    and valid_email and normalized_recipient == normalized_account_email
+                    and token_is_valid
+                )
+                if not auth_valid:
+                    expired = bool(token and token.expires_at <= now)
+                    failure_category = "expired_auth_payload" if expired else "invalid_auth_challenge"
+                    changed = connection.execute(update(EmailMessage).where(
+                        EmailMessage.id == record.id, EmailMessage.status == "queued",
+                        EmailMessage.kind == record.kind, EmailMessage.purpose == "transactional",
+                        EmailMessage.account_id == record.account_id,
+                    ).values(
+                        status="failed", error_category=failure_category,
+                        failure_reason=("Authentication email expired before dispatch." if expired
+                                        else "Authentication challenge failed its account or token check."),
+                        next_attempt_at=None, claim_token=None, claimed_at=None,
+                        html_body=None, text_body=None, updated_at=now,
+                    )).rowcount
+                    if changed == 1:
+                        record.status = "failed"
+                        record.error_category = failure_category
+                        record.next_attempt_at = None
+                        record.html_body = None
+                        record.text_body = None
+                    return False
             if (account_identity and not account_identity.active
                     and account_identity.email == f"removed-customer-{record.account_id}@redacted.invalid"):
                 account_email = account_identity.email
@@ -535,7 +647,13 @@ def _claim_transactional_dispatch(record: EmailMessage, claim_token: str) -> boo
                     record.claimed_at = None
                 return False
         result = connection.execute(
-            update(EmailMessage).where(EmailMessage.id == record.id, EmailMessage.status == "queued")
+            update(EmailMessage).where(
+                EmailMessage.id == record.id, EmailMessage.status == "queued",
+                EmailMessage.kind == record.kind, EmailMessage.purpose == record.purpose,
+                EmailMessage.account_id.is_(None) if record.account_id is None else EmailMessage.account_id == record.account_id,
+                EmailMessage.idempotency_key == record.idempotency_key,
+                EmailMessage.recipient == record.recipient,
+            )
             .values(status="sending", claim_token=claim_token, claimed_at=datetime.utcnow(),
                     last_attempt_at=datetime.utcnow(), updated_at=datetime.utcnow())
         )
@@ -807,6 +925,7 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
         "reset_password": timedelta(minutes=30), "verify_email": timedelta(hours=24),
         "marketing_confirm": timedelta(hours=24),
     }
+    expired_verify_codes = 0
     for kind, ttl in auth_ttls.items():
         if allowed_kinds is not None and kind not in allowed_kinds:
             continue
@@ -816,19 +935,22 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
         )
         if required_purpose is not None:
             expiry_query = expiry_query.where(EmailMessage.purpose == required_purpose)
-        db.session.execute(expiry_query.values(
+        expired_result = db.session.execute(expiry_query.values(
             status="failed", error_category="expired_auth_payload",
             failure_reason="Authentication email expired before dispatch.",
             html_body=None, text_body=None, next_attempt_at=None,
             claim_token=None, claimed_at=None, updated_at=now,
         ))
+        if kind == "verify_code":
+            expired_verify_codes += max(0, int(expired_result.rowcount or 0))
     db.session.commit()
     from sqlalchemy import inspect
     if not inspect(db.engine).has_table("email_legacy_payload_review_event"):
         # Fail closed for the whole batch rather than dispatching around malformed
         # legacy rows without an auditable quarantine path.
         return {"claimed": 0, "sent": 0, "failed": 0, "suppressed": 0,
-                "not_configured": 0, "legacy_review_schema_unavailable": 1}
+                "not_configured": 0, "expired_verify_codes": expired_verify_codes,
+                "legacy_review_schema_unavailable": 1}
     from app.services.email_legacy_reviews import quarantine_incomplete_queued_messages
     excluded_test_kinds = frozenset({"admin_test"}) if allowed_kinds is None else None
     malformed_count = quarantine_incomplete_queued_messages(
@@ -837,7 +959,8 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
     )
     configured, _reason = mail_configuration_status()
     if not configured:
-        return {"claimed": 0, "sent": 0, "failed": int(malformed_count or 0), "suppressed": 0, "not_configured": 1}
+        return {"claimed": 0, "sent": 0, "failed": int(malformed_count or 0), "suppressed": 0,
+                "not_configured": 1, "expired_verify_codes": expired_verify_codes}
     due_failed_query = EmailMessage.query.filter(
         EmailMessage.status == "failed", EmailMessage.error_category.in_(("retryable_provider", "retryable_infrastructure")),
         EmailMessage.retry_count <= 3, EmailMessage.next_attempt_at <= now,
@@ -867,7 +990,8 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
     queued = queued_query.order_by(EmailMessage.created_at, EmailMessage.id).limit(remaining).all() if remaining else []
     row_ids = list(dict.fromkeys([row.id for row in due_failed] + [row.id for row in queued]))
     rows = [db.session.get(EmailMessage, row_id) for row_id in row_ids]
-    counts = {"claimed": 0, "sent": 0, "failed": int(malformed_count or 0), "suppressed": 0, "not_configured": 0}
+    counts = {"claimed": 0, "sent": 0, "failed": int(malformed_count or 0), "suppressed": 0,
+              "not_configured": 0, "expired_verify_codes": expired_verify_codes}
     started = time.monotonic()
     counts["stopped"] = 0
     for row in rows:

@@ -18,7 +18,9 @@ from sqlalchemy import select
 
 from app.extensions import db, csrf
 from app.models import AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, Order, Product, Review
-from app.services.customer_mail import mail_configuration_status, queue_branded_email
+from app.services.customer_mail import (
+    dispatch_authentication_email_now, mail_configuration_status, queue_branded_email,
+)
 from app.services.product_images import product_display_image, product_image_alt, product_image_url
 
 customer_bp = Blueprint("customer", __name__, url_prefix="/account")
@@ -212,21 +214,30 @@ def _issue_and_send(account, purpose, minutes=None, next_url=None):
 
 def _start_email_code(account, purpose):
     """Issue a short-lived, hashed one-time code for verification or optional 2FA."""
+    if purpose not in {"verify_code", "login_code"} or not account or not account.active:
+        raise ValueError("A valid active account and authentication-code purpose are required.")
     code = f"{randbelow(1_000_000):06d}"
     now = datetime.utcnow()
-    CustomerToken.query.filter_by(account_id=account.id, purpose=purpose).filter(
-        CustomerToken.used_at.is_(None),
-    ).update({"used_at": now}, synchronize_session="fetch")
-    row = CustomerToken(
-        account_id=account.id, purpose=purpose,
-        token_hash=hashlib.sha256(code.encode()).hexdigest(),
-        expires_at=datetime.utcnow() + timedelta(minutes=10),
-    )
-    db.session.add(row)
     heading = "Verify your FityStores account" if purpose == "verify_code" else "Your FityStores sign-in code"
     subject = "Your FityStores verification code" if purpose == "verify_code" else "Your FityStores sign-in code"
     code_copy = "Enter this code within 10 minutes; tap and hold it to copy. Never share it, even with FityStores."
     try:
+        # Challenge replacement and the delivery claim serialize on this row.
+        # A prior challenge cannot be dispatched after this transaction wins.
+        locked_account = db.session.execute(
+            select(CustomerAccount).where(CustomerAccount.id == account.id).with_for_update()
+        ).scalar_one_or_none()
+        if not locked_account or not locked_account.active:
+            raise ValueError("The customer account is unavailable.")
+        CustomerToken.query.filter_by(account_id=account.id, purpose=purpose).filter(
+            CustomerToken.used_at.is_(None),
+        ).update({"used_at": now}, synchronize_session="fetch")
+        row = CustomerToken(
+            account_id=account.id, purpose=purpose,
+            token_hash=hashlib.sha256(code.encode()).hexdigest(),
+            expires_at=now + timedelta(minutes=10),
+        )
+        db.session.add(row)
         db.session.flush()
         result = queue_branded_email(
             account.email, subject, purpose, f"{purpose}:{row.id}", heading,
@@ -240,7 +251,10 @@ def _start_email_code(account, purpose):
         ).update({"used_at": datetime.utcnow()}, synchronize_session="fetch")
         db.session.commit()
         raise
-    return result
+    # The outbox commit happens before provider I/O. This uses the normal
+    # allowlist, atomic claim, recipient checks and provider failure handling;
+    # when mail is not configured, the queued row remains for the worker.
+    return dispatch_authentication_email_now(result, account_id=account.id, purpose=purpose)
 
 
 def _begin_code_challenge(account, purpose, next_url=None):
