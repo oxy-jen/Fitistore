@@ -101,6 +101,15 @@ def test_central_marketing_eligibility_requires_verified_consent_and_valid_addre
     assert evaluate_marketing_eligibility(account).reason_code == "account_inactive"
 
 
+def test_pre_rollout_subscribed_customer_without_backfilled_timestamp_remains_eligible(app, app_context):
+    from app.services.marketing_eligibility import evaluate_marketing_eligibility
+
+    account = _account("legacy-subscriber@example.test")
+    account.created_at = datetime(2026, 9, 30)
+    account.marketing_consent_at = None
+    assert evaluate_marketing_eligibility(account).eligible
+
+
 def test_queue_email_persists_without_provider_io_then_worker_dispatches(app, app_context, monkeypatch):
     from app.services.customer_mail import process_email_queue
 

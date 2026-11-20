@@ -2083,8 +2083,8 @@ def test_admin_email_center_excludes_unverified_opt_ins_from_marketing_candidate
 
     assert response.status_code == 200
     assert b"Checkbox Subscriber" in response.data
-    assert b"Active, verified subscribers with recorded consent" in response.data
-    assert b"before suppression and frequency checks): 1" in response.data
+    assert b"Active, verified subscribers before suppression and frequency checks" in response.data
+    assert b"before suppression and frequency checks: 1." in response.data
     assert b"admin-email.css?v=admin-email-responsive-20261119" in response.data
     assert b'class="admin-email-overview"' in response.data
     assert b'class="form-card admin-email-section"' in response.data

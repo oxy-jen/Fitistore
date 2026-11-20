@@ -77,6 +77,13 @@ def evaluate_marketing_eligibility(
     consent_at = get_value("marketing_consent_at")
     if get_value("marketing_withdrawn_at"):
         return _decision(False, "consent_withdrawn", resolved_id)
+    created_at = get_value("created_at")
+    if consent_at is None and (
+        created_at is None or created_at >= LEGACY_SUBSCRIBER_CUTOFF
+    ):
+        # Newer accounts must have the explicit consent timestamp written by
+        # registration or confirmation. Fail closed before issuing more queries.
+        return _decision(False, "consent_missing", resolved_id)
     email = get_value("email")
     if not _email_is_valid(email):
         return _decision(False, "email_invalid", resolved_id)
@@ -126,9 +133,7 @@ def evaluate_marketing_eligibility(
         default=None,
     )
     if consent_at is None:
-        created_at = get_value("created_at")
-        if created_at and created_at < LEGACY_SUBSCRIBER_CUTOFF:
-            consent_at = created_at
+        consent_at = created_at
     if not consent_at:
         return _decision(False, "consent_missing", resolved_id)
     if withdrawal_at and withdrawal_at >= consent_at:
