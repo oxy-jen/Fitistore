@@ -190,6 +190,30 @@ filter. Leave the new variable unset or `false` until separately approved.
 `EMAIL_QUEUE_ENABLED` must remain `false`; the isolated workflow does not need
 or change it.
 
+Short-lived `verify_code` and `login_code` rows are also attempted immediately
+after their outbox transaction commits, through the same transactional allowlist,
+provider checks, and atomic delivery claim used by the worker. The claim locks
+the linked customer account and revalidates the active account, recipient,
+verification state, one-time token purpose, token use state, and expiry before
+provider handoff. Challenge issuance takes the same account lock, so a replaced
+code cannot be newly claimed. If provider configuration is unavailable during
+immediate delivery, the message is marked failed and its short-lived payload is
+cleared; that failed message is not left queued for the worker. For a Brevo
+HTTP 429 response, the system reads the provider's `Retry-After` guidance and
+records the suggested time for customer messaging, marks the authentication
+delivery failed, clears the short-lived payload, and does not automatically
+resend that code. The customer is asked to wait for the provider cooldown and
+request a fresh code. Ambiguous provider outcomes are never retried
+automatically. The scheduled worker remains a fallback only for eligible
+messages that are still queued, and it rejects codes whose linked token has
+expired.
+The committed delivery claim is the point of no return: provider I/O may be in
+flight after the database lock is released and cannot reliably be recalled. The
+15-minute scheduler is a fallback for eligible messages that remain queued,
+not a guarantee of delivery by a code's expiry. This request-time transactional
+path is independent of marketing consent and does not enable the separately
+gated workers.
+
 For a provider test, the separate `dispatch-admin-test-email` command accepts
 one message ID only. It fails closed unless the row is queued, has kind
 `admin_test` and purpose `test`, has no customer account link, contains complete

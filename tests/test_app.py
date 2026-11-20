@@ -6095,12 +6095,21 @@ def test_media_showcase_preview_position_upgrade_is_additive_and_idempotent():
     engine.dispose()
 
 
-def test_auth_token_supersession_is_purpose_scoped_and_transactional(app, app_context):
+def test_auth_token_supersession_is_purpose_scoped_and_transactional(app, app_context, monkeypatch):
     from datetime import timedelta
     import hashlib
     import app.customer.routes as customer_routes
+    from app.services import customer_mail
 
-    account = CustomerAccount(email="token-supersession@example.test", display_name="Token Test")
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *_args: "mocked-auth-provider-id")
+    monkeypatch.setattr(customer_mail, "_send_resend", lambda *_args: "mocked-auth-provider-id")
+    monkeypatch.setattr(customer_mail, "_send_smtp", lambda *_args: None)
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "test transport"))
+
+    account = CustomerAccount(
+        email="token-supersession@example.test", display_name="Token Test",
+        email_verified_at=datetime.utcnow(),
+    )
     db.session.add(account)
     db.session.flush()
     now = datetime.utcnow()
@@ -6120,7 +6129,8 @@ def test_auth_token_supersession_is_purpose_scoped_and_transactional(app, app_co
     reset_result = customer_routes._issue_and_send(account, "reset_password", 30)
     code_result = customer_routes._start_email_code(account, "login_code")
 
-    assert verify_result.status == reset_result.status == code_result.status == "queued"
+    assert verify_result.status == reset_result.status == "queued"
+    assert code_result.status in {"sent", "queued"}
     for purpose in ("verify_email", "reset_password", "login_code"):
         db.session.refresh(existing[purpose])
         assert existing[purpose].used_at is not None

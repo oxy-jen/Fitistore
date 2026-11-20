@@ -4,6 +4,8 @@ import hashlib
 import hmac
 import logging
 import re
+from threading import Lock
+from time import monotonic
 from datetime import datetime, timedelta
 from functools import wraps
 from secrets import randbelow, token_urlsafe
@@ -18,13 +20,46 @@ from sqlalchemy import select
 
 from app.extensions import db, csrf
 from app.models import AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, Order, Product, Review
-from app.services.customer_mail import mail_configuration_status, queue_branded_email
+from app.services.customer_mail import (
+    cleanup_expired_authentication_payloads, dispatch_authentication_email_now,
+    mail_configuration_status, queue_branded_email,
+)
 from app.services.product_images import product_display_image, product_image_alt, product_image_url
 
 customer_bp = Blueprint("customer", __name__, url_prefix="/account")
 CONSENT_TEXT_VERSION = "2026-10-explicit-registration-opt-in"
 TERMS_ACCEPTANCE_VERSION = "2026-11-customer-terms-acknowledgement-v1"
 logger = logging.getLogger(__name__)
+_AUTH_PAYLOAD_CLEANUP_LOCK = Lock()
+_AUTH_PAYLOAD_CLEANUP_INTERVAL_SECONDS = 60
+_last_auth_payload_cleanup = 0.0
+
+
+@customer_bp.before_app_request
+def _cleanup_stale_authentication_email_payloads():
+    """Opportunistically erase expired code bodies even with queue workers off."""
+    global _last_auth_payload_cleanup
+    now = monotonic()
+    if now - _last_auth_payload_cleanup < _AUTH_PAYLOAD_CLEANUP_INTERVAL_SECONDS:
+        return None
+    with _AUTH_PAYLOAD_CLEANUP_LOCK:
+        now = monotonic()
+        if now - _last_auth_payload_cleanup < _AUTH_PAYLOAD_CLEANUP_INTERVAL_SECONDS:
+            return None
+        try:
+            removed = cleanup_expired_authentication_payloads()
+            if removed:
+                logger.info("expired_authentication_email_payloads_cleared count=%s", removed)
+            _last_auth_payload_cleanup = now
+        except Exception as exc:
+            db.session.rollback()
+            logger.warning(
+                "expired_authentication_email_payload_cleanup_failed error_type=%s",
+                type(exc).__name__,
+            )
+            # Cleanup is best effort and must not block customer account routes.
+            _last_auth_payload_cleanup = now
+    return None
 
 
 def _login_customer(account):
@@ -62,7 +97,42 @@ def _public_url(endpoint, **values):
 
 def _delivery_message(result, label="verification"):
     status = getattr(result, "status", "")
+    kind = getattr(result, "kind", "")
+    if kind in {"verify_code", "login_code"} and status == "failed":
+        category = getattr(result, "error_category", "")
+        if category == "auth_rate_limited":
+            retry_at = getattr(result, "next_attempt_at", None)
+            if retry_at:
+                seconds = max(0, int((retry_at - datetime.utcnow()).total_seconds() + 0.999))
+                if 0 < seconds <= 15 * 60:
+                    minutes = max(1, (seconds + 59) // 60)
+                    return (
+                        "Email delivery is temporarily rate-limited. Please wait about "
+                        f"{minutes} minute{'s' if minutes != 1 else ''}, then request a fresh code. "
+                        "We will not resend this code automatically."
+                    )
+                if seconds > 15 * 60:
+                    return (
+                        "Email delivery is rate-limited for now. Please wait until the provider's "
+                        "cooldown has passed, then request a fresh code. We will not resend this code automatically."
+                    )
+            return (
+                "Email delivery is temporarily rate-limited. Please wait a little while, "
+                "then request a fresh code. We will not resend this code automatically."
+            )
+        if category == "auth_delivery_unavailable":
+            return "We couldn't send your code because email delivery is unavailable. Please try again later."
+        if category == "ambiguous_outcome":
+            return (
+                "We couldn't confirm whether the email provider accepted your code. "
+                "Wait a few minutes for the email before requesting another code."
+            )
     if status == "queued":
+        if kind in {"verify_code", "login_code"}:
+            return (
+                f"Your {label} email is pending delivery. It can be sent only while the code is valid; "
+                "if it does not arrive soon, request a fresh code."
+            )
         return f"Your {label} email is in the delivery queue. It will be sent when email delivery is available."
     if status == "sent":
         return f"We’ve sent your {label} email. Check your inbox and spam folder. If it doesn’t arrive, you can request another."
@@ -78,6 +148,22 @@ def _registration_message(result):
         return (
             "Your account was created successfully. Your verification email is in the delivery queue. "
             "Once it arrives, verify your email and sign in to start shopping."
+        )
+    category = getattr(result, "error_category", "")
+    if category == "auth_rate_limited":
+        return (
+            "Your account was created successfully. Email delivery is temporarily rate-limited. "
+            "Please wait before signing in to request a fresh verification code."
+        )
+    if category == "auth_delivery_unavailable":
+        return (
+            "Your account was created successfully, but email delivery is currently unavailable. "
+            "Please try signing in later to request a verification code."
+        )
+    if category == "ambiguous_outcome":
+        return (
+            "Your account was created successfully. We couldn't confirm whether the verification email was accepted. "
+            "Please wait a few minutes before signing in to request another code."
         )
     return (
         "Your account was created successfully, but email verification still needs to be completed. "
@@ -212,21 +298,30 @@ def _issue_and_send(account, purpose, minutes=None, next_url=None):
 
 def _start_email_code(account, purpose):
     """Issue a short-lived, hashed one-time code for verification or optional 2FA."""
+    if purpose not in {"verify_code", "login_code"} or not account or not account.active:
+        raise ValueError("A valid active account and authentication-code purpose are required.")
     code = f"{randbelow(1_000_000):06d}"
     now = datetime.utcnow()
-    CustomerToken.query.filter_by(account_id=account.id, purpose=purpose).filter(
-        CustomerToken.used_at.is_(None),
-    ).update({"used_at": now}, synchronize_session="fetch")
-    row = CustomerToken(
-        account_id=account.id, purpose=purpose,
-        token_hash=hashlib.sha256(code.encode()).hexdigest(),
-        expires_at=datetime.utcnow() + timedelta(minutes=10),
-    )
-    db.session.add(row)
     heading = "Verify your FityStores account" if purpose == "verify_code" else "Your FityStores sign-in code"
     subject = "Your FityStores verification code" if purpose == "verify_code" else "Your FityStores sign-in code"
     code_copy = "Enter this code within 10 minutes; tap and hold it to copy. Never share it, even with FityStores."
     try:
+        # Challenge replacement and the delivery claim serialize on this row.
+        # A prior challenge cannot be dispatched after this transaction wins.
+        locked_account = db.session.execute(
+            select(CustomerAccount).where(CustomerAccount.id == account.id).with_for_update()
+        ).scalar_one_or_none()
+        if not locked_account or not locked_account.active:
+            raise ValueError("The customer account is unavailable.")
+        CustomerToken.query.filter_by(account_id=account.id, purpose=purpose).filter(
+            CustomerToken.used_at.is_(None),
+        ).update({"used_at": now}, synchronize_session="fetch")
+        row = CustomerToken(
+            account_id=account.id, purpose=purpose,
+            token_hash=hashlib.sha256(code.encode()).hexdigest(),
+            expires_at=now + timedelta(minutes=10),
+        )
+        db.session.add(row)
         db.session.flush()
         result = queue_branded_email(
             account.email, subject, purpose, f"{purpose}:{row.id}", heading,
@@ -240,7 +335,10 @@ def _start_email_code(account, purpose):
         ).update({"used_at": datetime.utcnow()}, synchronize_session="fetch")
         db.session.commit()
         raise
-    return result
+    # The outbox commit happens before provider I/O. This uses the normal
+    # allowlist, atomic claim, recipient checks and provider failure handling;
+    # when mail is not configured, the queued row remains for the worker.
+    return dispatch_authentication_email_now(result, account_id=account.id, purpose=purpose)
 
 
 def _begin_code_challenge(account, purpose, next_url=None):
