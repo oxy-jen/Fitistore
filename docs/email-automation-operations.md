@@ -196,15 +196,23 @@ provider checks, and atomic delivery claim used by the worker. The claim locks
 the linked customer account and revalidates the active account, recipient,
 verification state, one-time token purpose, token use state, and expiry before
 provider handoff. Challenge issuance takes the same account lock, so a replaced
-code cannot be newly claimed. If provider configuration is unavailable, the
-row remains queued for the transactional worker fallback. An explicit provider
-throttle may be retried after one minute only while the original ten-minute code
-remains valid; ambiguous provider outcomes are never retried automatically.
+code cannot be newly claimed. If provider configuration is unavailable during
+immediate delivery, the message is marked failed and its short-lived payload is
+cleared; that failed message is not left queued for the worker. For a Brevo
+HTTP 429 response, the system reads the provider's `Retry-After` guidance and
+records the suggested time for customer messaging, marks the authentication
+delivery failed, clears the short-lived payload, and does not automatically
+resend that code. The customer is asked to wait for the provider cooldown and
+request a fresh code. Ambiguous provider outcomes are never retried
+automatically. The scheduled worker remains a fallback only for eligible
+messages that are still queued, and it rejects codes whose linked token has
+expired.
 The committed delivery claim is the point of no return: provider I/O may be in
 flight after the database lock is released and cannot reliably be recalled. The
-15-minute scheduler is therefore only a fallback for these codes, not their
-normal delivery path. This request-time transactional path is independent of
-marketing consent and does not enable the separately gated workers.
+15-minute scheduler is a fallback for eligible messages that remain queued,
+not a guarantee of delivery by a code's expiry. This request-time transactional
+path is independent of marketing consent and does not enable the separately
+gated workers.
 
 For a provider test, the separate `dispatch-admin-test-email` command accepts
 one message ID only. It fails closed unless the row is queued, has kind
