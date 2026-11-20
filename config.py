@@ -20,6 +20,10 @@ class Config:
     SQLALCHEMY_DATABASE_URI = _sqlalchemy_database_uri(
         os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'instance' / 'fity.sqlite3'}")
     )
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+    }
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     WTF_CSRF_TIME_LIMIT = None
     MAX_CONTENT_LENGTH = 4 * 1024 * 1024
@@ -52,10 +56,6 @@ class Config:
     MAIL_USE_SSL = os.environ.get("MAIL_USE_SSL", "0").lower() in {"1", "true", "yes"}
     MAIL_FROM_VERIFIED = os.environ.get("MAIL_FROM_VERIFIED", "0").lower() in {"1", "true", "yes"}
     MAIL_TEST_ADDRESS = os.environ.get("MAIL_TEST_ADDRESS", "")
-    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
-    PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://fitystore.top").strip().rstrip("/")
-    ANDROID_PACKAGE_ID = os.environ.get("ANDROID_PACKAGE_ID", "top.fitystore.app").strip()
-    ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS = os.environ.get(
     EMAIL_MARKETING_QUEUE_ENABLED = os.environ.get("EMAIL_MARKETING_QUEUE_ENABLED", "false").strip().lower() == "true"
     EMAIL_MARKETING_NEW_PRODUCTS_ENABLED = os.environ.get("EMAIL_MARKETING_NEW_PRODUCTS_ENABLED", "false").strip().lower() == "true"
     EMAIL_MARKETING_OFFERS_ENABLED = os.environ.get("EMAIL_MARKETING_OFFERS_ENABLED", "false").strip().lower() == "true"
@@ -63,6 +63,10 @@ class Config:
     EMAIL_MARKETING_ABANDONED_CART_ENABLED = os.environ.get("EMAIL_MARKETING_ABANDONED_CART_ENABLED", "false").strip().lower() == "true"
     EMAIL_MARKETING_SEASONAL_ENABLED = os.environ.get("EMAIL_MARKETING_SEASONAL_ENABLED", "false").strip().lower() == "true"
     EMAIL_MARKETING_CUSTOM_ENABLED = os.environ.get("EMAIL_MARKETING_CUSTOM_ENABLED", "false").strip().lower() == "true"
+    GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+    PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://fitystore.top").strip().rstrip("/")
+    ANDROID_PACKAGE_ID = os.environ.get("ANDROID_PACKAGE_ID", "top.fitystore.app").strip()
+    ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS = os.environ.get(
         "ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS", ""
     )
     # Manual cart reminder idle time for the current testing window.

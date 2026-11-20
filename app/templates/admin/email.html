@@ -140,13 +140,12 @@
     {% else %}
     <details class="admin-email-delete-panel">
       <summary>Remove account and choose related data</summary>
-      <p>Removal disables sign-in, replaces the customer email and name, clears login tokens and the saved cart, and redacts queued/sent email content. Delivery-attempt audit metadata is retained. The anonymous account row stays in place to preserve existing database relationships; no migration is required.</p>
-      <p class="status-warn">Selected history deletion is permanent. Check payment, tax, and record-retention obligations before removing order, payment, referral, or loyalty records.</p>
+      <p>Removal disables sign-in, replaces customer identifiers, clears login tokens and the saved cart, and redacts queued/sent email content. The anonymous account row and linked orders remain in place so order, payment, refund, and delivery-audit history stays consistent; no migration is required.</p>
+      <p class="status-warn">Historical orders, items, status history, payment attempts, transactions, and refunds are always retained. Personal details in those records are redacted.</p>
       <form method="post" action="{{ url_for('admin.remove_customer_account', account_id=account.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <fieldset>
-          <legend>Optional related data to permanently delete</legend>
-          <label class="check"><input type="checkbox" name="delete_orders" value="yes"> Delete linked orders, items, status history, payment attempts and refunds. Payment proof files are deleted too. If unchecked, order and financial history stays with customer identifiers redacted.</label>
+          <legend>Optional personal or non-financial data to delete</legend>
           <label class="check"><input type="checkbox" name="delete_payment_proofs" value="yes"> Delete linked payment proof files while retaining order and financial records.</label>
           <label class="check"><input type="checkbox" name="delete_reviews" value="yes"> Permanently delete this customer's public reviews. If unchecked, review text stays public with its author anonymized.</label>
           <label class="check"><input type="checkbox" name="delete_referral_history" value="yes"> Delete the reward profile, linked referral clicks, referrals and loyalty history. If unchecked, history is retained with customer keys anonymized and the old referral code disabled.</label>

@@ -70,6 +70,74 @@ def test_homepage_renders(client):
     assert b"https://www.tiktok.com/@official_fitystore" in rv.data
 
 
+def test_postgresql_pool_checks_stale_connections_and_recycles():
+    class NeonTestConfig(TestConfig):
+        SQLALCHEMY_DATABASE_URI = "postgresql+psycopg://test-user:test-password@localhost/fity_test"
+
+    app = create_app(NeonTestConfig)
+    with app.app_context():
+        pool = db.engine.pool
+        assert pool._pre_ping is True
+        assert pool._recycle == 300
+        db.engine.dispose()
+
+
+def test_psycopg_admin_shutdown_is_disconnect_when_driver_marks_connection_broken():
+    from types import SimpleNamespace
+    import psycopg
+    from sqlalchemy.dialects.postgresql.psycopg import PGDialect_psycopg
+
+    dialect = PGDialect_psycopg(dbapi=psycopg)
+    error = psycopg.errors.AdminShutdown("terminating connection due to administrator command")
+    assert dialect.is_disconnect(error, SimpleNamespace(closed=False, broken=True), None)
+
+
+def test_homepage_reports_database_disconnect_then_recovers_on_next_request(client, monkeypatch):
+    import app.public.routes as public_routes
+    from sqlalchemy.exc import OperationalError
+
+    client.application.config["PROPAGATE_EXCEPTIONS"] = False
+    original_product_list_options = public_routes.product_list_options
+    fail_once = {"remaining": 1}
+
+    class FailingFirstQuery:
+        def __init__(self, query):
+            self.query = query
+
+        def order_by(self, *columns):
+            self.query = self.query.order_by(*columns)
+            return self
+
+        def limit(self, count):
+            self.query = self.query.limit(count)
+            return self
+
+        def all(self):
+            if fail_once["remaining"]:
+                fail_once["remaining"] -= 1
+                raise OperationalError(
+                    "SELECT homepage products",
+                    {},
+                    RuntimeError("simulated Neon AdminShutdown"),
+                    connection_invalidated=True,
+                )
+            return self.query.all()
+
+    def fail_one_catalogue_read(query):
+        if fail_once["remaining"]:
+            return FailingFirstQuery(query)
+        return original_product_list_options(query)
+
+    monkeypatch.setattr(public_routes, "product_list_options", fail_one_catalogue_read)
+    failed = client.get("/")
+    recovered = client.get("/")
+
+    assert failed.status_code == 500
+    assert recovered.status_code == 200
+    assert b"Plain Socks" in recovered.data
+    assert fail_once["remaining"] == 0
+
+
 def test_pwa_manifest_icons_install_controls_and_worker_are_available(client):
     page = client.get("/")
     assert page.status_code == 200
@@ -2126,7 +2194,7 @@ def test_admin_customer_removal_anonymizes_identity_and_retains_delivery_audit(c
             customer_account_id=account.id,
             display_name="Remove Me",
             rating=5,
-            text="A public review",
+            text="Remove Me shared remove-customer@example.test",
         ),
     ])
     db.session.flush()
@@ -2183,13 +2251,14 @@ def test_admin_customer_removal_anonymizes_identity_and_retains_delivery_audit(c
     draft = EmailDraft.query.one()
     profile = CustomerProfile.query.filter_by(account_id=account_id).one()
     assert response.status_code == 200
-    assert b"anonymous account record remains" in response.data
+    assert b"anonymous account record, linked orders, and financial records remain" in response.data
     assert removed.email == f"removed-customer-{account_id}@redacted.invalid"
     assert removed.active is False
     assert removed.password_hash is None
     assert CustomerToken.query.filter_by(account_id=account_id).count() == 0
     assert CustomerCart.query.filter_by(account_id=account_id).count() == 0
-    assert CustomerOrderLink.query.filter_by(account_id=account_id).count() == 0
+    order_link = CustomerOrderLink.query.filter_by(account_id=account_id).one()
+    assert order_link.order_id == retained_order.id
     assert queued.status == "suppressed"
     assert queued.recipient == removed.email
     assert queued.html_body is None and queued.text_body is None
@@ -2214,6 +2283,8 @@ def test_admin_customer_removal_anonymizes_identity_and_retains_delivery_audit(c
     assert "remove-customer@example.test" not in retained_order.notes
     assert review.customer_account_id is None
     assert review.display_name == "Deleted customer"
+    assert "Remove Me" not in review.text
+    assert "remove-customer@example.test" not in review.text
     assert profile.phone.startswith("REMOVED-CUSTOMER-")
     assert ReferralClick.query.filter_by(referrer_id=profile.id).count() == 1
     assert json.loads(draft.account_ids_json) == []
@@ -2222,6 +2293,18 @@ def test_admin_customer_removal_anonymizes_identity_and_retains_delivery_audit(c
         event_type="customer_account_anonymized", entity_id=account_id
     ).count() == 1
     assert sent == []
+
+    repeated = client.post(
+        f"/admin/email/customers/{account_id}/remove",
+        data={"confirmation": f"DELETE CUSTOMER {account_id}"},
+        follow_redirects=True,
+    )
+    assert b"already been removed" in repeated.data
+    assert Order.query.filter_by(id=retained_order.id).count() == 1
+    assert CustomerOrderLink.query.filter_by(account_id=account_id).count() == 1
+    assert FinancialAuditEvent.query.filter_by(
+        event_type="customer_account_anonymized", entity_id=account_id
+    ).count() == 1
 
     from types import SimpleNamespace
     stale_alert = SimpleNamespace(
@@ -2275,7 +2358,7 @@ def test_admin_customer_removal_anonymizes_identity_and_retains_delivery_audit(c
     assert "/account/login" in denied.headers["Location"]
 
 
-def test_admin_customer_removal_deletes_only_selected_order_and_review_data(client, app, app_context):
+def test_admin_customer_removal_preserves_multiple_orders_and_financial_records(client, app, app_context):
     from app.models import (
         CustomerConsentEvent, CustomerProfile, EmailDraft, MarketingProductExposure,
         MarketingSuppressionCase, MarketingSuppressionEvent, PaymentAttempt,
@@ -2299,21 +2382,42 @@ def test_admin_customer_removal_deletes_only_selected_order_and_review_data(clie
         customer_name="Selected Customer",
         customer_phone="254700000002",
         fulfilment_method="collection",
+        total_cents=1000,
+        payment_status="Paid",
     )
-    db.session.add(order)
-    db.session.flush()
-    attempt = PaymentAttempt(order_id=order.id, customer_phone="254700000002")
-    db.session.add(attempt)
-    db.session.flush()
-    transaction = PaymentTransaction(
-        order_id=order.id,
-        payment_attempt_id=attempt.id,
-        amount_cents=1000,
-        phone="254700000002",
+    second_order = Order(
+        reference="REMOVE003",
+        customer_name="Selected Customer",
+        customer_phone="254700000002",
+        fulfilment_method="delivery",
+        total_cents=2000,
+        payment_status="Paid",
     )
-    db.session.add(transaction)
+    db.session.add_all([order, second_order])
+    db.session.flush()
+    attempts = [
+        PaymentAttempt(order_id=linked_order.id, customer_phone="254700000002", raw_payload="phone 254700000002")
+        for linked_order in (order, second_order)
+    ]
+    db.session.add_all(attempts)
+    db.session.flush()
+    transactions = [
+        PaymentTransaction(
+            order_id=linked_order.id,
+            payment_attempt_id=attempt.id,
+            amount_cents=1000 * (index + 1),
+            phone="254700000002",
+            raw_payload="payer 254700000002",
+        )
+        for index, (linked_order, attempt) in enumerate(zip((order, second_order), attempts))
+    ]
+    db.session.add_all(transactions)
     db.session.flush()
     db.session.add_all([
+        OrderItem(order_id=order.id, product_name="Historical item one", quantity=1, price_cents=1000),
+        OrderItem(order_id=second_order.id, product_name="Historical item two", quantity=1, price_cents=2000),
+        OrderStatusHistory(order_id=order.id, field="note", old_value="", new_value="Created", note="Selected Customer contact 254700000002"),
+        OrderStatusHistory(order_id=second_order.id, field="note", old_value="", new_value="Created", note="Selected Customer contact 254700000002"),
         ProductEnquiry(
             product_name="Test product",
             contact=account.email,
@@ -2329,11 +2433,18 @@ def test_admin_customer_removal_deletes_only_selected_order_and_review_data(clie
         ),
         RefundRequest(
             order_id=order.id,
-            payment_transaction_id=transaction.id,
+            payment_transaction_id=transactions[0].id,
             amount_cents=100,
-            reason="Customer requested refund",
+            reason="Customer Selected Customer requested refund",
+        ),
+        RefundRequest(
+            order_id=second_order.id,
+            payment_transaction_id=transactions[1].id,
+            amount_cents=200,
+            reason="Customer Selected Customer requested refund",
         ),
         CustomerOrderLink(account_id=account.id, order_id=order.id),
+        CustomerOrderLink(account_id=account.id, order_id=second_order.id),
         Referral(
             referrer_key="254700000002",
             referred_key="254700000003",
@@ -2396,7 +2507,7 @@ def test_admin_customer_removal_deletes_only_selected_order_and_review_data(clie
     ))
     db.session.commit()
     account_id = account.id
-    order_id = order.id
+    order_ids = [order.id, second_order.id]
 
     client.post("/admin/login", data={"username": "owner", "password": "secret123"})
     response = client.post(
@@ -2414,10 +2525,25 @@ def test_admin_customer_removal_deletes_only_selected_order_and_review_data(clie
     )
 
     assert response.status_code == 200
-    assert db.session.get(Order, order_id) is None
-    assert PaymentAttempt.query.filter_by(order_id=order_id).count() == 0
-    assert PaymentTransaction.query.filter_by(order_id=order_id).count() == 0
-    assert RefundRequest.query.filter_by(order_id=order_id).count() == 0
+    retained_orders = Order.query.filter(Order.id.in_(order_ids)).order_by(Order.id).all()
+    assert len(retained_orders) == 2
+    assert [row.total_cents for row in retained_orders] == [1000, 2000]
+    assert [row.payment_status for row in retained_orders] == ["Paid", "Paid"]
+    assert all(row.customer_name == "Deleted customer" for row in retained_orders)
+    assert all(row.customer_phone == "" for row in retained_orders)
+    assert CustomerOrderLink.query.filter_by(account_id=account_id).count() == 2
+    assert OrderItem.query.filter(OrderItem.order_id.in_(order_ids)).count() == 2
+    assert OrderStatusHistory.query.filter(OrderStatusHistory.order_id.in_(order_ids)).count() == 2
+    assert all(
+        "Selected Customer" not in row.note and "254700000002" not in row.note
+        for row in OrderStatusHistory.query.filter(OrderStatusHistory.order_id.in_(order_ids)).all()
+    )
+    assert PaymentAttempt.query.filter(PaymentAttempt.order_id.in_(order_ids)).count() == 2
+    assert PaymentTransaction.query.filter(PaymentTransaction.order_id.in_(order_ids)).count() == 2
+    assert RefundRequest.query.filter(RefundRequest.order_id.in_(order_ids)).count() == 2
+    assert all(not row.customer_phone and not row.raw_payload for row in PaymentAttempt.query.filter(PaymentAttempt.order_id.in_(order_ids)).all())
+    assert all(not row.phone and not row.raw_payload for row in PaymentTransaction.query.filter(PaymentTransaction.order_id.in_(order_ids)).all())
+    assert all("Selected Customer" not in row.reason for row in RefundRequest.query.filter(RefundRequest.order_id.in_(order_ids)).all())
     assert Review.query.filter_by(customer_account_id=account_id).count() == 0
     assert db.session.get(CustomerAccount, account_id).active is False
     assert CustomerProfile.query.filter_by(account_id=account_id).count() == 0
@@ -2434,6 +2560,63 @@ def test_admin_customer_removal_deletes_only_selected_order_and_review_data(clie
     assert EmailDraft.query.count() == 0
     assert ProductEnquiry.query.filter_by(contact="remove-selected@example.test").count() == 0
     assert RestockAlert.query.filter_by(contact="remove-selected@example.test").count() == 0
+
+
+def test_admin_customer_removal_rolls_back_anonymization_and_preserves_proof_on_commit_error(
+    client, app, app_context, monkeypatch, tmp_path,
+):
+    from app.models import FinancialAuditEvent
+    from sqlalchemy.exc import IntegrityError
+    import app.services.customer_account_cleanup as cleanup
+
+    account = CustomerAccount(email="rollback-remove@example.test", display_name="Rollback Customer")
+    db.session.add(account)
+    db.session.flush()
+    order = Order(
+        reference="ROLLBACK01",
+        customer_name="Rollback Customer",
+        customer_phone="254700000009",
+        fulfilment_method="collection",
+        payment_proof_filename="rollback-proof.png",
+    )
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+    account_id = account.id
+    order_id = order.id
+    app.config["PAYMENT_PROOF_FOLDER"] = str(tmp_path)
+    proof_path = tmp_path / "rollback-proof.png"
+    proof_path.write_bytes(b"payment proof")
+
+    original_anonymize = cleanup.anonymize_customer_account
+
+    def fail_after_database_updates(*args, **kwargs):
+        original_anonymize(*args, **kwargs)
+        raise IntegrityError("forced commit failure", {}, RuntimeError("test failure"))
+
+    monkeypatch.setattr(cleanup, "anonymize_customer_account", fail_after_database_updates)
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post(
+        f"/admin/email/customers/{account_id}/remove",
+        data={
+            "confirmation": f"DELETE CUSTOMER {account_id}",
+            "delete_payment_proofs": "yes",
+        },
+        follow_redirects=True,
+    )
+
+    db.session.expire_all()
+    assert response.status_code == 200
+    assert b"failed and was rolled back" in response.data
+    assert db.session.get(CustomerAccount, account_id).email == "rollback-remove@example.test"
+    assert db.session.get(CustomerAccount, account_id).active is True
+    assert db.session.get(Order, order_id).customer_name == "Rollback Customer"
+    assert CustomerOrderLink.query.filter_by(account_id=account_id, order_id=order_id).count() == 1
+    assert FinancialAuditEvent.query.filter_by(
+        event_type="customer_account_anonymized", entity_id=account_id
+    ).count() == 0
+    assert proof_path.exists()
 
 
 def test_admin_customer_removal_requires_confirmation_and_waits_for_dispatch(client, app, app_context):
