@@ -17,6 +17,11 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
+# Before the explicit opt-in wording shipped, existing accounts could be
+# legitimately subscribed without a consent timestamp. Grandfather only those
+# pre-rollout accounts; newer accounts need a recorded consent/confirmation.
+LEGACY_SUBSCRIBER_CUTOFF = datetime(2026, 10, 1)
+
 
 @dataclass(frozen=True)
 class EligibilityDecision:
@@ -43,7 +48,7 @@ def evaluate_marketing_eligibility(
     account=None, *, account_id=None, connection=None, respect_frequency=True,
     frequency_override=False, exclude_message_id=None, now=None,
 ) -> EligibilityDecision:
-    """Return a stable reason code; never infer consent from account history.
+    """Return a stable reason code, including the narrow legacy opt-in rule.
 
     `connection` lets the dispatcher evaluate while holding the shared account
     row lock in the same transaction that persists its dispatch claim.
@@ -53,7 +58,8 @@ def evaluate_marketing_eligibility(
             account = connection.execute(
                 select(CustomerAccount.id, CustomerAccount.email, CustomerAccount.active,
                        CustomerAccount.email_verified_at, CustomerAccount.marketing_status,
-                       CustomerAccount.marketing_consent_at, CustomerAccount.marketing_withdrawn_at)
+                       CustomerAccount.marketing_consent_at, CustomerAccount.marketing_withdrawn_at,
+                       CustomerAccount.created_at)
                 .where(CustomerAccount.id == account_id)
             ).mappings().first()
         else:
@@ -69,8 +75,6 @@ def evaluate_marketing_eligibility(
     if get_value("marketing_status") != "subscribed":
         return _decision(False, "not_subscribed", resolved_id)
     consent_at = get_value("marketing_consent_at")
-    if not consent_at:
-        return _decision(False, "consent_missing", resolved_id)
     if get_value("marketing_withdrawn_at"):
         return _decision(False, "consent_withdrawn", resolved_id)
     email = get_value("email")
@@ -100,12 +104,33 @@ def evaluate_marketing_eligibility(
         )
         withdrawal_at = (connection.execute(latest_withdrawal).scalar_one_or_none() if connection is not None
                          else db.session.execute(latest_withdrawal).scalar_one_or_none())
+        latest_confirmation = select(func.max(CustomerConsentEvent.created_at)).where(
+            CustomerConsentEvent.account_id == resolved_id,
+            CustomerConsentEvent.event == "confirmed",
+        )
+        confirmation_at = (connection.execute(latest_confirmation).scalar_one_or_none() if connection is not None
+                           else db.session.execute(latest_confirmation).scalar_one_or_none())
     except Exception as exc:
         logger.error("marketing_eligibility_lookup_failed account_id=%s error_type=%s", resolved_id, type(exc).__name__)
         if connection is not None:
             raise
         db.session.rollback()
         return _decision(False, "eligibility_unavailable", resolved_id)
+    # Older application versions represented an opted-in customer only with
+    # marketing_status='subscribed'. Preserve that established state only for
+    # accounts created before explicit registration consent was introduced.
+    # New accounts need a timestamp or confirmed consent event. Any withdrawal
+    # remains blocking unless a later explicit confirmation exists.
+    consent_at = max(
+        (value for value in (consent_at, confirmation_at) if value is not None),
+        default=None,
+    )
+    if consent_at is None:
+        created_at = get_value("created_at")
+        if created_at and created_at < LEGACY_SUBSCRIBER_CUTOFF:
+            consent_at = created_at
+    if not consent_at:
+        return _decision(False, "consent_missing", resolved_id)
     if withdrawal_at and withdrawal_at >= consent_at:
         return _decision(False, "consent_withdrawal_history", resolved_id)
 

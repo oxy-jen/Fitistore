@@ -209,7 +209,7 @@ def anonymize_customer_account(
                     "A message is being dispatched for this account. Wait for the provider attempt to finish, then retry."
                 )
     for order in orders:
-        if order.payment_proof_filename and (delete_orders or delete_payment_proofs):
+        if order.payment_proof_filename and delete_payment_proofs:
             filename = Path(order.payment_proof_filename)
             if filename.name != order.payment_proof_filename:
                 raise CustomerCleanupBlocked("A payment proof has an unsafe filename; no account data was changed.")
@@ -259,87 +259,50 @@ def anonymize_customer_account(
                         setattr(draft, field, _redact_text(getattr(draft, field), identities))
                     drafts_to_update.append(draft)
 
-    if delete_orders and order_ids:
-        if available[EmailMessage]:
-            db.session.query(EmailMessage).filter(EmailMessage.order_id.in_(order_ids)).update(
-                {EmailMessage.order_id: None}, synchronize_session=False
-            )
-        if available[EmailDraft]:
-            db.session.query(EmailDraft).filter(EmailDraft.order_id.in_(order_ids)).update(
-                {EmailDraft.order_id: None}, synchronize_session=False
-            )
-        if available[Referral]:
-            db.session.query(Referral).filter(Referral.qualifying_order_id.in_(order_ids)).update(
-                {Referral.qualifying_order_id: None}, synchronize_session=False
-            )
-        if available[LoyaltyTransaction]:
-            db.session.query(LoyaltyTransaction).filter(LoyaltyTransaction.order_id.in_(order_ids)).update(
-                {LoyaltyTransaction.order_id: None}, synchronize_session=False
-            )
-        attempt_ids = []
-        if available[PaymentAttempt]:
-            attempt_ids = [
-                row.id
-                for row in db.session.query(PaymentAttempt.id)
-                .filter(PaymentAttempt.order_id.in_(order_ids))
-                .all()
-            ]
-        if available[RefundRequest]:
-            db.session.query(RefundRequest).filter(
-                RefundRequest.order_id.in_(order_ids)
-            ).delete(synchronize_session=False)
-        if available[PaymentTransaction]:
-            payment_filter = PaymentTransaction.order_id.in_(order_ids)
-            if attempt_ids:
-                payment_filter = or_(
-                    payment_filter,
-                    PaymentTransaction.payment_attempt_id.in_(attempt_ids),
-                )
-            db.session.query(PaymentTransaction).filter(payment_filter).delete(
-                synchronize_session=False
-            )
-        for model in (PaymentAttempt, OrderStatusHistory, OrderItem):
-            if available[model]:
-                db.session.query(model).filter(model.order_id.in_(order_ids)).delete(synchronize_session=False)
-        if available[Order]:
-            counts["orders"] = db.session.query(Order).filter(Order.id.in_(order_ids)).delete(
-                synchronize_session=False
-            )
-    else:
-        for order in orders:
-            order.customer_name = "Deleted customer"
-            order.customer_phone = ""
-            order.instructions = ""
-            order.notes = _redact_text(order.notes, identities)
-            order.referral_code = ""
-            order.referrer_key = ""
-            if delete_payment_proofs:
-                order.payment_proof_filename = ""
-        if order_ids and available[PaymentAttempt]:
-            attempts = db.session.query(PaymentAttempt).filter(PaymentAttempt.order_id.in_(order_ids)).all()
-            for attempt in attempts:
-                attempt.customer_phone = ""
-                attempt.raw_payload = ""
-                attempt.investigation_note = _redact_text(attempt.investigation_note, identities)
-                attempt.result_description = _redact_text(attempt.result_description, identities)
-        if order_ids and available[PaymentTransaction]:
-            transactions = db.session.query(PaymentTransaction).filter(
-                PaymentTransaction.order_id.in_(order_ids)
-            ).all()
-            for transaction in transactions:
-                transaction.phone = ""
-                transaction.raw_payload = ""
-                transaction.discrepancy = _redact_text(transaction.discrepancy, identities)
-        if order_ids and available[RefundRequest]:
-            refunds = db.session.query(RefundRequest).filter(RefundRequest.order_id.in_(order_ids)).all()
-            for refund in refunds:
-                refund.reason = _redact_text(refund.reason, identities)
-                refund.note = _redact_text(refund.note, identities)
+    for order in orders:
+        order.customer_name = "Deleted customer"
+        order.customer_phone = ""
+        order.instructions = ""
+        order.notes = _redact_text(order.notes, identities)
+        order.referral_code = ""
+        order.referrer_key = ""
+        if delete_payment_proofs:
+            order.payment_proof_filename = ""
+    if order_ids and available[PaymentAttempt]:
+        attempts = db.session.query(PaymentAttempt).filter(PaymentAttempt.order_id.in_(order_ids)).all()
+        for attempt in attempts:
+            attempt.customer_phone = ""
+            attempt.raw_payload = ""
+            attempt.investigation_note = _redact_text(attempt.investigation_note, identities)
+            attempt.result_description = _redact_text(attempt.result_description, identities)
+    if order_ids and available[PaymentTransaction]:
+        transactions = db.session.query(PaymentTransaction).filter(
+            PaymentTransaction.order_id.in_(order_ids)
+        ).all()
+        for transaction in transactions:
+            transaction.phone = ""
+            transaction.raw_payload = ""
+            transaction.discrepancy = _redact_text(transaction.discrepancy, identities)
+    if order_ids and available[RefundRequest]:
+        refunds = db.session.query(RefundRequest).filter(RefundRequest.order_id.in_(order_ids)).all()
+        for refund in refunds:
+            refund.reason = _redact_text(refund.reason, identities)
+            refund.note = _redact_text(refund.note, identities)
+    if order_ids and available[OrderStatusHistory]:
+        histories = db.session.query(OrderStatusHistory).filter(
+            OrderStatusHistory.order_id.in_(order_ids)
+        ).all()
+        for history in histories:
+            history.old_value = _redact_text(history.old_value, identities)
+            history.new_value = _redact_text(history.new_value, identities)
+            history.note = _redact_text(history.note, identities)
+        counts["order_status_histories_redacted"] = len(histories)
 
     if available[CustomerOrderLink]:
-        counts["order_links"] = db.session.query(CustomerOrderLink).filter_by(
+        counts["order_links_preserved"] = db.session.query(CustomerOrderLink).filter_by(
             account_id=account.id
-        ).delete(synchronize_session=False)
+        ).count()
+    counts["orders_preserved"] = len(orders)
 
     if available[CustomerToken]:
         counts["verification_tokens"] = db.session.query(CustomerToken).filter_by(
@@ -436,6 +399,8 @@ def anonymize_customer_account(
             for review in reviews:
                 review.customer_account_id = None
                 review.display_name = "Deleted customer"
+                review.title = _redact_text(review.title, identities)
+                review.text = _redact_text(review.text, identities)
 
     if delete_product_exposure and available[MarketingProductExposure]:
         counts["marketing_product_exposure"] = db.session.query(
@@ -542,8 +507,10 @@ def anonymize_customer_account(
         entity_type="CustomerAccount",
         entity_id=account.id,
         note=json.dumps({
-            "delete_orders": bool(delete_orders),
-            "delete_payment_proofs": bool(delete_payment_proofs or delete_orders),
+            "delete_orders_requested": bool(delete_orders),
+            "orders_deleted": 0,
+            "orders_preserved": len(orders),
+            "delete_payment_proofs": bool(delete_payment_proofs),
             "delete_reviews": bool(delete_reviews),
             "delete_referral_history": bool(delete_referral_history),
             "delete_product_exposure": bool(delete_product_exposure),

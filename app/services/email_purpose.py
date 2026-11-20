@@ -47,6 +47,22 @@ MARKETING_EMAIL_KINDS = frozenset({
     "admin_cart_reminder", "admin_promotion", "admin_customer_service",
 })
 
+MARKETING_CAMPAIGN_TYPES = frozenset({
+    "new_product", "special_offer", "weekly_picks", "abandoned_cart", "seasonal", "custom",
+})
+
+MARKETING_CAMPAIGN_TYPE_KINDS = {
+    "new_product": "marketing_new_product",
+    "special_offer": "marketing_special_offer",
+    "weekly_picks": "marketing_weekly_picks",
+    "abandoned_cart": "marketing_abandoned_cart",
+    "seasonal": "marketing_custom_campaign",
+    "custom": "marketing_custom_campaign",
+}
+
+if not set(MARKETING_CAMPAIGN_TYPE_KINDS.values()) <= MARKETING_EMAIL_KINDS:
+    raise RuntimeError("Marketing campaign types must map to explicitly classified marketing kinds.")
+
 TEST_EMAIL_KINDS = frozenset({"admin_test"})
 
 STUDIO_TRANSACTIONAL_CATEGORY_KINDS = {

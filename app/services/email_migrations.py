@@ -28,6 +28,7 @@ CUSTOMER_EMAIL_ADDITIVE_MIGRATIONS = (
     "20261116_email_delivery_ops",
     "20261117_email_legacy_review",
     "20261117_customer_consent_audit_immutable",
+    "20261120_marketing_campaign_queue",
 )
 HISTORY_TABLE = "email_migration_history"
 _HISTORY_DDL = """CREATE TABLE IF NOT EXISTS email_migration_history (
@@ -138,6 +139,7 @@ def validate_history_checksums(connection) -> list[str]:
         "20261113_email_outbox", "20261116_email_delivery_ops",
         "20261113_marketing_suppression", "20261117_email_legacy_review",
         "20261117_customer_consent_audit_immutable", "20261117_email_admin_test_purpose",
+        "20261120_marketing_campaign_queue",
     }
     unexpected = set(rows) - expected_ids
     if unexpected:

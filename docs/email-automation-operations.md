@@ -139,19 +139,16 @@ logged by exception type only; the admin view will show the last stored
 heartbeat and eventually report the worker as stale. Each run has its own
 instance ID, so one worker's shutdown only closes that run.
 
-### Email Studio scheduled campaigns
+### Email Studio and legacy manual marketing sends
 
-Email Studio can queue a reviewed marketing campaign for a future local time
-using the configured `TIMEZONE` (Africa/Nairobi fallback). Scheduling requires
-the exact recipient-count confirmation and a preview of the same content. The
-accepted range is five minutes to 90 days ahead. Scheduling only persists the
-message; it does not contact the provider. At dispatch, the worker rechecks
-account activity, verification, consent, unsubscribe/suppression and frequency
-limits. Frequency checks use the scheduled delivery time so campaigns planned
-in advance cannot bypass the cooldown. Transactional messages cannot be
-scheduled through Email Studio. Delivery still depends on the separately gated
-queue workflow; marketing automation itself remains paused. A scheduled row is
-not a provider acceptance or a guaranteed delivery.
+Email Studio continues to support transactional order notices and test
+previews. Marketing sends/schedules through Email Studio and the old manual
+promotional/customer-service endpoints are intentionally blocked: those
+messages are not campaign-linked and are excluded from both the general and
+isolated campaign workers. Use the Marketing campaign centre to draft, preview,
+snapshot eligible recipients, and schedule a marketing campaign. This avoids
+leaving legacy marketing rows queued without a worker that is allowed to
+process them. Saved templates and drafts remain available for reuse.
 
 ### Email Studio test messages
 
@@ -240,7 +237,8 @@ controlled tests have all received separate approval. The workflow uses the
 Neon PostgreSQL secret only after the identity/schema preflight. It does not
 migrate the database. Set the following GitHub repository configuration
 privately to the approved Neon production target before separately enabling
-the queue. The three processing workflows consume the following configuration:
+the queue. The queue and single-message test workflows consume the following
+configuration:
 
 | Exact name | GitHub location | Requirement / use |
 | --- | --- | --- |
@@ -275,6 +273,48 @@ The isolated transactional workflow additionally uses
 test workflow additionally uses `EMAIL_TEST_DISPATCH_ENABLED` (unset/false is
 paused) and Actions secret `MAIL_TEST_ADDRESS`. These new gates do not enable
 the general queue or trigger processing by themselves.
+
+### Isolated marketing campaign workflow
+
+The admin campaign centre creates drafts, previews, snapshots eligible
+recipients, and supports pause/resume/cancel. Scheduling requires an exact
+`SCHEDULE N` confirmation for the current eligible-recipient count, a prior
+preview, the global application gate, and the selected campaign-type gate.
+Campaign messages are linked to a campaign and account; manual/legacy marketing
+messages are not selected by this worker. The worker rechecks consent,
+verification, suppression, unsubscribe history, frequency, campaign status,
+schedule time, and the type gate immediately before each provider request.
+Paused, cancelled, or not-yet-due campaigns remain queued without being
+suppressed by a dispatch race. Retry selection, malformed-payload quarantine,
+and dispatch claims are all campaign-scoped.
+
+The dedicated `.github/workflows/process-marketing-email-queue.yml` workflow
+uses the same verified Neon identity preflight and provider credentials as the
+other queue workflows. It runs only on `main` and only when repository variable
+`EMAIL_MARKETING_QUEUE_ENABLED` is exactly `true`; manual runs also require
+`RUN MARKETING EMAIL QUEUE`. The scheduled trigger is inert unless that same
+repository variable is deliberately enabled. The command independently checks
+the exact confirmation and application environment gate. Keep the queue gate
+and every type gate unset or `false` until campaign schema, sender, consent
+eligibility, and a single controlled test plan are approved.
+
+| Exact name | Location | Default / purpose |
+| --- | --- | --- |
+| `EMAIL_MARKETING_QUEUE_ENABLED` | Render application environment and GitHub Actions variable | `false`; master scheduling/worker gate. |
+| `EMAIL_MARKETING_NEW_PRODUCTS_ENABLED` | Render application environment and GitHub Actions variable | `false`; new-product campaigns. |
+| `EMAIL_MARKETING_OFFERS_ENABLED` | Render application environment and GitHub Actions variable | `false`; special-offer campaigns. |
+| `EMAIL_MARKETING_WEEKLY_PICKS_ENABLED` | Render application environment and GitHub Actions variable | `false`; weekly-picks campaigns. |
+| `EMAIL_MARKETING_ABANDONED_CART_ENABLED` | Render application environment and GitHub Actions variable | `false`; each recipient's own active cart only. |
+| `EMAIL_MARKETING_SEASONAL_ENABLED` | Render application environment and GitHub Actions variable | `false`; seasonal campaigns. |
+| `EMAIL_MARKETING_CUSTOM_ENABLED` | Render application environment and GitHub Actions variable | `false`; custom campaigns, independent of seasonal campaigns. |
+
+The campaign schema change is additive and is part of the existing explicitly
+confirmed customer-email migration path. It is not run by the queue workflow or
+web application startup. Verify the migration checksum and schema guard before
+separately approving it for a target database. `run-marketing-automation`
+remains a compatibility no-op; the campaign worker is the explicit
+`process-marketing-email-queue` command. Neither command changes or enables the
+legacy marketing automation settings.
 
 The workflows use Ubuntu's `/etc/ssl/certs/ca-certificates.crt` system CA
 bundle and enforce `sslmode=verify-full` with hostname verification. The guard
