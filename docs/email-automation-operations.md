@@ -187,6 +187,22 @@ filter. Leave the new variable unset or `false` until separately approved.
 `EMAIL_QUEUE_ENABLED` must remain `false`; the isolated workflow does not need
 or change it.
 
+Short-lived `verify_code` and `login_code` rows are also attempted immediately
+after their outbox transaction commits, through the same transactional allowlist,
+provider checks, and atomic delivery claim used by the worker. The claim locks
+the linked customer account and revalidates the active account, recipient,
+verification state, one-time token purpose, token use state, and expiry before
+provider handoff. Challenge issuance takes the same account lock, so a replaced
+code cannot be newly claimed. If provider configuration is unavailable, the
+row remains queued for the transactional worker fallback. An explicit provider
+throttle may be retried after one minute only while the original ten-minute code
+remains valid; ambiguous provider outcomes are never retried automatically.
+The committed delivery claim is the point of no return: provider I/O may be in
+flight after the database lock is released and cannot reliably be recalled. The
+15-minute scheduler is therefore only a fallback for these codes, not their
+normal delivery path. This request-time transactional path is independent of
+marketing consent and does not enable the separately gated workers.
+
 For a provider test, the separate `dispatch-admin-test-email` command accepts
 one message ID only. It fails closed unless the row is queued, has kind
 `admin_test` and purpose `test`, has no customer account link, contains complete
