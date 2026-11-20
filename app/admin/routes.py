@@ -935,10 +935,11 @@ def remove_customer_account(account_id):
     message = (
         "Account access and personal identifiers were removed. Pending email was suppressed; "
         "message content and recipient details were redacted while delivery audit metadata was retained. "
-        "The anonymous account record remains to preserve existing database relationships."
+        "The anonymous account record, linked orders, and financial records remain to preserve "
+        "historical records and valid database relationships."
     )
-    if counts.get("orders"):
-        message += f" Deleted {counts['orders']} linked order(s)."
+    if counts.get("orders_preserved"):
+        message += f" Retained and anonymized {counts['orders_preserved']} linked historical order(s)."
     if counts.get("reviews"):
         message += f" Deleted {counts['reviews']} review(s)."
     if failed_proof_deletes:
