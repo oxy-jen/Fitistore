@@ -185,7 +185,6 @@ def _eligible_accounts():
     candidates = CustomerAccount.query.filter(
         CustomerAccount.active.is_(True), CustomerAccount.email_verified_at.is_not(None),
         CustomerAccount.marketing_status == "subscribed",
-        CustomerAccount.marketing_consent_at.is_not(None),
         CustomerAccount.marketing_withdrawn_at.is_(None),
     ).order_by(CustomerAccount.id).all()
     return (account for account in candidates if evaluate_marketing_eligibility(account).eligible)

@@ -42,7 +42,7 @@
   <div class="admin-email-section-body">
   <h2>Send a promotional email</h2>
   <p>This legacy manual sender is paused. Create, preview, and schedule promotional email in the Marketing campaign centre. The campaign worker rechecks consent, suppression, and unsubscribe state at dispatch.</p>
-  <p id="manual-recipient-count" aria-live="polite">0 recipients selected. Active, verified subscribers with recorded consent (before suppression and frequency checks): {{ eligible_total }}.</p>
+  <p id="manual-recipient-count" aria-live="polite">0 recipients selected. Active, verified subscribers before suppression and frequency checks: {{ eligible_total }}.</p>
   {% if not messages_available %}
     <p class="status-warn">Sending is unavailable: the email history table is missing. No email will be sent until the existing customer email schema is available.</p>
   {% endif %}
@@ -51,9 +51,9 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="send_key" value="{{ send_key }}">
     {% if promotional_templates %}<label>Promotional design<select data-email-template name="template_id">{% for item in promotional_templates %}<option value="{{ item.id }}" data-subject="{{ item.subject|e }}" data-headline="{{ item.headline|e }}" data-message="{{ item.message|e }}"{% if item.id == default_promotional_template_id %} selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label><p>The newest saved Email Studio design is selected by default. This sender now uses its full visual layout and content blocks. Edit the layout in Email Studio; choose the products to feature below.</p>{% else %}<input type="hidden" name="template_id" value=""><p>The BEI FITS promotional design will be used. Build and save a reusable version in Email Studio to customize its content blocks.</p>{% endif %}
-    <label class="check"><input type="checkbox" name="all_eligible" value="yes"> Send to all active, verified subscribers with recorded consent</label>
+    <label class="check"><input type="checkbox" name="all_eligible" value="yes"> Send to all active, verified eligible subscribers (including existing subscribed accounts)</label>
     <fieldset><legend>Or select eligible recipients</legend>
-      {% for account in accounts if account.active and account.email_verified_at and account.marketing_status == 'subscribed' and account.marketing_consent_at and not account.marketing_withdrawn_at %}
+      {% for account in accounts if account.active and account.email_verified_at and account.marketing_status == 'subscribed' and not account.marketing_withdrawn_at %}
       <label class="check"><input type="checkbox" name="account_ids" value="{{ account.id }}"> {{ account.display_name or 'Customer' }} - {{ account.email }}</label>
       {% else %}<p>No eligible subscribers match this search.</p>{% endfor %}
     </fieldset>
@@ -81,9 +81,9 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="service_send_key" value="{{ service_send_key }}">
     {% if service_templates %}<label>Reuse a saved service template<select data-email-template><option value="">Choose service template</option>{% for item in service_templates %}<option data-subject="{{ item.subject }}" data-message="{{ item.message }}">{{ item.name }}</option>{% endfor %}</select></label><p>Loading a template fills its subject and message. For the complete visual layout, open it in Email Studio.</p>{% endif %}
-    {% if service_eligible_total <= 500 %}<label class="check"><input type="checkbox" name="service_all_eligible" value="yes"> Send to all active, verified subscribers with recorded consent ({{ service_eligible_total }})</label>{% endif %}
+    {% if service_eligible_total <= 500 %}<label class="check"><input type="checkbox" name="service_all_eligible" value="yes"> Send to all active, verified eligible subscribers (including existing subscribed accounts; {{ service_eligible_total }})</label>{% endif %}
     <fieldset><legend>Or select eligible subscribers</legend>
-      {% for account in accounts if account.active and account.email_verified_at and account.marketing_status == 'subscribed' and account.marketing_consent_at and not account.marketing_withdrawn_at %}
+      {% for account in accounts if account.active and account.email_verified_at and account.marketing_status == 'subscribed' and not account.marketing_withdrawn_at %}
       <label class="check"><input type="checkbox" name="account_ids" value="{{ account.id }}"> {{ account.display_name or 'Customer' }} — {{ account.email }}</label>
       {% else %}<p>No eligible subscribers match this search.</p>{% endfor %}
     </fieldset>
@@ -250,7 +250,7 @@ document.querySelectorAll('[data-email-template]').forEach(select => {
   const update = () => {
     const all = form.querySelector('[name="all_eligible"]');
     const count = all.checked ? "{{ eligible_total }}" : form.querySelectorAll('[name="account_ids"]:checked').length;
-    output.textContent = (all.checked ? "All " : "") + count + " recipients selected. Active, verified subscribers with recorded consent (before suppression and frequency checks): {{ eligible_total }}.";
+    output.textContent = (all.checked ? "All " : "") + count + " recipients selected. Active, verified subscribers before suppression and frequency checks: {{ eligible_total }}.";
   };
   form.addEventListener("change", update);
   update();

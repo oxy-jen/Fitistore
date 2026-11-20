@@ -64,7 +64,6 @@ def email_center():
         return render_template("admin/email_unavailable.html", title="Customer email")
     eligible_candidate_query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(
         CustomerAccount.email_verified_at.is_not(None),
-        CustomerAccount.marketing_consent_at.is_not(None),
         CustomerAccount.marketing_withdrawn_at.is_(None),
     )
     query = eligible_candidate_query
@@ -77,7 +76,7 @@ def email_center():
             account_query = account_query.outerjoin(CustomerOrderLink, CustomerOrderLink.account_id == CustomerAccount.id).outerjoin(Order, Order.id == CustomerOrderLink.order_id)
             customer_match = or_(customer_match, Order.reference.ilike(term))
         account_query = account_query.filter(customer_match)
-    subscribers = query.order_by(CustomerAccount.marketing_consent_at.desc()).paginate(page=max(1, request.args.get("page", 1, type=int)), per_page=25, error_out=False)
+    subscribers = query.order_by(func.coalesce(CustomerAccount.marketing_consent_at, CustomerAccount.created_at).desc()).paginate(page=max(1, request.args.get("page", 1, type=int)), per_page=25, error_out=False)
     pending_query = CustomerAccount.query.filter_by(active=True, marketing_status="pending")
     if search:
         term = f"%{search}%"
@@ -142,7 +141,6 @@ def email_center():
     eligible_total = eligible_candidate_query.count()
     service_eligible_total = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(
         CustomerAccount.email_verified_at.isnot(None),
-        CustomerAccount.marketing_consent_at.isnot(None),
         CustomerAccount.marketing_withdrawn_at.is_(None),
     ).count()
     suppression_schema_ready = model_schema_ready(MarketingSuppressionCase, inspector) and model_schema_ready(MarketingSuppressionEvent, inspector)
@@ -423,7 +421,6 @@ def send_service_customer_email():
 
     eligible_query = CustomerAccount.query.filter_by(active=True, marketing_status="subscribed").filter(
         CustomerAccount.email_verified_at.isnot(None),
-        CustomerAccount.marketing_consent_at.isnot(None),
         CustomerAccount.marketing_withdrawn_at.is_(None),
     )
     if request.form.get("service_all_eligible") == "yes":
@@ -434,7 +431,7 @@ def send_service_customer_email():
     else:
         accounts = eligible_query.filter(CustomerAccount.id.in_(selected_ids)).order_by(CustomerAccount.id).all() if selected_ids else []
     if not accounts:
-        flash("Select at least one active, verified subscriber with recorded consent for the administrator-authored message.", "error")
+        flash("Select at least one active, verified subscribed customer who remains eligible for promotional email.", "error")
         return redirect(url_for("admin.email_center"))
     if len(accounts) > 1 and request.form.get("service_confirm_send", "").strip() != f"SEND {len(accounts)}":
         flash(f"Message not queued. Type SEND {len(accounts)} to confirm the exact recipient count.", "warning")

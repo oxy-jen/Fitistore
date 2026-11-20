@@ -802,7 +802,10 @@ def register_email_studio_routes(admin_bp):
                         else:
                             targets = [selected_account] if selected_account and selected_account.active and selected_account.email_verified_at else []
                         if not targets:
-                            raise EmailContentError("Select at least one eligible recipient. Marketing recipients must be active and subscribed.")
+                            raise EmailContentError(
+                                "Select at least one active, verified subscribed customer who remains eligible "
+                                "after consent, unsubscribe, suppression, and frequency checks."
+                            )
                         phrase = f"SCHEDULE {len(targets)}" if action == "schedule" else f"SEND {len(targets)}"
                         confirmation_field = "confirm_schedule" if action == "schedule" else "confirm_send"
                         if request.form.get(confirmation_field, "").strip() != phrase:
