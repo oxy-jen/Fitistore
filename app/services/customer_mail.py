@@ -15,12 +15,15 @@ from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app, render_template, url_for
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from app.extensions import db
 from app.services.email_purpose import (
+    MARKETING_CAMPAIGN_TYPES,
+    MARKETING_CAMPAIGN_TYPE_KINDS,
+    MARKETING_EMAIL_KINDS,
     TEST_EMAIL_KINDS,
     TRANSACTIONAL_QUEUE_EMAIL_KINDS,
     UnknownEmailKind,
@@ -396,6 +399,12 @@ def deliver_email(record: EmailMessage, html_body: str | None = None, text_body:
         logger.warning("admin_test_requires_isolated_dispatch message_id=%s", record.id)
         return False
     marketing = expected_purpose == "marketing"
+    if marketing and (
+        not current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False)
+        or record.campaign_id is None
+    ):
+        logger.warning("marketing_message_requires_isolated_worker message_id=%s", record.id)
+        return False
     configured, reason = mail_configuration_status()
     if not configured:
         logger.warning("email_delivery_not_configured message_id=%s reason=%s", record.id, reason)
@@ -615,6 +624,36 @@ def _claim_marketing_dispatch(record: EmailMessage, *, claim_token: str | None =
         return False, "Marketing message has no linked customer account; sending is paused.", "suppressed"
     try:
         with db.engine.begin() as connection:
+            if record.campaign_id is not None:
+                from app.models import EmailCampaign, EmailCampaignRecipient
+                campaign = connection.execute(
+                    select(EmailCampaign.status, EmailCampaign.scheduled_for, EmailCampaign.campaign_type)
+                    .where(EmailCampaign.id == record.campaign_id)
+                    .with_for_update()
+                ).mappings().first()
+                if (not campaign or campaign["status"] != "scheduled"
+                        or not campaign["scheduled_for"] or campaign["scheduled_for"] > datetime.now(timezone.utc).replace(tzinfo=None)
+                        or not _marketing_campaign_type_enabled(campaign["campaign_type"])):
+                    return False, None, "queued"
+                expected_kind = MARKETING_CAMPAIGN_TYPE_KINDS.get(campaign["campaign_type"])
+                recipient_link = connection.execute(select(EmailCampaignRecipient.id).where(
+                    EmailCampaignRecipient.campaign_id == record.campaign_id,
+                    EmailCampaignRecipient.account_id == account_id,
+                    EmailCampaignRecipient.message_id == message_id,
+                ).limit(1)).first()
+                if record.kind != expected_kind or recipient_link is None:
+                    reason = "Campaign message failed its campaign-type or recipient linkage check."
+                    connection.execute(update(EmailMessage).where(
+                        EmailMessage.id == message_id,
+                        EmailMessage.status == "queued",
+                    ).values(
+                        status="failed", error_category="invalid_campaign_message",
+                        failure_reason=reason, html_body=None, text_body=None,
+                        next_attempt_at=None, claim_token=None, claimed_at=None,
+                        updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                    ))
+                    _update_campaign_recipient(connection, record, "failed", reason)
+                    return False, reason, "failed"
             from app.services.marketing_suppressions import marketing_account_lock_statement
             account = connection.execute(marketing_account_lock_statement(account_id)).mappings().first()
             from app.services.marketing_eligibility import evaluate_marketing_eligibility
@@ -633,8 +672,12 @@ def _claim_marketing_dispatch(record: EmailMessage, *, claim_token: str | None =
                 ).rowcount
                 status = connection.execute(select(EmailMessage.status).where(EmailMessage.id == message_id)).scalar_one_or_none()
                 if changed == 1:
+                    if record.campaign_id is not None:
+                        _update_campaign_recipient(connection, record, "suppressed", reason[:255])
                     _refresh_automation_campaign_counts(connection, record)
                 return False, reason if changed == 1 else None, status
+            if record.campaign_id is None:
+                return False, "Marketing dispatch requires an approved campaign.", "queued"
             result = connection.execute(
                 update(EmailMessage).where(EmailMessage.id == message_id, EmailMessage.status == "queued")
                 .values(status="sending", failure_reason="", claim_token=claim_token,
@@ -876,6 +919,12 @@ def _finalize_dispatch(record: EmailMessage, claim_token: str, **values) -> bool
             EmailMessage.id == record.id, EmailMessage.status == "sending",
             EmailMessage.claim_token == claim_token,
         ).values(**updates)).rowcount
+        if changed == 1 and record.campaign_id:
+            _update_campaign_recipient(
+                connection, record, values["status"],
+                values.get("failure_reason", ""),
+                values.get("sent_at"),
+            )
         if changed == 1 and values["status"] == "sent" and _is_marketing_kind(record.kind) and record.kind == "marketing_abandoned_cart":
             episode_key = str(record.idempotency_key or "").split(":", 1)[-1]
             if episode_key:
@@ -920,6 +969,50 @@ def _finalize_dispatch(record: EmailMessage, claim_token: str, **values) -> bool
             _refresh_automation_campaign_counts(connection, record)
     db.session.expire(record)
     return changed == 1
+
+
+def _update_campaign_recipient(connection, record: EmailMessage, status: str,
+                               failure_reason: str = "", sent_at: datetime | None = None) -> None:
+    if not record.campaign_id or not record.account_id:
+        return
+    from app.models import EmailCampaign, EmailCampaignRecipient
+    connection.execute(update(EmailCampaignRecipient).where(
+        EmailCampaignRecipient.campaign_id == record.campaign_id,
+        EmailCampaignRecipient.account_id == record.account_id,
+    ).values(
+        status=status,
+        failure_reason=(failure_reason or "")[:255],
+        sent_at=sent_at,
+    ))
+    active = connection.execute(select(func.count(EmailMessage.id)).where(
+        EmailMessage.campaign_id == record.campaign_id,
+        or_(
+            EmailMessage.status.in_(("queued", "sending")),
+            and_(
+                EmailMessage.status == "failed",
+                EmailMessage.error_category.in_(("retryable_provider", "retryable_infrastructure")),
+                EmailMessage.retry_count <= 3,
+                EmailMessage.next_attempt_at.isnot(None),
+            ),
+        ),
+    )).scalar_one()
+    if active == 0:
+        failures = connection.execute(select(func.count(EmailCampaignRecipient.id)).where(
+            EmailCampaignRecipient.campaign_id == record.campaign_id,
+            EmailCampaignRecipient.status == "failed",
+        )).scalar_one()
+        sent = connection.execute(select(func.count(EmailCampaignRecipient.id)).where(
+            EmailCampaignRecipient.campaign_id == record.campaign_id,
+            EmailCampaignRecipient.status.in_(("sent", "delivered")),
+        )).scalar_one()
+        connection.execute(update(EmailCampaign).where(
+            EmailCampaign.id == record.campaign_id,
+            EmailCampaign.status == "scheduled",
+        ).values(
+            status="partial" if failures else "sent" if sent else "complete",
+            sent_at=datetime.now(timezone.utc).replace(tzinfo=None) if sent else None,
+            updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        ))
 
 
 def _restock_alert_id(kind: str, idempotency_key: str | None) -> int | None:
@@ -972,6 +1065,45 @@ def process_transactional_email_queue(*, limit: int = 50, now: datetime | None =
         worker_heartbeat=heartbeat, allowed_kinds=TRANSACTIONAL_QUEUE_EMAIL_KINDS,
         required_purpose="transactional",
     ), worker_type="transactional_queue")
+
+
+def _marketing_campaign_type_enabled(campaign_type: str) -> bool:
+    config_keys = {
+        "new_product": "EMAIL_MARKETING_NEW_PRODUCTS_ENABLED",
+        "special_offer": "EMAIL_MARKETING_OFFERS_ENABLED",
+        "weekly_picks": "EMAIL_MARKETING_WEEKLY_PICKS_ENABLED",
+        "abandoned_cart": "EMAIL_MARKETING_ABANDONED_CART_ENABLED",
+        "seasonal": "EMAIL_MARKETING_SEASONAL_ENABLED",
+        "custom": "EMAIL_MARKETING_CUSTOM_ENABLED",
+    }
+    return (
+        campaign_type in MARKETING_CAMPAIGN_TYPES
+        and bool(current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False))
+        and bool(current_app.config.get(config_keys[campaign_type], False))
+    )
+
+
+def process_marketing_email_queue(*, limit: int = 25, now: datetime | None = None,
+                                  max_seconds: int | None = None, should_stop=None,
+                                  confirmation: str = "") -> dict[str, int]:
+    """Run only approved, due campaign messages after the marketing gate is enabled."""
+    if confirmation != "RUN MARKETING EMAIL QUEUE":
+        raise ValueError("Marketing queue execution requires explicit confirmation.")
+    if not current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False):
+        raise ValueError("Marketing email processing is disabled.")
+    limit = max(1, min(int(limit), 100))
+    enabled_types = frozenset(
+        kind for campaign_type, kind in MARKETING_CAMPAIGN_TYPE_KINDS.items()
+        if _marketing_campaign_type_enabled(campaign_type)
+    )
+    if not enabled_types:
+        return {"claimed": 0, "sent": 0, "failed": 0, "suppressed": 0, "not_configured": 0,
+                "marketing_types_disabled": 1}
+    return _run_email_worker(lambda heartbeat: _process_email_queue_batch(
+        limit=limit, now=now, max_seconds=max_seconds, should_stop=should_stop,
+        worker_heartbeat=heartbeat, allowed_kinds=enabled_types,
+        required_purpose="marketing", campaign_only=True,
+    ), worker_type="marketing_queue")
 
 
 def _normalized_test_address(address: str | None) -> str:
@@ -1031,7 +1163,8 @@ def process_admin_test_email(message_id: int) -> dict[str, int]:
 def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
                                max_seconds: int | None = None, should_stop=None,
                                worker_heartbeat=None, allowed_kinds: frozenset[str] | None = None,
-                               required_purpose: str | None = None) -> dict[str, int]:
+                               required_purpose: str | None = None,
+                               campaign_only: bool = False) -> dict[str, int]:
     """Dispatch due persisted messages. No scheduler is enabled by this command."""
     now = now or datetime.utcnow()
     limit = max(1, min(int(limit), 500))
@@ -1070,6 +1203,7 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
     malformed_count = quarantine_incomplete_queued_messages(
         now=now, kinds=allowed_kinds, purpose=required_purpose,
         excluded_kinds=excluded_test_kinds,
+        campaign_only=campaign_only,
     )
     configured, _reason = mail_configuration_status()
     if not configured:
@@ -1080,16 +1214,32 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
         EmailMessage.retry_count <= 3, EmailMessage.next_attempt_at <= now,
         EmailMessage.kind != "admin_test",
     )
+    if required_purpose is None:
+        due_failed_query = due_failed_query.filter(EmailMessage.purpose != "marketing")
     if allowed_kinds is not None:
         due_failed_query = due_failed_query.filter(EmailMessage.kind.in_(allowed_kinds))
     if required_purpose is not None:
         due_failed_query = due_failed_query.filter(EmailMessage.purpose == required_purpose)
+    if campaign_only:
+        from app.models import EmailCampaign
+        due_failed_query = due_failed_query.join(
+            EmailCampaign, EmailCampaign.id == EmailMessage.campaign_id,
+        ).filter(
+            EmailCampaign.status == "scheduled",
+            EmailCampaign.scheduled_for <= now,
+        )
     due_failed = due_failed_query.order_by(EmailMessage.next_attempt_at, EmailMessage.id).limit(limit).all()
     for failed in due_failed:
         db.session.execute(update(EmailMessage).where(
             EmailMessage.id == failed.id, EmailMessage.status == "failed",
         ).values(status="queued", failure_reason="", updated_at=now))
     if due_failed:
+        if campaign_only:
+            from app.models import EmailCampaignRecipient
+            db.session.execute(update(EmailCampaignRecipient).where(
+                EmailCampaignRecipient.message_id.in_([row.id for row in due_failed]),
+                EmailCampaignRecipient.status == "failed",
+            ).values(status="queued", failure_reason=""))
         db.session.commit()
     remaining = max(0, limit - len(due_failed))
     queued_query = EmailMessage.query.filter(
@@ -1097,10 +1247,20 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
         (EmailMessage.next_attempt_at.is_(None) | (EmailMessage.next_attempt_at <= now)),
         EmailMessage.kind != "admin_test",
     )
+    if required_purpose is None:
+        queued_query = queued_query.filter(EmailMessage.purpose != "marketing")
     if allowed_kinds is not None:
         queued_query = queued_query.filter(EmailMessage.kind.in_(allowed_kinds))
     if required_purpose is not None:
         queued_query = queued_query.filter(EmailMessage.purpose == required_purpose)
+    if campaign_only:
+        from app.models import EmailCampaign
+        queued_query = queued_query.join(
+            EmailCampaign, EmailCampaign.id == EmailMessage.campaign_id,
+        ).filter(
+            EmailCampaign.status == "scheduled",
+            EmailCampaign.scheduled_for <= now,
+        )
     queued = queued_query.order_by(EmailMessage.created_at, EmailMessage.id).limit(remaining).all() if remaining else []
     row_ids = list(dict.fromkeys([row.id for row in due_failed] + [row.id for row in queued]))
     rows = [db.session.get(EmailMessage, row_id) for row_id in row_ids]

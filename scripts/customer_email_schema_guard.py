@@ -67,12 +67,21 @@ APPROVED_MISSING_COLUMNS = {
     ("email_message", "error_category"),
     ("email_message", "claim_token"),
     ("marketing_campaign_run", "queued_count"),
+    ("email_campaign", "campaign_type"),
+    ("email_campaign", "product_ids_json"),
+    ("email_campaign", "scheduled_for"),
+    ("email_campaign", "previewed_at"),
+    ("email_campaign", "approved_at"),
+    ("email_campaign_recipient", "exclusion_reason"),
+    ("email_campaign_recipient", "message_id"),
 }
 APPROVED_MISSING_INDEXES = {
     "ix_email_message_provider_message_id", "ix_email_message_template_id",
     "ix_email_message_purpose", "ix_email_message_dispatch",
     "ix_email_message_claimed_at", "ix_email_message_next_attempt_at",
     "ix_email_message_claim_token",
+    "ix_email_campaign_status_scheduled",
+    "ix_email_campaign_recipient_message",
 }
 def migration_index_manifest() -> dict[str, tuple[str, tuple[str, ...], bool, str | None]]:
     sql = migration_sql()
@@ -107,7 +116,8 @@ def migration_sql() -> str:
     outbox = (migrations_dir / "20261113_email_outbox.sql").read_text(encoding="utf-8")
     delivery_ops = (migrations_dir / "20261116_email_delivery_ops.sql").read_text(encoding="utf-8")
     legacy_review = (migrations_dir / "20261117_email_legacy_review.sql").read_text(encoding="utf-8")
-    return f"{customer_email}\n{email_studio}\n{email_builder}\n{consent_wording}\n{outbox}\n{delivery_ops}\n{legacy_review}"
+    marketing_campaign = (migrations_dir / "20261120_marketing_campaign_queue.sql").read_text(encoding="utf-8")
+    return f"{customer_email}\n{email_studio}\n{email_builder}\n{consent_wording}\n{outbox}\n{delivery_ops}\n{legacy_review}\n{marketing_campaign}"
 
 
 def migration_column_defaults() -> dict[tuple[str, str], str | None]:
@@ -926,6 +936,7 @@ def validate_schema(
             for migration_id, service_module, validator_name in (
                 ("20261117_email_admin_test_purpose", "app.services.email_test_purpose_migration", "validate_email_test_purpose"),
                 ("20261117_customer_consent_audit_immutable", "app.services.consent_audit", "validate_consent_audit_schema"),
+                ("20261120_marketing_campaign_queue", "app.services.marketing_campaign_schema", "validate_marketing_campaign_schema"),
             ):
                 if migration_id in migration_ids:
                     try:

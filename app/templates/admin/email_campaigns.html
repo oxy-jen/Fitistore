@@ -1,1 +1,162 @@
-{% extends "base.html" %}{% block content %}<section class="page-head"><h1>Promotional campaign</h1><p>Current eligible confirmed subscribers: {{ eligible_count }}. This count may change before sending.</p></section><section class="form-card"><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Campaign name<input name="name" maxlength="120" required></label><label>Subject<input name="subject" maxlength="200" required></label><label>Message<textarea name="body" maxlength="10000" required rows="10"></textarea></label><p>Use a clear subject, a short opening, useful product or offer details, and a next step. Separate paragraphs with a blank line. Emails use the FityStores branded layout and include an unsubscribe link.</p><button class="btn primary" name="action" value="draft">Save draft and preview</button>{% if test_address %}<button class="btn" name="action" value="test">Send test to configured address ({{ test_address }})</button>{% endif %}</form></section><section class="form-card"><h2>Previous campaigns</h2>{% for campaign in campaigns %}<p><a href="{{ url_for('admin.email_campaign_detail', campaign_id=campaign.id) }}">{{ campaign.name }}</a> · {{ campaign.status }}</p>{% endfor %}</section>{% endblock %}
+{% extends "base.html" %}
+{% block content %}
+<main class="admin-campaigns">
+  <header class="page-head admin-head">
+    <div>
+      <p class="eyebrow">Marketing · explicit approval required</p>
+      <h1>{% if campaign %}{{ campaign.name }}{% else %}Marketing campaigns{% endif %}</h1>
+      <p>Drafting and previewing never sends email. Campaigns can only reach opted-in, eligible subscribers through the separately gated campaign worker.</p>
+    </div>
+    <nav class="actions" aria-label="Campaign navigation">
+      <a class="btn" href="{{ url_for('admin.email_center') }}">Email centre</a>
+      <a class="btn" href="{{ url_for('admin.email_campaigns') }}">All campaigns</a>
+    </nav>
+  </header>
+
+  <section class="form-card campaign-gates" aria-label="Campaign controls">
+    <strong>Queue gate:</strong>
+    <span class="admin-email-badge {{ 'is-alert' if not queue_enabled else '' }}">{{ 'enabled in this application context' if queue_enabled else 'disabled' }}</span>
+    <span>Each campaign type also has an independent setting. Production configuration is not changed by this page.</span>
+  </section>
+
+  {% if campaign %}
+  <section class="campaign-stats" aria-label="Campaign status">
+    <article><span>Status</span><strong>{{ campaign.status|replace('_', ' ')|title }}</strong></article>
+    <article><span>Type</span><strong>{{ campaign.campaign_type|replace('_', ' ')|title }}</strong></article>
+    <article><span>Recipients</span><strong>{{ recipients|length }}{% if recipients|length > 500 %}+{% endif %}</strong></article>
+    <article><span>Previewed</span><strong>{{ campaign.previewed_at.strftime('%Y-%m-%d %H:%M UTC') if campaign.previewed_at else 'Not yet' }}</strong></article>
+    {% if campaign.scheduled_for %}<article><span>Scheduled</span><strong>{{ campaign.scheduled_for.strftime('%Y-%m-%d %H:%M UTC') }}</strong></article>{% endif %}
+  </section>
+
+  {% if campaign.status == 'draft' %}
+  <form method="post" class="form-card campaign-editor">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <h2>Campaign content</h2>
+    <div class="field-grid">
+      <label>Campaign name<input name="name" maxlength="120" required value="{{ campaign.name }}"></label>
+      <label>Campaign type
+        <select name="campaign_type" required>
+          {% for kind in campaign_types %}
+          <option value="{{ kind }}" {% if campaign.campaign_type == kind %}selected{% endif %}>{{ kind|replace('_', ' ')|title }}{% if not type_enabled(kind) %} (type gate off){% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="campaign-wide">Subject<input name="subject" maxlength="200" required value="{{ campaign.subject }}"></label>
+      <label class="campaign-wide">Message<textarea name="body" maxlength="5000" rows="8" required>{{ campaign.body }}</textarea></label>
+    </div>
+    {% if campaign.campaign_type != 'abandoned_cart' %}
+    <fieldset>
+      <legend>Active, in-stock products to feature (up to 10)</legend>
+      <div class="campaign-product-list">
+        {% for product in products if product.display_stock_quantity > 0 %}
+        <label class="check">
+          <input type="checkbox" name="product_ids" value="{{ product.id }}" {% if product.id in selected_product_ids %}checked{% endif %}>
+          <span>{{ product.name }}{% if product.price_cents is not none %} · KSh {{ '%.2f'|format(product.price_cents / 100) }}{% endif %}</span>
+        </label>
+        {% else %}<p>No active, in-stock products are available.</p>{% endfor %}
+      </div>
+    </fieldset>
+    {% else %}
+    <p>Abandoned-cart campaigns use only each eligible customer's own validated cart; shared product selection is disabled.</p>
+    {% endif %}
+    <div class="campaign-form-actions">
+      <button class="btn" name="action" value="save">Save draft</button>
+      <button class="btn primary" name="action" value="preview">Save and preview</button>
+    </div>
+    <div class="campaign-schedule">
+      <h3>Schedule after preview</h3>
+      <p>Scheduling snapshots the eligible audience and queues messages only. The worker rechecks consent, account status, suppression, frequency, campaign status, and the per-type gate before every dispatch.</p>
+      <label>Send date and time<input type="datetime-local" name="scheduled_for"></label>
+      <label>Type the exact audience confirmation
+        <input name="confirmation" maxlength="24" autocomplete="off" placeholder="SCHEDULE {{ eligible_count if eligible_count is not none else '?' }}">
+      </label>
+      <button class="btn" name="action" value="schedule" {% if not queue_enabled or not type_enabled(campaign.campaign_type) or not campaign.previewed_at or eligible_count is none %}disabled{% endif %}>Schedule campaign</button>
+      {% if eligible_count is not none %}<p><strong>{{ eligible_count }}</strong> currently eligible. This count can change before scheduling.</p>{% endif %}
+      {% if exclusion_summary %}<details><summary>Eligibility exclusions</summary><ul>{% for reason, count in exclusion_summary.items() %}<li>{{ reason|replace('_', ' ')|title }}{% if count %}: {{ count }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+    </div>
+  </form>
+  {% else %}
+  <section class="form-card campaign-controls">
+    <h2>Campaign controls</h2>
+    {% if campaign.status == 'scheduled' %}
+    <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" name="action" value="pause">Pause campaign</button><button class="btn danger" name="action" value="cancel" onclick="return confirm('Cancel this campaign and suppress its queued messages?')">Cancel campaign</button></form>
+    {% elif campaign.status == 'paused' %}
+    <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn primary" name="action" value="resume">Resume campaign</button><button class="btn danger" name="action" value="cancel" onclick="return confirm('Cancel this campaign and suppress its queued messages?')">Cancel campaign</button></form>
+    {% endif %}
+    <p>Pause and cancel prevent future campaign claims. A provider request already in progress cannot be recalled.</p>
+  </section>
+  {% endif %}
+
+  {% if preview_html %}
+  <section class="form-card campaign-preview">
+    <h2>Preview (not sent)</h2>
+    <div class="campaign-preview-frame">{{ preview_html|safe }}</div>
+    <details><summary>Plain-text version</summary><pre>{{ preview_text }}</pre></details>
+  </section>
+  {% endif %}
+
+  {% if recipients %}
+  <section class="form-card">
+    <h2>Recipient outcomes</h2>
+    <p>Addresses are shown only in this administrator view. Excluded recipients were not queued.</p>
+    <div class="campaign-recipient-table">
+      <table><thead><tr><th>Recipient</th><th>Status</th><th>Exclusion / failure</th><th>Updated</th></tr></thead>
+        <tbody>{% for row in recipients %}
+        <tr><td>{{ row.recipient }}</td><td>{{ row.status|title }}</td><td>{{ row.failure_reason or row.exclusion_reason or '—' }}</td><td>{{ row.sent_at.strftime('%Y-%m-%d %H:%M UTC') if row.sent_at else '—' }}</td></tr>
+        {% endfor %}</tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+  {% else %}
+  <section class="form-card">
+    <h2>Create a campaign draft</h2>
+    <p>Campaign type gates default off. Drafts and previews do not send. Scheduling remains unavailable unless the queue and selected type are separately enabled.</p>
+    <form method="post" class="campaign-editor">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field-grid">
+        <label>Campaign name<input name="name" maxlength="120" required></label>
+        <label>Campaign type<select name="campaign_type" required>{% for kind in campaign_types %}<option value="{{ kind }}">{{ kind|replace('_', ' ')|title }}{% if not type_enabled(kind) %} (type gate off){% endif %}</option>{% endfor %}</select></label>
+        <label class="campaign-wide">Subject<input name="subject" maxlength="200" required></label>
+        <label class="campaign-wide">Message<textarea name="body" maxlength="5000" rows="7" required></textarea></label>
+      </div>
+      <p>Save the draft, then select the products appropriate to its type, preview it, and schedule it separately.</p>
+      <button class="btn primary">Save draft</button>
+    </form>
+  </section>
+  <section class="form-card">
+    <h2>Recent campaigns</h2>
+    <div class="campaign-recipient-table"><table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Schedule</th><th>Created</th></tr></thead>
+      <tbody>{% for item in campaigns %}<tr>
+        <td><a href="{{ url_for('admin.email_campaign_detail', campaign_id=item.id) }}">{{ item.name }}</a></td>
+        <td>{{ item.campaign_type|replace('_', ' ')|title }}</td><td>{{ item.status|title }}</td>
+        <td>{{ item.scheduled_for.strftime('%Y-%m-%d %H:%M UTC') if item.scheduled_for else '—' }}</td>
+        <td>{{ item.created_at.strftime('%Y-%m-%d') if item.created_at else '—' }}</td>
+      </tr>{% else %}<tr><td colspan="5">No campaigns yet.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  {% endif %}
+</main>
+<style>
+.admin-campaigns{max-width:1120px;margin:auto;padding:clamp(12px,3vw,28px)}
+.campaign-gates,.campaign-stats article{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.campaign-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
+.campaign-stats article{border:1px solid #e6e8ec;border-radius:12px;padding:14px;min-width:0}
+.campaign-stats span{color:#626b78;font-size:.9rem}.campaign-stats strong{overflow-wrap:anywhere}
+.campaign-editor .field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.campaign-wide{grid-column:1/-1}
+.campaign-editor textarea{min-height:145px}
+.campaign-product-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:8px;max-height:300px;overflow:auto}
+.campaign-form-actions,.campaign-controls form{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}
+.campaign-schedule{border-top:1px solid #e6e8ec;margin-top:20px;padding-top:16px}
+.campaign-schedule label{max-width:520px}
+.campaign-preview-frame{max-width:680px;margin:auto;border:1px solid #e6e8ec;border-radius:12px;overflow:auto;background:#fff}
+.campaign-preview-frame img{max-width:100%}
+.campaign-recipient-table{overflow:auto}
+.campaign-recipient-table table{border-collapse:collapse;width:100%;min-width:650px}
+.campaign-recipient-table th,.campaign-recipient-table td{text-align:left;padding:10px;border-bottom:1px solid #e6e8ec;overflow-wrap:anywhere}
+.campaign-recipient-table td:first-child{max-width:240px}
+.admin-campaigns pre{white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:640px){.campaign-editor .field-grid{grid-template-columns:1fr}.campaign-wide{grid-column:auto}.campaign-recipient-table table{min-width:600px}}
+</style>
+{% endblock %}
