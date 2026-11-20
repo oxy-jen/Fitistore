@@ -309,7 +309,8 @@ def quarantine_incomplete_legacy_message(message_id: int, *, actor_admin_id: int
 def quarantine_incomplete_queued_messages(*, now: datetime | None = None,
                                           kinds: frozenset[str] | None = None,
                                           purpose: str | None = None,
-                                          excluded_kinds: frozenset[str] | None = None) -> int:
+                                          excluded_kinds: frozenset[str] | None = None,
+                                          campaign_only: bool = False) -> int:
     """Worker preflight quarantine with a durable system audit event."""
     now = now or datetime.utcnow()
     query = EmailMessage.query.filter(
@@ -323,6 +324,14 @@ def quarantine_incomplete_queued_messages(*, now: datetime | None = None,
         query = query.filter(EmailMessage.purpose == purpose)
     if excluded_kinds is not None:
         query = query.filter(~EmailMessage.kind.in_(excluded_kinds))
+    if campaign_only:
+        from app.models import EmailCampaign
+        query = query.join(
+            EmailCampaign, EmailCampaign.id == EmailMessage.campaign_id,
+        ).filter(
+            EmailCampaign.status == "scheduled",
+            EmailCampaign.scheduled_for <= now,
+        )
     rows = query.with_for_update().all()
     if not rows:
         return 0

@@ -601,6 +601,8 @@ def register_cli(app: Flask):
                         apply_email_legacy_review_migration(connection, dialect)
                         from .services.consent_audit import apply_consent_audit_migration
                         apply_consent_audit_migration(connection, dialect)
+                        from .services.marketing_campaign_schema import apply_marketing_campaign_schema
+                        apply_marketing_campaign_schema(connection, dialect)
                         validate_columns(connection)
                         transaction.commit()
                     except Exception:
@@ -652,6 +654,8 @@ def register_cli(app: Flask):
                     apply_email_legacy_review_migration(connection, dialect)
                     from .services.consent_audit import apply_consent_audit_migration
                     apply_consent_audit_migration(connection, dialect)
+                    from .services.marketing_campaign_schema import apply_marketing_campaign_schema
+                    apply_marketing_campaign_schema(connection, dialect)
                     validate_columns(connection)
 
             after = set(inspect(db.engine).get_table_names())
@@ -789,6 +793,42 @@ def register_cli(app: Flask):
         if result.get("failed"):
             raise click.ClickException(
                 f"Queue batch recorded {result['failed']} failed message(s); inspect queue health and logs."
+            )
+
+    @app.cli.command("process-marketing-email-queue")
+    @click.option("--limit", type=click.IntRange(1, 100), default=25, show_default=True)
+    @click.option("--max-seconds", type=click.IntRange(1, 3600), default=240, show_default=True)
+    @click.option("--confirmation", default="", help="Type RUN MARKETING EMAIL QUEUE.")
+    def process_marketing_email_queue_command(limit, max_seconds, confirmation):
+        """Run one bounded batch restricted to due, approved campaign messages."""
+        if confirmation != "RUN MARKETING EMAIL QUEUE":
+            raise click.ClickException(
+                "Marketing queue execution requires --confirmation "
+                "'RUN MARKETING EMAIL QUEUE'; no messages were dispatched."
+            )
+        from .services.customer_mail import process_marketing_email_queue
+        stopping = {"requested": False}
+        previous_handler = signal.getsignal(signal.SIGTERM)
+        signal.signal(signal.SIGTERM, lambda _signum, _frame: stopping.__setitem__("requested", True))
+        try:
+            result = process_marketing_email_queue(
+                limit=limit, max_seconds=max_seconds,
+                should_stop=lambda: stopping["requested"],
+                confirmation=confirmation,
+            )
+        except Exception as exc:
+            db.session.rollback()
+            raise click.ClickException(
+                f"Marketing email queue processing stopped ({type(exc).__name__})."
+            ) from None
+        finally:
+            signal.signal(signal.SIGTERM, previous_handler)
+        click.echo(json.dumps({"event": "marketing_email_queue_run_complete", **result}, sort_keys=True))
+        if result.get("not_configured"):
+            raise click.ClickException("Email provider is not configured; no message was dispatched.")
+        if result.get("failed"):
+            raise click.ClickException(
+                f"Marketing queue batch recorded {result['failed']} failed message(s); inspect queue health and logs."
             )
 
     @app.cli.command("process-transactional-email-queue")

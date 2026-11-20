@@ -2862,21 +2862,19 @@ def test_mail_provider_failure_is_recorded_without_secrets(app, monkeypatch, app
     assert result.failure_reason == "SMTP error 535."
 
 
-def test_campaign_routes_are_disabled_in_manual_only_mode(client, app, monkeypatch, app_context):
-    import app.services.customer_mail as customer_mail
-    sent = []
-    monkeypatch.setattr(customer_mail, "queue_branded_email", lambda *args, **kwargs: sent.append(args))
+def test_campaign_routes_require_admin_and_create_only_a_draft(client, app_context):
     assert client.post("/admin/login", data={"username": "owner", "password": "secret123"}, follow_redirects=True).status_code == 200
-    responses = [
-        client.get("/admin/email/campaigns"),
-        client.get("/admin/email/campaigns/1"),
-        client.post("/admin/email/campaigns", data={"name": "New arrivals", "subject": "New arrivals", "body": "See what is new."}),
-        client.post("/admin/email/campaigns/1", data={"confirm_send": "SEND"}),
-    ]
-    assert all(response.status_code == 302 for response in responses)
-    assert all(response.headers["Location"].endswith("/admin/email") for response in responses)
-    assert EmailCampaign.query.count() == 0
-    assert sent == []
+    listing = client.get("/admin/email/campaigns")
+    assert listing.status_code == 200
+    assert b"Marketing campaigns" in listing.data
+    created = client.post("/admin/email/campaigns", data={
+        "name": "New arrivals", "subject": "New arrivals",
+        "body": "See what is new.", "campaign_type": "custom",
+    })
+    assert created.status_code == 302
+    campaign = EmailCampaign.query.filter_by(name="New arrivals").one()
+    assert campaign.status == "draft"
+    assert EmailMessage.query.filter_by(campaign_id=campaign.id).count() == 0
 
 
 def _isolated_legacy_sqlite_app(tmp_path, monkeypatch):
@@ -4888,86 +4886,42 @@ def test_manual_email_page_uses_real_linked_orders_and_admin_auth(client, app, a
 
 
 def test_manual_email_uses_brevo_products_and_idempotent_send(client, app, app_context, monkeypatch):
-    from datetime import datetime
-    from app.models import ProductImage
     import app.services.customer_mail as customer_mail
-    _configure_brevo_test(app)
-    app.config["PUBLIC_BASE_URL"] = "https://fitystore.top"
-    app.config["CLOUDINARY_CLOUD_NAME"] = "fity-test"
     sent = []
-    monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html, text: sent.append((recipient, html, text)) or "fake-provider-id")
-    account = CustomerAccount(email="manual-send@example.test", display_name="Manual Shopper", email_verified_at=datetime.utcnow(), marketing_status="subscribed", marketing_consent_at=datetime.utcnow())
-    product = Product.query.filter_by(slug="plain-socks").one()
-    product.images.append(ProductImage(filename="actual-socks.webp", storage_backend="cloudinary", cloudinary_public_id="fity/products/socks", alt_text="Actual sock set", is_primary=True))
-    db.session.add(account); db.session.commit()
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args))
     client.post("/admin/login", data={"username": "owner", "password": "secret123"})
-    payload = {
+
+    response = client.post("/admin/email/send-manual", data={
         "send_key": "d7c71045a5f2441cb7de09f22f4db250",
-        "account_ids": [str(account.id)],
-        "product_ids": [str(product.id)],
-        "subject": "Real product update",
-        "body": "<script>alert('x')</script> Hello",
-    }
-    first = client.post("/admin/email/send-manual", data=payload, follow_redirects=True)
-    second = client.post("/admin/email/send-manual", data=payload, follow_redirects=True)
-    assert first.status_code == second.status_code == 200
+        "subject": "Real product update", "body": "A promotional update",
+    }, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert b"Legacy manual promotional sends are paused" in response.data
+    assert EmailMessage.query.filter(EmailMessage.idempotency_key.like("admin-manual:%")).count() == 0
     assert sent == []
-    customer_mail.process_email_queue(limit=5)
-    assert len(sent) == 1
-    assert "/account/unsubscribe/" in sent[0][1]
-    token = sent[0][1].split("/account/unsubscribe/", 1)[1].split('"', 1)[0]
-    assert CustomerToken.query.filter_by(
-        purpose="unsubscribe", token_hash=hashlib.sha256(token.encode()).hexdigest()
-    ).count() == 1
-    assert "https://res.cloudinary.com/fity-test/image/upload/fity/products/socks" in sent[0][1]
-    assert "https://fitystore.top/product/plain-socks" in sent[0][1]
-    assert "&lt;script&gt;" in sent[0][1]
-    assert "https://fitystore.top/product/plain-socks" in sent[0][2]
-    assert b"queued" in second.data.lower()
-    from uuid import UUID
-    assert EmailMessage.query.filter_by(idempotency_key=f"admin-manual:{UUID(payload['send_key'])}:{account.id}").one().status == "sent"
 
 
 def test_manual_email_retry_reuses_idempotency_key_after_explicit_provider_throttle(client, app, app_context, monkeypatch):
-    from datetime import datetime, timedelta
-    import urllib.error
     import app.services.customer_mail as customer_mail
-    _configure_brevo_test(app)
-    sent = []
     attempts = {"count": 0}
 
-    def transient_failure_then_success(recipient, subject, html, text):
+    def provider_must_not_be_called(*_args):
         attempts["count"] += 1
-        sent.append((html, text))
-        if attempts["count"] == 1:
-            raise urllib.error.HTTPError("https://provider.invalid", 429, "rate limited", {}, None)
-        return "retry-success-id"
+        raise AssertionError("legacy marketing route must not call the provider")
 
-    monkeypatch.setattr(customer_mail, "_send_brevo", transient_failure_then_success)
-    account = CustomerAccount(email="manual-retry@example.test", display_name="Retry Shopper", email_verified_at=datetime.utcnow(), marketing_status="subscribed", marketing_consent_at=datetime.utcnow())
-    db.session.add(account)
-    db.session.commit()
+    monkeypatch.setattr(customer_mail, "_send_brevo", provider_must_not_be_called)
     client.post("/admin/login", data={"username": "owner", "password": "secret123"})
-    payload = {"send_key": "eaa613c35a6e4d828552cc42203e8193", "account_ids": [str(account.id)], "subject": "Store update", "body": "A product update."}
+    payload = {"send_key": "eaa613c35a6e4d828552cc42203e8193", "subject": "Store update", "body": "A product update."}
 
     first = client.post("/admin/email/send-manual", data=payload, follow_redirects=True)
-    message = EmailMessage.query.filter(EmailMessage.idempotency_key.like("admin-manual:%")).one()
-    assert message.status == "queued"
-    assert sent == []
     customer_mail.process_email_queue(limit=5)
-    db.session.refresh(message)
-    assert message.status == "failed"
-    message.next_attempt_at = datetime.utcnow() - timedelta(seconds=1)
-    db.session.commit()
     second = client.post("/admin/email/send-manual", data=payload, follow_redirects=True)
     customer_mail.process_email_queue(limit=5)
-    db.session.refresh(message)
 
     assert first.status_code == second.status_code == 200
-    assert attempts["count"] == 2
-    assert all("/account/unsubscribe/" in html for html, _text in sent)
-    assert EmailMessage.query.filter_by(idempotency_key=message.idempotency_key).count() == 1
-    assert EmailMessage.query.filter_by(idempotency_key=message.idempotency_key).one().status == "sent"
+    assert attempts["count"] == 0
+    assert EmailMessage.query.filter(EmailMessage.idempotency_key.like("admin-manual:%")).count() == 0
 
 
 @pytest.mark.parametrize("status_code", [408, 500, 501, 502, 503, 504, 599])
@@ -5050,54 +5004,37 @@ def test_transient_smtp_rejection_retries_but_permanent_smtp_rejection_does_not(
 
 
 def test_manual_bulk_send_requires_confirmation_and_only_sends_eligible_accounts(client, app, app_context, monkeypatch):
-    from datetime import datetime
     import app.services.customer_mail as customer_mail
-    _configure_brevo_test(app)
     sent = []
-    monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html, text: sent.append(recipient) or "fake-provider-id")
-    allowed = [
-        CustomerAccount(email="bulk-verified@example.test", display_name="Bulk", email_verified_at=datetime.utcnow(), marketing_status="subscribed", marketing_consent_at=datetime.utcnow()),
-        CustomerAccount(email="bulk-checkbox-opt-in@example.test", display_name="Bulk opt-in", email_verified_at=datetime.utcnow(), marketing_status="subscribed", marketing_consent_at=datetime.utcnow()),
-    ]
-    refused = CustomerAccount(email="not-subscribed@example.test", display_name="Not Subscribed", email_verified_at=datetime.utcnow(), marketing_status="none")
-    db.session.add_all([*allowed, refused]); db.session.commit()
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args))
     client.post("/admin/login", data={"username": "owner", "password": "secret123"})
-    data = {"send_key": "76c2a76846a04bdbac49a15954045bf2", "account_ids": [str(a.id) for a in allowed] + [str(refused.id)], "subject": "Store news", "body": "A plain update"}
-    not_confirmed = client.post("/admin/email/send-manual", data=data, follow_redirects=True)
-    assert b"Type SEND 2 to confirm the exact recipient count" in not_confirmed.data
-    assert sent == []
-    data["confirm_send"] = "SEND 2"
-    response = client.post("/admin/email/send-manual", data=data, follow_redirects=True)
+    response = client.post("/admin/email/send-manual", data={
+        "send_key": "76c2a76846a04bdbac49a15954045bf2",
+        "subject": "Store news", "body": "A plain update",
+    }, follow_redirects=True)
+
     assert response.status_code == 200
-    assert sent == []
     customer_mail.process_email_queue(limit=5)
-    assert len(sent) == 2
+    assert b"Legacy manual promotional sends are paused" in response.data
+    assert EmailMessage.query.filter(EmailMessage.idempotency_key.like("admin-manual:%")).count() == 0
+    assert sent == []
 
 
 def test_manual_email_provider_failure_is_reported_and_recorded(client, app, app_context, monkeypatch):
-    from datetime import datetime
     import app.services.customer_mail as customer_mail
-    _configure_brevo_test(app)
-    account = CustomerAccount(email="manual-failure@example.test", display_name="Failure", email_verified_at=datetime.utcnow(), marketing_status="subscribed", marketing_consent_at=datetime.utcnow())
-    db.session.add(account); db.session.commit()
     def fail_send(*_args):
-        raise RuntimeError("sensitive provider response must not be shown")
+        raise AssertionError("legacy marketing route must not call the provider")
     monkeypatch.setattr(customer_mail, "_send_brevo", fail_send)
     client.post("/admin/login", data={"username": "owner", "password": "secret123"})
     response = client.post("/admin/email/send-manual", data={
         "send_key": "c3b8fb7731ec41f4b442ed38ecf1b4dd",
-        "account_ids": [str(account.id)], "subject": "Manual note", "body": "Message",
+        "subject": "Manual note", "body": "Message",
     }, follow_redirects=True)
-    assert b"queued 1" in response.data
-    assert b"sensitive provider response" not in response.data
-    message = EmailMessage.query.filter(EmailMessage.idempotency_key.like("admin-manual:%")).one()
-    assert message.status == "queued"
-    customer_mail.process_email_queue(limit=5)
-    db.session.refresh(message)
-    assert message.status == "failed"
+    assert b"Legacy manual promotional sends are paused" in response.data
+    assert EmailMessage.query.filter(EmailMessage.idempotency_key.like("admin-manual:%")).count() == 0
 
 
-def test_customer_service_email_stops_before_query_when_email_message_schema_is_incomplete(client, app, app_context, monkeypatch):
+def test_legacy_individual_email_route_never_queues_even_with_incomplete_schema(client, app, app_context, monkeypatch):
     import app.services.customer_mail as customer_mail
     account = CustomerAccount(email="partial-schema@example.test", display_name="Partial Schema", email_verified_at=datetime.utcnow())
     db.session.add(account)
@@ -5117,11 +5054,11 @@ def test_customer_service_email_stops_before_query_when_email_message_schema_is_
     )
 
     assert response.status_code == 200
-    assert b"Required customer account, email history, or audit schema is unavailable" in response.data
+    assert b"no message was queued" in response.data
     assert sent == []
 
 
-def test_manual_promotional_email_stops_when_unsubscribe_token_schema_is_incomplete(client, app, app_context, monkeypatch):
+def test_legacy_manual_marketing_route_never_queues_with_incomplete_schema(client, app, app_context, monkeypatch):
     import app.services.customer_mail as customer_mail
     account = CustomerAccount(email="token-schema@example.test", display_name="Token Schema", email_verified_at=datetime.utcnow(), marketing_status="subscribed")
     db.session.add(account)
@@ -5142,7 +5079,7 @@ def test_manual_promotional_email_stops_when_unsubscribe_token_schema_is_incompl
     )
 
     assert response.status_code == 200
-    assert b"unsubscribe-token tables must be available" in response.data
+    assert b"Legacy manual promotional sends are paused" in response.data
     assert sent == []
 
 
@@ -5260,20 +5197,8 @@ def test_email_studio_saved_customer_service_content_obeys_marketing_consent(cli
     assert result.status_code == 200
     assert sent == []
     customer_mail.process_email_queue(limit=5)
-    db.session.refresh(EmailMessage.query.filter_by(
-        idempotency_key=f"email-studio:12345678-1234-5678-1234-567812345678:{account.id}"
-    ).one())
-    assert len(sent) == 1, [line for line in result.get_data(as_text=True).splitlines() if 'flash ' in line]
-    recipient, subject, html, text = sent[0]
-    assert recipient == account.email
-    assert subject == "Service for Saved"
-    assert "Saved template body for Saved." in html
-    assert "Saved template body for Saved." in text
-    record = EmailMessage.query.filter_by(
-        idempotency_key=f"email-studio:12345678-1234-5678-1234-567812345678:{account.id}"
-    ).one()
-    assert record.status == "sent"
-    assert record.subject == subject
+    assert b"isolated marketing campaign centre" in result.data
+    assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
 
 
 def test_email_studio_mixed_promotional_copy_cannot_use_service_category_to_bypass_consent(client, app, app_context):
@@ -5296,7 +5221,7 @@ def test_email_studio_mixed_promotional_copy_cannot_use_service_category_to_bypa
         "operation_id": "12345678-1234-5678-1234-567812345678",
     }, follow_redirects=True)
     assert response.status_code == 200
-    assert b"eligible recipient" in response.data
+    assert b"isolated marketing campaign centre" in response.data
     assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
 
 
@@ -5372,15 +5297,8 @@ def test_email_studio_visual_template_duplicate_blocks_preview_and_send(client, 
     assert result.status_code == 200
     assert sent == []
     customer_mail.process_email_queue(limit=5)
-    assert len(sent) == 1
-    assert sent[0][0] == account.email
-    assert "https://fitystore.top/product/plain-socks" in sent[0][2]
-    assert "Unsubscribe" in sent[0][2]
-    assert "A real catalogue selection." in sent[0][3]
-    history = EmailMessage.query.filter_by(
-        idempotency_key=f"email-studio:87654321-1234-5678-1234-567812345678:{account.id}", status="sent"
-    ).one()
-    assert history.template_id == copy.id
+    assert b"isolated marketing campaign centre" in result.data
+    assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
 
 
 def test_email_studio_test_send_requires_prior_preview_and_explicit_address(client, app, app_context, monkeypatch):
@@ -5583,14 +5501,13 @@ def test_email_studio_manual_marketing_send_rejects_unconsented_and_suppressed_a
             "operation_id": "12345678-1234-5678-1234-567812345678",
         }, follow_redirects=True)
         assert result.status_code == 200
-        assert b"eligible recipient" in result.data
+        assert b"isolated marketing campaign centre" in result.data
 
     assert EmailMessage.query.filter_by(account_id=unconsented.id).count() == 0
     assert EmailMessage.query.filter_by(account_id=suppressed.id).count() == 0
 
 
 def test_email_studio_promotion_requires_preview_consent_and_real_catalogue_items(client, app, app_context, monkeypatch):
-    from datetime import timedelta
     from uuid import uuid4
     import app.services.customer_mail as customer_mail
     _configure_brevo_test(app)
@@ -5623,39 +5540,12 @@ def test_email_studio_promotion_requires_preview_consent_and_real_catalogue_item
     assert result.status_code == 200
     assert sent == []
     customer_mail.process_email_queue(limit=5)
-    assert len(sent) == 1 and sent[0][0] == account.email
-    assert "https://fitystore.top/product/plain-socks" in sent[0][2]
-    assert "https://res.cloudinary.com/fity-test/image/upload/fity/products/catalog" in sent[0][2]
-    assert sent[0][2].count(f'data-promo-product-id="{product.id}"') == 1
-    assert "Our Featured Products" in sent[0][2]
-    assert "In stock" in sent[0][2]
-    assert "email-removebg-preview.png" in sent[0][2]
-    for icon in ("secure", "delivery", "support", "quality"):
-        assert f"/static/images/email-icons/benefit-{icon}.png" in sent[0][2]
-        icon_response = client.get(f"/static/images/email-icons/benefit-{icon}.png")
-        assert icon_response.status_code == 200
-        assert icon_response.data.startswith(b"\x89PNG\r\n\x1a\n")
-    assert '<svg class="benefit-icon"' not in sent[0][2]
-    assert 'viewBox="0 0 448 512"' in sent[0][2]
-    assert 'class="benefit-col"' in sent[0][2]
-    assert 'class="wa-icon"' in sent[0][2]
-    assert 'footer-social' in sent[0][2]
-    assert 'colspan="3" style="padding:0 12px 12px"' in sent[0][2]
-    assert 'display:table-cell!important;width:25%!important' in sent[0][2]
-    for brand in ("facebook", "instagram", "tiktok", "whatsapp"):
-        assert f"/static/images/email-icons/fa-{brand}.png" in sent[0][2]
-    assert "https://wa.me/" in sent[0][2]
-    assert "https://www.facebook.com/oxy.jen.975729" in sent[0][2]
-    assert "https://www.instagram.com/fitystore.top/" in sent[0][2]
-    assert "https://www.tiktok.com/@official_fitystore" in sent[0][2]
-    assert "/account/unsubscribe/" in sent[0][2]
-    assert "studio-denied@example.test" not in sent[0][2]
-    assert CustomerToken.query.filter_by(account_id=account.id, purpose="unsubscribe").count() == 1
+    assert b"isolated marketing campaign centre" in result.data
+    assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
+    assert CustomerToken.query.filter_by(account_id=account.id, purpose="unsubscribe").count() == 0
 
 
 def test_email_studio_schedules_only_previewed_marketing_for_future_queue_delivery(client, app, app_context, monkeypatch):
-    from datetime import timedelta
-    from uuid import uuid4
     import app.services.customer_mail as customer_mail
 
     _configure_brevo_test(app)
@@ -5670,32 +5560,24 @@ def test_email_studio_schedules_only_previewed_marketing_for_future_queue_delive
     client.post("/admin/login", data={"username": "owner", "password": "secret123"})
     deliveries = []
     monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: deliveries.append(args) or "scheduled-message-id")
-    future_local = datetime.utcnow() + timedelta(hours=5)
-    future_input = future_local.strftime("%Y-%m-%dT%H:%M")
-    operation_id = str(uuid4())
     payload = {
         "category": "promotion", "account_id": str(account.id),
         "account_ids": [str(account.id)], "subject": "Scheduled offer",
         "headline": "A future offer", "message": "A scheduled note for {{ customer_name }}.",
         "blocks_json": json.dumps([{"type": "heading", "text": "A future offer"}, {"type": "paragraph", "text": "A scheduled note."}]),
-        "operation_id": operation_id,
     }
     preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
     assert preview.status_code == 200 and deliveries == []
     scheduled = client.post("/admin/email/studio", data={
-        **payload, "action": "schedule", "schedule_at": future_input,
+        **payload, "action": "schedule",
         "confirm_schedule": "SCHEDULE 1",
     }, follow_redirects=True)
     assert scheduled.status_code == 200
-    row = EmailMessage.query.filter_by(idempotency_key=f"email-studio:{operation_id}:{account.id}").one()
-    assert row.status == "queued"
-    assert row.next_attempt_at is not None
-    assert row.purpose == "marketing"
+    assert b"isolated marketing campaign centre" in scheduled.data
+    assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
     assert deliveries == []
-
-    processed = customer_mail.process_email_queue(limit=5, now=row.next_attempt_at + timedelta(seconds=1))
-    assert processed["sent"] == 1
-    assert len(deliveries) == 1
+    customer_mail.process_email_queue(limit=5)
+    assert deliveries == []
 
 
 def test_queue_rejects_future_schedule_for_transactional_email(app, app_context):
@@ -5914,7 +5796,7 @@ def test_email_studio_custom_order_category_content_remains_marketing(client, ap
         "operation_id": "22222222-3333-4444-8555-666666666666",
     }, follow_redirects=True)
     assert response.status_code == 200
-    assert b"eligible recipient" in response.data
+    assert b"isolated marketing campaign centre" in response.data
     assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
 
     defaults = EMAIL_CATEGORIES["order_confirmation"]
@@ -5930,7 +5812,7 @@ def test_email_studio_custom_order_category_content_remains_marketing(client, ap
         "operation_id": "33333333-4444-4555-8666-777777777777",
     }, follow_redirects=True)
     assert design_response.status_code == 200
-    assert b"eligible recipient" in design_response.data
+    assert b"isolated marketing campaign centre" in design_response.data
     assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
 
 
@@ -6013,13 +5895,10 @@ def test_manual_cart_reminder_revalidates_and_records_one_cart_episode(client, a
     assert sent == []
     customer_mail.process_email_queue(limit=5)
     db.session.refresh(cart)
-    assert len(sent) == 1
-    assert "Plain Socks" in sent[0][1]
-    assert "/account/unsubscribe/" in sent[0][1]
-    reminder = EmailMessage.query.filter_by(idempotency_key=f"cart-reminder:{cart.episode_key}").one()
-    assert cart.reminder_sent_at is not None, (reminder.kind, reminder.account_id, reminder.idempotency_key, reminder.status)
+    assert b"isolated marketing campaign centre" in result.data
+    assert cart.reminder_sent_at is None
+    assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
     assert cart.updated_at == original_activity
-    assert reminder.status == "sent"
 
 
 def test_media_showcase_video_preview_crop_saves_and_renders_without_cropping_source(client, app):
@@ -6175,7 +6054,7 @@ def test_marketing_frequency_cannot_be_bypassed_by_manual_queue_calls(app, app_c
     assert second.frequency_override is False
 
 
-def test_admin_authored_service_copy_is_marketing_and_cannot_bypass_consent(client, app, app_context, monkeypatch):
+def test_legacy_admin_authored_service_copy_is_not_queued(client, app, app_context, monkeypatch):
     import app.services.customer_mail as customer_mail
     monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "test transport"))
     account = CustomerAccount(
@@ -6191,10 +6070,11 @@ def test_admin_authored_service_copy_is_marketing_and_cannot_bypass_consent(clie
         "subject": "A message", "body": "A personal note.",
     }, follow_redirects=True)
 
-    row = EmailMessage.query.filter_by(idempotency_key=f"admin-message:{account.id}:12345678-1234-5678-1234-567812345678").one()
     assert response.status_code == 200
-    assert row.purpose == "marketing"
-    assert row.status == "suppressed"
+    assert b"no message was queued" in response.data
+    assert EmailMessage.query.filter_by(
+        idempotency_key=f"admin-message:{account.id}:12345678-1234-5678-1234-567812345678"
+    ).count() == 0
 
     client.post("/admin/email/send-service", data={
         "service_send_key": "87654321-1234-5678-1234-567812345678",
@@ -6240,11 +6120,10 @@ def test_malformed_queued_rows_are_quarantined_without_starving_valid_mail(app, 
         assert event.provider_outcome == "unknown"
 
 
-def test_marketing_eligibility_infrastructure_failure_retries_without_false_suppression(app, app_context, monkeypatch):
+def test_general_worker_does_not_process_unlinked_marketing_rows(app, app_context, monkeypatch):
     import app.services.customer_mail as customer_mail
     import app.services.marketing_eligibility as eligibility
     from app.models import MarketingSuppressionCase
-    from datetime import timedelta
     _configure_brevo_test(app)
     sent = []
     monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, *_args: sent.append(recipient) or "retry-id")
@@ -6257,26 +6136,22 @@ def test_marketing_eligibility_infrastructure_failure_retries_without_false_supp
     db.session.commit()
     row = customer_mail.queue_email(account.email, "Campaign", "marketing_campaign", "eligibility-retry",
                                     account_id=account.id, html_body="<p>Offer</p>", text_body="Offer")
-    original = eligibility.evaluate_marketing_eligibility
     monkeypatch.setattr(eligibility, "evaluate_marketing_eligibility", lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("database unavailable")))
 
     first_counts = customer_mail.process_email_queue(limit=5)
     db.session.refresh(row)
-    assert first_counts["failed"] == 1
-    assert row.status == "failed"
-    assert row.error_category == "retryable_infrastructure"
-    assert row.failure_reason.startswith("Marketing eligibility could not be verified")
+    assert first_counts["sent"] == 0
+    assert first_counts["failed"] == 0
+    assert row.status == "queued"
     assert sent == []
     assert MarketingSuppressionCase.query.filter_by(account_id=account.id, cleared_at=None).count() == 0
 
-    monkeypatch.setattr(eligibility, "evaluate_marketing_eligibility", original)
-    row.next_attempt_at = datetime.utcnow() - timedelta(seconds=1)
-    db.session.commit()
     retry_counts = customer_mail.process_email_queue(limit=5)
     db.session.refresh(row)
-    assert retry_counts["sent"] == 1
-    assert row.status == "sent"
-    assert sent == [account.email]
+    assert retry_counts["sent"] == 0
+    assert retry_counts["failed"] == 0
+    assert row.status == "queued"
+    assert sent == []
 
 
 def test_transactional_email_is_independent_of_marketing_consent(app, app_context, monkeypatch):

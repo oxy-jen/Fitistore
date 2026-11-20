@@ -56,6 +56,13 @@ class Config:
     PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://fitystore.top").strip().rstrip("/")
     ANDROID_PACKAGE_ID = os.environ.get("ANDROID_PACKAGE_ID", "top.fitystore.app").strip()
     ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS = os.environ.get(
+    EMAIL_MARKETING_QUEUE_ENABLED = os.environ.get("EMAIL_MARKETING_QUEUE_ENABLED", "false").strip().lower() == "true"
+    EMAIL_MARKETING_NEW_PRODUCTS_ENABLED = os.environ.get("EMAIL_MARKETING_NEW_PRODUCTS_ENABLED", "false").strip().lower() == "true"
+    EMAIL_MARKETING_OFFERS_ENABLED = os.environ.get("EMAIL_MARKETING_OFFERS_ENABLED", "false").strip().lower() == "true"
+    EMAIL_MARKETING_WEEKLY_PICKS_ENABLED = os.environ.get("EMAIL_MARKETING_WEEKLY_PICKS_ENABLED", "false").strip().lower() == "true"
+    EMAIL_MARKETING_ABANDONED_CART_ENABLED = os.environ.get("EMAIL_MARKETING_ABANDONED_CART_ENABLED", "false").strip().lower() == "true"
+    EMAIL_MARKETING_SEASONAL_ENABLED = os.environ.get("EMAIL_MARKETING_SEASONAL_ENABLED", "false").strip().lower() == "true"
+    EMAIL_MARKETING_CUSTOM_ENABLED = os.environ.get("EMAIL_MARKETING_CUSTOM_ENABLED", "false").strip().lower() == "true"
         "ANDROID_ASSETLINKS_SHA256_CERT_FINGERPRINTS", ""
     )
     # Manual cart reminder idle time for the current testing window.

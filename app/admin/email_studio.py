@@ -760,6 +760,11 @@ def register_email_studio_routes(admin_bp):
                         trusted_transactional=trusted_transactional,
                     )
                     if action in {"send", "schedule"}:
+                        if marketing_message:
+                            raise EmailContentError(
+                                "Marketing sends and scheduling now use the isolated marketing campaign centre. "
+                                "Nothing was queued."
+                            )
                         scheduled_at = None
                         if action == "schedule":
                             if not marketing_message:

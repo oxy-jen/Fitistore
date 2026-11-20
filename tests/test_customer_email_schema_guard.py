@@ -804,12 +804,15 @@ def test_complete_local_schema_passes_strict_postcheck():
             from app.services.email_legacy_reviews import apply_email_legacy_review_migration
             from app.services.email_test_purpose_migration import apply_email_test_purpose_migration
             from app.services.consent_audit import apply_consent_audit_migration
+            from app.services.marketing_campaign_schema import apply_marketing_campaign_schema
             with connection.begin():
                 apply_email_outbox_migration(connection, "sqlite")
                 apply_email_test_purpose_migration(connection, "sqlite")
                 apply_email_delivery_ops_migration(connection, "sqlite")
                 apply_email_legacy_review_migration(connection, "sqlite")
                 apply_consent_audit_migration(connection, "sqlite")
+                apply_marketing_campaign_schema(connection, "sqlite")
+                assert not apply_marketing_campaign_schema(connection, "sqlite")
             legacy_columns = {
                 column["name"]: column
                 for column in inspect(connection).get_columns("email_legacy_payload_review_event")
@@ -820,6 +823,14 @@ def test_complete_local_schema_passes_strict_postcheck():
             assert validate_schema(connection, "public", allow_approved_missing=False)
     finally:
         engine.dispose()
+
+
+def test_marketing_migration_default_check_accepts_postgresql_type_casts():
+    from app.services.marketing_campaign_schema import _normalise_default
+
+    assert _normalise_default("'custom'::character varying") == "custom"
+    assert _normalise_default("'[]'::text") == "[]"
+    assert _normalise_default("'custom'") == "custom"
 
 
 def test_postcheck_fails_when_required_index_is_missing():

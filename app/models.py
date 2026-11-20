@@ -848,10 +848,16 @@ class EmailCampaign(TimestampMixin, db.Model):
     name = db.Column(db.String(120), nullable=False)
     subject = db.Column(db.String(200), nullable=False)
     body = db.Column(db.Text, nullable=False)
+    campaign_type = db.Column(db.String(32), nullable=False, default="custom", server_default="custom")
+    product_ids_json = db.Column(db.Text, nullable=False, default="[]", server_default="[]")
+    scheduled_for = db.Column(db.DateTime)
+    previewed_at = db.Column(db.DateTime)
+    approved_at = db.Column(db.DateTime)
     status = db.Column(db.String(24), default="draft", nullable=False, index=True)
     created_by_id = db.Column(db.Integer, db.ForeignKey("admin_user.id"), nullable=False)
     sent_at = db.Column(db.DateTime)
     admin = db.relationship("AdminUser")
+    __table_args__ = (Index("ix_email_campaign_status_scheduled", "status", "scheduled_for"),)
 
 
 class EmailCampaignRecipient(db.Model):
@@ -861,10 +867,15 @@ class EmailCampaignRecipient(db.Model):
     recipient = db.Column(db.String(254), nullable=False)
     status = db.Column(db.String(24), default="queued", nullable=False, index=True)
     failure_reason = db.Column(db.String(255), default="")
+    exclusion_reason = db.Column(db.String(48), nullable=False, default="", server_default="")
+    message_id = db.Column(db.Integer)
     sent_at = db.Column(db.DateTime)
     campaign = db.relationship("EmailCampaign")
     account = db.relationship("CustomerAccount")
-    __table_args__ = (UniqueConstraint("campaign_id", "account_id", name="uq_campaign_recipient_account"),)
+    __table_args__ = (
+        UniqueConstraint("campaign_id", "account_id", name="uq_campaign_recipient_account"),
+        Index("ix_email_campaign_recipient_message", "message_id"),
+    )
 
 
 class EmailTemplate(TimestampMixin, db.Model):

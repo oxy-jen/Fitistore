@@ -3,7 +3,7 @@ import csv
 import io
 import json
 import zipfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import re
 import socket
 import urllib.request
@@ -182,6 +182,13 @@ def email_center():
 @admin_bp.post("/email/send-manual")
 @login_required
 def send_manual_customer_email():
+    flash(
+        "Legacy manual promotional sends are paused. Use the marketing campaign centre "
+        "to draft, preview, and schedule an approved campaign; no message was queued.",
+        "warning",
+    )
+    return redirect(url_for("admin.email_campaigns"))
+
     from sqlalchemy import inspect
     from app.admin.email_studio import _product_card
     from app.services.customer_mail import mail_configuration_status, queue_email
@@ -384,6 +391,13 @@ def send_manual_customer_email():
 @login_required
 def send_service_customer_email():
     """Queue a manually confirmed administrator-authored marketing message."""
+    flash(
+        "Legacy administrator-authored marketing sends are paused. Use the marketing "
+        "campaign centre; no message was queued.",
+        "warning",
+    )
+    return redirect(url_for("admin.email_campaigns"))
+
     from sqlalchemy import inspect
     from app.services.customer_mail import mail_configuration_status, queue_branded_email
 
@@ -481,20 +495,180 @@ def email_automation_preview(campaign_type):
 @admin_bp.route("/email/campaigns", methods=["GET", "POST"])
 @login_required
 def email_campaigns():
-    flash("Promotional campaigns are disabled. Use the manual customer email centre.", "info")
-    return redirect(url_for("admin.email_center"))
+    from sqlalchemy import inspect
+    from app.services.marketing_campaigns import (
+        campaign_product_ids, validate_campaign_content,
+    )
+
+    inspector = inspect(db.engine)
+    needed = (EmailCampaign, EmailCampaignRecipient, CustomerAccount, Product, EmailMessage, CustomerToken)
+    schema_ready = all(model_schema_ready(model, inspector) for model in needed)
+    if not schema_ready:
+        flash("Campaign management is unavailable until the explicit marketing campaign schema is applied.", "warning")
+        return redirect(url_for("admin.email_center"))
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        subject = request.form.get("subject", "").strip()
+        body = request.form.get("body", "").strip()
+        campaign_type = request.form.get("campaign_type", "").strip()
+        try:
+            product_ids = campaign_product_ids(json.dumps(request.form.getlist("product_ids")))
+            validate_campaign_content(
+                name=name, subject=subject, body=body,
+                campaign_type=campaign_type, product_ids=product_ids,
+                require_products=False,
+            )
+            campaign = EmailCampaign(
+                name=name, subject=subject, body=body,
+                campaign_type=campaign_type,
+                product_ids_json=json.dumps(product_ids),
+                status="draft", created_by_id=current_user.id,
+            )
+            db.session.add(campaign)
+            db.session.commit()
+        except (ValueError, SQLAlchemyError) as exc:
+            db.session.rollback()
+            flash(str(exc) if isinstance(exc, ValueError) else "Campaign draft could not be saved.", "error")
+            return redirect(url_for("admin.email_campaigns"))
+        flash("Campaign draft saved. Preview it before scheduling; it has not been sent.", "success")
+        return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
+
+    from app.services.email_purpose import MARKETING_CAMPAIGN_TYPES
+    from app.services.marketing_campaigns import campaign_type_enabled
+    campaigns = EmailCampaign.query.order_by(EmailCampaign.created_at.desc()).limit(100).all()
+    products = Product.query.filter_by(active=True).order_by(Product.name).limit(200).all()
+    return render_template(
+        "admin/email_campaigns.html", title="Marketing campaigns",
+        campaign=None, campaigns=campaigns, recipients=[], products=products,
+        selected_product_ids=[],
+        campaign_types=sorted(MARKETING_CAMPAIGN_TYPES),
+        type_enabled=campaign_type_enabled, preview_html=None, preview_text=None,
+        eligible_count=None, exclusion_summary={}, queue_enabled=bool(
+            current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False)
+        ),
+    )
 
 
 @admin_bp.route("/email/campaigns/<int:campaign_id>", methods=["GET", "POST"])
 @login_required
 def email_campaign_detail(campaign_id):
-    flash("Promotional campaigns are disabled. Use the manual customer email centre.", "info")
-    return redirect(url_for("admin.email_center"))
+    from sqlalchemy import inspect
+    from app.services.marketing_campaigns import (
+        campaign_product_ids, campaign_type_enabled, parse_schedule,
+        render_campaign, schedule_campaign, set_campaign_status,
+        validate_campaign_content,
+    )
+    from app.services.email_purpose import MARKETING_CAMPAIGN_TYPES
+
+    inspector = inspect(db.engine)
+    needed = (EmailCampaign, EmailCampaignRecipient, CustomerAccount, Product, EmailMessage, CustomerToken)
+    if not all(model_schema_ready(model, inspector) for model in needed):
+        flash("Campaign management is unavailable until the explicit marketing campaign schema is applied.", "warning")
+        return redirect(url_for("admin.email_center"))
+    campaign = EmailCampaign.query.get_or_404(campaign_id)
+    preview_html = preview_text = None
+    eligible_count = None
+    exclusion_summary = {}
+    if request.method == "POST":
+        action = request.form.get("action", "")
+        try:
+            if action in {"save", "preview", "schedule"}:
+                if campaign.status != "draft":
+                    raise ValueError("Only a draft campaign's content can be changed.")
+                name = request.form.get("name", "").strip()
+                subject = request.form.get("subject", "").strip()
+                body = request.form.get("body", "").strip()
+                campaign_type = request.form.get("campaign_type", "").strip()
+                product_ids = campaign_product_ids(json.dumps(request.form.getlist("product_ids")))
+                validate_campaign_content(
+                    name=name, subject=subject, body=body,
+                    campaign_type=campaign_type, product_ids=product_ids,
+                )
+                changed = (
+                    campaign.name != name or campaign.subject != subject
+                    or campaign.body != body or campaign.campaign_type != campaign_type
+                    or json.loads(campaign.product_ids_json or "[]") != product_ids
+                )
+                campaign.name, campaign.subject, campaign.body = name, subject, body
+                campaign.campaign_type = campaign_type
+                campaign.product_ids_json = json.dumps(product_ids)
+                if changed:
+                    campaign.previewed_at = None
+                if action == "preview":
+                    campaign.previewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                elif action == "schedule":
+                    scheduled_for = parse_schedule(request.form.get("scheduled_for", ""))
+                    report = schedule_campaign(
+                        campaign, scheduled_for,
+                        confirmed_count=request.form.get("confirmation", ""),
+                    )
+                    db.session.commit()
+                    flash(
+                        f"Campaign scheduled for {scheduled_for:%Y-%m-%d %H:%M UTC}. "
+                        f"{report['eligible']} eligible; {report['excluded']} excluded. No email was sent.",
+                        "success",
+                    )
+                    return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
+                db.session.commit()
+                flash(
+                    "Campaign preview recorded. Scheduling remains separately gated; no email was sent."
+                    if action == "preview" else "Campaign draft saved.",
+                    "success",
+                )
+            elif action in {"pause", "resume", "cancel"}:
+                set_campaign_status(campaign, action)
+                db.session.commit()
+                action_label = {"pause": "paused", "resume": "resumed", "cancel": "cancelled"}[action]
+                flash(f"Campaign {action_label}. No provider request was made.", "success")
+            else:
+                raise ValueError("Unsupported campaign action.")
+        except (ValueError, SQLAlchemyError) as exc:
+            db.session.rollback()
+            flash(str(exc) if isinstance(exc, ValueError) else "Campaign change could not be saved.", "error")
+        campaign = EmailCampaign.query.get_or_404(campaign_id)
+
+    recipients = EmailCampaignRecipient.query.filter_by(
+        campaign_id=campaign.id,
+    ).order_by(EmailCampaignRecipient.id).limit(501).all()
+    if campaign.status == "draft":
+        from app.services.marketing_campaigns import audience_snapshot
+        try:
+            _accounts, eligible, exclusion_summary = audience_snapshot(
+                campaign, datetime.now(timezone.utc).replace(tzinfo=None),
+            )
+            eligible_count = len(eligible)
+        except ValueError as exc:
+            exclusion_summary = {str(exc): 0}
+    if campaign.previewed_at:
+        try:
+            preview_html, preview_text, _products = render_campaign(
+                campaign, None, url_for("customer.unsubscribe", token="PREVIEW_ONLY", _external=True),
+            )
+        except (ValueError, KeyError):
+            preview_html = preview_text = None
+    products = Product.query.filter_by(active=True).order_by(Product.name).limit(200).all()
+    return render_template(
+        "admin/email_campaigns.html", title=campaign.name,
+        campaign=campaign, campaigns=[], recipients=recipients,
+        selected_product_ids=json.loads(campaign.product_ids_json or "[]"),
+        products=products, campaign_types=sorted(MARKETING_CAMPAIGN_TYPES),
+        type_enabled=campaign_type_enabled, preview_html=preview_html,
+        preview_text=preview_text, eligible_count=eligible_count,
+        exclusion_summary=exclusion_summary,
+        queue_enabled=bool(current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False)),
+    )
 
 
 @admin_bp.post("/email/customers/<int:account_id>/message")
 @login_required
 def email_customer_message(account_id):
+    flash(
+        "Individual administrator-authored messages are not processed by the isolated "
+        "marketing campaign worker. Use an approved campaign instead; no message was queued.",
+        "warning",
+    )
+    return redirect(url_for("admin.email_campaigns"))
+
     from app.services.customer_mail import queue_branded_email
     from sqlalchemy import inspect
     inspector = inspect(db.engine)
