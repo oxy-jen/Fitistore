@@ -6104,6 +6104,7 @@ def test_auth_token_supersession_is_purpose_scoped_and_transactional(app, app_co
     monkeypatch.setattr(customer_mail, "_send_brevo", lambda *_args: "mocked-auth-provider-id")
     monkeypatch.setattr(customer_mail, "_send_resend", lambda *_args: "mocked-auth-provider-id")
     monkeypatch.setattr(customer_mail, "_send_smtp", lambda *_args: None)
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "test transport"))
 
     account = CustomerAccount(
         email="token-supersession@example.test", display_name="Token Test",

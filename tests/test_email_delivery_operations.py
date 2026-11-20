@@ -405,7 +405,7 @@ def test_duplicate_prompt_dispatch_uses_atomic_outbox_claim(app, app_context, mo
     assert EmailDeliveryAttempt.query.filter_by(message_id=row.id).count() == 1
 
 
-def test_auth_provider_throttle_uses_short_retry_only_inside_code_lifetime(app, app_context, monkeypatch):
+def test_auth_provider_throttle_honors_retry_after_without_scheduling_a_worker_retry(app, app_context, monkeypatch):
     from urllib.error import HTTPError
     from app.services import customer_mail
 
@@ -413,7 +413,7 @@ def test_auth_provider_throttle_uses_short_retry_only_inside_code_lifetime(app, 
     monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
 
     def throttled(*_args):
-        raise HTTPError("https://provider.invalid", 429, "rate limited", {}, None)
+        raise HTTPError("https://provider.invalid", 429, "rate limited", {"Retry-After": "120"}, None)
 
     monkeypatch.setattr(customer_mail, "_send_brevo", throttled)
     result = customer_mail.dispatch_authentication_email_now(
@@ -421,10 +421,134 @@ def test_auth_provider_throttle_uses_short_retry_only_inside_code_lifetime(app, 
     )
 
     assert result.status == "failed"
-    assert result.error_category == "retryable_provider"
-    assert result.next_attempt_at is not None
-    assert result.next_attempt_at <= datetime.utcnow() + timedelta(minutes=2)
-    assert result.html_body is not None and result.text_body is not None
+    assert result.error_category == "auth_rate_limited"
+    assert datetime.utcnow() + timedelta(seconds=110) <= result.next_attempt_at <= datetime.utcnow() + timedelta(seconds=130)
+    assert result.html_body is None and result.text_body is None
+    assert EmailDeliveryAttempt.query.filter_by(message_id=row.id).count() == 1
+
+    calls = []
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *_args: calls.append(1) or "must-not-resend")
+    summary = customer_mail.process_transactional_email_queue(
+        limit=10, now=result.next_attempt_at + timedelta(seconds=1),
+    )
+    assert summary["sent"] == 0
+    assert not calls
+
+
+def test_auth_provider_throttle_without_retry_after_has_no_automatic_retry(app, app_context, monkeypatch):
+    from urllib.error import HTTPError
+    from app.services import customer_mail
+
+    account, _token, row = _queued_auth_code("auth-provider-retry-no-header")
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(
+        customer_mail, "_send_brevo",
+        lambda *_args: (_ for _ in ()).throw(HTTPError("https://provider.invalid", 429, "rate limited", {}, None)),
+    )
+
+    result = customer_mail.dispatch_authentication_email_now(
+        row, account_id=account.id, purpose="verify_code",
+    )
+
+    assert result.error_category == "auth_rate_limited"
+    assert result.next_attempt_at is None
+    assert result.html_body is None and result.text_body is None
+
+
+def test_missing_provider_configuration_fails_code_without_retaining_payload(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    account, _token, row = _queued_auth_code("auth-provider-unavailable")
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (False, "not configured"))
+
+    result = customer_mail.dispatch_authentication_email_now(
+        row, account_id=account.id, purpose="verify_code",
+    )
+
+    assert result.status == "failed"
+    assert result.error_category == "auth_delivery_unavailable"
+    assert result.html_body is None and result.text_body is None
+    assert EmailDeliveryAttempt.query.filter_by(message_id=row.id).count() == 0
+    from app.customer.routes import _delivery_message
+    assert "email delivery is unavailable" in _delivery_message(result, "verification code").lower()
+
+
+def test_expired_auth_payload_cleanup_runs_without_transactional_worker_and_preserves_valid_code(app, app_context):
+    from app.services.customer_mail import cleanup_expired_authentication_payloads
+
+    now = datetime.utcnow()
+    _expired_account, expired_token, expired_row = _queued_auth_code(
+        "auth-cleanup-expired", created_at=now - timedelta(minutes=12),
+        expires_at=now - timedelta(minutes=2),
+    )
+    _valid_account, valid_token, valid_row = _queued_auth_code(
+        "auth-cleanup-valid", created_at=now - timedelta(minutes=9),
+        expires_at=now + timedelta(minutes=1),
+    )
+    attempt = EmailDeliveryAttempt(
+        message_id=expired_row.id, attempt_number=1, attempt_key="auth-cleanup-attempt",
+        provider="brevo", status="ambiguous", started_at=now - timedelta(minutes=11),
+        completed_at=now - timedelta(minutes=11), error_category="ambiguous_outcome",
+    )
+    db.session.add(attempt)
+    db.session.commit()
+
+    changed = cleanup_expired_authentication_payloads(now=now)
+    db.session.refresh(expired_row)
+    db.session.refresh(valid_row)
+
+    assert changed == 1
+    assert expired_row.status == "failed"
+    assert expired_row.error_category == "expired_auth_payload"
+    assert expired_row.html_body is None and expired_row.text_body is None
+    assert valid_token.used_at is None and valid_token.expires_at > now
+    assert valid_row.status == "queued"
+    assert valid_row.html_body is not None and valid_row.text_body is not None
+    assert db.session.get(EmailDeliveryAttempt, attempt.id) is not None
+    assert db.session.get(CustomerToken, expired_token.id) is not None
+
+
+def test_customer_account_request_cleans_expired_codes_when_worker_is_disabled(app, app_context, client):
+    import app.customer.routes as customer_routes
+
+    now = datetime.utcnow()
+    _account, _token, row = _queued_auth_code(
+        "auth-cleanup-on-request", created_at=now - timedelta(minutes=12),
+        expires_at=now - timedelta(minutes=2),
+    )
+    customer_routes._last_auth_payload_cleanup = 0.0
+
+    response = client.get("/account/login")
+
+    db.session.refresh(row)
+    assert response.status_code == 200
+    assert row.status == "failed"
+    assert row.error_category == "expired_auth_payload"
+    assert row.html_body is None and row.text_body is None
+
+
+def test_ambiguous_auth_provider_outcome_is_not_retried_and_keeps_attempt_audit(app, app_context, monkeypatch):
+    from urllib.error import HTTPError
+    from app.services import customer_mail
+
+    account, _token, row = _queued_auth_code("auth-ambiguous-provider")
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(
+        customer_mail, "_send_brevo",
+        lambda *_args: (_ for _ in ()).throw(HTTPError("https://provider.invalid", 503, "unavailable", {}, None)),
+    )
+    result = customer_mail.dispatch_authentication_email_now(
+        row, account_id=account.id, purpose="verify_code",
+    )
+
+    assert result.status == "failed"
+    assert result.error_category == "ambiguous_outcome"
+    assert result.next_attempt_at is None
+    assert result.html_body is None and result.text_body is None
+    attempt = EmailDeliveryAttempt.query.filter_by(message_id=row.id).one()
+    assert attempt.error_category == "ambiguous_outcome"
+    from app.customer.routes import _delivery_message
+    assert "couldn't confirm" in _delivery_message(result, "verification code").lower()
 
 
 def test_prompt_auth_dispatch_rejects_marketing_and_preserves_worker_isolation(app, app_context, monkeypatch):
