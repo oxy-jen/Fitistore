@@ -1175,6 +1175,7 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
         "reset_password": timedelta(minutes=30), "verify_email": timedelta(hours=24),
         "marketing_confirm": timedelta(hours=24),
     }
+    expired_verify_codes = 0
     for kind, ttl in auth_ttls.items():
         if allowed_kinds is not None and kind not in allowed_kinds:
             continue
@@ -1190,6 +1191,8 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
             html_body=None, text_body=None, next_attempt_at=None,
             claim_token=None, claimed_at=None, updated_at=now,
         ))
+        if kind == "verify_code":
+            expired_verify_codes += max(0, int(expired_result.rowcount or 0))
     db.session.commit()
     from sqlalchemy import inspect
     if not inspect(db.engine).has_table("email_legacy_payload_review_event"):

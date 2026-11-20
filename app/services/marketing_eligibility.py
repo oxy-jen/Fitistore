@@ -133,7 +133,9 @@ def evaluate_marketing_eligibility(
         default=None,
     )
     if consent_at is None:
-        consent_at = created_at
+        created_at = get_value("created_at")
+        if created_at and created_at < LEGACY_SUBSCRIBER_CUTOFF:
+            consent_at = created_at
     if not consent_at:
         return _decision(False, "consent_missing", resolved_id)
     if withdrawal_at and withdrawal_at >= consent_at:
