@@ -107,6 +107,7 @@ def test_pre_rollout_subscribed_customer_without_backfilled_timestamp_remains_el
     account = _account("legacy-subscriber@example.test")
     account.created_at = datetime(2026, 9, 30)
     account.marketing_consent_at = None
+    db.session.flush()
     assert evaluate_marketing_eligibility(account).eligible
 
 

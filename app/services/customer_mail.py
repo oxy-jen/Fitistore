@@ -1172,6 +1172,7 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
     # Authentication links/codes are never dispatched after their own validity
     # window. Quarantine and erase their rendered payload on the next worker run.
     auth_ttls = {
+        "verify_code": timedelta(minutes=10),
         "reset_password": timedelta(minutes=30), "verify_email": timedelta(hours=24),
         "marketing_confirm": timedelta(hours=24),
     }
