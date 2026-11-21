@@ -1,6 +1,6 @@
 # FityStore email template inventory
 
-This inventory reflects the implementation in the current local tree. “Available” means a code-backed template or composer purpose exists; it does not mean an automation is scheduled or enabled. All campaign sends remain subject to the centralized eligibility, suppression, unsubscribe and cooldown checks. The marketing scheduler remains paused. No real email was sent for this inventory work.
+This inventory reflects the implementation in the current local tree. “Available” means a code-backed template or composer purpose exists; it does not mean an automation is scheduled or enabled. All campaign sends remain subject to the centralized eligibility, suppression, unsubscribe and cooldown checks. Marketing dispatch remains paused. Automatic draft preparation is separate and default-off. No real email was sent for this inventory work.
 
 ## Email Studio purposes
 
@@ -9,12 +9,12 @@ This inventory reflects the implementation in the current local tree. “Availab
 | Cart reminder | `cart_reminder` | Marketing | Branded Studio cart layout with the recipient’s current cart | Admin manual send only; cart episode and eligibility rechecked | Available; automation paused |
 | Promotions and new arrivals | `promotion` | Marketing | `emails/promotion_message.html` | Admin compose, preview, confirm, or schedule | Available |
 | Daily Fity Goodies | `daily_goodies` | Marketing | Promotional campaign layout | Manual campaign purpose; no schedule runs | Available; automation paused |
-| Weekly product picks | `weekly_picks` | Marketing | Promotional campaign layout | Manual campaign purpose; no schedule runs | Available; automation paused |
-| New product announcement | `new_product_announcement` | Marketing | Promotional campaign layout | Manual campaign purpose; product list selected from current catalogue | Available; no product-event automation |
+| Weekly product picks | `weekly_picks` | Marketing | Promotional campaign layout | Admin-authored or idempotent weekly draft preparation; administrator must preview and schedule | Available; preparation default-off; dispatch separately gated |
+| New product announcement | `new_product_announcement` | Marketing | Promotional campaign layout | Admin-authored or draft prepared for newly listed/restocked available products; administrator must edit/preview/schedule | Available; preparation default-off; dispatch separately gated |
 | Special offers | `special_offers` | Marketing | Promotional campaign layout | Manual campaign purpose; offer content must be authored/verified by admin | Available; no offer trigger automation |
 | Back-in-stock announcement | `back_in_stock` | Marketing | Promotional campaign layout | Manual campaign purpose; broad promotional announcement | Available; automated personal restock notices are separate service messages |
 | Marketing welcome | `marketing_welcome` | Marketing | Promotional campaign layout | Manual campaign purpose; distinct from account-registration welcome | Available; no automatic welcome-campaign trigger |
-| Re-engagement campaign | `re_engagement` | Marketing | Promotional campaign layout | Manual campaign purpose | Available; no inactivity automation |
+| Re-engagement campaign | `re_engagement` | Marketing | Promotional campaign layout | Manual campaign purpose | Available; no automatic re-engagement draft |
 | Custom promotional campaign | `custom_campaign` | Marketing | Promotional campaign layout | Manual campaign purpose | Available |
 | Custom customer-service email | `customer_service` | Marketing by default | Promotional layout for editable content | Manual, custom-authored; linked order context is available but does not grant transactional status | Available; structured support-case reply is not implemented |
 | Order confirmation | `order_confirmation` | Transactional only when unchanged server-defined content | Constrained Studio layout | Admin manually sends against a linked order | Available in constrained form; no automatic Studio trigger |
@@ -73,8 +73,8 @@ Operational and system-managed definitions cannot be selected as unrestricted cu
 - Unknown categories and email kinds fail closed in `app/services/email_purpose.py`.
 - Marketing category eligibility is re-evaluated in Email Studio and again by the shared queue/dispatch path.
 - `admin_test` is classified as test-only. The additive `20261117_email_admin_test_purpose` migration corrects historical outbox purpose values without changing the checksum of the original outbox migration.
-- Saved templates and drafts remain in existing tables; this addition introduces no database fields or migration.
-- Campaign scheduler and automation remain paused. Daily/weekly labels are composer purposes, not evidence of active scheduled jobs.
+- Saved Email Studio templates remain in their existing tables. Automatic campaign draft idempotency metadata uses the separate additive `20261121_marketing_campaign_draft_preparation` migration; it has not been run.
+- Marketing dispatch remains paused. The 15-minute workflow can prepare new-arrival, abandoned-cart, and weekly-picks drafts only when the separate `EMAIL_MARKETING_PREPARATION_ENABLED` gate is explicitly enabled; the gate defaults off. Drafts still need administrator editing, preview, and scheduling. Daily Goodies remains a manual campaign purpose.
 
 ## Implementation references
 

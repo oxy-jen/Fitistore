@@ -83,7 +83,10 @@ def evaluate_marketing_eligibility(
 
     try:
         from sqlalchemy import inspect
-        inspector = inspect(connection if connection is not None else db.engine)
+        # Inspect through the caller's transaction. Checking out and closing a
+        # second connection can roll back an in-memory SQLite test transaction
+        # (and needlessly separates schema and eligibility reads in production).
+        inspector = inspect(connection if connection is not None else db.session.connection())
         if not inspector.has_table(MarketingSuppressionCase.__tablename__):
             return _decision(False, "suppression_schema_unavailable", resolved_id)
         columns = {column["name"] for column in inspector.get_columns(MarketingSuppressionCase.__tablename__)}

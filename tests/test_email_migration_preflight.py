@@ -7,10 +7,10 @@ from app.services.email_legacy_reviews import normalize_check_definition
 
 def test_preflight_accepts_only_exact_isolated_target_identity():
     url = validate_target_url(
-        "postgresql://neondb_owner:placeholder@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/neondb"
+        "postgresql://neondb_owner:placeholder@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/backup_restore_check"
     )
     assert url.host == "ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech"
-    assert url.database == "neondb"
+    assert url.database == "backup_restore_check"
     assert url.username == "neondb_owner"
 
 
@@ -21,17 +21,17 @@ def test_preflight_selects_installed_psycopg3_for_generic_postgresql_url(monkeyp
         lambda name: None if name == "psycopg2" else object() if name == "psycopg" else None,
     )
     url = validate_target_url(
-        "postgresql://neondb_owner:placeholder@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/neondb"
+        "postgresql://neondb_owner:placeholder@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/backup_restore_check"
     )
     assert url.drivername == "postgresql+psycopg"
     assert url.host == "ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech"
-    assert url.database == "neondb"
+    assert url.database == "backup_restore_check"
 
 
 def test_isolated_cli_pins_database_before_building_flask_command():
     import sys
 
-    restore_url = "postgresql://neondb_owner:private@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/neondb"
+    restore_url = "postgresql://neondb_owner:private@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/backup_restore_check"
     command, env = prepare_invocation(
         ["check-customer-email-schema"],
         {
@@ -70,7 +70,7 @@ def test_isolated_cli_main_uses_only_local_restore_url(monkeypatch):
 
     from scripts import run_isolated_email_cli
 
-    restore_url = "postgresql://neondb_owner:private@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/neondb"
+    restore_url = "postgresql://neondb_owner:private@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/backup_restore_check"
     production_url = "postgresql://role:private@production.example.com/store"
     monkeypatch.setattr(
         run_isolated_email_cli,
@@ -126,7 +126,7 @@ def test_isolated_cli_requires_exact_migration_confirmation():
     with pytest.raises(ValueError, match="confirmation"):
         prepare_invocation(
             ["migrate-marketing-suppression-schema"],
-            {"FITY_NEON_TEST_DATABASE_URL": "postgresql://neondb_owner:private@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/neondb"},
+            {"FITY_NEON_TEST_DATABASE_URL": "postgresql://neondb_owner:private@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/backup_restore_check"},
         )
 
 
@@ -156,7 +156,7 @@ def test_isolated_cli_passes_separate_confirmation_and_backup_gates(
             "--confirm", operation_confirmation,
             "--backup-confirm", "I HAVE A VERIFIED RESTORABLE BACKUP",
         ],
-        {"FITY_NEON_TEST_DATABASE_URL": "postgresql://neondb_owner:private@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/neondb"},
+        {"FITY_NEON_TEST_DATABASE_URL": "postgresql://neondb_owner:private@ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech/backup_restore_check"},
     )
     assert command[-4:] == [
         "--confirmation", cli_confirmation,

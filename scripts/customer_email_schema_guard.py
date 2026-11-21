@@ -72,6 +72,10 @@ APPROVED_MISSING_COLUMNS = {
     ("email_campaign", "scheduled_for"),
     ("email_campaign", "previewed_at"),
     ("email_campaign", "approved_at"),
+    ("email_campaign", "generation_key"),
+    ("email_campaign", "generation_source"),
+    ("email_campaign", "generation_reason"),
+    ("email_campaign", "generation_reference"),
     ("email_campaign_recipient", "exclusion_reason"),
     ("email_campaign_recipient", "message_id"),
 }
@@ -82,6 +86,7 @@ APPROVED_MISSING_INDEXES = {
     "ix_email_message_claim_token",
     "ix_email_campaign_status_scheduled",
     "ix_email_campaign_recipient_message",
+    "uq_email_campaign_generation_key",
 }
 def migration_index_manifest() -> dict[str, tuple[str, tuple[str, ...], bool, str | None]]:
     sql = migration_sql()
@@ -117,7 +122,8 @@ def migration_sql() -> str:
     delivery_ops = (migrations_dir / "20261116_email_delivery_ops.sql").read_text(encoding="utf-8")
     legacy_review = (migrations_dir / "20261117_email_legacy_review.sql").read_text(encoding="utf-8")
     marketing_campaign = (migrations_dir / "20261120_marketing_campaign_queue.sql").read_text(encoding="utf-8")
-    return f"{customer_email}\n{email_studio}\n{email_builder}\n{consent_wording}\n{outbox}\n{delivery_ops}\n{legacy_review}\n{marketing_campaign}"
+    campaign_preparation = (migrations_dir / "20261121_marketing_campaign_draft_preparation.sql").read_text(encoding="utf-8")
+    return f"{customer_email}\n{email_studio}\n{email_builder}\n{consent_wording}\n{outbox}\n{delivery_ops}\n{legacy_review}\n{marketing_campaign}\n{campaign_preparation}"
 
 
 def migration_column_defaults() -> dict[tuple[str, str], str | None]:
@@ -297,6 +303,9 @@ def migration_constraint_manifest():
         unique["email_template"].discard(("category",))
     # This unique partial index is declared in the additive operations schema.
     unique["email_delivery_investigation"].add(("message_id",))
+    # Generated draft keys are unique only when present; the exact partial
+    # predicate is validated independently through the index manifest.
+    unique["email_campaign"].add(("generation_key",))
     return unique, named_unique, foreign_keys
 
 
@@ -846,13 +855,20 @@ def validate_schema(
             elif actual_indexes[index_name] != columns:
                 raise GuardError(f"Incompatible index definition: {index_name}.")
         expected_unique = unique_manifest.get(name, set())
+        for missing_index_name in missing_indexes:
+            missing_index = expected_indexes.get(missing_index_name)
+            if missing_index and missing_index[1]:
+                expected_unique.discard(missing_index[0])
         actual_unique = {
             tuple(row.get("column_names") or ())
             for row in inspector.get_unique_constraints(name, schema=schema_arg)
         }
-        actual_unique.update(
-            tuple(row.get("column_names") or ()) for row in inspector.get_indexes(name, schema=schema_arg) if row.get("unique")
-        )
+        # The expected unique-column manifest intentionally includes unique
+        # partial indexes as well as table constraints; exact predicates are
+        # validated against the index manifest above.
+        for unique_index in inspector.get_indexes(name, schema=schema_arg):
+            if unique_index.get("unique"):
+                actual_unique.add(tuple(unique_index.get("column_names") or ()))
         if expected_unique != actual_unique:
             raise GuardError(f"Missing or incompatible unique constraint on {name}.")
         actual_named_unique = {
@@ -937,6 +953,7 @@ def validate_schema(
                 ("20261117_email_admin_test_purpose", "app.services.email_test_purpose_migration", "validate_email_test_purpose"),
                 ("20261117_customer_consent_audit_immutable", "app.services.consent_audit", "validate_consent_audit_schema"),
                 ("20261120_marketing_campaign_queue", "app.services.marketing_campaign_schema", "validate_marketing_campaign_schema"),
+                ("20261121_marketing_campaign_draft_preparation", "app.services.marketing_campaign_preparation_schema", "validate_marketing_campaign_preparation_schema"),
             ):
                 if migration_id in migration_ids:
                     try:

@@ -12,6 +12,10 @@ on:
         required: true
         default: "25"
         type: string
+      preparation_confirmation:
+        description: Type PREPARE MARKETING CAMPAIGN DRAFTS to run draft preparation manually.
+        required: false
+        type: string
   schedule:
     - cron: "*/15 * * * *"
 
@@ -22,6 +26,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    if: >-
+      ${{
+        github.ref == 'refs/heads/main' &&
+        vars.EMAIL_MARKETING_PREPARATION_ENABLED == 'true' &&
+        (github.event_name == 'schedule' || inputs.preparation_confirmation == 'PREPARE MARKETING CAMPAIGN DRAFTS')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out preparation revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install application requirements
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Prepare verified database TLS settings
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py tls-env
+      - name: Check database connection settings
+        env:
+          EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py settings
+      - name: Read-only schema and identity preflight
+        env:
+          EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}
+          EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
+          EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
+        run: python scripts/customer_email_schema_guard.py preflight
+      - name: Prepare review-only campaign drafts
+        env:
+          FLASK_APP: manage:app
+          APP_ENV: production
+          SECRET_KEY: ${{ secrets.FITY_SECRET_KEY }}
+          EMAIL_MARKETING_PREPARATION_ENABLED: ${{ vars.EMAIL_MARKETING_PREPARATION_ENABLED }}
+          EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS: ${{ vars.EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS || '7' }}
+          EMAIL_MARKETING_ABANDONED_CART_IDLE_MINUTES: ${{ vars.EMAIL_MARKETING_ABANDONED_CART_IDLE_MINUTES || '180' }}
+        run: python -m flask --app manage:app prepare-marketing-campaign-drafts
   process:
     if: >-
       ${{

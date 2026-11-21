@@ -20,9 +20,9 @@ PostgreSQL testing and before any production decision.
 | Migration/guard | `app/services/email_migrations.py`, `app/services/email_outbox_schema.py`, `app/services/email_delivery_ops.py`, `app/services/email_legacy_reviews.py`, `app/services/email_test_purpose_migration.py`, `app/services/consent_audit.py`, `app/__init__.py`, `scripts/customer_email_schema_guard.py` | Explicit customer/email migration runs apply additive outbox purpose and consent-ledger protections in the existing transaction/advisory-lock boundary. PostgreSQL catalog behavior has not been exercised in this run. |
 | Legacy payload review | `app/services/email_legacy_reviews.py`, `app/services/customer_mail.py`, admin email center | Metadata-only inspection identifies incomplete payloads. Worker dispatch fails closed until review schema is present; malformed queued rows are quarantined with their original fields preserved and an append-only event. Admin review requires an authenticated admin POST and CSRF token. |
 | Isolated preflight | `scripts/email_migration_preflight.py` | Identity-pinned to the approved restore-test endpoint/database/role and PostgreSQL major; it sets the transaction READ ONLY and reports catalog/aggregate metadata only. Connection establishment could not be completed in this run, so no database result is claimed. |
-| Marketing scheduling | `app/services/marketing_automation.py`, `run-marketing-automation` CLI, `.github/workflows/process-email-queue.yml` | Marketing runner is a paused no-op. Queue workflow is separately gated. Do not enable either. |
+| Marketing scheduling and preparation | `app/services/marketing_campaigns.py`, `app/services/marketing_campaign_preparation.py`, `app/services/customer_mail.py` (`process_marketing_email_queue`), `.github/workflows/process-marketing-email-queue.yml` | The existing 15-minute workflow has an independent preparation job, default-off `EMAIL_MARKETING_PREPARATION_ENABLED` gate, idempotent product/cart/week draft preparation, and no approval, scheduling or dispatch in preparation. Campaign dispatch remains independently gated. PostgreSQL concurrency and the new additive migration still require isolated PostgreSQL validation. |
 | Templates | `app/templates/emails/`, `app/services/email_studio.py`, `app/admin/email_studio.py` | Shared branded templates and Studio exist. The inventory is summarized in `docs/email-system-inventory.md`; that document should be kept aligned with future route/template changes. |
-| Studio purposes and template inventory | `app/services/email_purpose.py`, `app/services/email_template_inventory.py`, `app/templates/admin/studio_messages.html`, `docs/email-template-inventory.md` | Purpose selector now separates campaign, transactional/order service, and custom customer service. Code-backed library records implemented versus missing account/order/service/operational templates. Marketing scheduler remains paused. See detailed comparison and local test coverage in `docs/email-template-inventory.md`; no schema change is required. |
+| Studio purposes and template inventory | `app/services/email_purpose.py`, `app/services/email_template_inventory.py`, `app/templates/admin/studio_messages.html`, `docs/email-template-inventory.md` | Purpose selector now separates campaign, transactional/order service, and custom customer service. Code-backed library records implemented versus missing account/order/service/operational templates. Marketing dispatch remains paused. See detailed comparison and local test coverage in `docs/email-template-inventory.md`; campaign draft preparation separately uses the additive migration listed below. |
 
 ## Central settings audit
 
@@ -34,13 +34,17 @@ is inserted through SQLAlchemy. The recorded production inspection said the
 table had zero rows, but this local task did not reconnect to production.
 
 The current `run_marketing_automation()` is explicitly a no-op returning
-`paused`; no settings read or automation dispatch occurs there. The settings
+`paused`; no settings read or automation dispatch occurs there. Draft preparation
+is a separate scheduled command, remains default-off, and creates drafts only.
+The settings
 model has no matching admin CRUD route, so
 there is not a complete admin settings interface for campaign hours, timezone,
 cooldowns, or activation. Provider credentials and sender configuration are
 environment-based in `config.py`; secret values must remain private. Keep
-marketing paused until a separately reviewed settings UI, scheduler, eligibility
-tests, and approval gate are complete.
+marketing dispatch paused until consent, suppression, cooldown, migration, and
+isolated PostgreSQL checks are complete. Draft preparation also remains off
+until its additive metadata migration is applied through the approved path and
+validated.
 
 ## Additive migration inventory
 
@@ -48,7 +52,12 @@ Customer/email migration history includes the legacy account/email migrations,
 `20261113_email_outbox`, `20261116_email_delivery_ops`,
 `20261117_email_legacy_review`, `20261117_email_admin_test_purpose`, and
 `20261117_customer_consent_audit_immutable`. The separate PostgreSQL suppression
-migration is `20261113_marketing_suppression`.
+migration is `20261113_marketing_suppression`. The new
+`20261121_marketing_campaign_draft_preparation` migration adds nullable source,
+reason, reference and generation-key metadata to `email_campaign`, plus a
+partial unique index for idempotent preparation. It preserves existing rows
+and has not been executed; validate it against the isolated PostgreSQL restore
+before enabling the preparation gate.
 
 `20261117_email_admin_test_purpose` corrects only outbox rows whose trusted kind
 is `admin_test`, setting purpose to `test`; it does not alter recipients,
@@ -104,7 +113,7 @@ approved by this document.
 | PostgreSQL concurrency | Independent connections test provider suppression/withdrawal vs dispatch, simultaneous claims, recovery uniqueness, heartbeat ownership and transaction rollback | Not performed; SQLite is not evidence for these guarantees. |
 | Provider and sender | Verify privately in Brevo: sender identity, API access, transactional classification, SPF/DKIM/DMARC and webhook sample/authentication | Not verified from local code. |
 | Render / GitHub configuration | Verify intended database, `manage:app` CLI use, production secret presence, queue gate unset/false, webhook configuration, logs and plan support | No external settings were read or changed. |
-| Controlled launch | Separate explicit approvals for DB migration, app deployment, transactional worker, then marketing automation | Not authorized; all scheduling remains paused. |
+| Controlled launch | Separate explicit approvals for DB migration, app deployment, transactional worker, then marketing automation | Not authorized; marketing dispatch and draft preparation remain default-off. |
 
 ## Next safe sequence
 

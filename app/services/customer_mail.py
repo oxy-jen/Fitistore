@@ -1175,7 +1175,6 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
         "reset_password": timedelta(minutes=30), "verify_email": timedelta(hours=24),
         "marketing_confirm": timedelta(hours=24),
     }
-    expired_verify_codes = 0
     for kind, ttl in auth_ttls.items():
         if allowed_kinds is not None and kind not in allowed_kinds:
             continue

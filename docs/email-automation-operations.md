@@ -150,6 +150,62 @@ snapshot eligible recipients, and schedule a marketing campaign. This avoids
 leaving legacy marketing rows queued without a worker that is allowed to
 process them. Saved templates and drafts remain available for reuse.
 
+### Automatic campaign draft preparation
+
+The `prepare-marketing-campaign-drafts` command is a separate, review-only
+preparation path. It does not create recipients, queue `EmailMessage` rows,
+approve campaigns, schedule campaigns, or contact Brevo. The command and its
+GitHub Actions job both fail closed unless
+`EMAIL_MARKETING_PREPARATION_ENABLED=true`; the default is false. The
+preparation gate is independent of `EMAIL_MARKETING_QUEUE_ENABLED` and the
+campaign-type dispatch gates.
+
+The existing `.github/workflows/process-marketing-email-queue.yml` polls every
+15 minutes. Its independent `prepare` job uses the same cadence only when the
+preparation gate is enabled. New-arrival candidates are active, in-stock
+products created or positively restocked within the configured
+`EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS` window (default 7 days, bounded to
+1–30). Abandoned-cart candidates must have a valid available item, be past
+`EMAIL_MARKETING_ABANDONED_CART_IDLE_MINUTES` (default 180, bounded to 5–10,080
+minutes), have no active checkout, pass centralized marketing eligibility,
+and have no matching completed/cancelled order placed after the cart update.
+The weekly draft is unique per ISO week and uses recorded paid completed sales
+and cart additions when present; otherwise it uses currently available
+catalogue items without claiming they are popular.
+
+Automatic drafts appear in the existing Marketing campaigns list with their
+source and reason. An administrator can edit, preview, schedule manually or
+discard them. New-arrival/product and weekly-picks keys are unique per product
+and ISO week; abandoned-cart keys are unique per cart episode. Discarded drafts
+retain their unique key so the same source event is not silently regenerated.
+Abandoned-cart preview content is generic and contains no customer name,
+address or cart-specific recipient details. The generated draft targets that
+cart episode when scheduled; current eligibility, cart contents and idle
+threshold are rechecked during the audience snapshot. PostgreSQL behavior for
+simultaneous preparation is enforced by the unique partial index, but must be
+validated against the isolated PostgreSQL database before enabling the gate.
+
+The additive `20261121_marketing_campaign_draft_preparation` migration adds
+nullable generator metadata to `email_campaign` and a unique partial index.
+It preserves existing campaign rows. It has not been run against production
+or any database during local implementation. The explicit existing
+`migrate-customer-email-schema` command includes it under the existing
+transaction and migration-lock path; do not activate preparation until the
+isolated migration and schema-guard checks pass.
+
+Preparation configuration is deliberately separate from campaign delivery:
+
+| Setting | Location | Default / use |
+| --- | --- | --- |
+| `EMAIL_MARKETING_PREPARATION_ENABLED` | Render environment and GitHub Actions variable | `false`; must be explicitly enabled in each context. This creates drafts only. |
+| `EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS` | GitHub Actions variable (optional); Render environment for matching admin status | `7` days, bounded to 1-30. |
+| `EMAIL_MARKETING_ABANDONED_CART_IDLE_MINUTES` | GitHub Actions variable (optional); Render environment for matching admin status | `180` minutes, bounded to 5-10,080. |
+
+The workflow uses the defaults above when optional Actions variables are unset.
+Leave the preparation gate unset or `false` until the additive migration has
+been applied and validated in the isolated PostgreSQL restore. This gate does
+not enable the marketing dispatch gate or any campaign-type gate.
+
 ### Email Studio test messages
 
 Test messages are queued only to the server-configured `MAIL_TEST_ADDRESS`;
@@ -298,6 +354,31 @@ the exact confirmation and application environment gate. Keep the queue gate
 and every type gate unset or `false` until campaign schema, sender, consent
 eligibility, and a single controlled test plan are approved.
 
+### Marketing schedule and preparation model
+
+The existing low-cost dispatch cadence is every 15 minutes. A scheduled run
+only dispatches rows whose campaign is approved, scheduled, due, still enabled
+by its campaign-type gate, and eligible at dispatch time. GitHub scheduled
+events are best-effort, so delivery may occur after the selected time; the
+cadence is a polling interval, not a send-time guarantee. With the master gate
+unset or `false`, the job is skipped before a runner starts.
+
+| Work | Current processing | Recommended cadence |
+| --- | --- | --- |
+| Approved scheduled campaign dispatch | `process-marketing-email-queue` | Every 15 minutes; already configured. |
+| Abandoned-cart draft preparation | The gated preparation job finds idle, currently eligible carts and creates generic, unscheduled `abandoned_cart` drafts targeted to a cart episode. Admin review is required; eligibility/cart state is checked again at audience snapshot and dispatch. | Every 15 minutes in the existing workflow only when `EMAIL_MARKETING_PREPARATION_ENABLED=true`; draft generation is separately default-off. |
+| Weekly product recommendations | The gated preparation job creates at most one `weekly_picks` draft per ISO week using recorded paid sales/cart additions, or available catalogue items when no reliable signal exists. Admin can edit/replace products and must preview/schedule. | Checked every 15 minutes by the existing workflow; uniqueness prevents more than one draft per week. |
+| New-arrival campaign preparation | Active, in-stock products created or positively restocked within the configured lookback are prepared as `new_product` drafts using stored product data. Admin can edit and preview. | Checked every 15 minutes by the existing workflow; default lookback is 7 days. |
+
+This arrangement prepares review-only drafts while keeping content approval,
+scheduling and delivery human-controlled. The legacy
+`run-marketing-automation` command and `.github/workflows/marketing-automation.yml`
+are paused/no-op; do not schedule or enable them. The old
+`MarketingAutomationSettings` table is not the control plane for either the
+campaign worker or draft-preparation job, and no admin settings screen currently
+configures its legacy daily or weekly hours. Do not revive the legacy direct-send
+path.
+
 | Exact name | Location | Default / purpose |
 | --- | --- | --- |
 | `EMAIL_MARKETING_QUEUE_ENABLED` | Render application environment and GitHub Actions variable | `false`; master scheduling/worker gate. |
@@ -334,8 +415,7 @@ GitHub's current branch protection or deployment configuration.
 
 ## Isolated PostgreSQL validation procedure
 
-No database operation is authorized by this runbook. Before the later isolated
-test, an operator must verify the Neon Console project ID/name and region for
+Before an isolated test, verify the Neon Console project ID/name and region for
 the restore-test project, and confirm the database endpoint shown by that
 project matches the privately configured connection target. Do not use a
 database name or role alone as proof. Do not fall back to production credentials.
@@ -347,11 +427,15 @@ against the expected restore project metadata. If any value differs, stop.
 Then use the repository schema guard to inspect tables, columns, constraints,
 foreign keys, indexes, sequences, triggers, functions, permissions, and
 migration checksums. Compare counts/schema to the restored baseline. Migration
-execution remains a later separate approval; this remediation does not run it.
+execution remains conditional on a successful identity and schema preflight and
+is limited to the explicitly approved isolated target; this runbook does not
+execute it.
 
-The local identity-pinned preflight can load the dedicated file without
-printing its URL. Run this from the repository root only after confirming the
-file contains the already verified restore-test endpoint:
+The local identity-pinned preflight targets the verified Neon restore-test
+host, role `neondb_owner`, database `backup_restore_check`, schema `public`,
+and PostgreSQL major 18. The isolated URL must name `backup_restore_check`;
+the previous `neondb` target is rejected. Run this from the repository root
+only after confirming the private URL matches the restore-test endpoint:
 
 ```powershell
 @'
@@ -375,8 +459,10 @@ The GitHub migration workflow uses the Neon repository secret and variables;
 it is not the isolated restore-test runner. Do not dispatch it for isolated
 testing or use it before its production-target approval gates are reviewed.
 
-Only after separate approval for schema changes on the isolated test target,
-use `scripts/run_isolated_email_cli.py`. It loads `.env.neon-test` in its own
+The owner has approved applying the campaign draft preparation migration only
+to the isolated `backup_restore_check` database for this validation task. Use
+`scripts/run_isolated_email_cli.py` after the preflight reports that it is the
+only missing migration. It loads `.env.neon-test` in its own
 process, verifies the exact host/database/role before creating the Flask app,
 enforces `sslmode=verify-full`, and never prints the URL. Its commands are:
 
