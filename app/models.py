@@ -856,8 +856,17 @@ class EmailCampaign(TimestampMixin, db.Model):
     status = db.Column(db.String(24), default="draft", nullable=False, index=True)
     created_by_id = db.Column(db.Integer, db.ForeignKey("admin_user.id"), nullable=False)
     sent_at = db.Column(db.DateTime)
+    generation_key = db.Column(db.String(160))
+    generation_source = db.Column(db.String(32))
+    generation_reason = db.Column(db.String(255))
+    generation_reference = db.Column(db.Text)
     admin = db.relationship("AdminUser")
-    __table_args__ = (Index("ix_email_campaign_status_scheduled", "status", "scheduled_for"),)
+    __table_args__ = (
+        Index("ix_email_campaign_status_scheduled", "status", "scheduled_for"),
+        Index("uq_email_campaign_generation_key", "generation_key", unique=True,
+              postgresql_where=text("generation_key IS NOT NULL"),
+              sqlite_where=text("generation_key IS NOT NULL")),
+    )
 
 
 class EmailCampaignRecipient(db.Model):

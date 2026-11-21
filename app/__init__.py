@@ -456,6 +456,21 @@ def register_cli(app: Flask):
         """Compatibility no-op: scheduled marketing email automation is paused."""
         click.echo(json.dumps({"status": "paused", "emails_sent": 0}, sort_keys=True))
 
+    @app.cli.command("prepare-marketing-campaign-drafts")
+    def prepare_marketing_campaign_drafts_command():
+        """Prepare review-only campaign drafts behind a separate disabled-by-default gate."""
+        if not app.config.get("EMAIL_MARKETING_PREPARATION_ENABLED", False):
+            click.echo(json.dumps({"status": "disabled", "created": 0}, sort_keys=True))
+            return
+        try:
+            from .services.marketing_campaign_preparation import prepare_marketing_campaign_drafts
+            result = prepare_marketing_campaign_drafts()
+            click.echo(json.dumps(result, sort_keys=True))
+        except Exception as exc:
+            db.session.rollback()
+            click.echo(json.dumps({"status": "failed", "error_type": type(exc).__name__, "created": 0}, sort_keys=True))
+            raise click.ClickException("Campaign draft preparation failed; no campaign was dispatched.") from None
+
     @app.cli.command("check-customer-email-schema")
     def check_customer_email_schema():
         """Read the active database schema without creating or changing anything."""
@@ -603,6 +618,8 @@ def register_cli(app: Flask):
                         apply_consent_audit_migration(connection, dialect)
                         from .services.marketing_campaign_schema import apply_marketing_campaign_schema
                         apply_marketing_campaign_schema(connection, dialect)
+                        from .services.marketing_campaign_preparation_schema import apply_marketing_campaign_preparation_schema
+                        apply_marketing_campaign_preparation_schema(connection, dialect)
                         validate_columns(connection)
                         transaction.commit()
                     except Exception:
@@ -656,6 +673,8 @@ def register_cli(app: Flask):
                     apply_consent_audit_migration(connection, dialect)
                     from .services.marketing_campaign_schema import apply_marketing_campaign_schema
                     apply_marketing_campaign_schema(connection, dialect)
+                    from .services.marketing_campaign_preparation_schema import apply_marketing_campaign_preparation_schema
+                    apply_marketing_campaign_preparation_schema(connection, dialect)
                     validate_columns(connection)
 
             after = set(inspect(db.engine).get_table_names())

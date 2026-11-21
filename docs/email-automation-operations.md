@@ -150,6 +150,62 @@ snapshot eligible recipients, and schedule a marketing campaign. This avoids
 leaving legacy marketing rows queued without a worker that is allowed to
 process them. Saved templates and drafts remain available for reuse.
 
+### Automatic campaign draft preparation
+
+The `prepare-marketing-campaign-drafts` command is a separate, review-only
+preparation path. It does not create recipients, queue `EmailMessage` rows,
+approve campaigns, schedule campaigns, or contact Brevo. The command and its
+GitHub Actions job both fail closed unless
+`EMAIL_MARKETING_PREPARATION_ENABLED=true`; the default is false. The
+preparation gate is independent of `EMAIL_MARKETING_QUEUE_ENABLED` and the
+campaign-type dispatch gates.
+
+The existing `.github/workflows/process-marketing-email-queue.yml` polls every
+15 minutes. Its independent `prepare` job uses the same cadence only when the
+preparation gate is enabled. New-arrival candidates are active, in-stock
+products created or positively restocked within the configured
+`EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS` window (default 7 days, bounded to
+1–30). Abandoned-cart candidates must have a valid available item, be past
+`EMAIL_MARKETING_ABANDONED_CART_IDLE_MINUTES` (default 180, bounded to 5–10,080
+minutes), have no active checkout, pass centralized marketing eligibility,
+and have no matching completed/cancelled order placed after the cart update.
+The weekly draft is unique per ISO week and uses recorded paid completed sales
+and cart additions when present; otherwise it uses currently available
+catalogue items without claiming they are popular.
+
+Automatic drafts appear in the existing Marketing campaigns list with their
+source and reason. An administrator can edit, preview, schedule manually or
+discard them. New-arrival/product and weekly-picks keys are unique per product
+and ISO week; abandoned-cart keys are unique per cart episode. Discarded drafts
+retain their unique key so the same source event is not silently regenerated.
+Abandoned-cart preview content is generic and contains no customer name,
+address or cart-specific recipient details. The generated draft targets that
+cart episode when scheduled; current eligibility, cart contents and idle
+threshold are rechecked during the audience snapshot. PostgreSQL behavior for
+simultaneous preparation is enforced by the unique partial index, but must be
+validated against the isolated PostgreSQL database before enabling the gate.
+
+The additive `20261121_marketing_campaign_draft_preparation` migration adds
+nullable generator metadata to `email_campaign` and a unique partial index.
+It preserves existing campaign rows. It has not been run against production
+or any database during local implementation. The explicit existing
+`migrate-customer-email-schema` command includes it under the existing
+transaction and migration-lock path; do not activate preparation until the
+isolated migration and schema-guard checks pass.
+
+Preparation configuration is deliberately separate from campaign delivery:
+
+| Setting | Location | Default / use |
+| --- | --- | --- |
+| `EMAIL_MARKETING_PREPARATION_ENABLED` | Render environment and GitHub Actions variable | `false`; must be explicitly enabled in each context. This creates drafts only. |
+| `EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS` | GitHub Actions variable (optional); Render environment for matching admin status | `7` days, bounded to 1-30. |
+| `EMAIL_MARKETING_ABANDONED_CART_IDLE_MINUTES` | GitHub Actions variable (optional); Render environment for matching admin status | `180` minutes, bounded to 5-10,080. |
+
+The workflow uses the defaults above when optional Actions variables are unset.
+Leave the preparation gate unset or `false` until the additive migration has
+been applied and validated in the isolated PostgreSQL restore. This gate does
+not enable the marketing dispatch gate or any campaign-type gate.
+
 ### Email Studio test messages
 
 Test messages are queued only to the server-configured `MAIL_TEST_ADDRESS`;
@@ -310,19 +366,18 @@ unset or `false`, the job is skipped before a runner starts.
 | Work | Current processing | Recommended cadence |
 | --- | --- | --- |
 | Approved scheduled campaign dispatch | `process-marketing-email-queue` | Every 15 minutes; already configured. |
-| Abandoned-cart campaign | Admin creates and approves an `abandoned_cart` campaign; the audience is sampled when scheduled and each recipient's cart content is rendered into that campaign message. Eligibility and campaign state are checked again at dispatch. | Dispatch on the same 15-minute poll. This is not a per-cart idle timer; no automatic cart-idle campaign generator is active. |
-| Weekly product recommendations | Admin selects products, previews and schedules a `weekly_picks` campaign. | Prepare and schedule once weekly in the admin campaign center; dispatch on the same poll. No automatic weekly draft generator is active. |
-| New-arrival campaign preparation | Admin creates a `new_product` campaign for currently active/in-stock products, then previews and schedules it. | Prepare when new products are ready for promotion; a weekly editorial review is a sensible operating cadence. No product-created trigger or automatic draft generator is active. |
+| Abandoned-cart draft preparation | The gated preparation job finds idle, currently eligible carts and creates generic, unscheduled `abandoned_cart` drafts targeted to a cart episode. Admin review is required; eligibility/cart state is checked again at audience snapshot and dispatch. | Every 15 minutes in the existing workflow only when `EMAIL_MARKETING_PREPARATION_ENABLED=true`; draft generation is separately default-off. |
+| Weekly product recommendations | The gated preparation job creates at most one `weekly_picks` draft per ISO week using recorded paid sales/cart additions, or available catalogue items when no reliable signal exists. Admin can edit/replace products and must preview/schedule. | Checked every 15 minutes by the existing workflow; uniqueness prevents more than one draft per week. |
+| New-arrival campaign preparation | Active, in-stock products created or positively restocked within the configured lookback are prepared as `new_product` drafts using stored product data. Admin can edit and preview. | Checked every 15 minutes by the existing workflow; default lookback is 7 days. |
 
-This arrangement intentionally automates delivery of approved campaigns while
-keeping content selection and approval human-controlled. The legacy
+This arrangement prepares review-only drafts while keeping content approval,
+scheduling and delivery human-controlled. The legacy
 `run-marketing-automation` command and `.github/workflows/marketing-automation.yml`
 are paused/no-op; do not schedule or enable them. The old
-`MarketingAutomationSettings` table is not the control plane for the campaign
-worker, and no admin settings screen currently configures its legacy daily or
-weekly hours. Automatic draft generation and per-cart idle scheduling remain
-future work if desired; they must be added as a separately reviewed, gated
-feature rather than by reviving the legacy direct-send path.
+`MarketingAutomationSettings` table is not the control plane for either the
+campaign worker or draft-preparation job, and no admin settings screen currently
+configures its legacy daily or weekly hours. Do not revive the legacy direct-send
+path.
 
 | Exact name | Location | Default / purpose |
 | --- | --- | --- |

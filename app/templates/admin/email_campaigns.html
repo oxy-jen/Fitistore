@@ -17,11 +17,18 @@
     <strong>Queue gate:</strong>
     <span class="admin-email-badge {{ 'is-alert' if not queue_enabled else '' }}">{{ 'enabled in this application context' if queue_enabled else 'disabled' }}</span>
     <span>Each campaign type also has an independent setting. Production configuration is not changed by this page.</span>
+    <span><strong>Automatic draft preparation:</strong> {{ 'enabled in this application context' if preparation_enabled else 'disabled' }}. Preparation creates drafts only; an administrator must edit, preview and schedule them.</span>
   </section>
 
   {% if campaign %}
+  {% if campaign.generation_source %}
+  <section class="form-card campaign-origin" aria-label="Automatic draft origin">
+    <strong>Automatically prepared · {{ campaign.generation_source|replace('_', ' ')|title }}</strong>
+    <p>{{ campaign.generation_reason }}</p>
+  </section>
+  {% endif %}
   <section class="campaign-stats" aria-label="Campaign status">
-    <article><span>Status</span><strong>{{ campaign.status|replace('_', ' ')|title }}</strong></article>
+    <article><span>Status</span><strong>{{ 'Discarded' if campaign.status == 'cancelled' and not campaign.approved_at else campaign.status|replace('_', ' ')|title }}</strong></article>
     <article><span>Type</span><strong>{{ campaign.campaign_type|replace('_', ' ')|title }}</strong></article>
     <article><span>Recipients</span><strong>{{ recipients|length }}{% if recipients|length > 500 %}+{% endif %}</strong></article>
     <article><span>Previewed</span><strong>{{ campaign.previewed_at.strftime('%Y-%m-%d %H:%M UTC') if campaign.previewed_at else 'Not yet' }}</strong></article>
@@ -62,6 +69,7 @@
     <div class="campaign-form-actions">
       <button class="btn" name="action" value="save">Save draft</button>
       <button class="btn primary" name="action" value="preview">Save and preview</button>
+      <button class="btn danger" name="action" value="discard" formnovalidate onclick="return confirm('Discard this draft? It will not be regenerated automatically.')">Discard draft</button>
     </div>
     <div class="campaign-schedule">
       <h3>Schedule after preview</h3>
@@ -128,7 +136,7 @@
     <h2>Recent campaigns</h2>
     <div class="campaign-recipient-table"><table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Schedule</th><th>Created</th></tr></thead>
       <tbody>{% for item in campaigns %}<tr>
-        <td><a href="{{ url_for('admin.email_campaign_detail', campaign_id=item.id) }}">{{ item.name }}</a></td>
+        <td><a href="{{ url_for('admin.email_campaign_detail', campaign_id=item.id) }}">{{ item.name }}</a>{% if item.generation_source %}<br><small>Automatic · {{ item.generation_source|replace('_', ' ')|title }}{% if item.generation_reason %} — {{ item.generation_reason }}{% endif %}</small>{% endif %}</td>
         <td>{{ item.campaign_type|replace('_', ' ')|title }}</td><td>{{ item.status|title }}</td>
         <td>{{ item.scheduled_for.strftime('%Y-%m-%d %H:%M UTC') if item.scheduled_for else '—' }}</td>
         <td>{{ item.created_at.strftime('%Y-%m-%d') if item.created_at else '—' }}</td>

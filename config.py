@@ -57,6 +57,9 @@ class Config:
     MAIL_FROM_VERIFIED = os.environ.get("MAIL_FROM_VERIFIED", "0").lower() in {"1", "true", "yes"}
     MAIL_TEST_ADDRESS = os.environ.get("MAIL_TEST_ADDRESS", "")
     EMAIL_MARKETING_QUEUE_ENABLED = os.environ.get("EMAIL_MARKETING_QUEUE_ENABLED", "false").strip().lower() == "true"
+    EMAIL_MARKETING_PREPARATION_ENABLED = os.environ.get("EMAIL_MARKETING_PREPARATION_ENABLED", "false").strip().lower() == "true"
+    EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS = max(1, min(30, int(os.environ.get("EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS", "7"))))
+    EMAIL_MARKETING_ABANDONED_CART_IDLE_MINUTES = max(5, min(10080, int(os.environ.get("EMAIL_MARKETING_ABANDONED_CART_IDLE_MINUTES", "180"))))
     EMAIL_MARKETING_NEW_PRODUCTS_ENABLED = os.environ.get("EMAIL_MARKETING_NEW_PRODUCTS_ENABLED", "false").strip().lower() == "true"
     EMAIL_MARKETING_OFFERS_ENABLED = os.environ.get("EMAIL_MARKETING_OFFERS_ENABLED", "false").strip().lower() == "true"
     EMAIL_MARKETING_WEEKLY_PICKS_ENABLED = os.environ.get("EMAIL_MARKETING_WEEKLY_PICKS_ENABLED", "false").strip().lower() == "true"

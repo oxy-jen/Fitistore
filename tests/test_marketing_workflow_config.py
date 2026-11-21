@@ -14,6 +14,10 @@ def test_marketing_queue_workflow_keeps_schedule_and_dispatch_gates():
     assert "vars.EMAIL_MARKETING_QUEUE_ENABLED == 'true'" in workflow
     assert "inputs.confirmation == 'RUN MARKETING EMAIL QUEUE'" in workflow
     assert "process-marketing-email-queue" in workflow
+    assert "vars.EMAIL_MARKETING_PREPARATION_ENABLED == 'true'" in workflow
+    assert "prepare-marketing-campaign-drafts" in workflow
+    assert "PREPARE MARKETING CAMPAIGN DRAFTS" in workflow
+    assert "jobs:\n  prepare:" in workflow
     for gate in (
         "EMAIL_MARKETING_NEW_PRODUCTS_ENABLED",
         "EMAIL_MARKETING_OFFERS_ENABLED",

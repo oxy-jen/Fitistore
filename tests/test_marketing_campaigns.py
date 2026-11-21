@@ -270,3 +270,32 @@ def test_admin_campaign_preview_is_visible_and_does_not_queue_email(client, app_
     assert response.status_code == 200
     assert b"Preview (not sent)" in response.data
     assert EmailMessage.query.filter_by(campaign_id=campaign.id).count() == 0
+
+
+def test_admin_can_identify_and_discard_an_automatic_draft(client, app_context):
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    campaign = EmailCampaign(
+        name="Weekly picks — 2026-W47", subject="This week's FityStores picks",
+        body="A selection of available products.", campaign_type="weekly_picks",
+        product_ids_json="[]", status="draft", created_by_id=1,
+        generation_key="prepare:weekly_picks:2026-W47",
+        generation_source="weekly_picks",
+        generation_reason="Selected from recorded paid sales and cart additions.",
+    )
+    db.session.add(campaign)
+    db.session.commit()
+
+    listing = client.get("/admin/email/campaigns")
+    assert listing.status_code == 200
+    assert b"Automatically" in listing.data or b"Automatic" in listing.data
+    assert campaign.generation_reason.encode() in listing.data
+    response = client.post(
+        f"/admin/email/campaigns/{campaign.id}", data={"action": "discard"},
+    )
+
+    db.session.refresh(campaign)
+    assert response.status_code == 200
+    assert campaign.status == "cancelled"
+    assert campaign.generation_key == "prepare:weekly_picks:2026-W47"
+    assert campaign.approved_at is None and campaign.scheduled_for is None
+    assert EmailMessage.query.filter_by(campaign_id=campaign.id).count() == 0

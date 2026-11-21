@@ -29,6 +29,7 @@ CUSTOMER_EMAIL_ADDITIVE_MIGRATIONS = (
     "20261117_email_legacy_review",
     "20261117_customer_consent_audit_immutable",
     "20261120_marketing_campaign_queue",
+    "20261121_marketing_campaign_draft_preparation",
 )
 HISTORY_TABLE = "email_migration_history"
 _HISTORY_DDL = """CREATE TABLE IF NOT EXISTS email_migration_history (
@@ -61,6 +62,9 @@ def acquire_migration_lock(connection) -> None:
 def migration_checksum(migration_id: str) -> str:
     if migration_id == "20261113_marketing_suppression":
         from app.services.marketing_suppressions import migration_checksum as checksum
+        return checksum()
+    if migration_id == "20261121_marketing_campaign_draft_preparation":
+        from app.services.marketing_campaign_preparation_schema import migration_checksum as checksum
         return checksum()
     path = Path(__file__).resolve().parents[2] / "migrations" / f"{migration_id}.sql"
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -140,6 +144,7 @@ def validate_history_checksums(connection) -> list[str]:
         "20261113_marketing_suppression", "20261117_email_legacy_review",
         "20261117_customer_consent_audit_immutable", "20261117_email_admin_test_purpose",
         "20261120_marketing_campaign_queue",
+        "20261121_marketing_campaign_draft_preparation",
     }
     unexpected = set(rows) - expected_ids
     if unexpected:

@@ -494,6 +494,41 @@ def test_approved_provider_message_index_is_allowed_only_during_preflight():
         validate_missing_state("email_message", {index}, set(), {index}, False, "indexes")
 
 
+def test_campaign_preparation_schema_is_an_approved_preflight_gap():
+    engine = create_engine("sqlite://")
+    db.metadata.create_all(engine)
+    try:
+        with engine.begin() as connection:
+            from app.services.email_outbox_schema import apply_email_outbox_migration
+            from app.services.email_test_purpose_migration import apply_email_test_purpose_migration
+            from app.services.email_delivery_ops import apply_email_delivery_ops_migration
+            from app.services.email_legacy_reviews import apply_email_legacy_review_migration
+            from app.services.consent_audit import apply_consent_audit_migration
+            from app.services.marketing_campaign_schema import apply_marketing_campaign_schema
+            from app.services.marketing_campaign_preparation_schema import apply_marketing_campaign_preparation_schema
+            apply_email_outbox_migration(connection, "sqlite")
+            apply_email_test_purpose_migration(connection, "sqlite")
+            apply_email_delivery_ops_migration(connection, "sqlite")
+            apply_email_legacy_review_migration(connection, "sqlite")
+            apply_consent_audit_migration(connection, "sqlite")
+            apply_marketing_campaign_schema(connection, "sqlite")
+            apply_marketing_campaign_preparation_schema(connection, "sqlite")
+            connection.exec_driver_sql("DROP INDEX uq_email_campaign_generation_key")
+            for column in ("generation_reference", "generation_reason", "generation_source", "generation_key"):
+                connection.exec_driver_sql(f"ALTER TABLE email_campaign DROP COLUMN {column}")
+            connection.exec_driver_sql(
+                "DELETE FROM email_schema_migration WHERE migration_id='20261121_marketing_campaign_draft_preparation'"
+            )
+        with engine.connect() as connection:
+            notes = validate_schema(connection, "public", allow_approved_missing=True)
+            assert any("generation_key" in note for note in notes)
+            assert any("uq_email_campaign_generation_key" in note for note in notes)
+            with pytest.raises(GuardError, match="missing"):
+                validate_schema(connection, "public", allow_approved_missing=False)
+    finally:
+        engine.dispose()
+
+
 def test_unexpected_missing_object_is_rejected_even_during_preflight():
     with pytest.raises(GuardError, match="Unexpected missing"):
         validate_missing_state("email_message", {"unexpected"}, set(), set(), True, "columns")
@@ -786,6 +821,9 @@ def test_manifest_reads_the_actual_sql_indexes_and_defaults():
     assert indexes["uq_email_investigation_open_message"] == (
         "email_delivery_investigation", ("message_id",), True, "status <> 'RESOLVED'"
     )
+    assert indexes["uq_email_campaign_generation_key"] == (
+        "email_campaign", ("generation_key",), True, "generation_key IS NOT NULL"
+    )
     assert defaults[("customer_account", "two_factor_enabled")] == "FALSE"
     assert defaults[("email_message", "retry_count")] == "0"
     assert columns[("customer_consent_event", "wording_version")].sql_type == "VARCHAR(120)"
@@ -805,6 +843,7 @@ def test_complete_local_schema_passes_strict_postcheck():
             from app.services.email_test_purpose_migration import apply_email_test_purpose_migration
             from app.services.consent_audit import apply_consent_audit_migration
             from app.services.marketing_campaign_schema import apply_marketing_campaign_schema
+            from app.services.marketing_campaign_preparation_schema import apply_marketing_campaign_preparation_schema
             with connection.begin():
                 apply_email_outbox_migration(connection, "sqlite")
                 apply_email_test_purpose_migration(connection, "sqlite")
@@ -813,6 +852,8 @@ def test_complete_local_schema_passes_strict_postcheck():
                 apply_consent_audit_migration(connection, "sqlite")
                 apply_marketing_campaign_schema(connection, "sqlite")
                 assert not apply_marketing_campaign_schema(connection, "sqlite")
+                apply_marketing_campaign_preparation_schema(connection, "sqlite")
+                assert not apply_marketing_campaign_preparation_schema(connection, "sqlite")
             legacy_columns = {
                 column["name"]: column
                 for column in inspect(connection).get_columns("email_legacy_payload_review_event")

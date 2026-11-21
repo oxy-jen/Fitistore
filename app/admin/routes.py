@@ -540,6 +540,7 @@ def email_campaigns():
         selected_product_ids=[],
         campaign_types=sorted(MARKETING_CAMPAIGN_TYPES),
         type_enabled=campaign_type_enabled, preview_html=None, preview_text=None,
+        preparation_enabled=bool(current_app.config.get("EMAIL_MARKETING_PREPARATION_ENABLED", False)),
         eligible_count=None, exclusion_summary={}, queue_enabled=bool(
             current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False)
         ),
@@ -612,11 +613,18 @@ def email_campaign_detail(campaign_id):
                     if action == "preview" else "Campaign draft saved.",
                     "success",
                 )
-            elif action in {"pause", "resume", "cancel"}:
-                set_campaign_status(campaign, action)
+            elif action in {"pause", "resume", "cancel", "discard"}:
+                if action == "discard":
+                    if campaign.status != "draft":
+                        raise ValueError("Only an unscheduled draft can be discarded.")
+                    campaign.status = "cancelled"
+                    campaign.scheduled_for = None
+                    campaign.approved_at = None
+                else:
+                    set_campaign_status(campaign, action)
                 db.session.commit()
-                action_label = {"pause": "paused", "resume": "resumed", "cancel": "cancelled"}[action]
-                flash(f"Campaign {action_label}. No provider request was made.", "success")
+                action_label = "discarded" if action == "discard" else {"pause": "paused", "resume": "resumed", "cancel": "cancelled"}[action]
+                flash(f"Campaign draft {action_label}. No provider request was made.", "success")
             else:
                 raise ValueError("Unsupported campaign action.")
         except (ValueError, SQLAlchemyError) as exc:
@@ -653,6 +661,7 @@ def email_campaign_detail(campaign_id):
         preview_text=preview_text, eligible_count=eligible_count,
         exclusion_summary=exclusion_summary,
         queue_enabled=bool(current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False)),
+          preparation_enabled=bool(current_app.config.get("EMAIL_MARKETING_PREPARATION_ENABLED", False)),
     )
 
 

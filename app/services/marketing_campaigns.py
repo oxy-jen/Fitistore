@@ -169,16 +169,32 @@ def render_campaign(campaign: EmailCampaign, account: CustomerAccount | None, un
 
 def audience_snapshot(campaign: EmailCampaign, scheduled_for: datetime):
     from app.services.marketing_eligibility import evaluate_marketing_eligibility
-
-    accounts = CustomerAccount.query.filter_by(active=True).order_by(CustomerAccount.id).limit(501).all()
+    targeted_cart = None
+    if campaign.campaign_type == "abandoned_cart" and campaign.generation_source == "abandoned_cart":
+        try:
+            reference = json.loads(campaign.generation_reference or "{}")
+            cart_id = int(reference.get("cart_id"))
+            episode = str(reference.get("episode_key") or "")
+        except (TypeError, ValueError, AttributeError):
+            raise ValueError("Generated cart draft has invalid source metadata.") from None
+        targeted_cart = CustomerCart.query.filter_by(id=cart_id).first()
+        if (not targeted_cart or targeted_cart.account_id is None
+                or (targeted_cart.episode_key or targeted_cart.updated_at.isoformat()) != episode):
+            return [], [], {"cart_episode_changed": 1}
+        accounts = [CustomerAccount.query.get(targeted_cart.account_id)]
+        accounts = [account for account in accounts if account]
+    else:
+        accounts = CustomerAccount.query.filter_by(active=True).order_by(CustomerAccount.id).limit(501).all()
     if len(accounts) > 500:
         raise ValueError("Campaign audience exceeds the 500-account safety limit. Split it into separately approved campaigns.")
     eligible, exclusions = [], {}
     for account in accounts:
         decision = evaluate_marketing_eligibility(account, now=scheduled_for)
         if decision.eligible:
-            if campaign.campaign_type == "abandoned_cart" and not _account_products(campaign, account):
-                reason = "no_active_cart_items"
+            if campaign.campaign_type == "abandoned_cart":
+                from app.services.marketing_campaign_preparation import cart_is_preparable
+                cart = targeted_cart or CustomerCart.query.filter_by(account_id=account.id).first()
+                valid, reason, _products = cart_is_preparable(cart, scheduled_for) if cart else (False, "no_active_cart_items", [])
             else:
                 reason = ""
         else:
