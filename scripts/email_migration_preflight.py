@@ -82,8 +82,14 @@ def build_report(connection) -> dict:
     tables = sorted(inspector.get_table_names(schema=EXPECTED_SCHEMA))
     details = []
     for name in tables:
-        table = Table(name, MetaData(), schema=EXPECTED_SCHEMA, autoload_with=connection)
-        count = connection.execute(select(func.count()).select_from(table)).scalar_one()
+        preparer = connection.dialect.identifier_preparer
+        qualified_name = (
+            f"{preparer.quote_schema(EXPECTED_SCHEMA)}."
+            f"{preparer.quote(name)}"
+        )
+        count = connection.exec_driver_sql(
+            f"SELECT count(*) FROM {qualified_name}"
+        ).scalar_one()
         details.append({
             "name": name, "row_count": int(count),
             "columns": [{"name": col["name"], "type": str(col["type"]),
