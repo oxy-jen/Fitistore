@@ -1,0 +1,49 @@
+name: Scoped marketing draft-preparation migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type APPLY MARKETING DRAFT PREPARATION 20261121
+        required: true
+        type: string
+      backup_confirmation:
+        description: Type I HAVE A VERIFIED RESTORABLE BACKUP
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: scoped-marketing-draft-preparation-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+      EXPECTED_DATABASE_NAME: ${{ vars.NEON_DATABASE_NAME }}
+      EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
+      EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
+      MIGRATION_CONFIRMATION: ${{ inputs.confirmation }}
+      BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+    steps:
+      - name: Check out the dispatch commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install application requirements
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Apply only the approved marketing draft-preparation migration
+        run: python scripts/apply_marketing_draft_preparation_migration.py
