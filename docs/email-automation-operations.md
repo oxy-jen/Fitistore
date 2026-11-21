@@ -415,8 +415,7 @@ GitHub's current branch protection or deployment configuration.
 
 ## Isolated PostgreSQL validation procedure
 
-No database operation is authorized by this runbook. Before the later isolated
-test, an operator must verify the Neon Console project ID/name and region for
+Before an isolated test, verify the Neon Console project ID/name and region for
 the restore-test project, and confirm the database endpoint shown by that
 project matches the privately configured connection target. Do not use a
 database name or role alone as proof. Do not fall back to production credentials.
@@ -428,11 +427,15 @@ against the expected restore project metadata. If any value differs, stop.
 Then use the repository schema guard to inspect tables, columns, constraints,
 foreign keys, indexes, sequences, triggers, functions, permissions, and
 migration checksums. Compare counts/schema to the restored baseline. Migration
-execution remains a later separate approval; this remediation does not run it.
+execution remains conditional on a successful identity and schema preflight and
+is limited to the explicitly approved isolated target; this runbook does not
+execute it.
 
-The local identity-pinned preflight can load the dedicated file without
-printing its URL. Run this from the repository root only after confirming the
-file contains the already verified restore-test endpoint:
+The local identity-pinned preflight targets the verified Neon restore-test
+host, role `neondb_owner`, database `backup_restore_check`, schema `public`,
+and PostgreSQL major 18. The isolated URL must name `backup_restore_check`;
+the previous `neondb` target is rejected. Run this from the repository root
+only after confirming the private URL matches the restore-test endpoint:
 
 ```powershell
 @'
@@ -456,8 +459,10 @@ The GitHub migration workflow uses the Neon repository secret and variables;
 it is not the isolated restore-test runner. Do not dispatch it for isolated
 testing or use it before its production-target approval gates are reviewed.
 
-Only after separate approval for schema changes on the isolated test target,
-use `scripts/run_isolated_email_cli.py`. It loads `.env.neon-test` in its own
+The owner has approved applying the campaign draft preparation migration only
+to the isolated `backup_restore_check` database for this validation task. Use
+`scripts/run_isolated_email_cli.py` after the preflight reports that it is the
+only missing migration. It loads `.env.neon-test` in its own
 process, verifies the exact host/database/role before creating the Flask app,
 enforces `sslmode=verify-full`, and never prints the URL. Its commands are:
 

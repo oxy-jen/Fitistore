@@ -17,7 +17,7 @@ from sqlalchemy import MetaData, Table, create_engine, func, inspect, select, te
 from sqlalchemy.engine import make_url
 
 EXPECTED_HOST = "ep-bold-field-arckwyfj.c-4.us-west-2.aws.neon.tech"
-EXPECTED_DATABASE = "neondb"
+EXPECTED_DATABASE = "backup_restore_check"
 EXPECTED_ROLE = "neondb_owner"
 EXPECTED_SCHEMA = "public"
 EXPECTED_PG_MAJOR = 18
@@ -31,6 +31,7 @@ EXPECTED_MIGRATIONS = [
     "20261113_email_outbox", "20261116_email_delivery_ops",
     "20261117_email_legacy_review", "20261117_email_admin_test_purpose",
     "20261117_customer_consent_audit_immutable", "20261113_marketing_suppression",
+    "20261121_marketing_campaign_draft_preparation",
 ]
 
 
