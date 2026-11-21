@@ -298,6 +298,32 @@ the exact confirmation and application environment gate. Keep the queue gate
 and every type gate unset or `false` until campaign schema, sender, consent
 eligibility, and a single controlled test plan are approved.
 
+### Marketing schedule and preparation model
+
+The existing low-cost dispatch cadence is every 15 minutes. A scheduled run
+only dispatches rows whose campaign is approved, scheduled, due, still enabled
+by its campaign-type gate, and eligible at dispatch time. GitHub scheduled
+events are best-effort, so delivery may occur after the selected time; the
+cadence is a polling interval, not a send-time guarantee. With the master gate
+unset or `false`, the job is skipped before a runner starts.
+
+| Work | Current processing | Recommended cadence |
+| --- | --- | --- |
+| Approved scheduled campaign dispatch | `process-marketing-email-queue` | Every 15 minutes; already configured. |
+| Abandoned-cart campaign | Admin creates and approves an `abandoned_cart` campaign; the audience is sampled when scheduled and each recipient's cart content is rendered into that campaign message. Eligibility and campaign state are checked again at dispatch. | Dispatch on the same 15-minute poll. This is not a per-cart idle timer; no automatic cart-idle campaign generator is active. |
+| Weekly product recommendations | Admin selects products, previews and schedules a `weekly_picks` campaign. | Prepare and schedule once weekly in the admin campaign center; dispatch on the same poll. No automatic weekly draft generator is active. |
+| New-arrival campaign preparation | Admin creates a `new_product` campaign for currently active/in-stock products, then previews and schedules it. | Prepare when new products are ready for promotion; a weekly editorial review is a sensible operating cadence. No product-created trigger or automatic draft generator is active. |
+
+This arrangement intentionally automates delivery of approved campaigns while
+keeping content selection and approval human-controlled. The legacy
+`run-marketing-automation` command and `.github/workflows/marketing-automation.yml`
+are paused/no-op; do not schedule or enable them. The old
+`MarketingAutomationSettings` table is not the control plane for the campaign
+worker, and no admin settings screen currently configures its legacy daily or
+weekly hours. Automatic draft generation and per-cart idle scheduling remain
+future work if desired; they must be added as a separately reviewed, gated
+feature rather than by reviving the legacy direct-send path.
+
 | Exact name | Location | Default / purpose |
 | --- | --- | --- |
 | `EMAIL_MARKETING_QUEUE_ENABLED` | Render application environment and GitHub Actions variable | `false`; master scheduling/worker gate. |

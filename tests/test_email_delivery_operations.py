@@ -272,9 +272,10 @@ def test_transactional_worker_expires_old_codes_without_touching_excluded_kinds(
     from app.services import customer_mail
 
     now = datetime.utcnow()
-    expired_code = _queued_worker_message(
-        "isolated-expired-code", "verify_code", "transactional",
+    _account, _token, expired_code = _queued_auth_code(
+        "isolated-expired-code", "verify_code",
         created_at=now - timedelta(minutes=11),
+        expires_at=now - timedelta(seconds=1),
     )
     expired_retry = _queued_worker_message(
         "isolated-expired-reset", "reset_password", "transactional",
