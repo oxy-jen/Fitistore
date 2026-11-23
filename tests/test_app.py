@@ -6548,3 +6548,18 @@ def test_admin_test_purpose_migration_corrects_only_legacy_test_rows():
             assert rows == [(1, "test"), (2, "transactional")]
     finally:
         engine.dispose()
+
+def test_admin_email_center_hides_retired_legacy_senders(client, app):
+    _sign_in_admin(client, app)
+
+    response = client.get("/admin/email")
+
+    assert response.status_code == 200
+    assert b"Open Marketing campaign centre" in response.data
+    assert b"Promotional campaign workflow" in response.data
+    assert b"Transactional order and account emails" in response.data
+    assert b"Send a promotional email" not in response.data
+    assert b"Send an administrator-authored message" not in response.data
+    assert b'name="confirm_send"' not in response.data
+    assert b'name="service_confirm_send"' not in response.data
+    assert b"Use Marketing campaign centre" not in response.data
