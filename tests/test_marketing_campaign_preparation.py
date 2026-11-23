@@ -145,3 +145,60 @@ def test_recent_cart_and_terminal_order_are_excluded(app, app_context):
 
     assert cart_is_preparable(recent, now)[0] is False
     assert cart_is_preparable(old_cart, now)[:2] == (False, "terminal_order_exists")
+
+
+def test_special_offer_generation_uses_real_price_markdown(app, app_context):
+    from app.services.marketing_campaign_preparation import prepare_marketing_campaign_drafts
+
+    product = Product.query.filter_by(slug="plain-socks").one()
+    product.price_cents = 4000
+    product.previous_price_cents = 5000
+    app.config["EMAIL_MARKETING_PREPARATION_ENABLED"] = True
+    db.session.commit()
+
+    result = prepare_marketing_campaign_drafts(now=_now())
+    offer = EmailCampaign.query.filter_by(
+        generation_key=f"prepare:special_offer:product:{product.id}"
+    ).one()
+
+    assert result["special_offers"] == 1
+    assert offer.campaign_type == "special_offer"
+    assert offer.status == "draft"
+    assert "reduced price" in offer.body
+    assert EmailMessage.query.filter_by(campaign_id=offer.id).count() == 0
+
+
+def test_generated_campaign_auto_schedule_is_gated_and_uses_campaign_worker(app, app_context):
+    from app.services.marketing_campaign_preparation import prepare_marketing_campaign_drafts
+
+    now = _now()
+    account = _eligible_account("auto-schedule@example.test")
+    product = Product.query.filter_by(slug="plain-socks").one()
+    product.created_at = now - timedelta(days=1)
+    app.config.update(
+        EMAIL_MARKETING_PREPARATION_ENABLED=True,
+        EMAIL_MARKETING_AUTO_SCHEDULE_GENERATED_ENABLED=True,
+        EMAIL_MARKETING_QUEUE_ENABLED=True,
+        EMAIL_MARKETING_NEW_PRODUCTS_ENABLED=True,
+        EMAIL_MARKETING_OFFERS_ENABLED=False,
+        EMAIL_MARKETING_WEEKLY_PICKS_ENABLED=False,
+        EMAIL_MARKETING_ABANDONED_CART_ENABLED=False,
+    )
+    db.session.commit()
+
+    result = prepare_marketing_campaign_drafts(now=now)
+    campaign = EmailCampaign.query.filter_by(
+        generation_key=f"prepare:new_arrival:product:{product.id}"
+    ).one()
+    recipient = EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id).one()
+    message = db.session.get(EmailMessage, recipient.message_id)
+
+    assert result["auto_schedule"]["scheduled"] == 1
+    assert campaign.status == "scheduled"
+    assert campaign.previewed_at is not None
+    assert campaign.approved_at is not None
+    assert campaign.scheduled_for >= now + timedelta(minutes=5)
+    assert recipient.account_id == account.id
+    assert recipient.status == "queued"
+    assert message is not None and message.status == "queued"
+    assert message.campaign_id == campaign.id
