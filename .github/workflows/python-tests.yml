@@ -34,4 +34,9 @@ jobs:
         env:
           APP_ENV: test
           SECRET_KEY: test-only-explicit-secret-key-not-for-production
+          MAIL_PROVIDER: brevo
+          BREVO_API_KEY: test-only-brevo-key
+          MAIL_FROM_ADDRESS: orders@fitystore.top
+          MAIL_FROM_NAME: FityStores Test
+          MAIL_FROM_VERIFIED: "true"
         run: python -m pytest -q
