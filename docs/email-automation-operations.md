@@ -356,7 +356,7 @@ eligibility, and a single controlled test plan are approved.
 
 ### Marketing schedule and preparation model
 
-The existing low-cost dispatch cadence is every 15 minutes. A scheduled run
+The low-cost dispatch and preparation cadence is every five minutes. A scheduled run
 only dispatches rows whose campaign is approved, scheduled, due, still enabled
 by its campaign-type gate, and eligible at dispatch time. GitHub scheduled
 events are best-effort, so delivery may occur after the selected time; the
@@ -365,13 +365,12 @@ unset or `false`, the job is skipped before a runner starts.
 
 | Work | Current processing | Recommended cadence |
 | --- | --- | --- |
-| Approved scheduled campaign dispatch | `process-marketing-email-queue` | Every 15 minutes; already configured. |
-| Abandoned-cart draft preparation | The gated preparation job finds idle, currently eligible carts and creates generic, unscheduled `abandoned_cart` drafts targeted to a cart episode. Admin review is required; eligibility/cart state is checked again at audience snapshot and dispatch. | Every 15 minutes in the existing workflow only when `EMAIL_MARKETING_PREPARATION_ENABLED=true`; draft generation is separately default-off. |
-| Weekly product recommendations | The gated preparation job creates at most one `weekly_picks` draft per ISO week using recorded paid sales/cart additions, or available catalogue items when no reliable signal exists. Admin can edit/replace products and must preview/schedule. | Checked every 15 minutes by the existing workflow; uniqueness prevents more than one draft per week. |
-| New-arrival campaign preparation | Active, in-stock products created or positively restocked within the configured lookback are prepared as `new_product` drafts using stored product data. Admin can edit and preview. | Checked every 15 minutes by the existing workflow; default lookback is 7 days. |
+| Approved scheduled campaign dispatch | `process-marketing-email-queue` | Every five minutes; GitHub schedule is best-effort. |
+| Abandoned-cart preparation and auto-scheduling | The gated job finds idle carts, creates generic drafts targeted to one cart episode, and can auto-schedule one eligible generated campaign per poll when the auto-schedule, master queue, and abandoned-cart type gates are enabled. | Every five minutes; final eligibility/cart state is checked at scheduling and dispatch. |
+| Weekly product recommendations | The gated preparation job creates at most one `weekly_picks` campaign per ISO week using recorded paid sales/cart additions, or available catalogue items when no reliable signal exists. Auto-scheduling is separately gated. | Checked every five minutes; uniqueness prevents more than one generated campaign per week. |
+| New-arrival and special-offer campaigns | Active, in-stock products created/restocked within the lookback and products with a real previous-price/current-price markdown are prepared using stored product data. Auto-scheduling is separately gated. | Checked every five minutes; price/stock are validated before scheduling. |
 
-This arrangement prepares review-only drafts while keeping content approval,
-scheduling and delivery human-controlled. The legacy
+Generated campaigns can be automatically scheduled only through the separate opt-in gate; manual/custom campaigns remain human-controlled. The legacy
 `run-marketing-automation` command and `.github/workflows/marketing-automation.yml`
 are paused/no-op; do not schedule or enable them. The old
 `MarketingAutomationSettings` table is not the control plane for either the
@@ -381,7 +380,7 @@ path.
 
 | Exact name | Location | Default / purpose |
 | --- | --- | --- |
-| `EMAIL_MARKETING_QUEUE_ENABLED` | Render application environment and GitHub Actions variable | `false`; master scheduling/worker gate. |
+| `EMAIL_MARKETING_AUTO_SCHEDULE_GENERATED_ENABLED` | GitHub Actions variable | `false`; only system-generated campaign types can be auto-scheduled. |\n| `EMAIL_MARKETING_QUEUE_ENABLED` | Render application environment and GitHub Actions variable | `false`; master scheduling/worker gate. |
 | `EMAIL_MARKETING_NEW_PRODUCTS_ENABLED` | Render application environment and GitHub Actions variable | `false`; new-product campaigns. |
 | `EMAIL_MARKETING_OFFERS_ENABLED` | Render application environment and GitHub Actions variable | `false`; special-offer campaigns. |
 | `EMAIL_MARKETING_WEEKLY_PICKS_ENABLED` | Render application environment and GitHub Actions variable | `false`; weekly-picks campaigns. |
