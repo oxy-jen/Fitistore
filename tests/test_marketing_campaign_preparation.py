@@ -4,7 +4,7 @@ import json
 from test_app import app, app_context
 from app.extensions import db
 from app.models import (
-    CustomerAccount, CustomerCart, CustomerOrderLink, EmailCampaign,
+    CustomerAccount, CustomerCart, CustomerOrderLink, EmailCampaign, EmailCampaignRecipient,
     EmailMessage, Order, OrderItem, Product,
 )
 
