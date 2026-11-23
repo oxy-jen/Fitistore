@@ -97,8 +97,109 @@ def test_central_marketing_eligibility_requires_verified_consent_and_valid_addre
     account.marketing_withdrawn_at = datetime.utcnow()
     assert evaluate_marketing_eligibility(account).reason_code == "consent_withdrawn"
     account.marketing_withdrawn_at = None
+    account.marketing_status = "unsubscribed"
+    assert evaluate_marketing_eligibility(account).reason_code == "not_subscribed"
+    account.marketing_status = "subscribed"
     account.active = False
     assert evaluate_marketing_eligibility(account).reason_code == "account_inactive"
+
+
+def test_central_eligibility_fails_closed_when_suppression_case_table_is_missing(
+    app, app_context, monkeypatch,
+):
+    from types import SimpleNamespace
+    from app.services.marketing_eligibility import evaluate_marketing_eligibility
+
+    account = SimpleNamespace(
+        id=901, email="missing-suppression-schema@example.test", active=True,
+        email_verified_at=datetime.utcnow(), marketing_status="subscribed",
+        marketing_consent_at=datetime.utcnow(), marketing_withdrawn_at=None,
+        created_at=datetime.utcnow(),
+    )
+
+    class MissingCaseInspector:
+        @staticmethod
+        def has_table(_table_name):
+            return False
+
+    monkeypatch.setattr("sqlalchemy.inspect", lambda _connection: MissingCaseInspector())
+    result = evaluate_marketing_eligibility(account)
+    assert not result.eligible
+    assert result.reason_code == "suppression_schema_unavailable"
+
+
+def test_central_eligibility_fails_closed_when_suppression_case_columns_are_incomplete(
+    app, app_context, monkeypatch,
+):
+    from types import SimpleNamespace
+    from app.services.marketing_eligibility import evaluate_marketing_eligibility
+
+    account = SimpleNamespace(
+        id=902, email="incomplete-suppression-schema@example.test", active=True,
+        email_verified_at=datetime.utcnow(), marketing_status="subscribed",
+        marketing_consent_at=datetime.utcnow(), marketing_withdrawn_at=None,
+        created_at=datetime.utcnow(),
+    )
+
+    class IncompleteCaseInspector:
+        @staticmethod
+        def has_table(_table_name):
+            return True
+
+        @staticmethod
+        def get_columns(_table_name):
+            return [{"name": "account_id"}]
+
+    monkeypatch.setattr("sqlalchemy.inspect", lambda _connection: IncompleteCaseInspector())
+    result = evaluate_marketing_eligibility(account)
+    assert not result.eligible
+    assert result.reason_code == "suppression_schema_incomplete"
+
+
+def test_central_eligibility_fails_closed_when_schema_inspection_raises(
+    app, app_context, monkeypatch,
+):
+    from types import SimpleNamespace
+    from app.services.marketing_eligibility import evaluate_marketing_eligibility
+
+    account = SimpleNamespace(
+        id=903, email="inspection-error@example.test", active=True,
+        email_verified_at=datetime.utcnow(), marketing_status="subscribed",
+        marketing_consent_at=datetime.utcnow(), marketing_withdrawn_at=None,
+        created_at=datetime.utcnow(),
+    )
+
+    def fail_inspection(_connection):
+        raise RuntimeError("simulated catalog inspection failure")
+
+    monkeypatch.setattr("sqlalchemy.inspect", fail_inspection)
+    result = evaluate_marketing_eligibility(account)
+    assert not result.eligible
+    assert result.reason_code == "eligibility_unavailable"
+
+
+def test_central_eligibility_blocks_active_case_and_allows_only_cleared_case(
+    app, app_context,
+):
+    from app.services.marketing_eligibility import evaluate_marketing_eligibility
+
+    account = _account("suppression-clearance-eligibility@example.test")
+    case = record_suppression(
+        account.id, source="admin", reason_code="admin_review",
+        reason_text="Review pending.", actor_type="admin",
+        admin_id=AdminUser.query.filter_by(username="owner").one().id,
+    )
+    db.session.commit()
+    account.marketing_status = "subscribed"
+    assert evaluate_marketing_eligibility(account).reason_code == "active_suppression"
+
+    admin_id = AdminUser.query.filter_by(username="owner").one().id
+    case.cleared_at = datetime.utcnow()
+    case.cleared_by_admin_id = admin_id
+    case.clearance_reason = "Administrator reviewed the suppression."
+    account.marketing_status = "subscribed"
+    db.session.commit()
+    assert evaluate_marketing_eligibility(account).eligible
 
 
 def test_queue_email_persists_without_provider_io_then_worker_dispatches(app, app_context, monkeypatch):
