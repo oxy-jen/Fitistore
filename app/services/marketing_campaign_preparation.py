@@ -130,7 +130,7 @@ def _eligible_cart_accounts(now: datetime):
 
 
 def prepare_marketing_campaign_drafts(*, now: datetime | None = None) -> dict:
-    """Create only unscheduled drafts when the separate preparation gate is on."""
+    """Prepare generated campaigns and optionally schedule them behind independent gates."""
     from flask import current_app
     if not current_app.config.get("EMAIL_MARKETING_PREPARATION_ENABLED", False):
         return {"status": "disabled", "created": 0,
