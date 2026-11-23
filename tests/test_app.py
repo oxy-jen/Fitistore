@@ -3606,7 +3606,8 @@ def test_customer_auth_forms_keep_csrf_protection(client, app):
     response = client.post("/account/register", data={"email": "csrf@example.com"})
     assert response.status_code == 400
 
-def test_checkout_requires_verified_account_and_links_order_to_it(client, app_context, app):
+def test_checkout_requires_verified_account_and_links_order_to_it(client, app_context, app, monkeypatch):
+    import app.services.customer_mail as customer_mail
     guest_get = client.get("/checkout", follow_redirects=False)
     assert guest_get.status_code == 302
     assert guest_get.headers["Location"].endswith("/account/login?next=/checkout")
@@ -3619,11 +3620,21 @@ def test_checkout_requires_verified_account_and_links_order_to_it(client, app_co
     db.session.commit()
     accept_current_terms_for_test(account)
     assert client.post("/account/login", data={"email": account.email, "password": "a-strong-test-password-123"}, follow_redirects=True).status_code == 200
+    app.config.update({
+        "MAIL_PROVIDER": "brevo",
+        "MAIL_FROM_ADDRESS": "orders@fitystore.top",
+        "MAIL_FROM_NAME": "FityStores",
+        "MAIL_FROM_VERIFIED": True,
+        "BREVO_API_KEY": "test-brevo-api-key",
+    })
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html_body, text_body: "brevo-checkout-test-id")
     response = client.post("/checkout", data={"cart_json": "[{\"product_id\":1,\"quantity\":1}]", "customer_name": "Checkout", "fulfilment_method": "Collection"}, follow_redirects=True)
     assert response.status_code == 200
     order = Order.query.filter_by(customer_name="Checkout").one()
     assert CustomerOrderLink.query.filter_by(account_id=account.id, order_id=order.id).one()
-    assert EmailMessage.query.filter_by(order_id=order.id, kind="order_received").one().status == "queued"
+    email = EmailMessage.query.filter_by(order_id=order.id, kind="order_received").one()
+    assert email.status == "sent"
+    assert email.provider_message_id == "brevo-checkout-test-id"
 
 
 def test_order_received_email_renders_real_cart_and_secure_tracking_link(app, app_context):
