@@ -1296,16 +1296,32 @@ def checkout():
             session["referral_code"] = order.referral_code
         if isinstance(current_user._get_current_object(), CustomerAccount) and current_user.email_verified_at:
             try:
-                from app.services.customer_mail import notify_order_event
+                from app.services.customer_mail import deliver_email, notify_order_event
                 email_record = notify_order_event(order, "order_received", f"order-received:{order.id}")
                 if email_record is None:
                     current_app.logger.warning(
                         "order_confirmation_not_queued order_id=%s reason=missing_or_unverified_customer_link",
                         order.id,
                     )
+                elif email_record.status == "queued":
+                    # The order is already committed. Dispatch the confirmation
+                    # through the same guarded outbox path before returning checkout.
+                    delivered = deliver_email(email_record)
+                    db.session.refresh(email_record)
+                    if delivered and email_record.status == "sent":
+                        current_app.logger.info(
+                            "order_confirmation_sent order_id=%s email_message_id=%s provider_message_id=%s",
+                            order.id, email_record.id, email_record.provider_message_id or "unavailable",
+                        )
+                    else:
+                        current_app.logger.error(
+                            "order_confirmation_immediate_delivery_failed order_id=%s email_message_id=%s status=%s reason=%s",
+                            order.id, email_record.id, email_record.status,
+                            (email_record.failure_reason or "provider_not_configured")[:160],
+                        )
                 else:
                     current_app.logger.info(
-                        "order_confirmation_queued order_id=%s email_message_id=%s status=%s",
+                        "order_confirmation_already_processed order_id=%s email_message_id=%s status=%s",
                         order.id, email_record.id, email_record.status,
                     )
             except Exception:
