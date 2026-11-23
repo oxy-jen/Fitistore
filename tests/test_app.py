@@ -2083,8 +2083,7 @@ def test_admin_email_center_excludes_unverified_opt_ins_from_marketing_candidate
 
     assert response.status_code == 200
     assert b"Checkbox Subscriber" in response.data
-    assert b"including existing subscribed accounts" in response.data
-    assert b"before suppression and frequency checks: 1." in response.data
+    assert b"Eligible verified subscribers</span><strong>1</strong>" in response.data
     assert b"admin-email.css?v=admin-email-responsive-20261119" in response.data
     assert b'class="admin-email-overview"' in response.data
     assert b'class="form-card admin-email-section"' in response.data
@@ -5065,7 +5064,8 @@ def test_manual_email_page_uses_real_linked_orders_and_admin_auth(client, app, a
     assert response.status_code == 200
     assert b"REAL-ORDER-101" in response.data
     assert b"Processing" in response.data
-    assert b"select eligible recipients" in response.data.lower()
+    assert b"Promotional Campaign Workflow" in response.data
+    assert b"select eligible recipients" not in response.data.lower()
 
 
 def test_manual_email_uses_brevo_products_and_idempotent_send(client, app, app_context, monkeypatch):
@@ -6548,3 +6548,24 @@ def test_admin_test_purpose_migration_corrects_only_legacy_test_rows():
             assert rows == [(1, "test"), (2, "transactional")]
     finally:
         engine.dispose()
+
+
+def test_admin_email_center_uses_campaign_workflow_and_preserves_transactional_tools(client, app):
+    _sign_in_admin(client, app)
+
+    response = client.get("/admin/email")
+
+    assert response.status_code == 200
+    assert b"Promotional Campaign Workflow" in response.data
+    assert b'href="/admin/email/campaigns"' in response.data
+    assert client.get("/admin/email/campaigns").status_code == 200
+    assert b"Open Email Studio" in response.data
+    assert b"Email queue and recent history" in response.data
+    assert b"Send a promotional email" not in response.data
+    assert b"Send an administrator-authored message" not in response.data
+    assert b"Service message subject" not in response.data
+    assert b"For multiple recipients, type the exact confirmation" not in response.data
+    assert b'name="confirm_send"' not in response.data
+    assert b'name="service_confirm_send"' not in response.data
+    assert b'url_for("admin.send_manual_customer_email")' not in response.data
+    assert b'url_for("admin.send_service_customer_email")' not in response.data

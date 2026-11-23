@@ -8,7 +8,12 @@
     <p>{{ mail_note }}{% if test_address %} Test address: {{ test_address }}{% else %} No test address is configured.{% endif %}</p>
   </div>
 </section>
-<p class="status-warn">Legacy manual promotional and administrator-authored marketing sends are paused because they are not campaign-linked. Use the Marketing campaign centre. Transactional Email Studio notices remain separate.</p>
+<section class="form-card admin-email-section" aria-labelledby="campaign-email-workflow-title">
+  <h2 id="campaign-email-workflow-title">Promotional Campaign Workflow</h2>
+  <p>Promotional emails are managed through campaigns so every send has a preview, an approval and schedule record, and campaign-level delivery tracking.</p>
+  <p>Use the Marketing Campaign Centre to prepare and manage promotional campaigns. Transactional order and account emails continue through their dedicated workflows.</p>
+  <a class="btn primary" href="{{ url_for('admin.email_campaigns') }}">Open Marketing Campaign Centre</a>
+</section>
 <section class="admin-email-overview" aria-label="Email operations overview">
   <article><span>Eligible verified subscribers</span><strong>{{ eligible_total }}</strong></article>
   <article><span>Opt-in requests awaiting confirmation</span><strong>{{ pending_opt_in_total }}</strong></article>
@@ -38,67 +43,10 @@
   </div>
 </details>
 <details class="form-card admin-email-section">
-  <summary><span class="admin-email-section-title" role="heading" aria-level="2">Send a promotional email</span><span class="admin-email-summary-meta"><span class="admin-email-badge">Marketing</span><span class="admin-email-badge">{{ eligible_total }} eligible</span></span></summary>
-  <div class="admin-email-section-body">
-  <h2>Send a promotional email</h2>
-  <p>This legacy manual sender is paused. Create, preview, and schedule promotional email in the Marketing campaign centre. The campaign worker rechecks consent, suppression, and unsubscribe state at dispatch.</p>
-  <p id="manual-recipient-count" aria-live="polite">0 recipients selected. Active, verified subscribers before suppression and frequency checks: {{ eligible_total }}.</p>
-  {% if not messages_available %}
-    <p class="status-warn">Sending is unavailable: the email history table is missing. No email will be sent until the existing customer email schema is available.</p>
-  {% endif %}
-  {% if not mail_configured %}<p class="status-warn">{{ mail_note }}</p>{% endif %}
-  <form method="post" action="{{ url_for('admin.send_manual_customer_email') }}" onsubmit="return this.confirm_send.value !== 'SEND' || confirm('Send this email to the selected eligible customers?')">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="send_key" value="{{ send_key }}">
-    {% if promotional_templates %}<label>Promotional design<select data-email-template name="template_id">{% for item in promotional_templates %}<option value="{{ item.id }}" data-subject="{{ item.subject|e }}" data-headline="{{ item.headline|e }}" data-message="{{ item.message|e }}"{% if item.id == default_promotional_template_id %} selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label><p>The newest saved Email Studio design is selected by default. This sender now uses its full visual layout and content blocks. Edit the layout in Email Studio; choose the products to feature below.</p>{% else %}<input type="hidden" name="template_id" value=""><p>The BEI FITS promotional design will be used. Build and save a reusable version in Email Studio to customize its content blocks.</p>{% endif %}
-    <label class="check"><input type="checkbox" name="all_eligible" value="yes"> Send to all active, verified eligible subscribers (including existing subscribed accounts)</label>
-    <fieldset><legend>Or select eligible recipients</legend>
-      {% for account in accounts if account.active and account.email_verified_at and account.marketing_status == 'subscribed' and not account.marketing_withdrawn_at %}
-      <label class="check"><input type="checkbox" name="account_ids" value="{{ account.id }}"> {{ account.display_name or 'Customer' }} - {{ account.email }}</label>
-      {% else %}<p>No eligible subscribers match this search.</p>{% endfor %}
-    </fieldset>
-    <label>Subject<input name="subject" maxlength="200" required></label>
-    <label>Headline<input name="headline" maxlength="200" required></label>
-    <label>Message<textarea name="body" maxlength="5000" rows="6" required></textarea></label>
-    <fieldset><legend>Products to feature (optional)</legend><p>If none are checked, the current in-stock featured products are used.</p>
-      {% for product in products %}
-      <label class="check"><input type="checkbox" name="product_ids" value="{{ product.id }}"> {{ product.name }}{% if product.price_cents is not none %} - KSh {{ '%.2f'|format(product.price_cents / 100) }}{% endif %}</label>
-      {% else %}<p>No active products are available.</p>{% endfor %}
-    </fieldset>
-    <label>For multiple recipients, type the exact confirmation shown (for example SEND 3)<input name="confirm_send" maxlength="20" autocomplete="off"></label>
-    <button class="btn primary" disabled>Use Marketing campaign centre</button>
-  </form>
-  </div>
-</details>
-<details class="form-card admin-email-section">
-  <summary><span class="admin-email-section-title" role="heading" aria-level="2">Send an administrator-authored message</span><span class="admin-email-summary-meta"><span class="admin-email-badge">Marketing checks apply</span></span></summary>
-  <div class="admin-email-section-body">
-  <h2>Send an administrator-authored message</h2>
-  <p>Legacy administrator-authored messages are paused because they are not campaign-linked. Use the Marketing campaign centre for promotional content; necessary order and account notices use their dedicated workflows.</p>
-  {% if service_eligible_total > 500 %}<p class="status-warn">There are {{ service_eligible_total }} eligible subscribers. Search for a smaller group and select recipients individually; the send limit is 500.</p>{% endif %}
-  {% if not service_messages_available %}<p class="status-warn">Service email is unavailable until email history and admin audit storage are ready.</p>{% endif %}
-  <form method="post" action="{{ url_for('admin.send_service_customer_email') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input type="hidden" name="service_send_key" value="{{ service_send_key }}">
-    {% if service_templates %}<label>Reuse a saved service template<select data-email-template><option value="">Choose service template</option>{% for item in service_templates %}<option data-subject="{{ item.subject }}" data-message="{{ item.message }}">{{ item.name }}</option>{% endfor %}</select></label><p>Loading a template fills its subject and message. For the complete visual layout, open it in Email Studio.</p>{% endif %}
-    {% if service_eligible_total <= 500 %}<label class="check"><input type="checkbox" name="service_all_eligible" value="yes"> Send to all active, verified eligible subscribers (including existing subscribed accounts; {{ service_eligible_total }})</label>{% endif %}
-    <fieldset><legend>Or select eligible subscribers</legend>
-      {% for account in accounts if account.active and account.email_verified_at and account.marketing_status == 'subscribed' and not account.marketing_withdrawn_at %}
-      <label class="check"><input type="checkbox" name="account_ids" value="{{ account.id }}"> {{ account.display_name or 'Customer' }} — {{ account.email }}</label>
-      {% else %}<p>No eligible subscribers match this search.</p>{% endfor %}
-    </fieldset>
-    <label>Subject<input name="service_subject" maxlength="200" required></label>
-    <label>Message<textarea name="service_body" maxlength="5000" rows="5" required></textarea></label>
-    <label>For multiple recipients, type the exact confirmation shown (for example SEND 3)<input name="service_confirm_send" maxlength="20" autocomplete="off"></label>
-    <button class="btn primary" disabled>Use Marketing campaign centre</button>
-  </form>
-  </div>
-</details>
-<details class="form-card admin-email-section">
   <summary><span class="admin-email-section-title" role="heading" aria-level="2">Registered customers</span><span class="admin-email-summary-meta"><span class="admin-email-badge">{{ accounts|length }} account{{ '' if accounts|length == 1 else 's' }}</span></span></summary>
   <div class="admin-email-section-body">
   <h2>Registered customers</h2>
-  <p>Customer accounts are listed below with verification, consent and suppression status. Individual administrator-authored messages use marketing eligibility checks.</p>
+  <p>Customer accounts are listed below with verification, consent and suppression status.</p>
   {% if not suppression_schema_ready %}<p class="status-warn">Suppression case controls are pending the explicit marketing suppression schema migration. Existing customer consent and unsubscribe controls remain available.</p>{% endif %}
   {% for account in accounts %}
   <details class="admin-email-account">
@@ -160,16 +108,6 @@
       </form>
     </details>
     {% endif %}
-    {% if account.active and account.email_verified_at %}
-    <form method="post" action="{{ url_for('admin.email_customer_message', account_id=account.id) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="send_key" value="{{ send_key }}">
-      <label>Service message subject<input name="subject" maxlength="200" required></label>
-      <label>Service message<textarea name="body" maxlength="5000" required></textarea></label>
-      <label class="check"><input type="checkbox" name="confirm_send" value="yes" required> Send this individual service message</label>
-      <button class="btn" disabled>Use Marketing campaign centre</button>
-    </form>
-    {% endif %}
   </details>
   {% else %}<p>No matching customer accounts.</p>{% endfor %}
   </div>
@@ -228,33 +166,5 @@
 </div>
 </details>
 {% endif %}
-<script>
-document.querySelectorAll('[data-email-template]').forEach(select => select.addEventListener('change', () => {
-  const option = select.selectedOptions[0];
-  if (!option?.dataset.subject) return;
-  const form = select.closest('form');
-  const subject = form.querySelector('[name="subject"], [name="service_subject"]');
-  const message = form.querySelector('[name="body"], [name="service_body"]');
-  if (subject) subject.value = option.dataset.subject || subject.value;
-  const headline = form.querySelector('[name="headline"]');
-  if (headline && option.dataset.headline) headline.value = option.dataset.headline;
-  if (message) message.value = option.dataset.message || message.value;
-}));
-document.querySelectorAll('[data-email-template]').forEach(select => {
-  if (select.value) select.dispatchEvent(new Event('change'));
-});
-(() => {
-  const form = document.querySelector('form[action="{{ url_for("admin.send_manual_customer_email") }}"]');
-  const output = document.getElementById("manual-recipient-count");
-  if (!form || !output) return;
-  const update = () => {
-    const all = form.querySelector('[name="all_eligible"]');
-    const count = all.checked ? "{{ eligible_total }}" : form.querySelectorAll('[name="account_ids"]:checked').length;
-    output.textContent = (all.checked ? "All " : "") + count + " recipients selected. Active, verified subscribers before suppression and frequency checks: {{ eligible_total }}.";
-  };
-  form.addEventListener("change", update);
-  update();
-})();
-</script>
 </div>
 {% endblock %}
