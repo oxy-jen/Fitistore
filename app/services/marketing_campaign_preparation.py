@@ -1,4 +1,4 @@
-"""Prepare review-only marketing campaign drafts; never queues or sends mail."""
+"""Prepare factual generated campaigns and optionally schedule them behind explicit gates."""
 from __future__ import annotations
 
 import html
@@ -134,15 +134,17 @@ def prepare_marketing_campaign_drafts(*, now: datetime | None = None) -> dict:
     from flask import current_app
     if not current_app.config.get("EMAIL_MARKETING_PREPARATION_ENABLED", False):
         return {"status": "disabled", "created": 0,
-                "new_arrivals": 0, "abandoned_carts": 0, "weekly_picks": 0}
+                "new_arrivals": 0, "abandoned_carts": 0, "weekly_picks": 0,
+                "special_offers": 0, "auto_schedule": {"status": "disabled", "scheduled": 0, "skipped": 0}}
 
     now = now or _now()
     admin = AdminUser.query.order_by(AdminUser.id).first()
     if not admin:
         return {"status": "no_admin", "created": 0,
-                "new_arrivals": 0, "abandoned_carts": 0, "weekly_picks": 0}
+                "new_arrivals": 0, "abandoned_carts": 0, "weekly_picks": 0,
+                "special_offers": 0, "auto_schedule": {"status": "disabled", "scheduled": 0, "skipped": 0}}
 
-    created = {"new_arrivals": 0, "abandoned_carts": 0, "weekly_picks": 0}
+    created = {"new_arrivals": 0, "abandoned_carts": 0, "weekly_picks": 0, "special_offers": 0}
     lookback_days = max(1, min(30, int(current_app.config.get("EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS", 7))))
     lookback_start = now - timedelta(days=lookback_days)
     last_product_id = 0
@@ -199,6 +201,27 @@ def prepare_marketing_campaign_drafts(*, now: datetime | None = None) -> dict:
             if created["abandoned_carts"] >= 100:
                 break
 
+    # Generate offer campaigns only from a real current markdown. The
+    # scheduler and dispatcher revalidate active stock and current prices.
+    offer_products = Product.query.filter(
+        Product.active.is_(True),
+        Product.price_cents.is_not(None),
+        Product.previous_price_cents.is_not(None),
+        Product.previous_price_cents > Product.price_cents,
+    ).order_by(Product.id).limit(100).all()
+    for product in offer_products:
+        if not _available(product):
+            continue
+        if _save_generated_draft(
+            admin=admin, source="special_offer", key_ref=f"product:{product.id}",
+            name=f"Special offer: {product.name}",
+            subject=f"Special prices at FityStores: {product.name}",
+            body=f"A reduced price is currently listed for {product.name}. Check the product page for the current price and availability.",
+            campaign_type="special_offer", products=[product],
+            reason="A current product price is lower than its recorded previous price; price and stock are checked again before dispatch.",
+        ):
+            created["special_offers"] += 1
+
     iso_year, iso_week, _ = now.isocalendar()
     weekly_key = f"{iso_year}-W{iso_week:02d}"
     if not EmailCampaign.query.filter_by(generation_key=_campaign_key("weekly_picks", weekly_key)).first():
@@ -220,4 +243,11 @@ def prepare_marketing_campaign_drafts(*, now: datetime | None = None) -> dict:
             created["weekly_picks"] += 1
 
     db.session.commit()
-    return {"status": "prepared", "created": sum(created.values()), **created}
+
+    auto_schedule = {"status": "disabled", "scheduled": 0, "skipped": 0}
+    if current_app.config.get("EMAIL_MARKETING_AUTO_SCHEDULE_GENERATED_ENABLED", False):
+        from app.services.marketing_campaign_auto_schedule import auto_schedule_generated_campaigns
+        auto_schedule = auto_schedule_generated_campaigns(now=now)
+
+    return {"status": "prepared", "created": sum(created.values()), **created,
+            "auto_schedule": auto_schedule}
