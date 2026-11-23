@@ -70,7 +70,7 @@ jobs:
           EXPECTED_DATABASE_SCHEMA: ${{ vars.NEON_DATABASE_SCHEMA }}
           EXPECTED_DATABASE_HOST: ${{ vars.NEON_DATABASE_HOST }}
         run: python scripts/customer_email_schema_guard.py preflight
-      - name: Prepare review-only campaign drafts
+      - name: Prepare generated campaigns and optionally schedule them
         env:
           FLASK_APP: manage:app
           APP_ENV: production
