@@ -9,7 +9,7 @@ def test_marketing_queue_workflow_keeps_schedule_and_dispatch_gates():
         encoding="utf-8"
     )
 
-    assert 'cron: "*/15 * * * *"' in workflow
+    assert 'cron: "*/5 * * * *"' in workflow
     assert "github.ref == 'refs/heads/main'" in workflow
     assert "vars.EMAIL_MARKETING_QUEUE_ENABLED == 'true'" in workflow
     assert "inputs.confirmation == 'RUN MARKETING EMAIL QUEUE'" in workflow
