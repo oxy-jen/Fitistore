@@ -150,61 +150,61 @@ snapshot eligible recipients, and schedule a marketing campaign. This avoids
 leaving legacy marketing rows queued without a worker that is allowed to
 process them. Saved templates and drafts remain available for reuse.
 
-### Automatic campaign draft preparation
+### Automatic campaign preparation and scheduling
 
-The `prepare-marketing-campaign-drafts` command is a separate, review-only
-preparation path. It does not create recipients, queue `EmailMessage` rows,
-approve campaigns, schedule campaigns, or contact Brevo. The command and its
-GitHub Actions job both fail closed unless
-`EMAIL_MARKETING_PREPARATION_ENABLED=true`; the default is false. The
-preparation gate is independent of `EMAIL_MARKETING_QUEUE_ENABLED` and the
-campaign-type dispatch gates.
+The preparation job creates idempotent, factual campaigns from catalogue and
+customer activity. It can prepare new arrivals, current price reductions,
+weekly picks, and abandoned-cart reminders. Price reductions are generated only
+when the stored previous price is greater than the current price; current price
+and stock are validated again before scheduling and at dispatch.
 
-The existing `.github/workflows/process-marketing-email-queue.yml` polls every
-15 minutes. Its independent `prepare` job uses the same cadence only when the
-preparation gate is enabled. New-arrival candidates are active, in-stock
-products created or positively restocked within the configured
-`EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS` window (default 7 days, bounded to
-1–30). Abandoned-cart candidates must have a valid available item, be past
-`EMAIL_MARKETING_ABANDONED_CART_IDLE_MINUTES` (default 180, bounded to 5–10,080
-minutes), have no active checkout, pass centralized marketing eligibility,
-and have no matching completed/cancelled order placed after the cart update.
-The weekly draft is unique per ISO week and uses recorded paid completed sales
-and cart additions when present; otherwise it uses currently available
-catalogue items without claiming they are popular.
+By default, preparation, automatic scheduling, the master marketing queue, and
+every campaign-type gate are off. The additional
+`EMAIL_MARKETING_AUTO_SCHEDULE_GENERATED_ENABLED=true` gate allows the
+preparation command to mark system-generated campaigns previewed and schedule
+them through the existing `schedule_campaign` service. It does not enable
+manual/custom campaigns. It schedules at most one generated campaign per type
+per poll, ten minutes ahead, and uses the normal audience snapshot and
+outbox. The normal marketing worker then rechecks account activity, verified
+email, recorded consent, subscription, withdrawal/unsubscribe history,
+suppression, current cart/product state, campaign status, and the mandatory
+24-hour frequency cap immediately before dispatch. A campaign with no eligible
+recipients remains an unscheduled draft.
 
-Automatic drafts appear in the existing Marketing campaigns list with their
-source and reason. An administrator can edit, preview, schedule manually or
-discard them. New-arrival/product and weekly-picks keys are unique per product
-and ISO week; abandoned-cart keys are unique per cart episode. Discarded drafts
-retain their unique key so the same source event is not silently regenerated.
-Abandoned-cart preview content is generic and contains no customer name,
-address or cart-specific recipient details. The generated draft targets that
-cart episode when scheduled; current eligibility, cart contents and idle
-threshold are rechecked during the audience snapshot. PostgreSQL behavior for
-simultaneous preparation is enforced by the unique partial index, but must be
-validated against the isolated PostgreSQL database before enabling the gate.
+New-arrival and offer candidates are idempotent per product; weekly picks are
+unique per ISO week; abandoned-cart candidates are unique per cart episode and
+target only the account/cart episode that generated the reminder. No customer
+address or cart details are included in the generated campaign copy. A campaign
+is not sent merely because it was prepared: all four controls (preparation,
+auto-scheduling, master queue, and relevant type gate) must be enabled, and the
+dispatch worker must successfully pass its final checks.
 
 The additive `20261121_marketing_campaign_draft_preparation` migration adds
-nullable generator metadata to `email_campaign` and a unique partial index.
-It preserves existing campaign rows. It has not been run against production
-or any database during local implementation. The explicit existing
-`migrate-customer-email-schema` command includes it under the existing
-transaction and migration-lock path; do not activate preparation until the
-isolated migration and schema-guard checks pass.
-
-Preparation configuration is deliberately separate from campaign delivery:
+nullable generator metadata and a unique partial index. The workflow's
+read-only database identity/schema preflight must validate this migration and
+its checksum before preparation runs. This code does not apply the migration
+automatically. Validate and apply it only to the explicitly approved isolated
+PostgreSQL restore first; do not enable production automation until the
+production schema is separately verified and migration is separately approved.
 
 | Setting | Location | Default / use |
 | --- | --- | --- |
-| `EMAIL_MARKETING_PREPARATION_ENABLED` | Render environment and GitHub Actions variable | `false`; must be explicitly enabled in each context. This creates drafts only. |
-| `EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS` | GitHub Actions variable (optional); Render environment for matching admin status | `7` days, bounded to 1-30. |
-| `EMAIL_MARKETING_ABANDONED_CART_IDLE_MINUTES` | GitHub Actions variable (optional); Render environment for matching admin status | `180` minutes, bounded to 5-10,080. |
+| `EMAIL_MARKETING_PREPARATION_ENABLED` | GitHub Actions variable | `false`; creates generated campaign drafts. |
+| `EMAIL_MARKETING_AUTO_SCHEDULE_GENERATED_ENABLED` | GitHub Actions variable | `false`; schedules only system-generated campaign types. |
+| `EMAIL_MARKETING_QUEUE_ENABLED` | Render environment and GitHub Actions variable | `false`; master scheduling/dispatch gate. |
+| `EMAIL_MARKETING_NEW_PRODUCTS_ENABLED` | Render environment and GitHub Actions variable | `false`; new-arrival campaigns. |
+| `EMAIL_MARKETING_OFFERS_ENABLED` | Render environment and GitHub Actions variable | `false`; current price-reduction campaigns. |
+| `EMAIL_MARKETING_WEEKLY_PICKS_ENABLED` | Render environment and GitHub Actions variable | `false`; weekly picks. |
+| `EMAIL_MARKETING_ABANDONED_CART_ENABLED` | Render environment and GitHub Actions variable | `false`; customer-specific abandoned carts. |
+| `EMAIL_MARKETING_NEW_ARRIVAL_LOOKBACK_DAYS` | GitHub Actions variable | `7` days, bounded to 1–30. |
+| `EMAIL_MARKETING_ABANDONED_CART_IDLE_MINUTES` | GitHub Actions variable | `180` minutes, bounded to 5–10,080. |
 
-The workflow uses the defaults above when optional Actions variables are unset.
-Leave the preparation gate unset or `false` until the additive migration has
-been applied and validated in the isolated PostgreSQL restore. This gate does
-not enable the marketing dispatch gate or any campaign-type gate.
+The marketing workflow polls every five minutes. GitHub scheduled events are
+best-effort; this is a polling interval, not an exact delivery-time guarantee.
+A generated campaign is scheduled ten minutes ahead so the independent worker
+can process it. The queue and preparation jobs remain independently gated.
+Keep custom and seasonal campaign gates disabled unless those campaigns are
+created and explicitly approved through the admin campaign centre.
 
 ### Email Studio test messages
 
