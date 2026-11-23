@@ -5,7 +5,8 @@ import pytest
 from test_app import app, app_context, client
 from app.extensions import db
 from app.models import (
-    CustomerAccount, EmailCampaign, EmailCampaignRecipient, EmailMessage,
+    CustomerAccount, EmailCampaign, EmailCampaignRecipient, EmailDeliveryAttempt,
+    EmailDeliveryInvestigation, EmailDeliveryInvestigationEvent, EmailMessage,
 )
 
 def _utcnow():
@@ -69,6 +70,56 @@ def marketing_enabled(app):
         EMAIL_MARKETING_ABANDONED_CART_ENABLED=False,
     )
     return app
+
+
+def _failed_401_campaign(count=9):
+    from app.services.email_purpose import MARKETING_CAMPAIGN_TYPE_KINDS
+    campaign = EmailCampaign(
+        name="Recovery test", subject="Reviewed campaign subject",
+        body="Original saved campaign content.", campaign_type="custom",
+        product_ids_json="[]", status="partial", approved_at=_utcnow(),
+        previewed_at=_utcnow(), created_by_id=1, created_at=_utcnow(),
+    )
+    db.session.add(campaign)
+    db.session.flush()
+    rows = []
+    for index in range(count):
+        account = _subscribed_account(f"recovery-{index}@example.test")
+        message = EmailMessage(
+            recipient=account.email, subject=campaign.subject,
+            kind=MARKETING_CAMPAIGN_TYPE_KINDS["custom"], purpose="marketing", campaign_id=campaign.id,
+            account_id=account.id,
+            idempotency_key=f"marketing-campaign:{campaign.id}:account:{account.id}",
+            status="failed", error_category="permanent_provider",
+            failure_reason="Brevo HTTP 401.", retry_count=1,
+            html_body=None, text_body=None,
+        )
+        db.session.add(message)
+        db.session.flush()
+        recipient = EmailCampaignRecipient(
+            campaign_id=campaign.id, account_id=account.id, recipient=account.email,
+            status="failed", failure_reason="Brevo HTTP 401.", message_id=message.id,
+        )
+        attempt = EmailDeliveryAttempt(
+            message_id=message.id, attempt_number=1,
+            attempt_key=f"failed-attempt-{campaign.id}-{account.id}",
+            provider="brevo", status="failed", started_at=_utcnow(),
+            completed_at=_utcnow(), error_category="permanent_provider",
+        )
+        db.session.add_all([recipient, attempt])
+        rows.append((account, message, recipient, attempt))
+    db.session.commit()
+    db.session.refresh(campaign)
+    return campaign, rows
+
+
+def _recover_campaign(campaign, *, count=9, scheduled_for=None):
+    from app.services.marketing_campaigns import recover_confirmed_campaign_rejections
+    scheduled_for = scheduled_for or (_utcnow() + timedelta(hours=1))
+    return recover_confirmed_campaign_rejections(
+        campaign.id, 1, scheduled_for=scheduled_for,
+        authorization=f"RECOVER {count}",
+    )
 
 
 def test_custom_campaign_uses_its_own_type_gate(marketing_enabled, app_context):
@@ -253,6 +304,206 @@ def test_campaign_cancel_preserves_ambiguous_provider_outcome(marketing_enabled,
     assert message.status == "failed"
     assert message.error_category == "ambiguous_outcome"
     assert recipient.status == "failed"
+
+
+def test_confirmed_brevo_401_campaign_recovery_reuses_nine_rows_without_sending(marketing_enabled, app_context, monkeypatch):
+    from app.services import customer_mail
+    from app.services.marketing_campaigns import campaign_recovery_candidate_count
+
+    campaign, originals = _failed_401_campaign()
+    original_message_ids = [message.id for _account, message, _recipient, _attempt in originals]
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: pytest.fail("recovery must not send"))
+
+    assert campaign_recovery_candidate_count(campaign) == 9
+    result = _recover_campaign(campaign)
+
+    assert result == {"requeued": 9, "suppressed": 0}
+    db.session.refresh(campaign)
+    assert campaign.status == "scheduled"
+    assert campaign.scheduled_for > _utcnow()
+    assert EmailMessage.query.filter_by(campaign_id=campaign.id).count() == 9
+    assert EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id).count() == 9
+    assert [message.id for _account, message, _recipient, _attempt in originals] == original_message_ids
+    for account, message, recipient, attempt in originals:
+        db.session.refresh(message)
+        db.session.refresh(recipient)
+        assert message.status == recipient.status == "queued"
+        assert message.campaign_id == recipient.campaign_id == campaign.id
+        assert message.account_id == recipient.account_id == account.id
+        assert message.idempotency_key == f"marketing-campaign:{campaign.id}:account:{account.id}"
+        assert "Original saved campaign content." in message.text_body
+        assert message.subject == campaign.subject
+        assert message.next_attempt_at == campaign.scheduled_for
+        investigation = EmailDeliveryInvestigation.query.filter_by(
+            message_id=message.id, recovered_message_id=message.id,
+        ).one()
+        event = EmailDeliveryInvestigationEvent.query.filter_by(
+            investigation_id=investigation.id,
+        ).one()
+        assert investigation.original_attempt_id == attempt.id
+        assert investigation.resolution_outcome == "not_accepted"
+        assert event.event_type == "campaign_recovery_authorized"
+    with pytest.raises(ValueError, match="partially failed"):
+        _recover_campaign(campaign)
+    assert EmailMessage.query.filter_by(campaign_id=campaign.id).count() == 9
+
+
+def test_definitive_brevo_401_clears_rendered_payload_but_campaign_can_be_reconstructed(marketing_enabled, app_context, monkeypatch):
+    from urllib.error import HTTPError
+    from app.services import customer_mail
+    from app.services.marketing_campaigns import campaign_recovery_candidate_count
+
+    campaign, _account, message = _campaign_with_message()
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    def reject(*_args):
+        raise HTTPError("https://provider.invalid", 401, "unauthorized", {}, None)
+    monkeypatch.setattr(customer_mail, "_send_brevo", reject)
+
+    assert not customer_mail.deliver_email(message)
+    db.session.refresh(message)
+    assert message.status == "failed"
+    assert message.error_category == "permanent_provider"
+    assert message.failure_reason == "Brevo HTTP 401."
+    assert message.next_attempt_at is None
+    assert message.html_body is None and message.text_body is None
+    attempt = EmailDeliveryAttempt.query.filter_by(message_id=message.id).one()
+    assert attempt.status == "failed"
+    assert attempt.error_category == "permanent_provider"
+
+    campaign.status = "partial"
+    recipient = EmailCampaignRecipient.query.filter_by(message_id=message.id).one()
+    recipient.status = "failed"
+    db.session.commit()
+    assert campaign_recovery_candidate_count(campaign) == 1
+
+    result = _recover_campaign(campaign, count=1)
+    db.session.refresh(message)
+    assert result == {"requeued": 1, "suppressed": 0}
+    assert "A short message." in message.text_body
+
+
+def test_campaign_recovery_excludes_ambiguous_or_non_401_messages(marketing_enabled, app_context):
+    from app.services.marketing_campaigns import campaign_recovery_candidate_count
+
+    campaign, originals = _failed_401_campaign(count=3)
+    _account, ambiguous, _recipient, _attempt = originals[0]
+    ambiguous.error_category = "ambiguous_outcome"
+    _account, other_status, _recipient, _attempt = originals[1]
+    other_status.failure_reason = "Brevo HTTP 403."
+    _account, repeated, _recipient, _attempt = originals[2]
+    repeated.retry_count = 2
+    db.session.commit()
+
+    assert campaign_recovery_candidate_count(campaign) == 0
+
+
+def test_campaign_recovery_rechecks_eligibility_and_suppresses_withdrawn_account(marketing_enabled, app_context):
+    campaign, originals = _failed_401_campaign(count=2)
+    withdrawn_account, withdrawn_message, withdrawn_recipient, _attempt = originals[0]
+    withdrawn_account.marketing_status = "unsubscribed"
+    withdrawn_account.marketing_withdrawn_at = _utcnow()
+    db.session.commit()
+
+    result = _recover_campaign(campaign, count=2)
+    db.session.refresh(withdrawn_message)
+    db.session.refresh(withdrawn_recipient)
+    assert result == {"requeued": 1, "suppressed": 1}
+    assert withdrawn_message.status == withdrawn_recipient.status == "suppressed"
+    assert withdrawn_message.html_body is None and withdrawn_message.text_body is None
+    assert EmailMessage.query.filter_by(campaign_id=campaign.id, status="queued").count() == 1
+    investigation = EmailDeliveryInvestigation.query.filter_by(
+        message_id=withdrawn_message.id,
+    ).one()
+    assert investigation.resolution_outcome == "not_accepted"
+    assert investigation.recovered_message_id is None
+    event = EmailDeliveryInvestigationEvent.query.filter_by(
+        investigation_id=investigation.id,
+    ).one()
+    assert event.event_type == "campaign_recovery_suppressed"
+
+
+def test_campaign_recovery_requires_delayed_exact_confirmation_and_preserves_state(marketing_enabled, app_context):
+    from app.services.marketing_campaigns import recover_confirmed_campaign_rejections
+
+    campaign, _originals = _failed_401_campaign(count=2)
+    with pytest.raises(ValueError, match="RECOVER 2"):
+        recover_confirmed_campaign_rejections(
+            campaign.id, 1, scheduled_for=_utcnow() + timedelta(hours=1), authorization="RECOVER 1",
+        )
+    with pytest.raises(ValueError, match="30 minutes"):
+        recover_confirmed_campaign_rejections(
+            campaign.id, 1, scheduled_for=_utcnow() + timedelta(minutes=10), authorization="RECOVER 2",
+        )
+    db.session.rollback()
+    db.session.refresh(campaign)
+    assert campaign.status == "partial"
+    assert EmailMessage.query.filter_by(campaign_id=campaign.id, status="failed").count() == 2
+
+
+def test_admin_campaign_recovery_action_schedules_only_and_shows_candidate_count(client, marketing_enabled, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    campaign, originals = _failed_401_campaign()
+    monkeypatch.setattr(customer_mail, "deliver_email", lambda *_args, **_kwargs: pytest.fail("admin recovery must not dispatch"))
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    page = client.get(f"/admin/email/campaigns/{campaign.id}")
+    assert page.status_code == 200
+    assert b"Recover confirmed Brevo rejections" in page.data
+    assert b"RECOVER 9" in page.data
+
+    from zoneinfo import ZoneInfo
+    when = datetime.now(ZoneInfo("Africa/Nairobi")) + timedelta(hours=1)
+    response = client.post(f"/admin/email/campaigns/{campaign.id}", data={
+        "action": "recover_confirmed_401", "confirmation": "RECOVER 9",
+        "scheduled_for": when.strftime("%Y-%m-%dT%H:%M"),
+    })
+    if response.status_code != 302:
+        from bs4 import BeautifulSoup
+        raise AssertionError(BeautifulSoup(response.data, "html.parser").get_text(" ", strip=True))
+    db.session.refresh(campaign)
+    assert campaign.status == "scheduled"
+    assert EmailMessage.query.filter_by(campaign_id=campaign.id, status="queued").count() == 9
+    assert all(recipient.status == "queued" for _account, _message, recipient, _attempt in originals)
+
+
+def test_recovered_campaign_is_processed_only_by_due_marketing_worker(marketing_enabled, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    campaign, originals = _failed_401_campaign(count=1)
+    scheduled_for = _utcnow() + timedelta(minutes=45)
+    _recover_campaign(campaign, count=1, scheduled_for=scheduled_for)
+    _account, message, recipient, prior_attempt = originals[0]
+    sent = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args) or "accepted-id")
+
+    before_due = customer_mail.process_marketing_email_queue(
+        now=scheduled_for - timedelta(minutes=1),
+        confirmation="RUN MARKETING EMAIL QUEUE",
+    )
+    db.session.refresh(message)
+    assert before_due["sent"] == 0 and not sent
+    assert message.status == "queued"
+
+    # Simulate the review window passing. The final dispatch claim uses its
+    # own current-time check rather than trusting a caller-supplied clock.
+    due_at = _utcnow() - timedelta(minutes=1)
+    campaign.scheduled_for = due_at
+    message.next_attempt_at = due_at
+    db.session.commit()
+    result = customer_mail.process_marketing_email_queue(
+        now=_utcnow(),
+        confirmation="RUN MARKETING EMAIL QUEUE",
+    )
+    db.session.refresh(message)
+    db.session.refresh(recipient)
+    assert result["sent"] == 1 and len(sent) == 1
+    assert message.status == recipient.status == "sent"
+    next_attempt = EmailDeliveryAttempt.query.filter_by(message_id=message.id).order_by(
+        EmailDeliveryAttempt.attempt_number.desc(),
+    ).first()
+    assert next_attempt.attempt_number == 2
+    assert next_attempt.recovery_of_attempt_id == prior_attempt.id
 
 
 def test_admin_campaign_preview_is_visible_and_does_not_queue_email(client, app_context):

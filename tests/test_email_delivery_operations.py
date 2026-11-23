@@ -456,6 +456,27 @@ def test_auth_provider_throttle_without_retry_after_has_no_automatic_retry(app, 
     assert result.html_body is None and result.text_body is None
 
 
+def test_authentication_401_still_clears_short_lived_code_payload(app, app_context, monkeypatch):
+    from urllib.error import HTTPError
+    from app.services import customer_mail
+
+    account, _token, row = _queued_auth_code("auth-unauthorized")
+    app.config["MAIL_PROVIDER"] = "brevo"
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(
+        customer_mail, "_send_brevo",
+        lambda *_args: (_ for _ in ()).throw(HTTPError("https://provider.invalid", 401, "unauthorized", {}, None)),
+    )
+
+    result = customer_mail.dispatch_authentication_email_now(
+        row, account_id=account.id, purpose="verify_code",
+    )
+
+    assert result.status == "failed"
+    assert result.error_category == "permanent_provider"
+    assert result.html_body is None and result.text_body is None
+
+
 def test_missing_provider_configuration_fails_code_without_retaining_payload(app, app_context, monkeypatch):
     from app.services import customer_mail
 

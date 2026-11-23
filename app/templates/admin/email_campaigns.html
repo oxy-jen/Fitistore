@@ -93,6 +93,20 @@
     {% endif %}
     <p>Pause and cancel prevent future campaign claims. A provider request already in progress cannot be recalled.</p>
   </section>
+  {% if campaign.status == 'partial' and campaign.campaign_type == 'custom' and recovery_candidate_count %}
+  <section class="form-card campaign-recovery" aria-labelledby="campaign-recovery-title">
+    <h2 id="campaign-recovery-title">Recover confirmed Brevo rejections</h2>
+    <p><strong>{{ recovery_candidate_count }}</strong> existing message(s) have a stored Brevo HTTP 401 rejection and one failed provider attempt. Recovery reuses those message and recipient records, re-renders missing content from this saved campaign and current product records, and rechecks marketing eligibility. Ambiguous outcomes are never included.</p>
+    <p>This action only schedules eligible messages; it does not send email. Choose a time at least 30 minutes ahead, then verify the queued recipients before the later worker run. The worker repeats eligibility and suppression checks at dispatch.</p>
+    <form method="post" class="campaign-controls-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Recovery time<input type="datetime-local" name="scheduled_for" required></label>
+      <label>Type the exact confirmation<input name="confirmation" maxlength="24" autocomplete="off" placeholder="RECOVER {{ recovery_candidate_count }}" required></label>
+      <button class="btn primary" name="action" value="recover_confirmed_401" {% if not queue_enabled or not type_enabled('custom') %}disabled{% endif %}>Schedule recovery</button>
+    </form>
+    {% if not queue_enabled or not type_enabled('custom') %}<p>Recovery is unavailable until the marketing queue and custom campaign gates are enabled. This page does not change those settings.</p>{% endif %}
+  </section>
+  {% endif %}
   {% endif %}
 
   {% if preview_html %}
