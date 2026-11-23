@@ -17,7 +17,7 @@ from app.models import EmailCampaign
 AUTO_TYPES = ("special_offer", "new_product", "weekly_picks", "abandoned_cart")
 
 
-def auto_schedule_generated_campaigns(*, now: datetime, limit_per_type: int = 1) -> dict:
+def auto_schedule_generated_campaigns(*, now: datetime, limit_per_type: int = 100) -> dict:
     """Schedule at most one generated campaign per enabled type per run.
 
     A short delay gives the independent queue worker time to pick up the
@@ -43,7 +43,7 @@ def auto_schedule_generated_campaigns(*, now: datetime, limit_per_type: int = 1)
             EmailCampaign.status == "draft",
             EmailCampaign.generation_key.like("prepare:%"),
             EmailCampaign.campaign_type == campaign_type,
-        ).order_by(EmailCampaign.created_at, EmailCampaign.id).limit(max(1, min(3, limit_per_type))).all()
+        ).order_by(EmailCampaign.created_at, EmailCampaign.id).limit(max(1, min(100, limit_per_type))).all()
         for campaign in candidates:
             try:
                 product_ids = campaign_product_ids(campaign.product_ids_json or "[]")
