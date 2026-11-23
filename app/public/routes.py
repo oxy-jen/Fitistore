@@ -1297,9 +1297,23 @@ def checkout():
         if isinstance(current_user._get_current_object(), CustomerAccount) and current_user.email_verified_at:
             try:
                 from app.services.customer_mail import notify_order_event
-                notify_order_event(order, "order_received", f"order-received:{order.id}")
+                email_record = notify_order_event(order, "order_received", f"order-received:{order.id}")
+                if email_record is None:
+                    current_app.logger.warning(
+                        "order_confirmation_not_queued order_id=%s reason=missing_or_unverified_customer_link",
+                        order.id,
+                    )
+                else:
+                    current_app.logger.info(
+                        "order_confirmation_queued order_id=%s email_message_id=%s status=%s",
+                        order.id, email_record.id, email_record.status,
+                    )
             except Exception:
-                current_app.logger.error("Order notification could not be prepared for order %s", order.id)
+                db.session.rollback()
+                current_app.logger.exception(
+                    "order_confirmation_enqueue_failed order_id=%s",
+                    order.id,
+                )
         link = whatsapp_link(order, settings)
         return render_template("checkout_ready.html", title="Open WhatsApp", order=order, validation=validation, whatsapp_url=link)
     return render_template("checkout.html", title="Checkout", whatsapp_ready=bool(settings.whatsapp_number))
