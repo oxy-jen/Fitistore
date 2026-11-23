@@ -552,7 +552,8 @@ def email_campaigns():
 def email_campaign_detail(campaign_id):
     from sqlalchemy import inspect
     from app.services.marketing_campaigns import (
-        campaign_product_ids, campaign_type_enabled, parse_schedule,
+        campaign_product_ids, campaign_recovery_candidate_count, campaign_type_enabled, parse_schedule,
+        recover_confirmed_campaign_rejections,
         render_campaign, schedule_campaign, set_campaign_status,
         validate_campaign_content,
     )
@@ -563,10 +564,14 @@ def email_campaign_detail(campaign_id):
     if not all(model_schema_ready(model, inspector) for model in needed):
         flash("Campaign management is unavailable until the explicit marketing campaign schema is applied.", "warning")
         return redirect(url_for("admin.email_center"))
+    recovery_schema_ready = all(model_schema_ready(model, inspector) for model in (
+        EmailDeliveryAttempt, EmailDeliveryInvestigation, EmailDeliveryInvestigationEvent,
+    ))
     campaign = EmailCampaign.query.get_or_404(campaign_id)
     preview_html = preview_text = None
     eligible_count = None
     exclusion_summary = {}
+    recovery_candidate_count = 0
     if request.method == "POST":
         action = request.form.get("action", "")
         try:
@@ -625,6 +630,22 @@ def email_campaign_detail(campaign_id):
                 db.session.commit()
                 action_label = "discarded" if action == "discard" else {"pause": "paused", "resume": "resumed", "cancel": "cancelled"}[action]
                 flash(f"Campaign draft {action_label}. No provider request was made.", "success")
+            elif action == "recover_confirmed_401":
+                if not recovery_schema_ready:
+                    raise ValueError("Campaign recovery is unavailable until the email delivery audit schema is applied.")
+                scheduled_for = parse_schedule(request.form.get("scheduled_for", ""))
+                report = recover_confirmed_campaign_rejections(
+                    campaign.id, current_user.id, scheduled_for=scheduled_for,
+                    authorization=request.form.get("confirmation", ""),
+                )
+                db.session.commit()
+                flash(
+                    f"Recovery scheduled for {scheduled_for:%Y-%m-%d %H:%M UTC}: "
+                    f"{report['requeued']} existing message(s) requeued, "
+                    f"{report['suppressed']} no-longer-eligible recipient(s) suppressed. No email was sent by this action.",
+                    "success",
+                )
+                return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
             else:
                 raise ValueError("Unsupported campaign action.")
         except (ValueError, SQLAlchemyError) as exc:
@@ -635,6 +656,8 @@ def email_campaign_detail(campaign_id):
     recipients = EmailCampaignRecipient.query.filter_by(
         campaign_id=campaign.id,
     ).order_by(EmailCampaignRecipient.id).limit(501).all()
+    if recovery_schema_ready and campaign.status == "partial" and campaign.campaign_type == "custom":
+        recovery_candidate_count = campaign_recovery_candidate_count(campaign)
     if campaign.status == "draft":
         from app.services.marketing_campaigns import audience_snapshot
         try:
@@ -660,6 +683,7 @@ def email_campaign_detail(campaign_id):
         type_enabled=campaign_type_enabled, preview_html=preview_html,
         preview_text=preview_text, eligible_count=eligible_count,
         exclusion_summary=exclusion_summary,
+        recovery_candidate_count=recovery_candidate_count,
         queue_enabled=bool(current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False)),
           preparation_enabled=bool(current_app.config.get("EMAIL_MARKETING_PREPARATION_ENABLED", False)),
     )

@@ -591,3 +591,36 @@ ready for a database operation.
 Marketing scheduling remains paused. Transactional queue activation, marketing
 activation, migration, deployment, provider settings, and DNS each require
 separate explicit approval.
+# Recovering a campaign rejected by Brevo configuration
+
+The campaign detail page offers **Recover confirmed Brevo rejections** only for
+a partially failed custom campaign. It counts only existing message/recipient
+links whose stored outcome is exactly `Brevo HTTP 401.`, with one failed Brevo
+attempt and no accepted or ambiguous attempt. This is a confirmed provider
+rejection, not a delivery investigation or an automatic retry.
+
+After correcting and verifying the Brevo configuration, an administrator can
+review the original campaign and use this action. Enter `RECOVER N`, where
+`N` is the displayed candidate count, and select a time at least 30 minutes in
+the future. The action reuses the same outbox messages, recipient rows and
+idempotency keys. It creates no recipients and makes no provider request. It
+rechecks consent, subscription, verification, suppression, frequency and the
+account's current email while holding the marketing account lock. Recipients
+who are no longer eligible are suppressed instead of requeued. The worker
+repeats the full dispatch eligibility check later.
+
+If a message body was cleared, the system re-renders it from the saved campaign
+subject, body and product IDs, using current product records and a fresh
+unsubscribe token. This restores missing content without inventing it, but a
+product's current name, price, availability or image may differ from its value
+when the first attempt was prepared. Review the campaign preview and product
+data before authorizing recovery.
+
+After scheduling, verify that every intended message is `queued`, the matching
+campaign recipient row is also `queued`, the campaign is `scheduled`, and each
+message has non-empty subject/HTML/text, the original account and recipient
+link, the original campaign idempotency key, and the intended future
+`next_attempt_at`. Check any suppressed recipients and their reason. Only then
+allow the separately gated marketing worker to run after the scheduled time.
+The action is audited in the delivery-investigation event ledger and links the
+next provider attempt to the confirmed rejected attempt.
