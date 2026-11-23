@@ -458,7 +458,7 @@ def register_cli(app: Flask):
 
     @app.cli.command("prepare-marketing-campaign-drafts")
     def prepare_marketing_campaign_drafts_command():
-        """Prepare review-only campaign drafts behind a separate disabled-by-default gate."""
+        """Prepare generated campaigns and optionally auto-schedule them behind explicit gates."""
         if not app.config.get("EMAIL_MARKETING_PREPARATION_ENABLED", False):
             click.echo(json.dumps({"status": "disabled", "created": 0}, sort_keys=True))
             return
