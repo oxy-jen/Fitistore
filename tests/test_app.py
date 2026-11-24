@@ -4858,6 +4858,28 @@ def test_brevo_webhook_quarantines_event_without_sufficient_identity(client, app
     assert MarketingSuppressionCase.query.filter_by(account_id=account.id).count() == 0
 
 
+def test_registered_customer_list_excludes_anonymized_accounts(client, app, app_context):
+    active = CustomerAccount(
+        email="active-customer@example.test",
+        display_name="Active Customer",
+        active=True,
+    )
+    removed = CustomerAccount(
+        email="removed-customer-2@redacted.invalid",
+        display_name="Deleted customer",
+        active=False,
+    )
+    db.session.add_all([active, removed])
+    db.session.commit()
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.get("/admin/email")
+
+    assert b"active-customer@example.test" in response.data
+    assert b"removed-customer-2@redacted.invalid" not in response.data
+    assert b"Registered customers" in response.data
+
+
 def test_complete_data_export_skips_optional_missing_mapped_tables(app, app_context):
     from sqlalchemy import inspect, text
     from app.admin.routes import _collect_admin_data_records

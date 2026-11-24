@@ -67,7 +67,10 @@ def email_center():
         CustomerAccount.marketing_withdrawn_at.is_(None),
     )
     query = eligible_candidate_query
-    account_query = CustomerAccount.query
+    account_query = CustomerAccount.query.filter(
+        CustomerAccount.active.is_(True),
+        ~CustomerAccount.email.ilike("%@redacted.invalid"),
+    )
     if search:
         term = f"%{search}%"
         query = query.filter(or_(CustomerAccount.email.ilike(term), CustomerAccount.display_name.ilike(term)))
