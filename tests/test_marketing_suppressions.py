@@ -202,7 +202,7 @@ def test_central_eligibility_blocks_active_case_and_allows_only_cleared_case(
     assert evaluate_marketing_eligibility(account).eligible
 
 
-def test_queue_email_persists_without_provider_io_then_worker_dispatches(app, app_context, monkeypatch):
+def test_transactional_email_waits_for_outer_commit_then_dispatches_without_worker(app, app_context, monkeypatch):
     from app.services.customer_mail import process_email_queue
 
     calls = []
@@ -211,21 +211,38 @@ def test_queue_email_persists_without_provider_io_then_worker_dispatches(app, ap
     app.config["MAIL_PROVIDER"] = "brevo"
     row = queue_email(
         "queue@example.test", "Order update", "order_status", "durable-queue-test",
-        html_body="<p>Persisted</p>", text_body="Persisted",
+        html_body="<p>Persisted</p>", text_body="Persisted", commit=False,
     )
     assert row.status == "queued"
     assert row.html_body == "<p>Persisted</p>"
     assert calls == []
-    outcome = process_email_queue(limit=5)
+    db.session.commit()
+    from app.services.customer_mail import dispatch_transactional_email_now
+    result = dispatch_transactional_email_now(row)
     db.session.refresh(row)
-    assert outcome["sent"] == 1
-    assert row.status == "sent"
+    assert result.status == "sent"
     assert row.provider_message_id == "queued-provider-id"
     assert row.html_body is None and row.text_body is None
     assert len(calls) == 1
+    duplicate = queue_email(
+        "queue@example.test", "Order update", "order_status", "durable-queue-test",
+        html_body="<p>Persisted</p>", text_body="Persisted",
+    )
+    assert duplicate.id == row.id
+    assert duplicate.status == "sent"
+    assert len(calls) == 1
+    outcome = process_email_queue(limit=5)
+    db.session.refresh(row)
+    assert outcome["sent"] == 0
+    assert row.status == "sent"
+    assert len(calls) == 1
 
 
-def test_unverified_or_unconsented_marketing_is_suppressed_but_transactional_is_queued(app, app_context):
+def test_transactional_dispatch_ignores_marketing_consent_while_marketing_stays_queued(app, app_context, monkeypatch):
+    sent = []
+    monkeypatch.setattr("app.services.customer_mail.mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr("app.services.customer_mail._send_brevo", lambda *args: sent.append(args) or "direct-provider-id")
+    app.config["MAIL_PROVIDER"] = "brevo"
     account = CustomerAccount(
         email="no-consent@example.test", display_name="No consent",
         marketing_status="unsubscribed",
@@ -244,7 +261,26 @@ def test_unverified_or_unconsented_marketing_is_suppressed_but_transactional_is_
     assert marketing.failure_reason == "account_inactive" or marketing.failure_reason in {
         "email_unverified", "not_subscribed", "consent_missing",
     }
-    assert transactional.status == "queued"
+    assert transactional.status == "sent"
+    assert transactional.purpose == "transactional"
+    assert len(sent) == 1
+
+
+def test_promotional_queue_does_not_dispatch_directly(app, app_context, monkeypatch):
+    sent = []
+    account = _account("marketing-stays-queued@example.test")
+    monkeypatch.setattr("app.services.customer_mail.mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr("app.services.customer_mail._send_brevo", lambda *args: sent.append(args) or "unexpected")
+    app.config["MAIL_PROVIDER"] = "brevo"
+
+    message = queue_email(
+        account.email, "Daily Goodies", "marketing_daily_goodies", "marketing-remains-queued",
+        account_id=account.id, html_body="<p>Offer</p>", text_body="Offer",
+    )
+
+    assert message.status == "queued"
+    assert message.purpose == "marketing"
+    assert not sent
 
 
 def test_new_provider_event_after_clearance_creates_a_new_active_case(app, app_context):

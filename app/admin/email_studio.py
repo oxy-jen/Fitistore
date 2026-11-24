@@ -818,7 +818,7 @@ def register_email_studio_routes(admin_bp):
                         try: operation_id = str(UUID(request.form.get("operation_id", "")))
                         except (ValueError, TypeError, AttributeError):
                             raise EmailContentError("Refresh the Email Studio and try again; the send operation key is invalid.") from None
-                        accepted = failed = suppressed = duplicate = 0
+                        accepted = queued = failed = suppressed = duplicate = 0
                         suppression_reasons = []
                         provider_failures = []
                         for target in targets:
@@ -856,7 +856,8 @@ def register_email_studio_routes(admin_bp):
                                 logger.exception("email_studio_manual_send_failed category=%s account_id=%s", category, target.id)
                                 db.session.rollback(); failed += 1; provider_failures.append(f"{target.email}: internal send error; check server logs."); continue
                             if result.status in {"sent", "delivered"} and prior_accepted: duplicate += 1
-                            elif result.status in {"sent", "delivered", "queued"}: accepted += 1
+                            elif result.status in {"sent", "delivered"}: accepted += 1
+                            elif result.status == "queued": queued += 1
                             elif result.status == "suppressed":
                                 suppressed += 1
                                 if result.failure_reason:
@@ -879,9 +880,9 @@ def register_email_studio_routes(admin_bp):
                         delivery_detail = " Errors: " + "; ".join(dict.fromkeys(provider_failures[:3])) if provider_failures else ""
                         duplicate_detail = f" {duplicate} already accepted earlier; no duplicate message was sent." if duplicate else ""
                         if action == "schedule":
-                            flash(f"Campaign schedule result: {accepted} queued for {scheduled_at.strftime('%Y-%m-%d %H:%M UTC')}; failed {failed}; suppressed {suppressed}.{duplicate_detail}{suppression_detail}{delivery_detail} Scheduled messages are not sent until their time and have not been provider-accepted.", "success" if accepted and not failed and not suppressed else "warning")
+                            flash(f"Campaign schedule result: {queued} queued for {scheduled_at.strftime('%Y-%m-%d %H:%M UTC')}; failed {failed}; suppressed {suppressed}.{duplicate_detail}{suppression_detail}{delivery_detail} Scheduled messages are not sent until their time and have not been provider-accepted.", "success" if queued and not failed and not suppressed else "warning")
                         else:
-                            flash(f"Manual send result: queued {accepted}; failed {failed}; suppressed {suppressed}.{duplicate_detail}{suppression_detail}{delivery_detail} Queued messages have not yet been accepted by the provider or delivered.", "success" if accepted and not failed and not suppressed else "warning")
+                            flash(f"Manual send result: provider accepted {accepted}; awaiting recovery {queued}; failed {failed}; suppressed {suppressed}.{duplicate_detail}{suppression_detail}{delivery_detail} Provider acceptance is not confirmation of inbox delivery.", "success" if (accepted or queued) and not failed and not suppressed else "warning")
                         session.pop("email_studio_preview", None)
                         return redirect(url_for("admin.email_studio", category=category))
 

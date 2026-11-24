@@ -267,10 +267,13 @@ def _is_marketing_kind(kind: str) -> bool:
 
 
 def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *, account_id=None, order_id=None, campaign_id=None, template_id=None, retry_suppressed: bool = False, not_before: datetime | None = None, html_body: str, text_body: str, commit: bool = True) -> EmailMessage:
-    """Persist a message to the outbox. Provider I/O happens only in the worker.
+    """Persist to the outbox, then promptly dispatch committed transactional mail.
 
     Purpose is assigned from the trusted server-side message kind; callers cannot
-    label promotional content transactional by passing a form value.
+    label promotional content transactional by passing a form value. Marketing
+    mail remains queued for its isolated campaign worker. Callers using
+    ``commit=False`` must dispatch transactionals only after their outer
+    business transaction commits.
     """
     del retry_suppressed  # Suppressed idempotency keys are intentionally sticky.
     normalized_kind = str(kind or "").strip().lower()
@@ -309,9 +312,14 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
             raise ValueError("Email idempotency key is already bound to a different recipient or context.")
         return existing
 
+    def dispatch_after_commit(message: EmailMessage) -> EmailMessage:
+        if commit and purpose == "transactional" and message.status == "queued":
+            return dispatch_transactional_email_now(message)
+        return message
+
     existing = EmailMessage.query.filter_by(idempotency_key=key).first()
     if existing:
-        return reuse_existing(existing)
+        return dispatch_after_commit(reuse_existing(existing))
     marketing = purpose == "marketing"
     decision = None
     if marketing:
@@ -364,14 +372,14 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
         # Concurrent idempotent enqueue: return the row committed by the winner.
         existing = EmailMessage.query.filter_by(idempotency_key=key).first()
         if existing:
-            return reuse_existing(existing)
+            return dispatch_after_commit(reuse_existing(existing))
         raise
-    return record
+    return dispatch_after_commit(record)
 
 
 def deliver_email(record: EmailMessage, html_body: str | None = None, text_body: str | None = None,
                   *, expected_test_recipient: str | None = None) -> bool:
-    """Dispatch one persisted outbox row; this is called by the explicit worker."""
+    """Dispatch one persisted outbox row through the atomic delivery claim."""
     if expected_test_recipient is not None:
         target = _normalized_test_address(expected_test_recipient)
         if (record.status != "queued" or not target or record.kind != "admin_test"
@@ -607,6 +615,35 @@ def dispatch_authentication_email_now(record: EmailMessage, *, account_id: int,
         )
         refreshed = db.session.get(EmailMessage, record.id)
         return refreshed or record
+    return record
+
+
+def dispatch_transactional_email_now(record: EmailMessage) -> EmailMessage:
+    """Attempt a post-commit provider handoff without entering marketing policy."""
+    if not record or record.purpose != "transactional" or record.status != "queued":
+        return record
+    try:
+        expected_purpose = email_purpose_for_kind(record.kind, testing=current_app.testing)
+    except UnknownEmailKind:
+        return record
+    if expected_purpose != "transactional":
+        return record
+    if record.kind in {"verify_code", "login_code"}:
+        if record.account_id is None:
+            return record
+        return dispatch_authentication_email_now(
+            record, account_id=record.account_id, purpose=record.kind,
+        )
+    try:
+        deliver_email(record)
+        db.session.refresh(record)
+    except Exception as exc:
+        db.session.rollback()
+        logger.error(
+            "transactional_email_dispatch_deferred message_id=%s error_type=%s",
+            record.id, type(exc).__name__,
+        )
+        return db.session.get(EmailMessage, record.id) or record
     return record
 
 
@@ -1059,7 +1096,7 @@ def process_email_queue(*, limit: int = 50, now: datetime | None = None,
 def process_transactional_email_queue(*, limit: int = 50, now: datetime | None = None,
                                       max_seconds: int | None = None,
                                       should_stop=None) -> dict[str, int]:
-    """Dispatch only approved account-security and order-lifecycle messages."""
+    """Recover all approved transactional messages, never marketing mail."""
     return _run_email_worker(lambda heartbeat: _process_email_queue_batch(
         limit=limit, now=now, max_seconds=max_seconds, should_stop=should_stop,
         worker_heartbeat=heartbeat, allowed_kinds=TRANSACTIONAL_QUEUE_EMAIL_KINDS,
@@ -1785,7 +1822,7 @@ def notify_order_event(order, event_name: str, idempotency_key: str):
             logger.error("order_status_email_queue_returned_no_message order_id=%s kind=%s", order.id, event_name)
             return None
         message_status = getattr(message, "status", None)
-        if message_status not in {"queued", "sending", "sent"}:
+        if message_status not in {"queued", "sending", "sent", "delivered"}:
             logger.error(
                 "order_status_email_queue_not_accepted order_id=%s kind=%s status=%s",
                 order.id, event_name, str(message_status or "unknown")[:48],

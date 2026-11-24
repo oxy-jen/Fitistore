@@ -53,6 +53,26 @@ def queue_restock_alerts(product: Product):
             alert.status = "queued"
     return alerts
 
+
+def dispatch_queued_restock_alerts(product: Product):
+    """Attempt requested restock notices only after the stock change commits."""
+    if not product:
+        return
+    from app.models import EmailMessage
+    from app.services.customer_mail import dispatch_transactional_email_now
+
+    alerts = RestockAlert.query.filter_by(
+        product_id=product.id, status="queued", preferred_contact="Email",
+        consent_to_contact=True,
+    ).all()
+    for alert in alerts:
+        message = EmailMessage.query.filter_by(
+            idempotency_key=f"restock-alert:{alert.id}",
+        ).first()
+        if message and message.status == "queued":
+            dispatch_transactional_email_now(message)
+
+
 def low_stock_products():
     products = Product.query.filter(Product.active.is_(True)).all()
     return [product for product in products if product.display_stock_quantity <= product.low_stock_threshold]

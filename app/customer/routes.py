@@ -135,7 +135,12 @@ def _delivery_message(result, label="verification"):
             )
         return f"Your {label} email is in the delivery queue. It will be sent when email delivery is available."
     if status == "sent":
-        return f"We’ve sent your {label} email. Check your inbox and spam folder. If it doesn’t arrive, you can request another."
+        return (
+            f"The provider accepted your {label} email. Inbox delivery is not confirmed; "
+            "check your inbox and spam folder before requesting another."
+        )
+    if status == "delivered":
+        return f"The provider confirmed delivery of your {label} email. Check your inbox and spam folder."
     if status == "not_configured":
         return f"We can’t send your {label} email right now. Please try again later."
     if status == "failed":
@@ -144,10 +149,21 @@ def _delivery_message(result, label="verification"):
 
 
 def _registration_message(result):
-    if getattr(result, "status", "") in {"sent", "queued"}:
+    status = getattr(result, "status", "")
+    if status == "sent":
         return (
-            "Your account was created successfully. Your verification email is in the delivery queue. "
-            "Once it arrives, verify your email and sign in to start shopping."
+            "Your account was created successfully. The provider accepted your verification email, "
+            "but inbox delivery is not confirmed. Once it arrives, verify your email and sign in to shop."
+        )
+    if status == "delivered":
+        return (
+            "Your account was created successfully. The provider confirmed delivery of your verification "
+            "email. Verify your email and sign in to start shopping."
+        )
+    if status == "queued":
+        return (
+            "Your account was created successfully. Your verification email is pending delivery. "
+            "It will be sent when email delivery is available."
         )
     category = getattr(result, "error_category", "")
     if category == "auth_rate_limited":
@@ -293,7 +309,8 @@ def _issue_and_send(account, purpose, minutes=None, next_url=None):
         ).update({"used_at": datetime.utcnow()}, synchronize_session="fetch")
         db.session.commit()
         raise
-    return result
+    from app.services.customer_mail import dispatch_transactional_email_now
+    return dispatch_transactional_email_now(result)
 
 
 def _start_email_code(account, purpose):

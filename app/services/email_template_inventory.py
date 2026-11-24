@@ -3,7 +3,7 @@
 SYSTEM_TEMPLATES = (
     # Existing account and security workflows.
     {"id": "verify_email", "name": "Email verification", "group": "account", "purpose": "Verify a new account email", "trigger": "Registration or verification resend", "source": "emails/base_branded.html", "implemented": True, "preview": True},
-    {"id": "welcome", "name": "Registration welcome", "group": "account", "purpose": "Welcome after successful email verification", "trigger": "Successful verification", "source": "emails/base_branded.html", "implemented": True, "preview": True},
+    {"id": "welcome", "name": "Registration welcome", "group": "account", "purpose": "Welcome after account registration", "trigger": "Successful account creation; verification link is sent separately", "source": "emails/base_branded.html", "implemented": True, "preview": True},
     {"id": "verify_code", "name": "Email verification code", "group": "account", "purpose": "Verify account using a one-time code", "trigger": "Customer requests verification code", "source": "emails/base_branded.html", "implemented": True, "preview": True},
     {"id": "login_code", "name": "Login verification code", "group": "account", "purpose": "One-time sign-in code", "trigger": "Customer requests sign-in code", "source": "emails/base_branded.html", "implemented": True, "preview": True},
     {"id": "reset_password", "name": "Password reset", "group": "account", "purpose": "Secure password reset link", "trigger": "Customer requests password reset", "source": "emails/base_branded.html", "implemented": True, "preview": True},

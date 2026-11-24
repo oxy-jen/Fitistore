@@ -1983,7 +1983,7 @@ def test_customer_registration_hashes_password_and_defaults_marketing_off(client
     response = _register_customer(client)
     assert response.status_code == 200
     assert b"Your account was created successfully" in response.data
-    assert b"Your verification email is in the delivery queue" in response.data
+    assert b"Your verification email is pending delivery" in response.data
     with app.app_context():
         account = CustomerAccount.query.filter_by(email="customer@example.com").one()
         assert account.password_hash != "a-strong-test-password-123"
@@ -3176,10 +3176,16 @@ def test_email_studio_library_lists_purposes_and_previews_system_templates_witho
     assert b"SAMPLE-REFUND" in unavailable_preview.data
 
 
-def test_completed_refund_queues_an_idempotent_transactional_customer_notice(app, app_context):
+def test_completed_refund_dispatches_an_idempotent_transactional_customer_notice(app, app_context, monkeypatch):
     from app.models import CustomerAccount, CustomerOrderLink, Order, RefundRequest, EmailMessage
     from app.services.customer_mail import notify_refund_completed
     from app.services.email_purpose import email_purpose_for_kind
+    import app.services.customer_mail as customer_mail
+
+    sent = []
+    app.config.update(MAIL_PROVIDER="brevo")
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args) or "refund-provider-id")
 
     account = CustomerAccount(
         email="refund-customer@example.com", display_name="Refund Customer",
@@ -3200,18 +3206,25 @@ def test_completed_refund_queues_an_idempotent_transactional_customer_notice(app
     second = notify_refund_completed(refund)
 
     assert email_purpose_for_kind("refund_confirmation") == "transactional"
-    assert first.status == "queued"
+    assert first.status == "sent"
     assert second.id == first.id
     assert EmailMessage.query.filter_by(idempotency_key=f"refund-completed:{refund.id}").count() == 1
     assert first.account_id == account.id
     assert first.order_id == order.id
-    assert "RFD-TEST-001" in first.text_body
+    assert "RFD-TEST-001" in sent[0][3]
+    assert len(sent) == 1
 
 
-def test_admin_recorded_payment_failure_queues_transactional_notice(app, app_context):
+def test_admin_recorded_payment_failure_dispatches_transactional_notice(app, app_context, monkeypatch):
     from app.models import CustomerAccount, CustomerOrderLink, Order
     from app.services.customer_mail import notify_order_event
     from app.services.email_purpose import email_purpose_for_kind
+    import app.services.customer_mail as customer_mail
+
+    sent = []
+    app.config.update(MAIL_PROVIDER="brevo")
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args) or "payment-provider-id")
 
     account = CustomerAccount(
         email="failed-payment@example.com", display_name="Payment Customer",
@@ -3229,19 +3242,20 @@ def test_admin_recorded_payment_failure_queues_transactional_notice(app, app_con
     result = notify_order_event(order, "payment_failed", "payment-failed:test-event")
 
     assert email_purpose_for_kind("payment_failed") == "transactional"
-    assert result.status == "queued"
+    assert result.status == "sent"
     assert result.order_id == order.id
-    assert "recorded" in result.text_body
-    assert "contact us before making another payment" in result.text_body
+    assert "recorded" in sent[0][3]
+    assert "contact us before making another payment" in sent[0][3]
 
 
-def test_explicit_email_restock_request_queues_service_notice_without_marketing_consent(app, app_context):
+def test_explicit_email_restock_request_dispatches_after_stock_commit_without_marketing_consent(app, app_context, monkeypatch):
     from app.models import EmailMessage, Product, RestockAlert
     from app.services.email_purpose import email_purpose_for_kind
-    from app.services.inventory import adjust_stock
+    from app.services.inventory import adjust_stock, dispatch_queued_restock_alerts
 
     product = Product.query.filter_by(slug="plain-socks").first()
     product.stock_quantity = 0
+    product.reserved_quantity = 0
     alert = RestockAlert(
         product_id=product.id, contact="restock@example.com",
         preferred_contact="Email", consent_to_contact=True, status="pending",
@@ -3250,16 +3264,30 @@ def test_explicit_email_restock_request_queues_service_notice_without_marketing_
     db.session.add(alert)
     db.session.commit()
 
+    sent = []
+    import app.services.customer_mail as customer_mail
+    app.config["MAIL_PROVIDER"] = "brevo"
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: sent.append(args) or "restock-provider-id")
     adjust_stock(product, 3, "Restock email test")
+    assert not sent
     db.session.commit()
+    assert alert.status == "queued"
+    queued_text = EmailMessage.query.filter_by(idempotency_key=f"restock-alert:{alert.id}").one().text_body
+    dispatch_queued_restock_alerts(product)
+    assert len(sent) == 1
 
     message = EmailMessage.query.filter_by(idempotency_key=f"restock-alert:{alert.id}").one()
     assert email_purpose_for_kind("restock_notification") == "transactional"
     assert message.purpose == "transactional"
     assert message.recipient == "restock@example.com"
     assert message.account_id is None
-    assert message.status == "queued"
-    assert "only about your restock request" in message.text_body
+    assert message.status == "sent"
+    db.session.refresh(alert)
+    assert alert.status == "notified"
+    assert message.provider_message_id == "restock-provider-id"
+    assert len(sent) == 1
+    assert "only about your restock request" in queued_text
 
 
 def test_terminal_restock_delivery_failure_returns_alert_to_pending_review(app, app_context):
@@ -4090,8 +4118,8 @@ def test_checkout_requires_verified_account_and_links_order_to_it(client, app_co
     order = Order.query.filter_by(customer_name="Checkout").one()
     assert CustomerOrderLink.query.filter_by(account_id=account.id, order_id=order.id).one()
     email = EmailMessage.query.filter_by(order_id=order.id, kind="order_received").one()
-    assert email.status == "queued"
-    assert email.provider_message_id is None
+    assert email.status == "sent"
+    assert email.provider_message_id == "test-provider-message-id"
 
 
 def test_order_received_email_renders_real_cart_and_secure_tracking_link(app, app_context):
@@ -4182,6 +4210,48 @@ def test_order_status_and_completion_review_notifications_are_idempotent(app_con
     duplicate = customer_mail.notify_order_event(order, "review_request", "order-review-request:status-order")
     assert review_email.id == duplicate.id
     assert EmailMessage.query.filter_by(kind="review_request", order_id=order.id).count() == 1
+
+
+@pytest.mark.parametrize(
+    ("event_name", "payment_status", "order_status", "fulfilment_method", "expected_copy"),
+    [
+        ("payment_confirmed", "Paid", "Order received", "Collection", "Payment confirmed"),
+        ("order_dispatched", "Paid", "Out for delivery", "Delivery", "out for delivery"),
+    ],
+)
+def test_payment_and_shipping_transactional_events_dispatch_directly(
+    app, app_context, monkeypatch, event_name, payment_status, order_status,
+    fulfilment_method, expected_copy,
+):
+    import app.services.customer_mail as customer_mail
+
+    sent = []
+    app.config["MAIL_PROVIDER"] = "brevo"
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(
+        customer_mail, "_send_brevo",
+        lambda *args: sent.append(args) or "lifecycle-provider-id",
+    )
+    account = CustomerAccount(
+        email=f"{event_name}@example.test", display_name="Lifecycle Buyer",
+        email_verified_at=datetime.utcnow(),
+    )
+    order = Order(
+        reference=f"FITY-{event_name.upper()}", fulfilment_method=fulfilment_method,
+        status=order_status, payment_status=payment_status, total_cents=1900,
+    )
+    db.session.add_all([account, order])
+    db.session.flush()
+    db.session.add(CustomerOrderLink(account_id=account.id, order_id=order.id))
+    db.session.commit()
+
+    message = customer_mail.notify_order_event(order, event_name, f"{event_name}:direct")
+    duplicate = customer_mail.notify_order_event(order, event_name, f"{event_name}:direct")
+
+    assert message.status == "sent"
+    assert duplicate.id == message.id
+    assert expected_copy.lower() in sent[0][3].lower()
+    assert len(sent) == 1
 
 
 @pytest.mark.parametrize(
@@ -4312,8 +4382,8 @@ def test_admin_order_status_transitions_queue_distinct_idempotent_emails(
     duplicate = client.post(f"/admin/orders/{order.id}", data=form, follow_redirects=True)
 
     assert first.status_code == duplicate.status_code == 200
-    assert b"Customer status email queued" in first.data
-    assert b"Customer status email queued" not in duplicate.data
+    assert b"Customer status email is awaiting provider delivery or recovery" in first.data
+    assert b"Customer status email is awaiting provider delivery or recovery" not in duplicate.data
     assert b"No status change was needed." in duplicate.data
     status_events = OrderStatusHistory.query.filter_by(
         order_id=order.id, field="status", new_value=new_status,
@@ -4581,7 +4651,7 @@ def test_admin_reports_status_queue_failure_without_reversing_order_update(
 
     assert response.status_code == 200
     assert b"Order updated." in response.data
-    assert b"customer status email could not be queued" in response.data
+    assert b"customer status email failed" in response.data
     assert b"Customer status email queued" not in response.data
     assert order.status == "Preparing order"
     assert EmailMessage.query.filter_by(order_id=order.id).count() == 0
@@ -4883,17 +4953,20 @@ def test_registration_shows_honest_email_delivery_status_and_public_url(client, 
     response = _register_customer(client, email="mail-status@example.com")
     assert response.status_code == 200
     assert b"Your account was created successfully" in response.data
-    assert b"Your verification email is in the delivery queue" in response.data
-    assert b"accepted by the mail server" not in response.data
-    assert sent == []
-    with app.app_context():
-        customer_mail.process_email_queue(limit=5)
+    assert b"The provider accepted your verification email" in response.data
+    assert b"inbox delivery is not confirmed" in response.data
+    assert len(sent) == 2
     verification_bodies = [body for body in sent if "account/verify/" in body]
     assert verification_bodies
     assert "https://fitystore.top/account/verify/" in verification_bodies[0]
     with app.app_context():
+        customer_mail.process_email_queue(limit=5)
+    assert len(sent) == 2
+    with app.app_context():
         row = EmailMessage.query.filter_by(kind="verify_email").one()
         assert row.status == "sent"
+        welcome = EmailMessage.query.filter_by(kind="welcome").one()
+        assert welcome.status == "sent"
 
 
 def test_resend_verification_reports_not_configured_and_rate_limits(client, app):
@@ -4939,7 +5012,8 @@ def test_queued_resend_supersedes_previous_token_even_when_delivery_fails(app, m
     )
     monkeypatch.setattr(customer_mail, "_send_smtp", lambda *args: (_ for _ in ()).throw(TimeoutError("simulated provider outage")))
     result = customer_routes._issue_and_send(account, "verify_email")
-    assert result.status == "queued"
+    assert result.status == "failed"
+    assert result.error_category == "ambiguous_outcome"
     assert old.used_at is not None
     new_row = CustomerToken.query.filter_by(account_id=account.id, purpose="verify_email").filter(CustomerToken.id != old.id).one()
     assert new_row.used_at is None
@@ -5077,10 +5151,10 @@ def test_resend_success_still_uses_https_provider(app, monkeypatch, app_context)
         html_body="<p>Ready</p>", text_body="Ready",
     )
 
-    assert result.status == "queued"
-    assert not captured
+    assert result.status == "sent"
+    assert captured
     counts = customer_mail.process_email_queue(limit=5)
-    assert counts["sent"] == 1
+    assert counts["sent"] == 0
 
     request = captured["request"]
     payload = json.loads(request.data.decode("utf-8"))
@@ -5121,10 +5195,9 @@ def test_brevo_success_posts_expected_payload_over_https(app, monkeypatch, app_c
         html_body="<p>Ready</p>", text_body="Ready",
     )
 
-    assert result.status == "queued"
-    assert not captured
-    customer_mail.process_email_queue(limit=5)
-    db.session.refresh(result)
+    assert result.status == "sent"
+    assert captured
+    assert customer_mail.process_email_queue(limit=5)["sent"] == 0
 
     request = captured["request"]
     payload = json.loads(request.data.decode("utf-8"))
@@ -6449,12 +6522,9 @@ def test_email_studio_code_defined_order_notices_are_transactional_without_marke
     ).one()
     assert row.kind == expected_kind
     assert row.purpose == "transactional"
-    assert row.status == "queued"
-
-    outcome = customer_mail.process_email_queue(limit=5)
-    db.session.refresh(row)
-    assert outcome["sent"] == 1
     assert row.status == "sent"
+    outcome = customer_mail.process_email_queue(limit=5)
+    assert outcome["sent"] == 0
     assert len(delivered) == 1
     assert delivered[0][0] == account.email
     assert "unsubscribe" not in delivered[0][2].lower()
@@ -6700,8 +6770,8 @@ def test_auth_token_supersession_is_purpose_scoped_and_transactional(app, app_co
     reset_result = customer_routes._issue_and_send(account, "reset_password", 30)
     code_result = customer_routes._start_email_code(account, "login_code")
 
-    assert verify_result.status == reset_result.status == "queued"
-    assert code_result.status in {"sent", "queued"}
+    assert verify_result.status == reset_result.status == "sent"
+    assert code_result.status == "sent"
     for purpose in ("verify_email", "reset_password", "login_code"):
         db.session.refresh(existing[purpose])
         assert existing[purpose].used_at is not None
@@ -6868,10 +6938,8 @@ def test_transactional_email_is_independent_of_marketing_consent(app, app_contex
                                     account_id=account.id, html_body="<p>Order status</p>", text_body="Order status")
 
     assert row.purpose == "transactional"
-    assert row.status == "queued"
-    customer_mail.process_email_queue(limit=5)
-    db.session.refresh(row)
     assert row.status == "sent"
+    assert customer_mail.process_email_queue(limit=5)["sent"] == 0
     assert sent == [account.email]
 
 

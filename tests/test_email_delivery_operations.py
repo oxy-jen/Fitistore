@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import hashlib
+import urllib.error
 
 import pytest
 from sqlalchemy import text
@@ -209,20 +210,86 @@ def test_delivery_claim_persists_attempt_and_stops_worker_history(app, app_conte
     assert EmailWorkerRun.query.filter_by(status="STOPPED").count() == 1
 
 
-def test_transactional_worker_dispatches_only_account_and_order_allowlist(app, app_context, monkeypatch):
+@pytest.mark.parametrize(
+    ("http_status", "expected_category", "retryable"),
+    [(429, "retryable_provider", True), (503, "ambiguous_outcome", False)],
+)
+def test_direct_transactional_failure_is_durable_and_retry_policy_is_safe(
+    app, app_context, monkeypatch, http_status, expected_category, retryable,
+):
+    from app.services import customer_mail
+
+    app.config.update(
+        MAIL_PROVIDER="brevo", MAIL_FROM_VERIFIED=True,
+        MAIL_FROM_ADDRESS="verified@example.test", BREVO_API_KEY="test-key",
+    )
+    attempts = []
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+
+    def fail_provider(*_args):
+        attempts.append("failed")
+        raise urllib.error.HTTPError(
+            "https://provider.invalid", http_status, "provider response", {}, None,
+        )
+
+    monkeypatch.setattr(customer_mail, "_send_brevo", fail_provider)
+    message = customer_mail.queue_email(
+        "payment@example.test", "Payment update", "payment_confirmed",
+        f"direct-failure-{http_status}",
+        html_body="<p>Payment confirmed</p>", text_body="Payment confirmed",
+    )
+
+    assert message.status == "failed"
+    assert message.error_category == expected_category
+    assert (message.next_attempt_at is not None) is retryable
+    assert len(attempts) == 1
+    assert EmailDeliveryAttempt.query.filter_by(message_id=message.id).one().status in {
+        "failed", "ambiguous",
+    }
+
+    duplicate = customer_mail.queue_email(
+        "payment@example.test", "Payment update", "payment_confirmed",
+        f"direct-failure-{http_status}",
+        html_body="<p>Payment confirmed</p>", text_body="Payment confirmed",
+    )
+    assert duplicate.id == message.id
+    assert len(attempts) == 1
+
+    if retryable:
+        monkeypatch.setattr(customer_mail, "_send_brevo", lambda *_args: "recovered-provider-id")
+        recovery_time = message.next_attempt_at + timedelta(seconds=1)
+        result = customer_mail.process_transactional_email_queue(now=recovery_time)
+        db.session.refresh(message)
+        assert result["sent"] == 1
+        assert message.status == "sent"
+        assert message.provider_message_id == "recovered-provider-id"
+        assert len(attempts) == 1
+    else:
+        result = customer_mail.process_transactional_email_queue(
+            now=datetime.utcnow() + timedelta(days=1),
+        )
+        db.session.refresh(message)
+        assert result["sent"] == 0
+        assert message.status == "failed"
+        assert message.next_attempt_at is None
+        assert message.html_body is None and message.text_body is None
+        assert len(attempts) == 1
+
+
+def test_transactional_worker_dispatches_every_transactional_kind_and_excludes_marketing(app, app_context, monkeypatch):
     from app.services import customer_mail
 
     _account, _token, valid_verify = _queued_auth_code("isolated-verify-account")
     permitted = [
         valid_verify,
         _queued_worker_message("isolated-order", "order_received", "transactional"),
+        _queued_worker_message("isolated-restock", "restock_notification", "transactional"),
+        _queued_worker_message("isolated-review", "review_request", "transactional"),
+        _queued_worker_message("isolated-marketing-confirm", "marketing_confirm", "transactional"),
     ]
     excluded = [
         _queued_worker_message("isolated-marketing", "marketing_campaign", "marketing"),
         _queued_worker_message("isolated-admin-test", "admin_test", "test"),
-        _queued_worker_message("isolated-restock", "restock_notification", "transactional"),
-        _queued_worker_message("isolated-review", "review_request", "transactional"),
-        _queued_worker_message("isolated-marketing-confirm", "marketing_confirm", "transactional"),
         _queued_worker_message("isolated-wrong-purpose", "order_update", "marketing"),
     ]
     sent_ids = []
@@ -231,8 +298,8 @@ def test_transactional_worker_dispatches_only_account_and_order_allowlist(app, a
 
     result = customer_mail.process_transactional_email_queue(limit=50)
 
-    assert result["sent"] == 2
-    assert len(sent_ids) == 2
+    assert result["sent"] == len(permitted)
+    assert len(sent_ids) == len(permitted)
     assert all(EmailMessage.query.get(row.id).status == "sent" for row in permitted)
     assert all(EmailMessage.query.get(row.id).status == row.status == "queued" for row in excluded)
     assert EmailWorkerRun.query.filter_by(worker_type="transactional_queue", status="STOPPED").count() == 1
@@ -250,7 +317,7 @@ def test_transactional_worker_retries_only_due_allowlisted_failures(app, app_con
         "isolated-retry-marketing", "marketing_campaign", "marketing",
         status="failed", next_attempt_at=now - timedelta(seconds=1), retry_count=1,
     )
-    excluded_transactional = _queued_worker_message(
+    due_transactional = _queued_worker_message(
         "isolated-retry-review", "review_request", "transactional",
         status="failed", next_attempt_at=now - timedelta(seconds=1), retry_count=1,
     )
@@ -261,14 +328,14 @@ def test_transactional_worker_retries_only_due_allowlisted_failures(app, app_con
 
     db.session.refresh(due)
     db.session.refresh(marketing)
-    db.session.refresh(excluded_transactional)
-    assert result["sent"] == 1
+    db.session.refresh(due_transactional)
+    assert result["sent"] == 2
     assert due.status == "sent"
     assert marketing.status == "failed"
-    assert excluded_transactional.status == "failed"
+    assert due_transactional.status == "sent"
 
 
-def test_transactional_worker_expires_old_codes_without_touching_excluded_kinds(app, app_context, monkeypatch):
+def test_transactional_worker_expires_old_authentication_payloads(app, app_context, monkeypatch):
     from app.services import customer_mail
 
     now = datetime.utcnow()
@@ -282,7 +349,7 @@ def test_transactional_worker_expires_old_codes_without_touching_excluded_kinds(
         status="failed", created_at=now - timedelta(minutes=31),
         next_attempt_at=now - timedelta(seconds=1), retry_count=1,
     )
-    excluded_expired_confirmation = _queued_worker_message(
+    expired_confirmation = _queued_worker_message(
         "isolated-expired-marketing-confirm", "marketing_confirm", "transactional",
         created_at=now - timedelta(days=2),
     )
@@ -294,7 +361,7 @@ def test_transactional_worker_expires_old_codes_without_touching_excluded_kinds(
 
     db.session.refresh(expired_code)
     db.session.refresh(expired_retry)
-    db.session.refresh(excluded_expired_confirmation)
+    db.session.refresh(expired_confirmation)
     assert result["sent"] == 0
     assert result["expired_verify_codes"] == 1
     assert expired_code.status == "failed"
@@ -304,7 +371,9 @@ def test_transactional_worker_expires_old_codes_without_touching_excluded_kinds(
     assert expired_retry.error_category == "expired_auth_payload"
     assert expired_retry.next_attempt_at is None
     assert expired_retry.html_body is None and expired_retry.text_body is None
-    assert excluded_expired_confirmation.status == "queued"
+    assert expired_confirmation.status == "failed"
+    assert expired_confirmation.error_category == "expired_auth_payload"
+    assert expired_confirmation.html_body is None and expired_confirmation.text_body is None
     assert not send_attempts
 
 

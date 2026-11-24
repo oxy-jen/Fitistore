@@ -1303,14 +1303,29 @@ def checkout():
                         "order_confirmation_not_queued order_id=%s reason=missing_or_unverified_customer_link",
                         order.id,
                     )
-                elif email_record.status == "queued":
+                elif email_record.status == "sent":
                     current_app.logger.info(
-                        "order_confirmation_queued order_id=%s email_message_id=%s",
+                        "order_confirmation_provider_accepted order_id=%s email_message_id=%s",
                         order.id, email_record.id,
+                    )
+                elif email_record.status == "delivered":
+                    current_app.logger.info(
+                        "order_confirmation_provider_delivery_confirmed order_id=%s email_message_id=%s",
+                        order.id, email_record.id,
+                    )
+                elif email_record.status == "queued":
+                    current_app.logger.warning(
+                        "order_confirmation_awaiting_recovery order_id=%s email_message_id=%s",
+                        order.id, email_record.id,
+                    )
+                elif email_record.status == "failed":
+                    current_app.logger.error(
+                        "order_confirmation_delivery_failed order_id=%s email_message_id=%s category=%s",
+                        order.id, email_record.id, email_record.error_category or "unknown",
                     )
                 else:
                     current_app.logger.info(
-                        "order_confirmation_already_processed order_id=%s email_message_id=%s status=%s",
+                        "order_confirmation_not_dispatched order_id=%s email_message_id=%s status=%s",
                         order.id, email_record.id, email_record.status,
                     )
             except Exception:

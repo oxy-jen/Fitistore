@@ -1732,12 +1732,23 @@ def stock_adjust(product_id):
     product = Product.query.get_or_404(product_id)
     variant_id = request.form.get("variant_id")
     try:
+        change = int(request.form.get("change") or 0)
         if variant_id:
             variant = ProductVariant.query.filter_by(id=int(variant_id), product_id=product.id).first_or_404()
-            adjust_variant_stock(variant, int(request.form.get("change") or 0), request.form.get("reason", "Manual variant adjustment"), current_user)
+            adjust_variant_stock(variant, change, request.form.get("reason", "Manual variant adjustment"), current_user)
         else:
-            adjust_stock(product, int(request.form.get("change") or 0), request.form.get("reason", "Manual adjustment"), current_user)
+            adjust_stock(product, change, request.form.get("reason", "Manual adjustment"), current_user)
         db.session.commit()
+        if change > 0:
+            try:
+                from app.services.inventory import dispatch_queued_restock_alerts
+                dispatch_queued_restock_alerts(product)
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.error(
+                    "restock_notification_dispatch_failed product_id=%s error_type=%s",
+                    product.id, type(exc).__name__,
+                )
         flash("Stock updated.", "success")
     except (ValueError, InventoryError) as exc:
         db.session.rollback()
@@ -1854,7 +1865,7 @@ def update_order(order_id):
                 message = notify_order_event(order, status_kind, f"{status_kind}:{event.id}" if event else f"{status_kind}:{order.id}:{order.status}")
                 if status_email_eligible:
                     status_email_outcome = getattr(message, "status", None) if message else "failed"
-                    if status_email_outcome not in {"queued", "sending", "sent"}:
+                    if status_email_outcome not in {"queued", "sending", "sent", "delivered"}:
                         status_email_outcome = "failed"
             except Exception as exc:
                 db.session.rollback()
@@ -1880,13 +1891,15 @@ def update_order(order_id):
                 current_app.logger.error("payment_failure_notification_queue_failed order_id=%s error_type=%s", order.id, type(exc).__name__)
         flash("Order updated." if changes else "No status change was needed.", "success")
         if status_email_outcome == "queued":
-            flash("Customer status email queued; delivery has not yet been confirmed.", "info")
+            flash("Customer status email is awaiting provider delivery or recovery.", "info")
         elif status_email_outcome == "sending":
             flash("Customer status email is already being processed.", "info")
         elif status_email_outcome == "sent":
-            flash("Customer status email was already sent.", "info")
+            flash("Customer status email was accepted by the provider; inbox delivery is not confirmed.", "info")
+        elif status_email_outcome == "delivered":
+            flash("Customer status email delivery was confirmed by the provider.", "info")
         elif status_email_outcome == "failed":
-            flash("Order updated, but the customer status email could not be queued.", "warning")
+            flash("Order updated, but the customer status email failed; review its delivery record.", "warning")
     except ValueError as exc:
         db.session.rollback()
         flash(str(exc), "error")
