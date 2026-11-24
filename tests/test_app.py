@@ -7132,6 +7132,8 @@ def test_media_showcase_video_preview_crop_saves_and_renders_without_cropping_so
     assert b"--media-item-ratio:16.0 / 9.0" in page.data
     assert b"data-media-showcase-player" in page.data
     assert b"media-showcase-player-content" in page.data
+    assert b'data-media-player-minimized hidden' in page.data
+    assert b'href="/reviews#write-review">Rate us</a>' in page.data
     editor_js = client.get("/static/js/media-showcase-editor.js")
     assert editor_js.status_code == 200
     assert b"Horizontal position" in editor_js.data and b"Vertical position" in editor_js.data

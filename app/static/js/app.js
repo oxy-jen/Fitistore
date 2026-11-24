@@ -652,9 +652,27 @@ document.addEventListener('click',event=>{
   if(close){if(showcasePlayer?.open)showcasePlayer.close();return;}
   const minimize=event.target.closest('[data-media-player-minimize]');
   if(minimize&&showcasePlayer){
-    const minimized=showcasePlayer.classList.toggle('is-minimized');
+    const minimized=!showcasePlayer.classList.contains('is-minimized');
+    const minimizedPanel=showcasePlayer.querySelector('[data-media-player-minimized]');
+    if(minimized){
+      showcasePlayer.classList.add('is-minimized');
+      showcasePlayer.classList.remove('is-expanded');
+      showcasePlayer.style.removeProperty('width');
+      showcasePlayer.style.removeProperty('height');
+      clearShowcasePlayerContent();
+      if(showcasePlayerContent)showcasePlayerContent.hidden=true;
+      if(minimizedPanel)minimizedPanel.hidden=false;
+      const enlarge=showcasePlayer.querySelector('[data-media-player-enlarge]');
+      if(enlarge){enlarge.setAttribute('aria-pressed','false');enlarge.setAttribute('aria-label','Enlarge media player');}
+    }else{
+      showcasePlayer.classList.remove('is-minimized');
+      if(showcasePlayerContent)showcasePlayerContent.hidden=false;
+      if(minimizedPanel)minimizedPanel.hidden=true;
+      if(showcaseCurrentOpener?.isConnected)openShowcasePlayer(showcaseCurrentOpener,showcaseCurrentAutomatic);
+    }
     minimize.setAttribute('aria-expanded',String(!minimized));
-    minimize.setAttribute('aria-label',minimized?'Restore media player':'Minimize media player');
+    minimize.setAttribute('aria-label',minimized?'Restore media':'Minimize media player');
+    minimize.querySelector('path')?.setAttribute('d',minimized?'M12 5v14m-7-7h14':'M5 12h14');
     return;
   }
   const enlarge=event.target.closest('[data-media-player-enlarge]');
@@ -674,8 +692,11 @@ showcasePlayers.slice(1).forEach(player=>player.remove());
 if(showcasePlayer)document.body.append(showcasePlayer);
 const showcasePlayerContent=showcasePlayer?.querySelector('[data-media-player-content]');
 const showcasePlayerTitle=showcasePlayer?.querySelector('[data-media-player-title]');
+const showcasePlayerMinimized=showcasePlayer?.querySelector('[data-media-player-minimized]');
 let showcasePopupSeenInMemory=false;
 let showcaseLastOpener=null;
+let showcaseCurrentOpener=null;
+let showcaseCurrentAutomatic=false;
 
 function hasSeenShowcasePopup(){
   return showcasePopupSeenInMemory;
@@ -702,6 +723,8 @@ function clearShowcasePlayerContent(){
 }
 function openShowcasePlayer(opener,automatic){
   if(!showcasePlayer||!showcasePlayerContent)return false;
+  showcaseCurrentOpener=opener;
+  showcaseCurrentAutomatic=automatic;
   const kind=opener.dataset.mediaKind;
   const title=opener.dataset.mediaTitle||'Featured media';
   const muted=automatic||opener.dataset.mediaMuted==='1';
@@ -709,6 +732,8 @@ function openShowcasePlayer(opener,automatic){
   clearShowcasePlayerContent();
   if(showcasePlayerTitle)showcasePlayerTitle.textContent=title;
   showcasePlayer.classList.remove('is-minimized');
+  showcasePlayerContent.hidden=false;
+  if(showcasePlayerMinimized)showcasePlayerMinimized.hidden=true;
   const minimize=showcasePlayer.querySelector('[data-media-player-minimize]');
   if(minimize){minimize.setAttribute('aria-expanded','true');minimize.setAttribute('aria-label','Minimize media player');}
   const ratio=(opener.dataset.mediaAspectRatio||'').match(/^([\d.]+):([\d.]+)$/);
@@ -779,10 +804,14 @@ if(showcasePlayer){
   showcasePlayer.addEventListener('close',()=>{
     markShowcasePopupSeen();
     clearShowcasePlayerContent();
+    showcasePlayerContent?.removeAttribute('hidden');
+    if(showcasePlayerMinimized)showcasePlayerMinimized.hidden=true;
     showcasePlayerContent?.style.removeProperty('--media-player-ratio');
     showcasePlayer.classList.remove('is-expanded','is-minimized');
     if(showcaseLastOpener?.isConnected)showcaseLastOpener.focus();
     showcaseLastOpener=null;
+    showcaseCurrentOpener=null;
+    showcaseCurrentAutomatic=false;
   });
   showcasePlayer.addEventListener('cancel',markShowcasePopupSeen);
 
