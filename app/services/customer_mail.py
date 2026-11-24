@@ -634,6 +634,13 @@ def dispatch_transactional_email_now(record: EmailMessage) -> EmailMessage:
         return dispatch_authentication_email_now(
             record, account_id=record.account_id, purpose=record.kind,
         )
+    configured, reason = mail_configuration_status()
+    if not configured:
+        logger.warning(
+            "transactional_email_dispatch_deferred message_id=%s reason=%s",
+            record.id, reason,
+        )
+        return record
     try:
         deliver_email(record)
         db.session.refresh(record)

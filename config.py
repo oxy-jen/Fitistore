@@ -104,4 +104,9 @@ class TestConfig(Config):
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
     SERVER_NAME = "example.test"
     SESSION_COOKIE_SECURE = False
+    MAIL_PROVIDER = "brevo"
+    RESEND_API_KEY = ""
+    BREVO_API_KEY = "test-only-brevo-key"
+    MAIL_FROM_ADDRESS = "orders@example.test"
+    MAIL_FROM_VERIFIED = False
 

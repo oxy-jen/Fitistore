@@ -200,6 +200,10 @@ def test_delivery_claim_persists_attempt_and_stops_worker_history(app, app_conte
         "transactional@example.test", "Order update", "order_received", "attempt-ledger-test",
         html_body="<p>Order update</p>", text_body="Order update",
     )
+    app.config.update(
+        MAIL_PROVIDER="brevo", MAIL_FROM_VERIFIED=True,
+        MAIL_FROM_ADDRESS="verified@example.test", BREVO_API_KEY="test-key",
+    )
     monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
     monkeypatch.setattr(customer_mail, "_send_brevo", lambda *args: "provider-message-123")
     result = customer_mail.process_email_queue(limit=1)
@@ -208,6 +212,25 @@ def test_delivery_claim_persists_attempt_and_stops_worker_history(app, app_conte
     assert attempt.status == "accepted"
     assert attempt.completed_at is not None
     assert EmailWorkerRun.query.filter_by(status="STOPPED").count() == 1
+
+
+def test_transactional_enqueue_stays_recoverable_when_provider_is_unconfigured(app, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    app.config.update(MAIL_PROVIDER="", MAIL_FROM_VERIFIED=False)
+    dispatches = []
+    monkeypatch.setattr(customer_mail, "deliver_email", lambda *args, **kwargs: dispatches.append(args))
+
+    row = customer_mail.queue_email(
+        "transactional@example.test", "Order update", "order_received",
+        "provider-unconfigured-test", html_body="<p>Recoverable</p>",
+        text_body="Recoverable",
+    )
+
+    assert row.status == "queued"
+    assert row.html_body == "<p>Recoverable</p>"
+    assert row.text_body == "Recoverable"
+    assert not dispatches
 
 
 @pytest.mark.parametrize(
