@@ -1,0 +1,97 @@
+.shop-page[data-category-group-key="socks-essentials"],
+.product-related-section[data-category-group-key="socks-essentials"] {
+  --category-section-background: linear-gradient(115deg, #fff0f2 0%, #ffe8ec 100%);
+  --category-section-border: #f0d7dc;
+}
+
+.shop-page[data-category-group-key="shoes-footwear"],
+.product-related-section[data-category-group-key="shoes-footwear"] {
+  --category-section-background: linear-gradient(115deg, #eaf5ff 0%, #dff0ff 100%);
+  --category-section-border: #d7e9f8;
+}
+
+.shop-page[data-category-group-key="clothing-apparel"],
+.product-related-section[data-category-group-key="clothing-apparel"] {
+  --category-section-background: linear-gradient(115deg, #e5fff5 0%, #d8f8ed 100%);
+  --category-section-border: #ccefe2;
+}
+
+.shop-page[data-category-group-key="beauty-accessories"],
+.product-related-section[data-category-group-key="beauty-accessories"] {
+  --category-section-background: linear-gradient(115deg, #f5efff 0%, #eee6ff 100%);
+  --category-section-border: #e6dcf8;
+}
+
+.shop-page[data-category-group-key="bags-lifestyle"],
+.product-related-section[data-category-group-key="bags-lifestyle"] {
+  --category-section-background: linear-gradient(115deg, #fff8e9 0%, #fff1d8 100%);
+  --category-section-border: #f0e2c9;
+}
+
+.shop-page[data-category-group-key="other"],
+.shop-page[data-category-group-key="other-products"],
+.product-related-section[data-category-group-key="other"],
+.product-related-section[data-category-group-key="other-products"] {
+  --category-section-background: linear-gradient(115deg, #fff3e9 0%, #ffebdc 100%);
+  --category-section-border: #f0dfd4;
+}
+
+.shop-page--category #product-grid,
+.shop-page--category .shop-related-search,
+.shop-page--category .shop-load-panel,
+.shop-page--category .shop-empty {
+  border: 1px solid var(--category-section-border);
+  border-radius: 18px;
+  background: var(--category-section-background);
+}
+
+.shop-page--category #product-grid {
+  padding: .85rem;
+}
+
+.product-related-section[data-category-group-key] {
+  border: 1px solid var(--category-section-border);
+  border-radius: 18px;
+  background: var(--category-section-background);
+}
+
+.home-market > .featured-showcase {
+  border: 1px solid #f0d7dc;
+  border-radius: 18px;
+  background: linear-gradient(115deg, #fff0f2 0%, #fff8f9 100%);
+}
+
+.home-market > .top-added-showcase {
+  border: 1px solid #d7e9f8;
+  border-radius: 18px;
+  background: linear-gradient(115deg, #eaf5ff 0%, #f6fbff 100%);
+}
+
+.home-market > .promo-showcase {
+  border: 1px solid #e6dcf8;
+  border-radius: 18px;
+  background: linear-gradient(115deg, #f5efff 0%, #fbf8ff 100%);
+}
+
+.home-market > .category-showcase {
+  border: 1px solid #ccefe2;
+  border-radius: 18px;
+  background: linear-gradient(115deg, #e5fff5 0%, #f4fff9 100%);
+}
+
+.about-dash-current {
+  border-color: #d7e9f8;
+  background: linear-gradient(115deg, #eaf5ff 0%, #f6fbff 100%);
+}
+
+.account-discovery > .product-section:first-of-type {
+  border: 1px solid #ccefe2;
+  border-radius: 18px;
+  background: linear-gradient(115deg, #e5fff5 0%, #f4fff9 100%);
+}
+
+.account-discovery > .product-section + .product-section {
+  border: 1px solid #f0d7dc;
+  border-radius: 18px;
+  background: linear-gradient(115deg, #fff0f2 0%, #fff8f9 100%);
+}

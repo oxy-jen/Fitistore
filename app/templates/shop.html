@@ -1,5 +1,6 @@
 {% extends "base.html" %}{% block content %}
-<div class="shop-page">
+{% set category_page_key = active_category_group.key if active_category_group else category_group_key(active_category.name) if active_category else '' %}
+<div class="shop-page{% if shop_sections %} shop-page--sections{% endif %}{% if category_page_key %} shop-page--category{% endif %}" data-category-group-key="{{ category_page_key }}">
   <section class="shop-banner" aria-labelledby="shop-banner-title">
     <div class="shop-banner-copy">
       <p class="eyebrow">FityStores Â· Everyday essentials</p>
@@ -11,38 +12,98 @@
     </div>
   </section>
 
-  {% for showcase_group in media_showcases.shop_before_products %}{% include "partials/media_showcase_group.html" %}{% endfor %}
   <nav class="shop-category-chips" aria-label="Shop categories">
-    <a class="shop-chip{% if not active_category and not active_category_group %} active{% endif %}" href="{{ url_for('public.shop', q=q, sort=sort) }}"{% if not active_category and not active_category_group %} aria-current="page"{% endif %}>All</a>
-    {% for group in category_groups %}<a class="shop-chip{% if active_category_group and active_category_group.key == group.key %} active{% endif %}" data-category-group-key="{{ group.key }}" data-category-group-name="{{ group.name }}" href="{{ url_for('public.shop', category_group=group.key, q=q, sort=sort) }}"{% if active_category_group and active_category_group.key == group.key %} aria-current="page"{% endif %}>{{ group.name }}</a>{% endfor %}
+    <a class="shop-chip shop-chip-all{% if not category_page_key %} active{% endif %}" href="{{ url_for('public.shop', q=q, sort=sort) }}"{% if not category_page_key %} aria-current="page"{% endif %}>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+      <span>All Categories</span>
+    </a>
+    {% for group in category_groups %}
+      <a class="shop-chip{% if category_page_key == group.key %} active{% endif %}" data-category-group-key="{{ group.key }}" href="{{ url_for('public.shop', category_group=group.key, q=q, sort=sort) }}"{% if category_page_key == group.key %} aria-current="page"{% endif %}>
+        {% if group.key == 'socks-essentials' %}
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h7v8.4l3.8 2.4a3.1 3.1 0 0 1-3.3 5.3l-6-3.7A4.9 4.9 0 0 1 7 11.2V4a1 1 0 0 1 1-1Z"/><path d="M8 7h7"/></svg>
+        {% elif group.key == 'shoes-footwear' %}
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15.5c4.2 0 6.1-1.6 7.7-5l2.2 1.4a11 11 0 0 0 4 1.6c2.4.4 4.1 1.5 4.1 3.6V20H3v-4.5Z"/><path d="M3 17h18M11 12l1.5-2"/></svg>
+        {% elif group.key == 'clothing-apparel' %}
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 5 2 10l4 2 2-2v11h8V10l2 2 4-2-2-5-4-2c-.8 1.2-2 2-4 2s-3.2-.8-4-2Z"/></svg>
+        {% elif group.key == 'beauty-accessories' %}
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l1 12H4L5 8Z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
+        {% else %}
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16l-1 12H5L4 8Z"/><path d="M8 8V6a4 4 0 0 1 8 0v2"/></svg>
+        {% endif %}
+        <span>{{ group.name }}</span>
+      </a>
+    {% endfor %}
   </nav>
 
+  {% for showcase_group in media_showcases.shop_before_products %}{% include "partials/media_showcase_group.html" %}{% endfor %}
+  <div class="shop-catalog-content">
+  {% if not shop_sections %}
   <form class="shop-toolbar" action="{{ url_for('public.shop') }}" id="shop-filters" data-search-autocomplete data-suggestions-url="{{ url_for('public.api_search_suggestions') }}">
     <div class="shop-search-autocomplete"><label class="shop-search" for="shop-global-search"><svg class="icon" aria-hidden="true"><use href="#icon-search"></use></svg><input id="shop-global-search" name="q" value="{{ q }}" placeholder="Search products..." aria-label="Search products" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="shop-global-search-suggestions" autocomplete="off"></label><div class="shop-search-suggestions" id="shop-global-search-suggestions" role="listbox" data-search-suggestions hidden></div></div>
-    <label class="shop-filter-select"><span class="sr-only">Filter by category</span><svg class="icon" aria-hidden="true"><use href="#icon-filter"></use></svg><select name="category_group" aria-label="Filter by category"><option value="">All categories</option>{% for group in category_groups %}<option value="{{ group.key }}" {% if active_category_group and active_category_group.key == group.key %}selected{% endif %}>{{ group.name }}</option>{% endfor %}</select></label>
     <label class="shop-sort"><span class="sr-only">Sort products</span><select name="sort" aria-label="Sort products"><option value="newest" {% if sort=='newest' %}selected{% endif %}>Sort by: Newest</option><option value="name" {% if sort=='name' %}selected{% endif %}>Sort by: Name</option><option value="price-low" {% if sort=='price-low' %}selected{% endif %}>Sort by: Price low to high</option><option value="price-high" {% if sort=='price-high' %}selected{% endif %}>Sort by: Price high to low</option></select></label>
     <button class="btn primary shop-apply" type="submit">Apply</button>
   </form>
+  {% endif %}
 
   <div class="shop-results-heading"><h2>{% if active_category %}{{ active_category.name }}{% elif active_category_group %}{{ active_category_group.name }}{% elif q %}Search results{% else %}Shop everyday essentials{% endif %}</h2><a href="{{ url_for('public.shop') }}">Clear filters</a></div>
   {% if shop_sections %}
     <div class="shop-category-sections">
       {% for section in shop_sections %}
-        <section class="shop-category-section" aria-labelledby="shop-category-title-{{ section.group.key }}" data-shop-category-section data-total-products="{{ section.total }}">
-          <header class="shop-category-section-header">
-            <div class="shop-category-section-title"><h2 id="shop-category-title-{{ section.group.key }}">{{ section.group.name }}</h2><span>{{ section.total }} product{{ '' if section.total == 1 else 's' }}</span></div>
-            <form class="shop-section-search" method="get" action="{{ url_for('public.shop') }}" data-search-autocomplete data-suggestions-url="{{ url_for('public.api_search_suggestions') }}">
-              <label class="sr-only" for="shop-search-{{ section.group.key }}">Search {{ section.group.name }}</label>
-              <input id="shop-search-{{ section.group.key }}" type="search" name="q" value="{{ q }}" placeholder="Search {{ section.group.name }}..." role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="shop-suggestions-{{ section.group.key }}" autocomplete="off">
-              <input type="hidden" name="category_group" value="{{ section.group.key }}">
-              <input type="hidden" name="sort" value="{{ sort }}">
-              <button class="btn" type="submit">Search</button>
-              <div class="shop-search-suggestions" id="shop-suggestions-{{ section.group.key }}" role="listbox" data-search-suggestions hidden></div>
-            </form>
-            <a class="shop-section-more" href="{{ url_for('public.shop', category_group=section.group.key, q=q, sort=sort) }}">Show more <span aria-hidden="true">â†’</span></a>
-          </header>
-          <div class="product-grid shop-product-grid shop-category-products" data-shop-preview-grid>
-            {% for product in section.products %}{% with shop_listing_card=true %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}
+        <section class="shop-category-section" aria-labelledby="shop-category-title-{{ section.group.key }}" data-shop-category-section data-category-group-key="{{ section.group.key }}" data-total-products="{{ section.total }}">
+          <div class="shop-category-section-layout">
+            <aside class="shop-section-category-panel" aria-label="Categories in {{ section.group.name }}">
+              <h3>Shop by type</h3>
+              <form class="shop-section-sort" method="get" action="{{ url_for('public.shop') }}">
+                <label for="shop-sort-{{ section.group.key }}">Sort by</label>
+                <select id="shop-sort-{{ section.group.key }}" name="{{ section.sort_param }}">
+                  <option value="newest" {% if section.sort == 'newest' %}selected{% endif %}>Newest</option>
+                  <option value="name" {% if section.sort == 'name' %}selected{% endif %}>Name</option>
+                  <option value="price-low" {% if section.sort == 'price-low' %}selected{% endif %}>Price: low to high</option>
+                  <option value="price-high" {% if section.sort == 'price-high' %}selected{% endif %}>Price: high to low</option>
+                </select>
+                {% for other_section in shop_sections %}
+                  {% if other_section.group.key != section.group.key %}
+                    <input type="hidden" name="{{ other_section.sort_param }}" value="{{ other_section.sort }}">
+                  {% endif %}
+                {% endfor %}
+                {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+                <button type="submit">Apply</button>
+              </form>
+              <div class="shop-section-category-tree">
+              <ul class="shop-section-category-list">
+                {% for item in section.categories %}
+                  <li>
+                    <button class="shop-section-category-toggle" type="button" data-shop-category-toggle aria-expanded="false" aria-controls="shop-subcategories-{{ section.group.key }}-{{ item.category.slug }}">
+                      <svg class="shop-section-category-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg>
+                      <span>{{ item.category.name }}</span>
+                    </button>
+                    <ul class="shop-section-category-items" id="shop-subcategories-{{ section.group.key }}-{{ item.category.slug }}" hidden>
+                      {% for product in item.products %}
+                        <li><a href="{{ url_for('public.product_detail', slug=product.slug) }}">{{ product.name }}</a></li>
+                      {% endfor %}
+                    </ul>
+                  </li>
+                {% endfor %}
+              </ul>
+              </div>
+            </aside>
+            <div class="shop-category-section-main">
+              <header class="shop-category-section-header">
+                <div class="shop-category-section-title"><h2 id="shop-category-title-{{ section.group.key }}">{{ section.group.name }}</h2><span>{{ section.total }} product{{ '' if section.total == 1 else 's' }}</span></div>
+                <form class="shop-section-search" method="get" action="{{ url_for('public.shop') }}" data-search-autocomplete data-suggestions-url="{{ url_for('public.api_search_suggestions') }}">
+                  <label class="sr-only" for="shop-search-{{ section.group.key }}">Search {{ section.group.name }}</label>
+                  <input id="shop-search-{{ section.group.key }}" type="search" name="q" value="{{ q }}" placeholder="Search {{ section.group.name }}..." role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="shop-suggestions-{{ section.group.key }}" autocomplete="off">
+                  <input type="hidden" name="category_group" value="{{ section.group.key }}">
+                  <input type="hidden" name="sort" value="{{ sort }}">
+                  <button class="btn" type="submit" aria-label="Search {{ section.group.name }}"><svg class="icon" aria-hidden="true"><use href="#icon-search"></use></svg><span class="sr-only">Search</span></button>
+                  <div class="shop-search-suggestions" id="shop-suggestions-{{ section.group.key }}" role="listbox" data-search-suggestions hidden></div>
+                </form>
+                <a class="shop-section-more" href="{{ url_for('public.shop', category_group=section.group.key, q=q, sort=section.sort) }}">View all <span aria-hidden="true">→</span></a>
+              </header>
+              <div class="product-grid shop-product-grid shop-category-products" data-shop-preview-grid role="group" aria-label="Products in {{ section.group.name }}">
+                {% for product in section.products %}{% with shop_listing_card=true %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}
+              </div>
+            </div>
           </div>
         </section>
       {% endfor %}
@@ -68,6 +129,7 @@
   {% else %}
     <div class="empty shop-empty">No active products are available right now.</div>
   {% endif %}
+  </div>
 
   <section class="shop-trust-strip" aria-label="Shopping information">
     <article><svg class="icon" aria-hidden="true"><use href="#icon-checkout"></use></svg><div><strong>Clear prices</strong><span>See listed prices before you order.</span></div></article>

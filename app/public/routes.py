@@ -35,6 +35,7 @@ OTHER_SHOP_CATEGORY_GROUP = {"key": "other-products", "name": "Other products", 
 SHOP_CATEGORY_GROUPS = (*CATEGORY_GROUPS, OTHER_SHOP_CATEGORY_GROUP)
 SHOP_CATEGORY_GROUPS_BY_KEY = {group["key"]: group for group in SHOP_CATEGORY_GROUPS}
 SEARCH_SUGGESTION_LIMIT = 8
+SHOP_SORT_OPTIONS = ("newest", "name", "price-low", "price-high")
 
 
 def _search_pattern(value):
@@ -184,12 +185,14 @@ def helpers():
     ]
     return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "category_group_key": category_group_key, "footer_products": footer_products[:3], "footer_product_groups": footer_product_groups, "current_year": datetime.now().year}
 
-def product_query(category_group_override=None):
+def product_query(category_group_override=None, sort_override=None):
     q = request.args.get("q", "").strip()
     category_slug = request.args.get("category", "").strip()
     category_group_key_value = category_group_override or request.args.get("category_group", "").strip()
     category_group = SHOP_CATEGORY_GROUPS_BY_KEY.get(category_group_key_value)
-    sort = request.args.get("sort", "newest")
+    sort = sort_override or request.args.get("sort", "newest")
+    if sort not in SHOP_SORT_OPTIONS:
+        sort = "newest"
     query = product_list_options(Product.query.filter_by(active=True).join(Category))
     if q:
         search_filter = _product_search_filter(q)
@@ -877,6 +880,7 @@ def shop():
     shop_sections = []
     search_match_product_ids = set()
     related_products = []
+    categories = Category.query.order_by(Category.name).all()
     if q and not active_category and not active_category_group:
         search_match_product_ids = {
             product_id for (product_id,) in db.session.query(Product.id)
@@ -885,8 +889,31 @@ def shop():
             .all()
         }
     if not active_category and not active_category_group and not q:
+        category_product_rows = (
+            db.session.query(Product.category_id, Product.name, Product.slug)
+            .filter(Product.active.is_(True))
+            .order_by(Product.name.asc())
+            .all()
+        )
+        products_by_category = {}
+        for category_id, product_name, product_slug in category_product_rows:
+            products_by_category.setdefault(category_id, []).append({
+                "name": product_name,
+                "slug": product_slug,
+            })
+        categories_by_group = {}
+        for category in categories:
+            category_products = products_by_category.get(category.id, [])
+            if category_products:
+                group_key = category_group_key(category.name) or OTHER_SHOP_CATEGORY_GROUP["key"]
+                categories_by_group.setdefault(group_key, []).append({
+                    "category": category,
+                    "products": category_products,
+                })
         for group in SHOP_CATEGORY_GROUPS:
-            group_query, _category, _query_text, _sort = product_query(group["key"])
+            sort_param = f"sort_{group['key']}"
+            section_sort = request.args.get(sort_param, sort)
+            group_query, _category, _query_text, section_sort = product_query(group["key"], section_sort)
             total = group_query.count()
             if total:
                 shop_sections.append({
@@ -894,6 +921,9 @@ def shop():
                     "products": group_query.limit(SHOP_CATEGORY_PREVIEW_LIMIT).all(),
                     "total": total,
                     "preview_limit": SHOP_CATEGORY_PREVIEW_LIMIT,
+                    "categories": categories_by_group.get(group["key"], []),
+                    "sort": section_sort,
+                    "sort_param": sort_param,
                 })
         products = []
         has_next = False
@@ -940,7 +970,6 @@ def shop():
             if category_name not in current["categories"]:
                 current["categories"].append(category_name)
         search_other_places = sorted(destinations.values(), key=lambda item: (-item["count"], item["label"].casefold()))[:5]
-    categories = Category.query.order_by(Category.name).all()
     active_title = active_category.name if active_category else (active_category_group["name"] if active_category_group else "Shop products")
     return render_template("shop.html", title="Shop", seo_title=active_title + " | Shop at FityStores", seo_description=("Browse available " + active_title + " products, check current listing details, and contact FityStores with questions."), products=products, related_products=related_products, shop_sections=shop_sections, categories=categories, category_groups=SHOP_CATEGORY_GROUPS, active_category=active_category, active_category_group=active_category_group, search_other_places=search_other_places, search_match_product_ids=search_match_product_ids, q=q, sort=sort, page=page, has_next=has_next, media_showcases=showcases_by_placement("shop"))
 

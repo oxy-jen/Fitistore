@@ -964,6 +964,131 @@ def test_shop_search_and_category_filter(client):
     assert b"Unpriced Cap" not in product_grid
 
 
+def test_shop_sort_applies_to_category_sections_and_keeps_apply_control(client, app):
+    with app.app_context():
+        category = Category.query.filter_by(slug="ankle-socks").one()
+        cheaper = Product(
+            name="Budget Socks",
+            slug="budget-socks",
+            category=category,
+            description="Lower-priced socks",
+            price_cents=5000,
+            stock_quantity=3,
+            active=True,
+        )
+        db.session.add(cheaper)
+        db.session.commit()
+        cheaper_id = cheaper.id
+        plain_id = Product.query.filter_by(slug="plain-socks").one().id
+
+    low_response = client.get("/shop?sort=price-low")
+    high_response = client.get("/shop?sort=price-high")
+    assert low_response.status_code == high_response.status_code == 200
+    low_html = low_response.data
+    high_html = high_response.data
+    assert low_html.index(f'data-product-card="{cheaper_id}"'.encode()) < low_html.index(f'data-product-card="{plain_id}"'.encode())
+    assert high_html.index(f'data-product-card="{plain_id}"'.encode()) < high_html.index(f'data-product-card="{cheaper_id}"'.encode())
+    assert b'<option value="price-low" selected>' in low_html
+    assert b'<option value="price-high" selected>' in high_html
+    assert b'<select name="category_group"' not in low_html
+    assert b'<form class="shop-toolbar"' not in low_html
+    assert b'<form class="shop-section-sort"' in low_html
+    assert b'<button type="submit">Apply</button>' in low_html
+
+
+def test_shop_sections_show_inline_product_lists_for_available_subcategories(client, app):
+    with app.app_context():
+        for name, slug in (
+            ("Sports socks", "sports-socks"),
+            ("Vests", "vests"),
+            ("Boxers", "boxers"),
+            ("Panties", "panties"),
+        ):
+            category = Category(name=name, slug=slug)
+            db.session.add(category)
+            db.session.flush()
+            db.session.add(Product(
+                name=f"{name} product",
+                slug=f"{slug}-product",
+                category=category,
+                description=f"{name} description",
+                price_cents=1000,
+                stock_quantity=2,
+                active=True,
+            ))
+        inactive_category = Category(name="Inactive socks", slug="inactive-socks")
+        db.session.add(inactive_category)
+        db.session.flush()
+        db.session.add(Product(
+            name="Inactive socks product",
+            slug="inactive-socks-product",
+            category=inactive_category,
+            description="Not currently available",
+            price_cents=1000,
+            stock_quantity=0,
+            active=False,
+        ))
+        db.session.commit()
+
+    response = client.get("/shop")
+    assert response.status_code == 200
+    html = response.data
+    banner_end = html.index(b"</section>")
+    nav_start = html.index(b'<nav class="shop-category-chips"')
+    nav = html[nav_start:html.index(b"</nav>", nav_start)]
+    assert nav_start > banner_end
+    from app.public.routes import SHOP_CATEGORY_GROUPS
+    assert nav.count(b'<a ') == len(SHOP_CATEGORY_GROUPS) + 1
+    assert b'href="/shop?category_group=socks-essentials' in nav
+    assert b'href="/shop?category_group=other-products' in nav
+
+    panel = response.data.split(b'<aside class="shop-section-category-panel"', 1)[1].split(b"</aside>", 1)[0]
+    assert b"Ankle socks" in panel
+    assert b"Sports socks" in panel
+    assert b"Inactive socks" not in panel
+    assert b'name="sort_socks-essentials"' in panel
+    assert b'data-shop-category-toggle' in panel
+    assert b'aria-controls="shop-subcategories-socks-essentials-sports-socks"' in panel
+    assert b'href="/product/sports-socks-product"' in panel
+    assert b'data-shop-category-more' not in panel
+    assert b'product_count' not in panel
+    assert b'shop-category-sidebar' not in response.data
+
+
+def test_shop_category_panels_apply_independent_sorts(client, app):
+    with app.app_context():
+        socks = Category.query.filter_by(slug="ankle-socks").one()
+        shoes = Category(name="Sports shoes", slug="sports-shoes")
+        db.session.add(shoes)
+        db.session.flush()
+        products = [
+            Product(name="Panel low socks", slug="panel-low-socks", category=socks, description="Low", price_cents=1, stock_quantity=1, active=True),
+            Product(name="Panel high socks", slug="panel-high-socks", category=socks, description="High", price_cents=999999, stock_quantity=1, active=True),
+            Product(name="Panel low shoes", slug="panel-low-shoes", category=shoes, description="Low", price_cents=1, stock_quantity=1, active=True),
+            Product(name="Panel high shoes", slug="panel-high-shoes", category=shoes, description="High", price_cents=999999, stock_quantity=1, active=True),
+        ]
+        db.session.add_all(products)
+        db.session.commit()
+        product_ids = {product.slug: product.id for product in products}
+
+    response = client.get(
+        "/shop?sort_socks-essentials=price-high&sort_shoes-footwear=price-low"
+    )
+    assert response.status_code == 200
+    html = response.data
+    socks_start = html.index(b'data-category-group-key="socks-essentials" data-total-products')
+    socks_end = html.index(b"</section>", socks_start)
+    socks_section = html[socks_start:socks_end]
+    shoes_start = html.index(b'data-category-group-key="shoes-footwear" data-total-products')
+    shoes_end = html.index(b"</section>", shoes_start)
+    shoes_section = html[shoes_start:shoes_end]
+
+    assert socks_section.index(f'data-product-card="{product_ids["panel-high-socks"]}"'.encode()) < socks_section.index(f'data-product-card="{product_ids["panel-low-socks"]}"'.encode())
+    assert shoes_section.index(f'data-product-card="{product_ids["panel-low-shoes"]}"'.encode()) < shoes_section.index(f'data-product-card="{product_ids["panel-high-shoes"]}"'.encode())
+    assert b'<option value="price-high" selected>' in socks_section
+    assert b'<option value="price-low" selected>' in shoes_section
+
+
 def test_global_shop_search_shows_matches_before_the_rest_of_the_category(client, app):
     with app.app_context():
         plain_id = Product.query.filter_by(slug="plain-socks").one().id

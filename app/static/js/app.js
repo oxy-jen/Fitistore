@@ -130,19 +130,40 @@ document.addEventListener('DOMContentLoaded',()=>{
   let loading=false;
   const seen=new Set(Array.from(document.querySelectorAll('[data-product-card]')).map(card=>card.dataset.productCard));
   const categorySections=Array.from(document.querySelectorAll('[data-shop-category-section]'));
+  document.querySelectorAll('[data-shop-category-toggle]').forEach(button=>{
+    button.addEventListener('click',()=>{
+      const items=document.getElementById(button.getAttribute('aria-controls'));
+      if(!items)return;
+      const expanded=button.getAttribute('aria-expanded')==='true';
+      items.hidden=expanded;
+      button.setAttribute('aria-expanded',String(!expanded));
+    });
+  });
   function updateCategoryPreview(section){
     const productGrid=section.querySelector('[data-shop-preview-grid]');
     if(!productGrid)return;
     const columns=getComputedStyle(productGrid).gridTemplateColumns.split(/\s+/).filter(Boolean).length||1;
     const visibleLimit=columns*2;
+    const mobileCarousel=window.matchMedia('(max-width: 760px)').matches;
     const cards=Array.from(productGrid.querySelectorAll('[data-product-card]'));
-    cards.forEach((card,index)=>{card.hidden=index>=visibleLimit});
+    cards.forEach((card,index)=>{card.hidden=!mobileCarousel&&index>=visibleLimit});
+    if(mobileCarousel)productGrid.setAttribute('tabindex','0');
+    else productGrid.removeAttribute('tabindex');
     const showMore=section.querySelector('.shop-section-more');
-    if(showMore)showMore.hidden=Number(section.dataset.totalProducts||0)<=visibleLimit;
+    if(showMore)showMore.hidden=Number(section.dataset.totalProducts||0)<=(mobileCarousel?2:visibleLimit);
   }
   const updateCategoryPreviews=()=>categorySections.forEach(updateCategoryPreview);
   updateCategoryPreviews();
-  window.addEventListener('resize',()=>requestAnimationFrame(updateCategoryPreviews),{passive:true});
+  let shopLayoutFrame=false;
+  const scheduleShopResizeUpdate=()=>{
+    if(shopLayoutFrame)return;
+    shopLayoutFrame=true;
+    requestAnimationFrame(()=>{
+      shopLayoutFrame=false;
+      updateCategoryPreviews();
+    });
+  };
+  window.addEventListener('resize',scheduleShopResizeUpdate,{passive:true});
   async function loadProducts(){
     if(!grid||loading||grid.dataset.hasNext!=='true')return;
     loading=true;
