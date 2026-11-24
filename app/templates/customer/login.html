@@ -28,7 +28,8 @@
     {% if google_client_id %}
       <label class="check account-consent account-consent-compact"><input type="checkbox" name="accept_terms" value="yes" form="google-signin-form" required> I have read and agree to the <a href="{{ url_for('public.terms') }}">Terms and Conditions</a> and acknowledge the <a href="{{ url_for('public.privacy_policy') }}">Privacy Notice</a>.</label>
       <small class="account-legal account-consent-note">Password and email-code sign-ins will show the same acknowledgement after successful sign-in when it is needed.</small>
-      <label class="check account-consent account-consent-compact"><input type="checkbox" name="marketing_opt_in" value="yes" form="google-signin-form"> Email me offers</label>
+      <label class="check account-consent account-consent-compact"><input type="checkbox" name="marketing_opt_in" value="yes" form="google-signin-form"> I'd love to receive FityStores promotions, special offers, new arrivals and product updates by email.</label>
+      <small class="account-legal account-consent-note">You can unsubscribe at any time. This choice applies only when creating a new Google account.</small>
       <script src="https://accounts.google.com/gsi/client" async defer></script>
       <div id="g_id_onload" data-client_id="{{ google_client_id }}" data-login_uri="{{ google_login_uri }}" data-callback="onGoogleSignIn" data-ux_mode="popup" data-auto_prompt="false"></div>
       <div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="continue_with" data-shape="rectangular"></div>

@@ -2,7 +2,7 @@ import io
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
@@ -1976,6 +1976,7 @@ def test_registration_requires_terms_acceptance(client, app):
     assert b"Please accept the Terms and Conditions" in response.data
     with app.app_context():
         assert CustomerAccount.query.filter_by(email="terms@example.com").count() == 0
+        assert EmailMessage.query.filter_by(kind="welcome").count() == 0
 
 
 def test_customer_registration_hashes_password_and_defaults_marketing_off(client, app):
@@ -1997,8 +1998,17 @@ def test_customer_registration_hashes_password_and_defaults_marketing_off(client
         assert welcome.status == "queued"
         assert welcome.purpose == "transactional"
         assert account.display_name in welcome.text_body
+        assert "Would you like to hear about our latest offers?" in welcome.text_body
+        assert "Yes, I'd love to receive FityStores offers." in welcome.text_body
+        invitation = CustomerToken.query.filter_by(
+            account_id=account.id, purpose="welcome_opt_in",
+        ).one()
+        assert invitation.expires_at > datetime.utcnow()
         assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="terms_accepted").count() == 1
         assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed").count() == 0
+        assert CustomerConsentEvent.query.filter_by(
+            account_id=account.id, event="declined", method="registration_checkbox",
+        ).one().wording_version == "2026-11-registration-email-marketing-consent-v1"
 
 
 def test_email_verification_is_expiring_and_single_use(client, app, app_context):
@@ -2051,8 +2061,23 @@ def test_registration_checkbox_subscribes_immediately_and_unsubscribe_history(cl
     assert account.marketing_status == "subscribed"
     assert account.marketing_consent_at is not None
     assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed", method="registration_checkbox").count() == 1
+    welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
+    assert "Congratulations" in welcome.text_body
+    assert "successfully opted in" in welcome.text_body
+    assert "Would you like to hear about our latest offers?" not in welcome.text_body
+    assert CustomerConsentEvent.query.filter_by(
+        account_id=account.id, event="declined", method="registration_checkbox",
+    ).count() == 0
     account.email_verified_at = datetime.utcnow()
     assert CustomerToken.query.filter_by(account_id=account.id, purpose="marketing_confirm").count() == 0
+    assert CustomerToken.query.filter_by(account_id=account.id, purpose="welcome_opt_in").count() == 0
+    assert EmailMessage.query.filter_by(kind="marketing_confirm", account_id=account.id).count() == 0
+    invitation_token = CustomerToken(
+        account_id=account.id, purpose="welcome_opt_in",
+        token_hash=hashlib.sha256(b"stale-welcome-invitation").hexdigest(),
+        expires_at=datetime.utcnow() + timedelta(hours=1),
+    )
+    db.session.add(invitation_token)
     unsubscribe_token = "marketing-unsubscribe-token"
     db.session.add(CustomerToken(account_id=account.id, purpose="unsubscribe", token_hash=hashlib.sha256(unsubscribe_token.encode()).hexdigest(), expires_at=datetime.utcnow() + timedelta(days=365)))
     db.session.commit()
@@ -2061,11 +2086,208 @@ def test_registration_checkbox_subscribes_immediately_and_unsubscribe_history(cl
     db.session.refresh(account)
     assert account.marketing_status == "unsubscribed"
     assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="withdrawn").count() == 1
+    db.session.refresh(invitation_token)
+    assert invitation_token.used_at is not None
     client.post("/admin/login", data={"username": "owner", "password": "secret123"})
     audience = client.get("/admin/email")
     assert b"Marketing consent:" in audience.data
     assert b"Marketing consent: <strong>unsubscribed</strong>" in audience.data
     assert b"withdrawn via unsubscribe_link" in audience.data
+
+
+def test_registration_welcome_is_submitted_directly_and_recovers_after_temporary_brevo_failure(
+    client, app, app_context, monkeypatch,
+):
+    import urllib.error
+    import app.services.customer_mail as customer_mail
+    from app.models import EmailDeliveryAttempt
+
+    app.config.update(
+        MAIL_PROVIDER="brevo", BREVO_API_KEY="test-brevo-key",
+        MAIL_FROM_VERIFIED=True, MAIL_FROM_ADDRESS="verified@example.test",
+    )
+    attempts = []
+
+    def fake_brevo(recipient, subject, html, text):
+        attempts.append((subject, text))
+        if subject == "Welcome to FityStores" and len(
+            [item for item in attempts if item[0] == subject],
+        ) == 1:
+            raise urllib.error.HTTPError(
+                "https://api.brevo.com/v3/smtp/email", 429,
+                "rate limited", {}, None,
+            )
+        return "mock-brevo-message-id"
+
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(customer_mail, "_send_brevo", fake_brevo)
+    _register_customer(client, email="welcome-retry@example.com")
+    account = CustomerAccount.query.filter_by(email="welcome-retry@example.com").one()
+    welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
+
+    assert welcome.status == "failed"
+    assert welcome.error_category == "retryable_provider"
+    assert welcome.next_attempt_at is not None
+    assert welcome.html_body and welcome.text_body
+    assert EmailDeliveryAttempt.query.filter_by(message_id=welcome.id).one().status == "failed"
+    assert sum(subject == "Welcome to FityStores" for subject, _body in attempts) == 1
+
+    result = customer_mail.process_transactional_email_queue(
+        now=welcome.next_attempt_at + timedelta(seconds=1),
+    )
+    db.session.refresh(welcome)
+    assert result["sent"] == 1
+    assert welcome.status == "sent"
+    assert welcome.provider_message_id == "mock-brevo-message-id"
+    assert sum(subject == "Welcome to FityStores" for subject, _body in attempts) == 2
+
+
+def test_google_registration_records_explicit_marketing_choice_and_sends_welcome(
+    client, app, app_context, monkeypatch,
+):
+    import app.customer.routes as customer_routes
+    import app.services.customer_mail as customer_mail
+
+    app.config.update(
+        GOOGLE_CLIENT_ID="test-client-id", MAIL_PROVIDER="brevo",
+        BREVO_API_KEY="test-brevo-key", MAIL_FROM_VERIFIED=True,
+        MAIL_FROM_ADDRESS="verified@example.test",
+    )
+    claims = {
+        "sub": "google-welcome-sub", "email": "google-welcome@gmail.com",
+        "name": "Google Welcome", "email_verified": True, "hd": "",
+    }
+    sent = []
+    monkeypatch.setattr(customer_routes, "verify_google_credential", lambda _credential: claims)
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr(
+        customer_mail, "_send_brevo",
+        lambda recipient, subject, html, text: sent.append((subject, text)) or "google-welcome-message-id",
+    )
+    client.set_cookie("g_csrf_token", "google-welcome-csrf", domain="example.test")
+
+    response = client.post("/account/google", data={
+        "credential": "mocked", "g_csrf_token": "google-welcome-csrf",
+        "accept_terms": "yes", "marketing_opt_in": "yes",
+    }, follow_redirects=True)
+    account = CustomerAccount.query.filter_by(google_sub="google-welcome-sub").one()
+    welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
+    consent = CustomerConsentEvent.query.filter_by(
+        account_id=account.id, event="confirmed", method="google_checkbox",
+    ).one()
+
+    assert response.status_code == 200
+    assert account.marketing_status == "subscribed"
+    assert account.marketing_consent_at == consent.created_at
+    assert welcome.status == "sent"
+    welcome_body = next(
+        body for subject, body in sent if subject == "Welcome to FityStores"
+    )
+    assert "Congratulations" in welcome_body
+    assert CustomerToken.query.filter_by(
+        account_id=account.id, purpose="welcome_opt_in",
+    ).count() == 0
+    assert EmailMessage.query.filter_by(kind="marketing_confirm", account_id=account.id).count() == 0
+    assert sum(subject == "Welcome to FityStores" for subject, _body in sent) == 1
+
+
+def test_welcome_invitation_requires_explicit_post_and_is_single_use(client, app, app_context):
+    app.config["MAIL_PROVIDER"] = ""
+    _register_customer(client, email="welcome-invitation@example.com")
+    account = CustomerAccount.query.filter_by(email="welcome-invitation@example.com").one()
+    welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
+    match = re.search(
+        r"https://fitystore\.top/account/marketing/confirm/([A-Za-z0-9_-]+)",
+        welcome.text_body,
+    )
+    assert match
+    token = match.group(1)
+
+    page = client.get(f"/account/marketing/confirm/{token}")
+    assert page.status_code == 200
+    assert b"Opening this page does not subscribe you" in page.data
+    assert b"Yes, I'd love to receive FityStores offers." in page.data
+    db.session.refresh(account)
+    assert account.marketing_status == "none"
+    assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed").count() == 0
+
+    unverified_confirmation = client.post(
+        f"/account/marketing/confirm/{token}", follow_redirects=True,
+    )
+    assert b"Verify your account email before confirming promotional email" in unverified_confirmation.data
+    db.session.refresh(account)
+    assert account.marketing_status == "none"
+    assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed").count() == 0
+
+    account.email_verified_at = datetime.utcnow()
+    db.session.commit()
+    confirmation = client.post(f"/account/marketing/confirm/{token}")
+    assert confirmation.status_code == 302
+    db.session.refresh(account)
+    consent = CustomerConsentEvent.query.filter_by(
+        account_id=account.id, event="confirmed", method="welcome_invitation",
+    ).one()
+    assert account.marketing_status == "subscribed"
+    assert account.marketing_consent_at == consent.created_at
+    assert consent.wording_version == "2026-11-welcome-invitation-email-marketing-v1"
+    assert CustomerToken.query.filter_by(
+        account_id=account.id, purpose="welcome_opt_in",
+    ).one().used_at is not None
+    assert EmailMessage.query.filter_by(kind="marketing_confirm", account_id=account.id).count() == 0
+
+    client.post(f"/account/marketing/confirm/{token}")
+    assert CustomerConsentEvent.query.filter_by(
+        account_id=account.id, event="confirmed", method="welcome_invitation",
+    ).count() == 1
+
+
+def test_login_does_not_send_another_welcome_email(client, app, monkeypatch, app_context):
+    import app.services.customer_mail as customer_mail
+
+    app.config.update(
+        MAIL_PROVIDER="smtp", MAIL_FROM_VERIFIED=True,
+        MAIL_FROM_ADDRESS="verified@example.test", MAIL_SERVER="smtp.example.test",
+        MAIL_USE_TLS=True, MAIL_USE_SSL=False,
+    )
+    sends = []
+    monkeypatch.setattr(
+        customer_mail, "_send_smtp",
+        lambda recipient, subject, html, text: sends.append((recipient, subject, text)),
+    )
+    _register_customer(client, email="welcome-once@example.com")
+    account = CustomerAccount.query.filter_by(email="welcome-once@example.com").one()
+    welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
+    assert welcome.status == "sent"
+    client.post("/account/login", data={
+        "email": "welcome-once@example.com",
+        "password": "a-strong-test-password-123",
+    })
+    assert EmailMessage.query.filter_by(kind="welcome", account_id=account.id).count() == 1
+    assert len([item for item in sends if item[1] == "Welcome to FityStores"]) == 1
+
+
+def test_expired_welcome_invitation_cannot_activate_marketing(client, app, app_context):
+    app.config["MAIL_PROVIDER"] = ""
+    _register_customer(client, email="expired-welcome-invitation@example.com")
+    account = CustomerAccount.query.filter_by(email="expired-welcome-invitation@example.com").one()
+    welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
+    match = re.search(
+        r"https://fitystore\.top/account/marketing/confirm/([A-Za-z0-9_-]+)",
+        welcome.text_body,
+    )
+    assert match
+    invitation = CustomerToken.query.filter_by(
+        account_id=account.id, purpose="welcome_opt_in",
+    ).one()
+    invitation.expires_at = datetime.utcnow() - timedelta(seconds=1)
+    db.session.commit()
+
+    page = client.get(f"/account/marketing/confirm/{match.group(1)}")
+    assert b"invalid, expired, or already used" in page.data
+    client.post(f"/account/marketing/confirm/{match.group(1)}")
+    db.session.refresh(account)
+    assert account.marketing_status == "none"
+    assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed").count() == 0
 
 
 def test_admin_email_center_excludes_unverified_opt_ins_from_marketing_candidates(client, app, app_context):

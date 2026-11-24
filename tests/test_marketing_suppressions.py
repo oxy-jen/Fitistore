@@ -323,7 +323,12 @@ def test_admin_suppression_invalidates_pending_marketing_token_and_clear_does_no
         token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
         expires_at=datetime.utcnow() + timedelta(hours=2),
     )
-    db.session.add(token)
+    welcome_invitation = CustomerToken(
+        account_id=account.id, purpose="welcome_opt_in",
+        token_hash=hashlib.sha256(b"pending-welcome-invitation").hexdigest(),
+        expires_at=datetime.utcnow() + timedelta(hours=2),
+    )
+    db.session.add_all([token, welcome_invitation])
     db.session.commit()
     with client.session_transaction() as browser_session:
         browser_session["_user_id"] = str(admin.get_id())
@@ -333,8 +338,10 @@ def test_admin_suppression_invalidates_pending_marketing_token_and_clear_does_no
     assert response.status_code == 302
     account = db.session.get(CustomerAccount, account.id)
     db.session.refresh(token)
+    db.session.refresh(welcome_invitation)
     assert account.marketing_status == "suppressed"
     assert token.used_at is not None
+    assert welcome_invitation.used_at is not None
     case = MarketingSuppressionCase.query.filter_by(account_id=account.id, source="admin", cleared_at=None).one()
     event = MarketingSuppressionEvent.query.filter_by(suppression_case_id=case.id).one()
     assert event.admin_id == admin.id

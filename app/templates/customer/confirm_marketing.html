@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="account-page account-page-single">
+  <div class="account-intro">
+    <p class="eyebrow">FityStores email preferences</p>
+    <h1>Choose whether to receive promotions.</h1>
+    <p>Promotional email may include new arrivals, product picks, discounts, special offers and occasional FityStores campaigns. These are separate from essential account, security and order messages.</p>
+    <p>You can unsubscribe at any time. Your account email must be verified before promotional eligibility is activated. Opening this page does not subscribe you; your preference changes only after you submit the confirmation below.</p>
+  </div>
+  <div class="account-panel">
+    {% if valid %}
+      <form method="post" action="{{ action }}" class="account-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn primary wide" type="submit">Yes, I'd love to receive FityStores offers.</button>
+      </form>
+    {% else %}
+      <p>This invitation is invalid, expired, or already used.</p>
+      <a class="btn" href="{{ url_for('customer.login') }}">Return to sign in</a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

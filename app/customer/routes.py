@@ -19,16 +19,19 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 
 from app.extensions import db, csrf
-from app.models import AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, Order, Product, Review
+from app.models import AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailMessage, Order, Product, Review
 from app.services.customer_mail import (
     cleanup_expired_authentication_payloads, dispatch_authentication_email_now,
-    mail_configuration_status, queue_branded_email,
+    dispatch_transactional_email_now, mail_configuration_status, queue_branded_email,
 )
 from app.services.product_images import product_display_image, product_image_alt, product_image_url
 
 customer_bp = Blueprint("customer", __name__, url_prefix="/account")
 CONSENT_TEXT_VERSION = "2026-10-explicit-registration-opt-in"
+REGISTRATION_CONSENT_TEXT_VERSION = "2026-11-registration-email-marketing-consent-v1"
+WELCOME_INVITATION_CONSENT_VERSION = "2026-11-welcome-invitation-email-marketing-v1"
 TERMS_ACCEPTANCE_VERSION = "2026-11-customer-terms-acknowledgement-v1"
+WELCOME_OPT_IN_PURPOSE = "welcome_opt_in"
 logger = logging.getLogger(__name__)
 _AUTH_PAYLOAD_CLEANUP_LOCK = Lock()
 _AUTH_PAYLOAD_CLEANUP_INTERVAL_SECONDS = 60
@@ -375,17 +378,26 @@ def _begin_code_challenge(account, purpose, next_url=None):
     return redirect(url_for("customer.verify_code"))
 
 
-def _record_consent(account, event, method):
-    db.session.add(CustomerConsentEvent(account_id=account.id, event=event, method=method, wording_version=CONSENT_TEXT_VERSION))
+def _record_consent(account, event, method, wording_version=CONSENT_TEXT_VERSION):
+    now = datetime.utcnow()
+    db.session.add(CustomerConsentEvent(
+        account_id=account.id, event=event, method=method,
+        wording_version=wording_version, created_at=now, updated_at=now,
+    ))
     if event == "confirmed":
         account.marketing_status = "subscribed"
-        account.marketing_consent_at = datetime.utcnow()
+        account.marketing_consent_at = now
         account.marketing_withdrawn_at = None
     elif event == "requested":
         account.marketing_status = "pending"
     elif event == "withdrawn":
         account.marketing_status = "unsubscribed"
         account.marketing_withdrawn_at = datetime.utcnow()
+        CustomerToken.query.filter(
+            CustomerToken.account_id == account.id,
+            CustomerToken.purpose.in_(("marketing_confirm", WELCOME_OPT_IN_PURPOSE)),
+            CustomerToken.used_at.is_(None),
+        ).update({"used_at": now}, synchronize_session="fetch")
 
 
 def _record_terms_acceptance(account, method):
@@ -393,6 +405,74 @@ def _record_terms_acceptance(account, method):
         account_id=account.id, event="terms_accepted", method=method,
         wording_version=TERMS_ACCEPTANCE_VERSION,
     ))
+
+
+def _send_registration_welcome_email(account):
+    idempotency_key = f"welcome:{account.id}"
+    existing = EmailMessage.query.filter_by(idempotency_key=idempotency_key).first()
+    if existing:
+        if existing.kind != "welcome" or existing.purpose != "transactional" or existing.account_id != account.id:
+            raise ValueError("Registration welcome idempotency key is bound to another message.")
+        result = dispatch_transactional_email_now(existing)
+    else:
+        consent_active = (
+            account.marketing_status == "subscribed"
+            and account.marketing_consent_at is not None
+            and account.marketing_withdrawn_at is None
+        )
+        invitation_url = ""
+        if not consent_active and account.marketing_status != "suppressed":
+            raw_token = token_urlsafe(32)
+            db.session.add(CustomerToken(
+                account_id=account.id,
+                purpose=WELCOME_OPT_IN_PURPOSE,
+                token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+                expires_at=datetime.utcnow() + timedelta(hours=24),
+            ))
+            invitation_url = _public_url("customer.confirm_marketing", token=raw_token)
+
+        if consent_active:
+            heading = "Welcome to the FityStores promotions community"
+            paragraphs = [
+                f"Congratulations, {account.display_name or 'there'}! You're now part of the FityStores promotions community.",
+                "You've successfully opted in to receive updates about our latest arrivals, special offers, discounts and exciting product selections.",
+                "Stay connected and never miss what's new at FityStores.",
+            ]
+            button_url = _public_url("public.shop")
+            button_text = "Explore the shop"
+        elif invitation_url:
+            heading = f"Welcome to FityStores, {account.display_name or 'there'}"
+            paragraphs = [
+                f"Hi {account.display_name or 'there'}, your FityStores account was created successfully.",
+                "Would you like to hear about our latest offers?",
+                "Join the FityStores promotions community and receive updates about new arrivals, special offers, discounts and exciting products.",
+                "If you'd like to receive these updates, you can subscribe below. This invitation link expires in 24 hours; your email preference changes only after you confirm on our website.",
+            ]
+            button_url = invitation_url
+            button_text = "Yes, I'd love to receive FityStores offers."
+        else:
+            heading = f"Welcome to FityStores, {account.display_name or 'there'}"
+            paragraphs = [
+                f"Hi {account.display_name or 'there'}, your FityStores account was created successfully.",
+                "You can verify your email, view linked orders, and manage your account preferences on our website.",
+            ]
+            button_url = _public_url("public.shop")
+            button_text = "Explore the shop"
+
+        result = queue_branded_email(
+            account.email, "Welcome to FityStores", "welcome", idempotency_key,
+            heading, paragraphs, account_id=account.id, button_url=button_url,
+            button_text=button_text, commit=False,
+        )
+        db.session.commit()
+        result = dispatch_transactional_email_now(result)
+
+    logger.info(
+        "registration_welcome_email_outcome account_id=%s status=%s error_category=%s",
+        account.id, getattr(result, "status", "unknown"),
+        getattr(result, "error_category", None) or "none",
+    )
+    return result
 
 
 @customer_bp.route("/terms-acceptance", methods=["GET", "POST"])
@@ -477,27 +557,21 @@ def register():
             return redirect(url_for("customer.login", next=next_url))
         _record_terms_acceptance(account, "registration_checkbox")
         if request.form.get("marketing_opt_in") == "yes":
-            # The explicit, optional checkbox is the marketing consent.
-            _record_consent(account, "confirmed", "registration_checkbox")
+            _record_consent(
+                account, "confirmed", "registration_checkbox",
+                REGISTRATION_CONSENT_TEXT_VERSION,
+            )
+        else:
+            _record_consent(
+                account, "declined", "registration_checkbox",
+                REGISTRATION_CONSENT_TEXT_VERSION,
+            )
         db.session.commit()
         try:
-            queue_branded_email(
-                account.email,
-                "Welcome to FityStores",
-                "welcome",
-                f"welcome:{account.id}",
-                "Welcome to FityStores",
-                [
-                    f"Hi {account.display_name or 'there'}, your FityStores account was created successfully.",
-                    "You can verify your email, view linked orders, and manage your account preferences on our website.",
-                ],
-                account_id=account.id,
-                button_url=_public_url("customer.dashboard"),
-                button_text="View your account",
-            )
+            _send_registration_welcome_email(account)
         except Exception:
             db.session.rollback()
-            logger.exception("registration_welcome_email_queue_failed account_id=%s", account.id)
+            logger.exception("registration_welcome_email_failed account_id=%s", account.id)
         result = _issue_and_send(account, "verify_email", next_url=next_url)
         flash(_registration_message(result), "success" if result and result.status in {"sent", "queued"} else "warning")
         return redirect(url_for("customer.login", next=next_url))
@@ -950,9 +1024,17 @@ def reset_password(token):
 
 @customer_bp.route("/marketing/confirm/<token>", methods=["GET", "POST"])
 def confirm_marketing(token):
-    row = _find_token(token, "marketing_confirm")
+    row = (
+        _find_token(token, WELCOME_OPT_IN_PURPOSE)
+        or _find_token(token, "marketing_confirm")
+    )
     if request.method == "GET":
-        return render_template("customer/confirm_token.html", title="Confirm offers", heading="Confirm promotional emails", action=url_for("customer.confirm_marketing", token=token), valid=bool(row))
+        return render_template(
+            "customer/confirm_marketing.html",
+            title="FityStores promotional email preferences",
+            action=url_for("customer.confirm_marketing", token=token),
+            valid=bool(row),
+        )
     if not row:
         flash("That confirmation link is invalid or expired.", "error")
         return redirect(url_for("public.home"))
@@ -970,7 +1052,11 @@ def confirm_marketing(token):
         flash("That confirmation link is invalid or expired.", "error")
         return redirect(url_for("public.home"))
     if not account.email_verified_at:
-        flash("Verify your account email before confirming promotional email. The confirmation link remains available for 24 hours.", "warning")
+        flash(
+            "Verify your account email before confirming promotional email, then return to this invitation. "
+            "The link remains available for 24 hours.",
+            "warning",
+        )
         return redirect(url_for("customer.login"))
     suppression_active = account.marketing_status == "suppressed"
     try:
@@ -999,8 +1085,21 @@ def confirm_marketing(token):
         db.session.commit()
         flash("This address has an active marketing suppression. Contact support if you believe this is an error.", "warning")
         return redirect(url_for("customer.login"))
+    if account.marketing_status == "subscribed" and account.marketing_withdrawn_at is None:
+        row.used_at = datetime.utcnow()
+        db.session.commit()
+        flash("Your promotional email preference is already active.", "info")
+        return redirect(url_for("customer.login"))
     row.used_at = datetime.utcnow()
-    _record_consent(account, "confirmed", "double_opt_in")
+    consent_method = (
+        "welcome_invitation" if row.purpose == WELCOME_OPT_IN_PURPOSE else "double_opt_in"
+    )
+    consent_version = (
+        WELCOME_INVITATION_CONSENT_VERSION
+        if row.purpose == WELCOME_OPT_IN_PURPOSE
+        else CONSENT_TEXT_VERSION
+    )
+    _record_consent(account, "confirmed", consent_method, consent_version)
     db.session.commit()
     flash("Your promotional email preference is confirmed.", "success")
     return redirect(url_for("customer.login"))
@@ -1108,8 +1207,21 @@ def google_signin():
         return redirect(url_for("customer.login", next=next_url))
     _record_terms_acceptance(account, "google_registration")
     if request.form.get("marketing_opt_in") == "yes":
-        _record_consent(account, "confirmed", "google_checkbox")
+        _record_consent(
+            account, "confirmed", "google_checkbox",
+            REGISTRATION_CONSENT_TEXT_VERSION,
+        )
+    else:
+        _record_consent(
+            account, "declined", "google_checkbox",
+            REGISTRATION_CONSENT_TEXT_VERSION,
+        )
     db.session.commit()
+    try:
+        _send_registration_welcome_email(account)
+    except Exception:
+        db.session.rollback()
+        logger.exception("registration_welcome_email_failed account_id=%s", account.id)
     response = _login_and_continue(account, next_url)
     flash("Your Google account is verified and ready to use.", "success")
     return response

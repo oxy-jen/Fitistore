@@ -518,7 +518,10 @@ def record_suppression(
         ).scalar_one_or_none()
     account.marketing_status = "suppressed"
     # A sticky suppression is not represented as voluntary consent withdrawal.
-    db.session.query(CustomerToken).filter_by(account_id=account.id, purpose="marketing_confirm").filter(
+    db.session.query(CustomerToken).filter(
+        CustomerToken.account_id == account.id,
+        CustomerToken.purpose.in_(("marketing_confirm", "welcome_opt_in")),
+    ).filter(
         CustomerToken.used_at.is_(None)
     ).update({"used_at": now}, synchronize_session=False)
     case = db.session.execute(
