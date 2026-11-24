@@ -4858,6 +4858,21 @@ def test_brevo_webhook_quarantines_event_without_sufficient_identity(client, app
     assert MarketingSuppressionCase.query.filter_by(account_id=account.id).count() == 0
 
 
+def test_complete_data_export_skips_optional_missing_mapped_tables(app, app_context):
+    from sqlalchemy import inspect, text
+    from app.admin.routes import _collect_admin_data_records
+
+    with db.engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS home_category_thumbnail"))
+
+    records = _collect_admin_data_records()
+
+    assert "home_category_thumbnail" not in records
+    assert "category" in records
+    assert "product" in records
+    assert not inspect(db.engine).has_table("home_category_thumbnail")
+
+
 def test_email_payload_retention_is_dry_run_bounded_and_preserves_active_states(app, app_context):
     from datetime import timedelta
     from app.services.email_retention import cleanup_email_payloads

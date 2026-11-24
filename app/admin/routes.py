@@ -2269,16 +2269,22 @@ def _admin_data_export_dir():
 
 def _collect_admin_data_records():
     """Serialize every mapped application table into a stable, JSON-safe snapshot."""
+    from sqlalchemy import inspect
+
+    inspector = inspect(db.engine)
     records = {}
     mappers = sorted(db.Model.registry.mappers, key=lambda mapper: mapper.local_table.name)
     for mapper in mappers:
         model = mapper.class_
+        table_name = model.__tablename__
+        if not inspector.has_table(table_name):
+            continue
         primary_keys = list(mapper.primary_key)
         query = db.session.query(model)
         if primary_keys:
             query = query.order_by(*primary_keys)
         rows = query.all()
-        records[model.__tablename__] = [
+        records[table_name] = [
             {
                 column.name: (
                     getattr(row, column.key).isoformat()
@@ -2542,6 +2548,8 @@ def clear_admin_data():
             ProductSuggestion, RestockAlert, Expense, FinancialAuditEvent,
             EmailCampaign, Order, CustomerProfile, CustomerAccount, AuthRateLimit,
         ]
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
         order_proof_filenames = {row.get("payment_proof_filename") for row in export["records"].get("order", []) if row.get("payment_proof_filename")} if "orders" in selected_categories else set()
         deleted = {}
         updated = {}
@@ -2576,6 +2584,8 @@ def clear_admin_data():
                 )
         for model in delete_models:
             if model.__tablename__ not in selected_tables:
+                continue
+            if not inspector.has_table(model.__tablename__):
                 continue
             query = db.session.query(model)
             deleted[model.__tablename__] = query.count()
