@@ -38,7 +38,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=most-added-short-cards-20261110">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}?v=contextual-nav-actions-20261113">
 {% if request.endpoint == 'public.shop' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/shop-page.css') }}?v=per-category-inline-sort-20261125">{% endif %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/media-showcases.css') }}?v=media-showcase-responsive-20261124">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/media-showcases.css') }}?v=media-showcase-small-draggable-20261124">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/pwa.css') }}?v=pwa-install-v1">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/category-section-colors.css') }}?v=category-section-surfaces-20261124">
   {% if request.endpoint == 'admin.email_center' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-email.css') }}?v=admin-email-responsive-20261119">{% endif %}
@@ -51,7 +51,7 @@
   <meta name="google-site-verification" content="ZfoAom6cq3cfHBQw4NOz6s2TA8_1rBkte9rLF7owC8c" />
   <script defer src="{{ url_for('static', filename='js/cart.js') }}?v=product-option-chips-20261112"></script>
   <script defer src="{{ url_for('static', filename='js/nav-overflow.js') }}?v=contextual-nav-actions-20261113"></script>
-  <script defer src="{{ url_for('static', filename='js/app.js') }}?v=media-showcase-motion-20261124"></script>
+  <script defer src="{{ url_for('static', filename='js/app.js') }}?v=media-showcase-scroll-drag-20261124"></script>
   <script defer src="{{ url_for('static', filename='js/pwa-install.js') }}?v=pwa-install-v1"></script>
 </head>
 <body{% if request.endpoint == 'public.upcoming' %} class="upcoming-page-body"{% endif %}>

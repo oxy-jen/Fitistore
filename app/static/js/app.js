@@ -674,24 +674,14 @@ showcasePlayers.slice(1).forEach(player=>player.remove());
 if(showcasePlayer)document.body.append(showcasePlayer);
 const showcasePlayerContent=showcasePlayer?.querySelector('[data-media-player-content]');
 const showcasePlayerTitle=showcasePlayer?.querySelector('[data-media-player-title]');
-const showcasePopupSessionKey='fity-media-showcase-player-seen-v1';
 let showcasePopupSeenInMemory=false;
-let showcasePopupStorageWarningShown=false;
 let showcaseLastOpener=null;
 
 function hasSeenShowcasePopup(){
-  try{return sessionStorage.getItem(showcasePopupSessionKey)==='1';}
-  catch(error){
-    if(!showcasePopupStorageWarningShown){console.warn('Media showcase popup session preference is unavailable.',error);showcasePopupStorageWarningShown=true;}
-    return showcasePopupSeenInMemory;
-  }
+  return showcasePopupSeenInMemory;
 }
 function markShowcasePopupSeen(){
   showcasePopupSeenInMemory=true;
-  try{sessionStorage.setItem(showcasePopupSessionKey,'1');}
-  catch(error){
-    if(!showcasePopupStorageWarningShown){console.warn('Media showcase popup session preference could not be saved.',error);showcasePopupStorageWarningShown=true;}
-  }
 }
 function mediaPlayerError(message){
   const notice=document.createElement('p');
@@ -795,10 +785,57 @@ if(showcasePlayer){
     showcaseLastOpener=null;
   });
   showcasePlayer.addEventListener('cancel',markShowcasePopupSeen);
+
+  const dragHandle=showcasePlayer.querySelector('.media-showcase-player-header');
+  let activeDrag=null;
+  const positionWithinViewport=(left,top)=>{
+    const margin=8;
+    const maxLeft=Math.max(margin,window.innerWidth-showcasePlayer.offsetWidth-margin);
+    const maxTop=Math.max(margin,window.innerHeight-showcasePlayer.offsetHeight-margin);
+    showcasePlayer.style.left=`${Math.min(Math.max(margin,left),maxLeft)}px`;
+    showcasePlayer.style.top=`${Math.min(Math.max(margin,top),maxTop)}px`;
+    showcasePlayer.style.right='auto';
+    showcasePlayer.style.bottom='auto';
+  };
+  dragHandle?.addEventListener('pointerdown',event=>{
+    if(event.button!==0||event.target.closest('button'))return;
+    const rect=showcasePlayer.getBoundingClientRect();
+    activeDrag={pointerId:event.pointerId,offsetX:event.clientX-rect.left,offsetY:event.clientY-rect.top};
+    dragHandle.setPointerCapture(event.pointerId);
+    showcasePlayer.classList.add('is-dragging');
+    event.preventDefault();
+  });
+  dragHandle?.addEventListener('pointermove',event=>{
+    if(activeDrag?.pointerId!==event.pointerId)return;
+    positionWithinViewport(event.clientX-activeDrag.offsetX,event.clientY-activeDrag.offsetY);
+  });
+  const stopDragging=event=>{
+    if(activeDrag?.pointerId!==event.pointerId)return;
+    activeDrag=null;
+    showcasePlayer.classList.remove('is-dragging');
+  };
+  dragHandle?.addEventListener('pointerup',stopDragging);
+  dragHandle?.addEventListener('pointercancel',stopDragging);
+  window.addEventListener('resize',()=>{
+    if(showcasePlayer.open&&showcasePlayer.style.left){
+      const rect=showcasePlayer.getBoundingClientRect();
+      positionWithinViewport(rect.left,rect.top);
+    }
+  },{passive:true});
 }
 if(showcasePlayer&&!showcaseReducedMotion.matches&&!hasSeenShowcasePopup()){
   const featuredOpener=document.querySelector('[data-showcase-featured] [data-showcase-media-open]');
-  if(featuredOpener)openShowcasePlayer(featuredOpener,true);
+  if(featuredOpener){
+    const featuredCard=featuredOpener.closest('[data-showcase-featured]')||featuredOpener;
+    if('IntersectionObserver' in window){
+      const featuredObserver=new IntersectionObserver(entries=>{
+        if(!entries.some(entry=>entry.isIntersecting))return;
+        featuredObserver.disconnect();
+        if(!showcasePlayer.open&&!hasSeenShowcasePopup()&&!showcaseReducedMotion.matches)openShowcasePlayer(featuredOpener,true);
+      },{threshold:0.1});
+      featuredObserver.observe(featuredCard);
+    }else openShowcasePlayer(featuredOpener,true);
+  }
 }
 if(showcaseReducedMotion.matches){
   document.querySelectorAll('.media-showcase-image-preview[data-media-kind="gif"]').forEach(preview=>{
