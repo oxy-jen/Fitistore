@@ -241,7 +241,7 @@ def _form(showcase=None):
     if layout not in LAYOUTS:
         return None, "Choose a supported layout."
     density = request.form.get("density", "compact")
-    aspect_ratio = request.form.get("card_aspect_ratio", "4:3")
+    aspect_ratio = request.form.get("card_aspect_ratio", "16:9")
     if density not in DENSITIES or aspect_ratio not in CARD_ASPECT_RATIOS:
         return None, "Choose a supported density and card aspect ratio."
 
@@ -270,7 +270,7 @@ def _form(showcase=None):
     if starts and expires and expires <= starts:
         return None, "The expiration must be later than the start date."
     color_defaults = {
-        "background_color": "#ffffff", "heading_color": "#252525", "description_color": "#666666",
+        "background_color": "#f3f0fa", "heading_color": "#252525", "description_color": "#666666",
         "accent_color": "#e52335", "card_background_color": "#ffffff", "border_color": "#e8e8eb",
         "button_background_color": "#e52335", "button_text_color": "#ffffff",
     }

@@ -1,8 +1,8 @@
+{% set ratio_value = item.aspect_ratio or ((item.media_width|string) ~ ':' ~ (item.media_height|string) if item.media_width and item.media_height else (showcase.card_aspect_ratio or '16:9')) %}
+{% set ratio_parts = ratio_value.split(':') %}
+{% set ratio_width = ratio_parts[0]|float %}
+{% set ratio_height = ratio_parts[1]|float %}
 {% if item.media_type == 'video' %}
-  {% set ratio_value = item.aspect_ratio or ((item.media_width|string) ~ ':' ~ (item.media_height|string) if item.media_width and item.media_height else '16:9') %}
-  {% set ratio_parts = ratio_value.split(':') %}
-  {% set ratio_width = ratio_parts[0]|float %}
-  {% set ratio_height = ratio_parts[1]|float %}
   <button class="media-showcase-video-preview media-showcase-media-preview media-presentation-{{ item.presentation_mode }}" type="button"
           data-showcase-video-open
           data-showcase-media-open
@@ -37,7 +37,8 @@
           data-media-alt="{{ item.alt_text or item.title }}"
           data-media-aspect-ratio="{{ item.aspect_ratio or ((item.media_width|string) ~ ':' ~ (item.media_height|string) if item.media_width and item.media_height else '') }}"
           data-presentation-mode="{{ item.presentation_mode }}"
-          aria-label="View {{ item.title }}" aria-haspopup="dialog">
+          aria-label="View {{ item.title }}" aria-haspopup="dialog"
+          style="--media-item-ratio:{{ ratio_width }} / {{ ratio_height }}">
     <img class="media-presentation-{{ item.presentation_mode }}" data-presentation-mode="{{ item.presentation_mode }}" data-aspect-ratio="{{ item.aspect_ratio }}" src="{{ media_src }}" alt="{{ item.alt_text or item.title }}" loading="lazy" decoding="async">
     <span class="media-showcase-open-hint" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3"></path></svg></span>
   </button>
@@ -49,7 +50,8 @@
           data-media-alt="{{ item.alt_text or item.title }}"
           data-media-aspect-ratio="{{ item.aspect_ratio or ((item.media_width|string) ~ ':' ~ (item.media_height|string) if item.media_width and item.media_height else '') }}"
           data-presentation-mode="{{ item.presentation_mode }}"
-          aria-label="View {{ item.title }}" aria-haspopup="dialog">
+          aria-label="View {{ item.title }}" aria-haspopup="dialog"
+          style="--media-item-ratio:{{ ratio_width }} / {{ ratio_height }}">
     <img class="media-presentation-{{ item.presentation_mode }}" data-presentation-mode="{{ item.presentation_mode }}" data-aspect-ratio="{{ item.aspect_ratio }}" src="{{ item.poster_url }}" alt="{{ item.alt_text or item.title }}" loading="lazy" decoding="async">
     <span class="media-showcase-open-hint" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3"></path></svg></span>
   </button>

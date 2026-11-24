@@ -218,7 +218,8 @@ def test_media_showcase_auth_creation_and_homepage_slot(client, app):
     item = [{"type": "image", "title": "Store feature", "url": "https://cdn.example.test/feature.jpg", "alt": "Store feature", "presentation": "contain", "aspect_ratio": "9:16"}]
     response = client.post("/admin/media-showcases/new", data={
         "name": "FityStores TV", "title": "See it. Love it. Shop it.", "page": "home",
-        "placement": "home_after_hero", "layout": "carousel", "is_published": "1", "is_enabled": "1",
+        "placement": "home_after_hero", "layout": "carousel", "card_aspect_ratio": "3:2",
+        "is_published": "1", "is_enabled": "1",
         "items_json": json.dumps(item),
     }, follow_redirects=True)
     assert response.status_code == 200
@@ -234,11 +235,15 @@ def test_media_showcase_auth_creation_and_homepage_slot(client, app):
     assert b"media-showcase-items-single" in page.data
     assert b"media-presentation-contain" in page.data
     assert b'data-aspect-ratio="9:16"' in page.data
+    assert b"--media-item-ratio:9.0 / 16.0" in page.data
+    assert b"--showcase-media-ratio: 3 / 2" in page.data
     assert b"data-showcase-scroll" not in page.data
     assert b"data-showcase-media-open" in page.data
     assert page.data.count(b"data-showcase-featured") == 1
     with app.app_context():
-        saved = MediaShowcase.query.filter_by(slug="fitystores-tv").one().items[0]
+        showcase = MediaShowcase.query.filter_by(slug="fitystores-tv").one()
+        saved = showcase.items[0]
+        assert showcase.card_aspect_ratio == "3:2"
         assert saved.presentation_mode == "contain"
         assert saved.aspect_ratio == "9:16"
 
@@ -293,6 +298,9 @@ def test_media_showcase_editor_offers_fields_and_existing_products(client, app):
     assert b'data-bulk-upload' in response.data
     assert b'data-bulk-links' in response.data
     assert b"The floating player opens the first active supported media item" in response.data
+    assert b'name="card_aspect_ratio"' in response.data
+    assert b'value="16:9" selected' in response.data
+    assert b"#f3f0fa" in response.data
     editor = client.get("/static/js/media-showcase-editor.js")
     assert b"Set as popup feature" in editor.data
     assert b"Featured popup item" in editor.data

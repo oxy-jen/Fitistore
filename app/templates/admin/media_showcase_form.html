@@ -46,6 +46,7 @@
     <div class="showcase-fields">
       <label>Layout<select name="layout">{% for key,label in layouts.items() %}<option value="{{ key }}"{% if fd.get('layout', showcase.layout if showcase else 'carousel')==key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
       <label>Density<select name="density">{% for key,label in densities.items() %}<option value="{{ key }}"{% if fd.get('density', showcase.density if showcase else 'compact')==key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label>Media aspect ratio<select name="card_aspect_ratio">{% for ratio,label in aspect_ratios.items() %}<option value="{{ ratio }}"{% if fd.get('card_aspect_ratio', showcase.card_aspect_ratio if showcase else '16:9')==ratio %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
       <label>Cards on mobile<input type="number" min="1" max="4" name="visible_cards_mobile" value="{{ fd.get('visible_cards_mobile', showcase.visible_cards_mobile if showcase else 2) }}"></label>
       <label>Cards on tablet<input type="number" min="1" max="5" name="visible_cards_tablet" value="{{ fd.get('visible_cards_tablet', showcase.visible_cards_tablet if showcase else 3) }}"></label>
       <label>Cards on desktop<input type="number" min="1" max="6" name="visible_cards_desktop" value="{{ fd.get('visible_cards_desktop', showcase.visible_cards_desktop if showcase else 4) }}"></label>
@@ -53,9 +54,9 @@
       <label>Card gap (px)<input type="number" min="0" max="40" name="card_gap_px" placeholder="Density default" value="{{ fd.get('card_gap_px', showcase.card_gap_px if showcase and showcase.card_gap_px is not none else '') }}"></label>
     </div>
     <p class="showcase-help">Compact carousel defaults: 2 cards on mobile, 3 on tablet and 4 on desktop. Blank spacing values use the selected density.</p>
-    <p class="showcase-help">The floating player opens the first active supported media item in the first eligible showcase section on each page by default, once per browser session. Use “Set as popup feature” to move a different item first. Only one item opens automatically per page.</p>
+    <p class="showcase-help">The floating player opens the first active supported media item in the first eligible showcase section on each page by default. Use “Set as popup feature” to move a different item first. Only one item opens automatically per page view.</p>
     <div class="media-colour-grid">
-      {{ color_control('Section background', 'background_color', fd.get('background_color', (showcase.background_color or '#ffffff') if showcase else '#ffffff'), true) }}
+      {{ color_control('Section background', 'background_color', fd.get('background_color', (showcase.background_color or '#f3f0fa') if showcase else '#f3f0fa'), true) }}
       {{ color_control('Heading colour', 'heading_color', fd.get('heading_color', showcase.heading_color if showcase else '#252525')) }}
       {{ color_control('Description colour', 'description_color', fd.get('description_color', showcase.description_color if showcase else '#666666')) }}
       {{ color_control('Accent colour', 'accent_color', fd.get('accent_color', showcase.accent_color if showcase else '#e52335')) }}

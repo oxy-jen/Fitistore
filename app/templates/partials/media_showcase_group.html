@@ -6,7 +6,7 @@
          class="media-showcase media-layout-{{ shared_layout }} media-density-{{ density }} media-count-mobile-{{ showcase.visible_cards_mobile }} media-count-tablet-{{ showcase.visible_cards_tablet }} media-count-desktop-{{ showcase.visible_cards_desktop }} media-showcase-shared"
          data-showcase-count="{{ showcase_group['showcases']|length }}"
          aria-label="{{ showcase.title or showcase.name }}"
-         style="--showcase-bg: {{ showcase.background_color or '#ffffff' }};{% if showcase.section_padding_px is not none %} --showcase-padding: {{ showcase.section_padding_px }}px;{% endif %}{% if showcase.card_gap_px is not none %} --showcase-gap: {{ showcase.card_gap_px }}px;{% endif %} --showcase-heading: {{ showcase.heading_color }}; --showcase-description: {{ showcase.description_color }}; --showcase-accent: {{ showcase.accent_color }}; --showcase-card-bg: {{ showcase.card_background_color }}; --showcase-border: {{ showcase.border_color }}; --showcase-button-bg: {{ showcase.button_background_color }}; --showcase-button-text: {{ showcase.button_text_color }};">
+         style="--showcase-bg: {{ showcase.background_color or '#f3f0fa' }}; --showcase-media-ratio: {{ (showcase.card_aspect_ratio or '16:9').replace(':', ' / ') }};{% if showcase.section_padding_px is not none %} --showcase-padding: {{ showcase.section_padding_px }}px;{% endif %}{% if showcase.card_gap_px is not none %} --showcase-gap: {{ showcase.card_gap_px }}px;{% endif %} --showcase-heading: {{ showcase.heading_color }}; --showcase-description: {{ showcase.description_color }}; --showcase-accent: {{ showcase.accent_color }}; --showcase-card-bg: {{ showcase.card_background_color }}; --showcase-border: {{ showcase.border_color }}; --showcase-button-bg: {{ showcase.button_background_color }}; --showcase-button-text: {{ showcase.button_text_color }};">
   <header class="media-showcase-heading">
     <div>
       <p class="media-showcase-eyebrow">Media Showcase</p>
@@ -35,7 +35,7 @@
     <article class="media-showcase-card" data-showcase-card data-media-card data-media-source="{{ item.source_type }}"
              style="--showcase-card-bg: {{ item_showcase.card_background_color }}; --showcase-border: {{ item_showcase.border_color }}; --showcase-heading: {{ item_showcase.heading_color }}; --showcase-description: {{ item_showcase.description_color }}; --showcase-accent: {{ item_showcase.accent_color }}; --showcase-button-bg: {{ item_showcase.button_background_color }}; --showcase-button-text: {{ item_showcase.button_text_color }};"
              {% if showcase_group["featured_item_id"] == item.id %}data-showcase-featured{% endif %}>
-      {% if showcase_group["featured_item_id"] == item.id %}<span class="media-showcase-featured-badge">Featured popup</span>{% endif %}
+      {% if showcase_group["featured_item_id"] == item.id %}<span class="media-showcase-featured-badge">Featured</span>{% endif %}
       {% with showcase=item_showcase %}{% include "partials/media_showcase_item.html" %}{% endwith %}
       {% if item.title or item.description or item.cta_label or item.destination_url %}
       <div class="media-showcase-copy">
