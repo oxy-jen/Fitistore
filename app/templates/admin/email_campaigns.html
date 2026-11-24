@@ -87,7 +87,13 @@
   <section class="form-card campaign-controls">
     <h2>Campaign controls</h2>
     {% if campaign.status == 'scheduled' %}
-    <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" name="action" value="pause">Pause campaign</button><button class="btn danger" name="action" value="cancel" onclick="return confirm('Cancel this campaign and suppress its queued messages?')">Cancel campaign</button></form>
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Reschedule send time<input type="datetime-local" name="scheduled_for"></label>
+      <button class="btn" name="action" value="reschedule">Reschedule campaign</button>
+      <button class="btn" name="action" value="pause">Pause campaign</button>
+      <button class="btn danger" name="action" value="cancel" onclick="return confirm('Cancel this campaign and suppress its queued messages?')">Cancel campaign</button>
+    </form>
     {% elif campaign.status == 'paused' %}
     <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn primary" name="action" value="resume">Resume campaign</button><button class="btn danger" name="action" value="cancel" onclick="return confirm('Cancel this campaign and suppress its queued messages?')">Cancel campaign</button></form>
     {% endif %}

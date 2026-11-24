@@ -306,6 +306,25 @@ def test_campaign_cancel_preserves_ambiguous_provider_outcome(marketing_enabled,
     assert recipient.status == "failed"
 
 
+def test_campaign_reschedule_updates_campaign_and_due_messages(marketing_enabled, app_context):
+    from app.services.marketing_campaigns import set_campaign_status
+
+    campaign, _account, message = _campaign_with_message()
+    recipient = EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id).one()
+    new_time = _utcnow() + timedelta(hours=2)
+
+    set_campaign_status(campaign, "reschedule", scheduled_for=new_time)
+    db.session.commit()
+    db.session.refresh(campaign)
+    db.session.refresh(message)
+    db.session.refresh(recipient)
+
+    assert campaign.status == "scheduled"
+    assert campaign.scheduled_for == new_time
+    assert message.next_attempt_at == new_time
+    assert recipient.status == "queued"
+
+
 def test_confirmed_brevo_401_campaign_recovery_reuses_nine_rows_without_sending(marketing_enabled, app_context, monkeypatch):
     from app.services import customer_mail
     from app.services.marketing_campaigns import campaign_recovery_candidate_count

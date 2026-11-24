@@ -618,7 +618,7 @@ def email_campaign_detail(campaign_id):
                     if action == "preview" else "Campaign draft saved.",
                     "success",
                 )
-            elif action in {"pause", "resume", "cancel", "discard"}:
+            elif action in {"pause", "resume", "reschedule", "cancel", "discard"}:
                 if action == "discard":
                     if campaign.status != "draft":
                         raise ValueError("Only an unscheduled draft can be discarded.")
@@ -626,9 +626,13 @@ def email_campaign_detail(campaign_id):
                     campaign.scheduled_for = None
                     campaign.approved_at = None
                 else:
-                    set_campaign_status(campaign, action)
+                    rescheduled_for = parse_schedule(request.form.get("scheduled_for", "")) if action == "reschedule" else None
+                    set_campaign_status(campaign, action, scheduled_for=rescheduled_for)
                 db.session.commit()
-                action_label = "discarded" if action == "discard" else {"pause": "paused", "resume": "resumed", "cancel": "cancelled"}[action]
+                action_label = "discarded" if action == "discard" else {
+                    "pause": "paused", "resume": "resumed", "reschedule": "rescheduled",
+                    "cancel": "cancelled",
+                }[action]
                 flash(f"Campaign draft {action_label}. No provider request was made.", "success")
             elif action == "recover_confirmed_401":
                 if not recovery_schema_ready:

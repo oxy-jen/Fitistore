@@ -463,6 +463,24 @@ def register():
             # The explicit, optional checkbox is the marketing consent.
             _record_consent(account, "confirmed", "registration_checkbox")
         db.session.commit()
+        try:
+            queue_branded_email(
+                account.email,
+                "Welcome to FityStores",
+                "welcome",
+                f"welcome:{account.id}",
+                "Welcome to FityStores",
+                [
+                    f"Hi {account.display_name or 'there'}, your FityStores account was created successfully.",
+                    "You can verify your email, view linked orders, and manage your account preferences on our website.",
+                ],
+                account_id=account.id,
+                button_url=_public_url("customer.dashboard"),
+                button_text="View your account",
+            )
+        except Exception:
+            db.session.rollback()
+            logger.exception("registration_welcome_email_queue_failed account_id=%s", account.id)
         result = _issue_and_send(account, "verify_email", next_url=next_url)
         flash(_registration_message(result), "success" if result and result.status in {"sent", "queued"} else "warning")
         return redirect(url_for("customer.login", next=next_url))
@@ -855,7 +873,6 @@ def verify_email(token):
         CustomerToken.expires_at > verified_at,
     ).update({"used_at": verified_at}, synchronize_session="fetch")
     db.session.commit()
-    queue_branded_email(row.account.email, "Welcome to FityStores", "welcome", f"welcome:{row.account.id}", "Welcome to FityStores", ["Your account is ready. You can view your linked orders and manage your account preferences on our website."], account_id=row.account.id, button_url=_public_url("customer.dashboard"), button_text="View your account")
     flash("Your email is verified.", "success")
     return redirect(url_for("customer.login", next=next_url))
 

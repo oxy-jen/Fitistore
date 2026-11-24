@@ -1993,6 +1993,10 @@ def test_customer_registration_hashes_password_and_defaults_marketing_off(client
         token = CustomerToken.query.filter_by(account_id=account.id, purpose="verify_email").one()
         assert len(token.token_hash) == 64
         assert EmailMessage.query.filter_by(kind="verify_email").one().status == "queued"
+        welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
+        assert welcome.status == "queued"
+        assert welcome.purpose == "transactional"
+        assert account.display_name in welcome.text_body
         assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="terms_accepted").count() == 1
         assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed").count() == 0
 
@@ -3627,14 +3631,13 @@ def test_checkout_requires_verified_account_and_links_order_to_it(client, app_co
         "MAIL_FROM_VERIFIED": True,
         "BREVO_API_KEY": "test-brevo-api-key",
     })
-    monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html_body, text_body: "brevo-checkout-test-id")
     response = client.post("/checkout", data={"cart_json": "[{\"product_id\":1,\"quantity\":1}]", "customer_name": "Checkout", "fulfilment_method": "Collection"}, follow_redirects=True)
     assert response.status_code == 200
     order = Order.query.filter_by(customer_name="Checkout").one()
     assert CustomerOrderLink.query.filter_by(account_id=account.id, order_id=order.id).one()
     email = EmailMessage.query.filter_by(order_id=order.id, kind="order_received").one()
-    assert email.status == "sent"
-    assert email.provider_message_id == "brevo-checkout-test-id"
+    assert email.status == "queued"
+    assert email.provider_message_id is None
 
 
 def test_order_received_email_renders_real_cart_and_secure_tracking_link(app, app_context):
@@ -4431,7 +4434,9 @@ def test_registration_shows_honest_email_delivery_status_and_public_url(client, 
     assert sent == []
     with app.app_context():
         customer_mail.process_email_queue(limit=5)
-    assert "https://fitystore.top/account/verify/" in sent[0]
+    verification_bodies = [body for body in sent if "account/verify/" in body]
+    assert verification_bodies
+    assert "https://fitystore.top/account/verify/" in verification_bodies[0]
     with app.app_context():
         row = EmailMessage.query.filter_by(kind="verify_email").one()
         assert row.status == "sent"

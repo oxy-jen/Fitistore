@@ -513,7 +513,7 @@ def recover_confirmed_campaign_rejections(
     return {"requeued": recovered, "suppressed": suppressed}
 
 
-def set_campaign_status(campaign: EmailCampaign, action: str) -> None:
+def set_campaign_status(campaign: EmailCampaign, action: str, *, scheduled_for: datetime | None = None) -> None:
     db.session.execute(
         select(EmailCampaign.id).where(EmailCampaign.id == campaign.id).with_for_update()
     ).scalar_one()
@@ -531,6 +531,35 @@ def set_campaign_status(campaign: EmailCampaign, action: str) -> None:
             return
         campaign.scheduled_for = _utcnow()
         campaign.status = "scheduled"
+        return
+    if action == "reschedule":
+        if campaign.status not in {"scheduled", "paused"}:
+            raise ValueError("Only a scheduled or paused campaign can be rescheduled.")
+        if scheduled_for is None:
+            raise ValueError("A new scheduled time is required.")
+        campaign.scheduled_for = scheduled_for
+        campaign.status = "scheduled"
+        db.session.execute(
+            update(EmailMessage).where(
+                EmailMessage.campaign_id == campaign.id,
+                or_(
+                    EmailMessage.status == "queued",
+                    and_(
+                        EmailMessage.status == "failed",
+                        EmailMessage.error_category.in_((
+                            "retryable_provider", "retryable_infrastructure",
+                        )),
+                        EmailMessage.next_attempt_at.isnot(None),
+                    ),
+                ),
+            ).values(next_attempt_at=scheduled_for, updated_at=_utcnow())
+        )
+        db.session.execute(
+            update(EmailCampaignRecipient).where(
+                EmailCampaignRecipient.campaign_id == campaign.id,
+                EmailCampaignRecipient.status.in_(("queued", "failed")),
+            ).values(status="queued", failure_reason="")
+        )
         return
     if action == "cancel":
         if campaign.status not in {"draft", "scheduled", "paused"}:
