@@ -56,6 +56,11 @@
     return raw.startsWith('/static/') || /^https?:\/\//i.test(raw) ? raw : '';
   }
 
+  function safeDestinationUrl(value) {
+    const raw = (value || '').trim();
+    return (raw.startsWith('/') && !raw.startsWith('//')) || /^https?:\/\//i.test(raw) ? raw : '';
+  }
+
   function platformEmbed(value) {
     try {
       const url = new URL(value);
@@ -122,8 +127,10 @@
     const density = form.elements.density?.value || 'compact'; const layout = form.elements.layout?.value || 'carousel';
     section.className = `media-showcase media-layout-${layout === 'featured' ? 'carousel' : layout} media-density-${density}`;
     section.classList.add(`media-count-mobile-${form.elements.visible_cards_mobile?.value || 2}`, `media-count-tablet-${form.elements.visible_cards_tablet?.value || 3}`, `media-count-desktop-${form.elements.visible_cards_desktop?.value || 4}`);
-    const background = colorValue('background_color', '#ffffff');
+    const background = colorValue('background_color', '#fff0f6');
     section.style.setProperty('--showcase-bg', background === 'transparent' ? 'transparent' : background);
+    const configuredRatio = form.elements.card_aspect_ratio?.value || '16:9';
+    section.style.setProperty('--showcase-media-ratio', configuredRatio.replace(':', ' / '));
     if (form.elements.section_padding_px?.value) section.style.setProperty('--showcase-padding', `${Number(form.elements.section_padding_px.value)}px`);
     if (form.elements.card_gap_px?.value) section.style.setProperty('--showcase-gap', `${Number(form.elements.card_gap_px.value)}px`);
     section.style.setProperty('--showcase-heading', colorValue('heading_color', '#252525'));
@@ -133,20 +140,32 @@
     section.style.setProperty('--showcase-border', colorValue('border_color', '#e8e8eb'));
     section.style.setProperty('--showcase-button-bg', colorValue('button_background_color', '#e52335'));
     section.style.setProperty('--showcase-button-text', colorValue('button_text_color', '#ffffff'));
-    const title = form.elements.title?.value || form.elements.name?.value || 'Showcase heading';
-    const subtitle = form.elements.subtitle?.value || '';
-    const description = form.elements.description?.value || '';
+    const title = form.elements.title?.value || 'Media Showcase';
+    const subtitle = form.elements.subtitle?.value || form.elements.description?.value || 'Our best picks, videos, and more';
     const heading = document.createElement('header'); heading.className = 'media-showcase-heading';
-    const h2 = document.createElement('h2'); h2.textContent = title; heading.append(h2);
-    if (subtitle) { const p = document.createElement('p'); p.className = 'media-showcase-subtitle'; p.textContent = subtitle; heading.append(p); }
-    if (description) { const p = document.createElement('p'); p.textContent = description; heading.append(p); }
+    const headingMain = document.createElement('div'); headingMain.className = 'media-showcase-heading-main';
+    const headingIcon = document.createElement('span'); headingIcon.className = 'media-showcase-heading-icon'; headingIcon.setAttribute('aria-hidden', 'true');
+    headingIcon.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 6v12l10-6z"></path></svg>';
+    const headingCopy = document.createElement('div'); headingCopy.className = 'media-showcase-heading-copy';
+    const h2 = document.createElement('h2'); h2.textContent = title;
+    const subtitleText = document.createElement('p'); subtitleText.className = 'media-showcase-subtitle'; subtitleText.textContent = subtitle;
+    headingCopy.append(h2, subtitleText); headingMain.append(headingIcon, headingCopy); heading.append(headingMain);
     section.append(heading);
     const rail = document.createElement('div'); rail.className = 'media-showcase-items';
     if (['carousel', 'featured'].includes(layout) && entries.filter((item) => item.active !== false).length === 1) rail.classList.add('media-showcase-items-single');
+    const featuredItem = entries.find((item) => item.active !== false && (
+      (item.type === 'video' && Boolean(item.url)) ||
+      (['gif', 'image'].includes(item.type) && Boolean(item.url || item.poster)) ||
+      (item.type === 'link' && Boolean(item.poster))
+    ));
+    const featuredIndex = featuredItem ? entries.indexOf(featuredItem) : -1;
     const cachedMedia = new Map([...preview.querySelectorAll('[data-preview-key]')].map((media) => [media.dataset.previewKey, media]));
     entries.forEach((item, index) => {
       if (item.active === false) return;
       const card = document.createElement('article'); card.className = 'media-showcase-card';
+      const ratioValue = item.aspect_ratio || (item.width && item.height ? `${item.width}:${item.height}` : configuredRatio);
+      const ratioParts = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(ratioValue);
+      card.style.setProperty('--media-item-ratio', ratioParts ? `${ratioParts[1]} / ${ratioParts[2]}` : configuredRatio.replace(':', ' / '));
       const src = safePreviewUrl(item.url);
       if (item.type === 'video' && item.source === 'video_embed') {
         const embed = platformEmbed(item.url);
@@ -161,7 +180,29 @@
       } else if (src && ['image', 'gif'].includes(item.type)) {
         const old = cachedMedia.get(String(index)); const image = old?.tagName === 'IMG' && old.dataset.previewSource === src ? old : document.createElement('img'); image.dataset.previewKey = index; image.dataset.previewSource = src; if (!image.src || old?.dataset.previewSource !== src) image.src = src; image.alt = item.alt || item.title || ''; image.loading = 'lazy'; image.className = `media-presentation-${item.presentation || 'original'}`; image.dataset.presentationMode = item.presentation || 'original'; image.dataset.aspectRatio = item.aspect_ratio || ''; if (image !== old) { image.addEventListener('load', () => { card.dataset.dimensions = `${image.naturalWidth} × ${image.naturalHeight}`; recordMetadata(index, image.naturalWidth, image.naturalHeight, 0); }); image.addEventListener('error', () => { const issue = document.createElement('small'); issue.className = 'media-preview-error'; issue.textContent = 'This URL did not return a previewable image.'; card.append(issue); }); } else if (image.complete && image.naturalWidth) recordMetadata(index, image.naturalWidth, image.naturalHeight, 0); card.append(image);
       } else { const placeholder = document.createElement('div'); placeholder.className = 'media-showcase-text-card'; placeholder.textContent = item.type === 'link' ? 'Linked content' : 'Preview available after choosing a supported media URL'; card.append(placeholder); }
-      if (item.title || item.description) { const copy = document.createElement('div'); copy.className = 'media-showcase-copy'; if (item.title) { const h3 = document.createElement('h3'); h3.textContent = item.title; copy.append(h3); } if (item.description) { const p = document.createElement('p'); p.textContent = item.description; copy.append(p); } card.append(copy); }
+      if (index === featuredIndex) { const badge = document.createElement('span'); badge.className = 'media-showcase-featured-badge'; badge.textContent = 'Featured'; card.append(badge); }
+      else if (item.type === 'gif') { const badge = document.createElement('span'); badge.className = 'media-showcase-type-badge media-showcase-type-gif'; badge.textContent = 'GIF'; card.append(badge); }
+      else if (item.type === 'image') { const badge = document.createElement('span'); badge.className = 'media-showcase-type-badge media-showcase-type-image'; badge.setAttribute('aria-label', 'Image'); badge.innerHTML = '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"></rect><circle cx="9" cy="9" r="1.5"></circle><path d="m5 17 5-5 3 3 2-2 4 4"></path></svg>'; card.append(badge); }
+      if (item.title || item.description || item.cta) {
+        const copy = document.createElement('div'); copy.className = 'media-showcase-copy';
+        const destination = safeDestinationUrl(item.destination);
+        if (item.title) {
+          const h3 = document.createElement('h3');
+          if (destination) {
+            const titleLink = document.createElement('a'); titleLink.className = 'media-showcase-title-link'; titleLink.href = destination; titleLink.textContent = item.title;
+            if (/^https?:\/\//i.test(destination)) { titleLink.target = '_blank'; titleLink.rel = 'noopener noreferrer'; }
+            h3.append(titleLink);
+          } else h3.textContent = item.title;
+          copy.append(h3);
+        }
+        if (item.description) { const p = document.createElement('p'); p.textContent = item.description; copy.append(p); }
+        if (item.cta && destination) {
+          const cta = document.createElement('a'); cta.className = 'btn'; cta.href = destination; cta.textContent = item.cta;
+          if (/^https?:\/\//i.test(destination)) { cta.target = '_blank'; cta.rel = 'noopener noreferrer'; }
+          copy.append(cta);
+        }
+        card.append(copy);
+      }
       rail.append(card);
     });
     section.append(rail); preview.replaceChildren(section);

@@ -215,7 +215,7 @@ def _sign_in_admin(client, app):
 def test_media_showcase_auth_creation_and_homepage_slot(client, app):
     assert client.get("/admin/media-showcases").status_code == 302
     _sign_in_admin(client, app)
-    item = [{"type": "image", "title": "Store feature", "url": "https://cdn.example.test/feature.jpg", "alt": "Store feature", "presentation": "contain", "aspect_ratio": "9:16"}]
+    item = [{"type": "image", "title": "Store feature", "url": "https://cdn.example.test/feature.jpg", "alt": "Store feature", "presentation": "contain", "aspect_ratio": "9:16", "destination": "/shop?sort=newest", "cta": "Shop this item"}]
     response = client.post("/admin/media-showcases/new", data={
         "name": "FityStores TV", "title": "See it. Love it. Shop it.", "page": "home",
         "placement": "home_after_hero", "layout": "carousel", "card_aspect_ratio": "3:2",
@@ -236,6 +236,8 @@ def test_media_showcase_auth_creation_and_homepage_slot(client, app):
     assert b"media-presentation-contain" in page.data
     assert b'data-aspect-ratio="9:16"' in page.data
     assert b"--media-item-ratio:9.0 / 16.0" in page.data
+    assert b'class="media-showcase-title-link" href="/shop?sort=newest">Store feature</a>' in page.data
+    assert b"Our best picks, videos, and more" in page.data
     assert b"--showcase-media-ratio: 3 / 2" in page.data
     assert b"data-showcase-scroll" not in page.data
     assert b"data-showcase-media-open" in page.data
@@ -243,9 +245,14 @@ def test_media_showcase_auth_creation_and_homepage_slot(client, app):
     with app.app_context():
         showcase = MediaShowcase.query.filter_by(slug="fitystores-tv").one()
         saved = showcase.items[0]
+        showcase_id = showcase.id
         assert showcase.card_aspect_ratio == "3:2"
         assert saved.presentation_mode == "contain"
         assert saved.aspect_ratio == "9:16"
+    preview = client.get(f"/admin/media-showcases/{showcase_id}/preview")
+    assert preview.status_code == 200
+    assert b'class="media-showcase-title-link" href="/shop?sort=newest">Store feature</a>' in preview.data
+    assert b"media-showcase-heading-icon" in preview.data
 
 
 def test_media_showcase_auto_opens_first_active_item_once_per_page_by_default(client, app):
@@ -300,7 +307,7 @@ def test_media_showcase_editor_offers_fields_and_existing_products(client, app):
     assert b"The floating player opens the first active supported media item" in response.data
     assert b'name="card_aspect_ratio"' in response.data
     assert b'value="16:9" selected' in response.data
-    assert b"#f3f0fa" in response.data
+    assert b"#fff0f6" in response.data
     editor = client.get("/static/js/media-showcase-editor.js")
     assert b"Set as popup feature" in editor.data
     assert b"Featured popup item" in editor.data
@@ -320,6 +327,8 @@ def test_media_showcases_sharing_a_slot_render_as_one_carousel(client, app):
     assert page.data.count(b'class="media-showcase-card"') >= 2
     assert b"Shared first" in page.data and b"Shared second" in page.data
     assert b"media-layout-carousel" in page.data
+    assert b"View All Media" in page.data
+    assert b"media-showcase-heading-icon" in page.data
 
 
 def test_media_showcase_list_has_publish_and_unpublish_actions(client, app):

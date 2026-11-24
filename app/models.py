@@ -199,7 +199,7 @@ class MediaShowcase(TimestampMixin, db.Model):
     is_enabled = db.Column(db.Boolean, nullable=False, default=True, index=True)
     starts_at = db.Column(db.DateTime)
     expires_at = db.Column(db.DateTime)
-    background_color = db.Column(db.String(20), nullable=False, default="#f3f0fa")
+    background_color = db.Column(db.String(20), nullable=False, default="#fff0f6")
     created_by_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="SET NULL"))
     items = db.relationship("MediaShowcaseItem", back_populates="showcase", cascade="all, delete-orphan", order_by="MediaShowcaseItem.display_order, MediaShowcaseItem.id")
     created_by = db.relationship("AdminUser")

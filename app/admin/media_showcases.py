@@ -270,7 +270,7 @@ def _form(showcase=None):
     if starts and expires and expires <= starts:
         return None, "The expiration must be later than the start date."
     color_defaults = {
-        "background_color": "#f3f0fa", "heading_color": "#252525", "description_color": "#666666",
+        "background_color": "#fff0f6", "heading_color": "#252525", "description_color": "#666666",
         "accent_color": "#e52335", "card_background_color": "#ffffff", "border_color": "#e8e8eb",
         "button_background_color": "#e52335", "button_text_color": "#ffffff",
     }

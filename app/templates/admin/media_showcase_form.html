@@ -7,7 +7,7 @@
   <div class="media-color-inputs">
     <select data-color-preset aria-label="{{ label }} named colour">
       <option value="#ffffff">White</option><option value="#000000">Black</option>
-      <option value="#e52335">Fity red</option><option value="#008000">Green</option>
+      <option value="#e52335">Fity red</option><option value="#fff0f6">Soft blush</option><option value="#008000">Green</option>
       <option value="#808080">Grey</option><option value="#d3d3d3">Light grey</option>
       <option value="#404040">Dark grey</option>
       {% if transparent %}<option value="transparent">Transparent</option>{% endif %}
@@ -56,7 +56,7 @@
     <p class="showcase-help">Compact carousel defaults: 2 cards on mobile, 3 on tablet and 4 on desktop. Blank spacing values use the selected density.</p>
     <p class="showcase-help">The floating player opens the first active supported media item in the first eligible showcase section on each page by default. Use “Set as popup feature” to move a different item first. Only one item opens automatically per page view.</p>
     <div class="media-colour-grid">
-      {{ color_control('Section background', 'background_color', fd.get('background_color', (showcase.background_color or '#f3f0fa') if showcase else '#f3f0fa'), true) }}
+      {{ color_control('Section background', 'background_color', fd.get('background_color', (showcase.background_color or '#fff0f6') if showcase else '#fff0f6'), true) }}
       {{ color_control('Heading colour', 'heading_color', fd.get('heading_color', showcase.heading_color if showcase else '#252525')) }}
       {{ color_control('Description colour', 'description_color', fd.get('description_color', showcase.description_color if showcase else '#666666')) }}
       {{ color_control('Accent colour', 'accent_color', fd.get('accent_color', showcase.accent_color if showcase else '#e52335')) }}
@@ -108,5 +108,5 @@
 <script type="application/json" id="showcase-products-data">{{ products_data|tojson }}</script>
 <script type="application/json" id="showcase-categories-data">{{ categories_data|tojson }}</script>
 <script>(function(){const p=document.getElementById('showcase-page'),s=document.getElementById('showcase-placement');function sync(){const opts=[...s.options];opts.forEach(o=>o.hidden=o.dataset.page!==p.value);if(s.selectedOptions[0]?.dataset.page!==p.value)s.value=opts.find(o=>o.dataset.page===p.value)?.value||''}p.addEventListener('change',sync);sync()})();</script>
-<script src="{{ url_for('static', filename='js/media-showcase-editor.js') }}?v=media-showcase-feature-picker-20261124" defer></script>
+<script src="{{ url_for('static', filename='js/media-showcase-editor.js') }}?v=media-showcase-reference-preview-20261124" defer></script>
 {% endblock %}

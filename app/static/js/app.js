@@ -697,12 +697,48 @@ let showcasePopupSeenInMemory=false;
 let showcaseLastOpener=null;
 let showcaseCurrentOpener=null;
 let showcaseCurrentAutomatic=false;
+let showcasePlayerManuallyPositioned=false;
+let showcasePlayerPositionFrame=0;
 
 function hasSeenShowcasePopup(){
   return showcasePopupSeenInMemory;
 }
 function markShowcasePopupSeen(){
   showcasePopupSeenInMemory=true;
+}
+function positionShowcasePlayerAwayFromCards(){
+  if(!showcasePlayer?.open||showcasePlayerManuallyPositioned)return;
+  const playerRect=showcasePlayer.getBoundingClientRect();
+  const margin=12;
+  const positions=[
+    {left:window.innerWidth-playerRect.width-margin,top:window.innerHeight-playerRect.height-margin},
+    {left:margin,top:window.innerHeight-playerRect.height-margin},
+    {left:window.innerWidth-playerRect.width-margin,top:margin},
+    {left:margin,top:margin}
+  ];
+  const cards=[...document.querySelectorAll('.media-showcase-card')];
+  const overlapArea=(position,rect)=>{
+    const width=Math.max(0,Math.min(position.left+playerRect.width,rect.right)-Math.max(position.left,rect.left));
+    const height=Math.max(0,Math.min(position.top+playerRect.height,rect.bottom)-Math.max(position.top,rect.top));
+    return width*height;
+  };
+  const bestPosition=positions
+    .map(position=>({
+      ...position,
+      overlap:cards.reduce((total,card)=>total+overlapArea(position,card.getBoundingClientRect()),0)
+    }))
+    .sort((first,second)=>first.overlap-second.overlap)[0];
+  showcasePlayer.style.left=`${Math.max(margin,bestPosition.left)}px`;
+  showcasePlayer.style.top=`${Math.max(margin,bestPosition.top)}px`;
+  showcasePlayer.style.right='auto';
+  showcasePlayer.style.bottom='auto';
+}
+function scheduleShowcasePlayerPosition(){
+  if(!showcasePlayer?.open||showcasePlayerManuallyPositioned||showcasePlayerPositionFrame)return;
+  showcasePlayerPositionFrame=requestAnimationFrame(()=>{
+    showcasePlayerPositionFrame=0;
+    positionShowcasePlayerAwayFromCards();
+  });
 }
 function mediaPlayerError(message){
   const notice=document.createElement('p');
@@ -795,6 +831,7 @@ function openShowcasePlayer(opener,automatic){
   }
   if(!automatic)showcaseLastOpener=opener;
   if(!showcasePlayer.open)showcasePlayer.show();
+  if(automatic)scheduleShowcasePlayerPosition();
   if(!automatic)showcasePlayer.querySelector('[data-media-player-close]')?.focus({preventScroll:true});
   if(automatic)markShowcasePopupSeen();
   return true;
@@ -828,6 +865,7 @@ if(showcasePlayer){
   };
   dragHandle?.addEventListener('pointerdown',event=>{
     if(event.button!==0||event.target.closest('button'))return;
+    showcasePlayerManuallyPositioned=true;
     const rect=showcasePlayer.getBoundingClientRect();
     activeDrag={pointerId:event.pointerId,offsetX:event.clientX-rect.left,offsetY:event.clientY-rect.top};
     dragHandle.setPointerCapture(event.pointerId);
@@ -850,7 +888,9 @@ if(showcasePlayer){
       const rect=showcasePlayer.getBoundingClientRect();
       positionWithinViewport(rect.left,rect.top);
     }
+    scheduleShowcasePlayerPosition();
   },{passive:true});
+  window.addEventListener('scroll',scheduleShowcasePlayerPosition,{passive:true});
 }
 if(showcasePlayer&&!showcaseReducedMotion.matches&&!hasSeenShowcasePopup()){
   const featuredOpener=document.querySelector('[data-showcase-featured] [data-showcase-media-open]');

@@ -2,17 +2,19 @@
 {% set entries = showcase_group["items"] %}
 {% set shared_layout = 'carousel' if entries|length > 1 or showcase.layout == 'featured' else showcase.layout %}
 {% set density = showcase.density if showcase.density in ['compact', 'balanced', 'spacious'] else 'balanced' %}
+{% set heading_subtitle = showcase.subtitle or showcase.description or 'Our best picks, videos, and more' %}
 <section id="media-showcase-{{ showcase.slug }}"
          class="media-showcase media-layout-{{ shared_layout }} media-density-{{ density }} media-count-mobile-{{ showcase.visible_cards_mobile }} media-count-tablet-{{ showcase.visible_cards_tablet }} media-count-desktop-{{ showcase.visible_cards_desktop }} media-showcase-shared"
          data-showcase-count="{{ showcase_group['showcases']|length }}"
          aria-label="{{ showcase.title or showcase.name }}"
-         style="--showcase-bg: {{ showcase.background_color or '#f3f0fa' }}; --showcase-media-ratio: {{ (showcase.card_aspect_ratio or '16:9').replace(':', ' / ') }};{% if showcase.section_padding_px is not none %} --showcase-padding: {{ showcase.section_padding_px }}px;{% endif %}{% if showcase.card_gap_px is not none %} --showcase-gap: {{ showcase.card_gap_px }}px;{% endif %} --showcase-heading: {{ showcase.heading_color }}; --showcase-description: {{ showcase.description_color }}; --showcase-accent: {{ showcase.accent_color }}; --showcase-card-bg: {{ showcase.card_background_color }}; --showcase-border: {{ showcase.border_color }}; --showcase-button-bg: {{ showcase.button_background_color }}; --showcase-button-text: {{ showcase.button_text_color }};">
+         style="--showcase-bg: {{ showcase.background_color or '#fff0f6' }}; --showcase-media-ratio: {{ (showcase.card_aspect_ratio or '16:9').replace(':', ' / ') }};{% if showcase.section_padding_px is not none %} --showcase-padding: {{ showcase.section_padding_px }}px;{% endif %}{% if showcase.card_gap_px is not none %} --showcase-gap: {{ showcase.card_gap_px }}px;{% endif %} --showcase-heading: {{ showcase.heading_color }}; --showcase-description: {{ showcase.description_color }}; --showcase-accent: {{ showcase.accent_color }}; --showcase-card-bg: {{ showcase.card_background_color }}; --showcase-border: {{ showcase.border_color }}; --showcase-button-bg: {{ showcase.button_background_color }}; --showcase-button-text: {{ showcase.button_text_color }};">
   <header class="media-showcase-heading">
-    <div>
-      <p class="media-showcase-eyebrow">Media Showcase</p>
-      <h2>{{ showcase.title or 'Media Showcase' }}</h2>
-      {% if showcase.subtitle %}<p class="media-showcase-subtitle">{{ showcase.subtitle }}</p>{% endif %}
-      {% if showcase.description %}<p>{{ showcase.description }}</p>{% elif not showcase.subtitle %}<p>Discover our latest videos, collections, and featured media.</p>{% endif %}
+    <div class="media-showcase-heading-main">
+      <span class="media-showcase-heading-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6v12l10-6z"></path></svg></span>
+      <div class="media-showcase-heading-copy">
+        <h2>{{ showcase.title or 'Media Showcase' }}</h2>
+        <p class="media-showcase-subtitle">{{ heading_subtitle }}</p>
+      </div>
     </div>
     {% if entries|length > 1 %}
     <div class="media-showcase-tools">
@@ -22,7 +24,7 @@
         <button type="button" data-showcase-scroll="1" aria-label="Scroll media right"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
       </div>
       {% endif %}
-      <button class="btn media-showcase-view-all" type="button" data-showcase-view-all aria-controls="media-showcase-rail-{{ showcase.id }}" aria-expanded="false">View all media</button>
+      <button class="btn media-showcase-view-all" type="button" data-showcase-view-all aria-controls="media-showcase-rail-{{ showcase.id }}" aria-expanded="false"><span>View All Media</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"></path></svg></button>
     </div>
     {% endif %}
   </header>
@@ -32,14 +34,21 @@
     {% for entry in entries %}
     {% set item = entry.item %}
     {% set item_showcase = entry.showcase %}
+    {% set item_ratio = item.aspect_ratio or ((item.media_width|string) ~ ':' ~ (item.media_height|string) if item.media_width and item.media_height else (item_showcase.card_aspect_ratio or '16:9')) %}
+    {% set ratio_parts = item_ratio.split(':') %}
+    {% set ratio_width = ratio_parts[0]|float %}
+    {% set ratio_height = ratio_parts[1]|float %}
     <article class="media-showcase-card" data-showcase-card data-media-card data-media-source="{{ item.source_type }}"
-             style="--showcase-card-bg: {{ item_showcase.card_background_color }}; --showcase-border: {{ item_showcase.border_color }}; --showcase-heading: {{ item_showcase.heading_color }}; --showcase-description: {{ item_showcase.description_color }}; --showcase-accent: {{ item_showcase.accent_color }}; --showcase-button-bg: {{ item_showcase.button_background_color }}; --showcase-button-text: {{ item_showcase.button_text_color }};"
+             style="--media-item-ratio: {{ ratio_width }} / {{ ratio_height }}; --showcase-card-bg: {{ item_showcase.card_background_color }}; --showcase-border: {{ item_showcase.border_color }}; --showcase-heading: {{ item_showcase.heading_color }}; --showcase-description: {{ item_showcase.description_color }}; --showcase-accent: {{ item_showcase.accent_color }}; --showcase-button-bg: {{ item_showcase.button_background_color }}; --showcase-button-text: {{ item_showcase.button_text_color }};"
              {% if showcase_group["featured_item_id"] == item.id %}data-showcase-featured{% endif %}>
-      {% if showcase_group["featured_item_id"] == item.id %}<span class="media-showcase-featured-badge">Featured</span>{% endif %}
+      {% if showcase_group["featured_item_id"] == item.id %}<span class="media-showcase-featured-badge">Featured</span>
+      {% elif item.media_type == 'gif' %}<span class="media-showcase-type-badge media-showcase-type-gif">GIF</span>
+      {% elif item.media_type == 'image' %}<span class="media-showcase-type-badge media-showcase-type-image" aria-label="Image"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"></rect><circle cx="9" cy="9" r="1.5"></circle><path d="m5 17 5-5 3 3 2-2 4 4"></path></svg></span>
+      {% elif item.media_type == 'video' %}<span class="media-showcase-type-badge media-showcase-type-video">VIDEO</span>{% endif %}
       {% with showcase=item_showcase %}{% include "partials/media_showcase_item.html" %}{% endwith %}
       {% if item.title or item.description or item.cta_label or item.destination_url %}
       <div class="media-showcase-copy">
-        {% if item.title %}<h3>{{ item.title }}</h3>{% endif %}
+        {% if item.title %}<h3>{% if item.destination_url %}{% if item.destination_url.startswith('http://') or item.destination_url.startswith('https://') %}<a class="media-showcase-title-link" href="{{ item.destination_url }}" target="_blank" rel="noopener noreferrer">{{ item.title }}</a>{% else %}<a class="media-showcase-title-link" href="{{ item.destination_url }}">{{ item.title }}</a>{% endif %}{% else %}{{ item.title }}{% endif %}</h3>{% endif %}
         {% if item.description %}<p>{{ item.description }}</p>{% endif %}
         {% if item.destination_url %}
           {% if item.destination_url.startswith('http://') or item.destination_url.startswith('https://') %}<a class="btn" href="{{ item.destination_url }}" target="_blank" rel="noopener noreferrer">{{ item.cta_label or 'Explore' }}</a>
