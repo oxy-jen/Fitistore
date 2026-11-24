@@ -53,6 +53,7 @@
       <label>Card gap (px)<input type="number" min="0" max="40" name="card_gap_px" placeholder="Density default" value="{{ fd.get('card_gap_px', showcase.card_gap_px if showcase and showcase.card_gap_px is not none else '') }}"></label>
     </div>
     <p class="showcase-help">Compact carousel defaults: 2 cards on mobile, 3 on tablet and 4 on desktop. Blank spacing values use the selected density.</p>
+    <p class="showcase-help">The floating player opens the first active supported media item in the first eligible showcase section on each page by default, once per browser session. Use “Set as popup feature” to move a different item first. Only one item opens automatically per page.</p>
     <div class="media-colour-grid">
       {{ color_control('Section background', 'background_color', fd.get('background_color', (showcase.background_color or '#ffffff') if showcase else '#ffffff'), true) }}
       {{ color_control('Heading colour', 'heading_color', fd.get('heading_color', showcase.heading_color if showcase else '#252525')) }}
@@ -68,7 +69,7 @@
 
   <details class="media-admin-section" open>
     <summary><span><strong>3. Media items</strong><small>Browse, upload or paste a media link</small></span></summary>
-    <p class="showcase-help">Reuse existing assets without copying them. Uploads are limited to 3.5 MB to fit the app’s 4 MB request limit and use Cloudinary when configured. Local uploads are only used for local SQLite development; hosted uploads require Cloudinary. External URLs are previewed in your browser and are never downloaded by the server.</p>
+    <p class="showcase-help">Reuse existing assets without copying them. Uploads are limited to 3.5 MB to fit the app’s 4 MB request limit and use Cloudinary when configured. Local uploads are only used for local SQLite development; hosted uploads require Cloudinary. External URLs are previewed in your browser and are never downloaded by the server. Use “Set as popup feature” to choose the first active item without changing the order of the remaining media.</p>
     <div class="media-source-toolbar"><button class="btn" type="button" data-library-open>Browse media library</button><button class="btn" type="button" data-add-showcase-item>Add media item</button><label class="btn media-upload-button">Upload multiple files<input type="file" multiple accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.m4v,.mov,.webm" class="media-file-input" data-bulk-upload aria-label="Choose multiple media files"></label><span data-bulk-upload-status role="status" aria-live="polite"></span><span data-media-library-status role="status" aria-live="polite"></span></div>
     <label class="media-bulk-links">Add multiple media links, one per line<textarea rows="3" data-bulk-links placeholder="Paste direct image, GIF, video, Cloudinary, YouTube or Vimeo URLs"></textarea></label><button class="btn" type="button" data-add-bulk-links>Add links</button>
     <div class="media-item-list" data-showcase-item-list></div>
@@ -106,5 +107,5 @@
 <script type="application/json" id="showcase-products-data">{{ products_data|tojson }}</script>
 <script type="application/json" id="showcase-categories-data">{{ categories_data|tojson }}</script>
 <script>(function(){const p=document.getElementById('showcase-page'),s=document.getElementById('showcase-placement');function sync(){const opts=[...s.options];opts.forEach(o=>o.hidden=o.dataset.page!==p.value);if(s.selectedOptions[0]?.dataset.page!==p.value)s.value=opts.find(o=>o.dataset.page===p.value)?.value||''}p.addEventListener('change',sync);sync()})();</script>
-<script src="{{ url_for('static', filename='js/media-showcase-editor.js') }}?v=media-library-json-fix-20261106" defer></script>
+<script src="{{ url_for('static', filename='js/media-showcase-editor.js') }}?v=media-showcase-feature-picker-20261124" defer></script>
 {% endblock %}

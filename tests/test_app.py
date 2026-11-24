@@ -235,10 +235,50 @@ def test_media_showcase_auth_creation_and_homepage_slot(client, app):
     assert b"media-presentation-contain" in page.data
     assert b'data-aspect-ratio="9:16"' in page.data
     assert b"data-showcase-scroll" not in page.data
+    assert b"data-showcase-media-open" in page.data
+    assert page.data.count(b"data-showcase-featured") == 1
     with app.app_context():
         saved = MediaShowcase.query.filter_by(slug="fitystores-tv").one().items[0]
         assert saved.presentation_mode == "contain"
         assert saved.aspect_ratio == "9:16"
+
+
+def test_media_showcase_auto_opens_first_active_item_once_per_page_by_default(client, app):
+    _sign_in_admin(client, app)
+    client.post("/admin/media-showcases/new", data={
+        "name": "First featured rail", "page": "home", "placement": "home_after_hero",
+        "layout": "carousel", "publish_action": "publish", "is_enabled": "1",
+        "items_json": json.dumps([
+            {"type": "image", "title": "Inactive image", "url": "https://cdn.example.test/inactive.jpg", "active": False},
+            {"type": "gif", "title": "Selected animated feature", "url": "https://cdn.example.test/selected.gif"},
+            {"type": "image", "title": "Later image", "url": "https://cdn.example.test/later.jpg"},
+        ]),
+    })
+    client.post("/admin/media-showcases/new", data={
+        "name": "Second featured rail", "page": "home", "placement": "home_before_departments",
+        "layout": "split", "publish_action": "publish", "is_enabled": "1",
+        "items_json": json.dumps([
+            {"type": "video", "title": "Later video", "url": "https://cdn.example.test/later.mp4"},
+        ]),
+    })
+
+    page = client.get("/")
+    assert page.status_code == 200
+    assert page.data.count(b"data-showcase-featured") == 1
+    selected = re.search(
+        rb'<article[^>]*data-showcase-featured[^>]*>(.*?)</article>',
+        page.data,
+        re.S,
+    )
+    assert selected
+    assert b"Selected animated feature" in selected.group(1)
+    assert b'data-media-kind="gif"' in selected.group(1)
+    assert b"Later video" not in selected.group(1)
+    with app.app_context():
+        preview_id = MediaShowcase.query.filter_by(slug="first-featured-rail").one().id
+    preview = client.get(f"/admin/media-showcases/{preview_id}/preview")
+    assert preview.status_code == 200
+    assert preview.data.count(b"data-showcase-featured") == 1
 
 
 def test_media_showcase_editor_offers_fields_and_existing_products(client, app):
@@ -252,6 +292,10 @@ def test_media_showcase_editor_offers_fields_and_existing_products(client, app):
     assert b'name="publish_action" value="publish"' in response.data
     assert b'data-bulk-upload' in response.data
     assert b'data-bulk-links' in response.data
+    assert b"The floating player opens the first active supported media item" in response.data
+    editor = client.get("/static/js/media-showcase-editor.js")
+    assert b"Set as popup feature" in editor.data
+    assert b"Featured popup item" in editor.data
 
 
 def test_media_showcases_sharing_a_slot_render_as_one_carousel(client, app):
@@ -7084,7 +7128,7 @@ def test_media_showcase_video_preview_crop_saves_and_renders_without_cropping_so
     assert page.status_code == 200
     assert b"data-showcase-video-open" in page.data
     assert b"data-video-src=\"https://cdn.example.test/portrait.mp4\"" in page.data
-    assert b"--media-item-ratio:4 / 5" in page.data
+    assert b"--media-item-ratio:9.0 / 16.0" in page.data
     assert b"--media-item-ratio:16.0 / 9.0" in page.data
     assert b"data-media-showcase-player" in page.data
     assert b"media-showcase-player-content" in page.data

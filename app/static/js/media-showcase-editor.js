@@ -120,7 +120,7 @@
     const entries = collect();
     const section = document.createElement('section');
     const density = form.elements.density?.value || 'compact'; const layout = form.elements.layout?.value || 'carousel';
-    section.className = `media-showcase media-layout-${layout} media-density-${density}`;
+    section.className = `media-showcase media-layout-${layout === 'featured' ? 'carousel' : layout} media-density-${density}`;
     section.classList.add(`media-count-mobile-${form.elements.visible_cards_mobile?.value || 2}`, `media-count-tablet-${form.elements.visible_cards_tablet?.value || 3}`, `media-count-desktop-${form.elements.visible_cards_desktop?.value || 4}`);
     const background = colorValue('background_color', '#ffffff');
     section.style.setProperty('--showcase-bg', background === 'transparent' ? 'transparent' : background);
@@ -142,7 +142,7 @@
     if (description) { const p = document.createElement('p'); p.textContent = description; heading.append(p); }
     section.append(heading);
     const rail = document.createElement('div'); rail.className = 'media-showcase-items';
-    if (layout === 'carousel' && entries.filter((item) => item.active !== false).length === 1) rail.classList.add('media-showcase-items-single');
+    if (['carousel', 'featured'].includes(layout) && entries.filter((item) => item.active !== false).length === 1) rail.classList.add('media-showcase-items-single');
     const cachedMedia = new Map([...preview.querySelectorAll('[data-preview-key]')].map((media) => [media.dataset.previewKey, media]));
     entries.forEach((item, index) => {
       if (item.active === false) return;
@@ -153,8 +153,8 @@
         if (embed) { const old = cachedMedia.get(String(index)); const frame = old?.tagName === 'IFRAME' && old.dataset.previewSource === embed ? old : document.createElement('iframe'); frame.dataset.previewKey = index; frame.dataset.previewSource = embed; frame.src = embed; frame.title = item.title || 'Embedded video preview'; frame.loading = 'lazy'; frame.allow = 'fullscreen; picture-in-picture'; frame.sandbox = 'allow-scripts allow-same-origin allow-presentation'; frame.className = 'media-embed-player'; frame.dataset.aspectRatio = item.aspect_ratio || ''; card.append(frame); }
       } else if (src && item.type === 'video') {
         const old = cachedMedia.get(String(index)); const video = old?.tagName === 'VIDEO' && old.dataset.previewSource === src ? old : document.createElement('video'); video.dataset.previewKey = index; video.dataset.previewSource = src; if (!video.src || old?.dataset.previewSource !== src) video.src = src; video.poster = safePreviewUrl(item.poster); video.controls = true; video.muted = true; video.preload = 'metadata'; video.className = `media-presentation-${item.presentation || 'original'}`; video.dataset.presentationMode = item.presentation || 'original'; video.dataset.aspectRatio = item.aspect_ratio || ''; video.style.setProperty('--media-position-x', `${item.preview_position_x ?? 50}%`); video.style.setProperty('--media-position-y', `${item.preview_position_y ?? 50}%`);
-        if (item.width && item.height) { const ratio = Number(item.width) / Number(item.height) < .9 ? .8 : Number(item.width) / Number(item.height); video.style.setProperty('--media-item-ratio', ratio === .8 ? '4 / 5' : `${item.width} / ${item.height}`); video.style.maxWidth = `${360 * ratio}px`; }
-        if (video !== old) video.addEventListener('loadedmetadata', () => { const ratio = video.videoWidth / video.videoHeight < .9 ? .8 : video.videoWidth / video.videoHeight; video.style.setProperty('--media-item-ratio', ratio === .8 ? '4 / 5' : `${video.videoWidth} / ${video.videoHeight}`); video.style.maxWidth = `${360 * ratio}px`; recordMetadata(index, video.videoWidth, video.videoHeight, video.duration); });
+        if (item.width && item.height) { const ratio = Number(item.width) / Number(item.height); video.style.setProperty('--media-item-ratio', `${item.width} / ${item.height}`); video.style.maxWidth = `${360 * ratio}px`; }
+        if (video !== old) video.addEventListener('loadedmetadata', () => { const ratio = video.videoWidth / video.videoHeight; video.style.setProperty('--media-item-ratio', `${video.videoWidth} / ${video.videoHeight}`); video.style.maxWidth = `${360 * ratio}px`; recordMetadata(index, video.videoWidth, video.videoHeight, video.duration); });
         video.addEventListener('error', () => { if (!card.querySelector('.media-preview-error')) { const issue = document.createElement('small'); issue.className = 'media-preview-error'; issue.textContent = 'Video preview unavailable. Check the direct media URL or storage access.'; card.append(issue); } });
         if (video.readyState >= 1) recordMetadata(index, video.videoWidth, video.videoHeight, video.duration);
         card.append(video);
@@ -176,6 +176,11 @@
 
   function draw() {
     list.replaceChildren();
+    const featuredIndex = items.findIndex((item) => item.active !== false && (
+      (item.type === 'video' && Boolean(item.url)) ||
+      (['gif', 'image'].includes(item.type) && Boolean(item.url || item.poster)) ||
+      (item.type === 'link' && Boolean(item.poster))
+    ));
     const links = [['', 'Choose a category, page or collection…'], ['/shop', 'Shop all products'], ['/about', 'About FityStores'], ['/upcoming', 'Upcoming merchandise'], ['/#mamba-collection', 'Mamba collection'], ...categories.map((entry) => [`/shop?category=${encodeURIComponent(entry.slug)}`, `Category: ${entry.name}`])];
     items.forEach((item, index) => {
       const card = document.createElement('fieldset'); card.className = 'media-item-card';
@@ -185,6 +190,7 @@
       const actions = document.createElement('div'); actions.className = 'item-edit-actions';
       [[-1, 'Move up'], [1, 'Move down']].forEach(([direction, caption]) => { const button = document.createElement('button'); button.type = 'button'; button.className = 'btn'; button.textContent = caption; button.dataset.itemMove = direction; button.disabled = index + direction < 0 || index + direction >= items.length; actions.append(button); });
       const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn item-remove'; remove.textContent = 'Remove item'; remove.dataset.itemRemove = '1'; actions.append(remove);
+      const feature = document.createElement('button'); feature.type = 'button'; feature.className = 'btn'; feature.textContent = index === featuredIndex ? 'Featured popup item' : 'Set as popup feature'; feature.disabled = item.active === false || index === featuredIndex; feature.setAttribute('aria-pressed', String(index === featuredIndex)); feature.dataset.itemFeature = '1'; actions.append(feature);
       const source = document.createElement('span'); source.className = 'media-source-badge'; source.dataset.sourceLabel = '1'; source.textContent = sourceNames[card.dataset.source] || sourceNames.external_url; actions.append(source);
       const assetMeta = document.createElement('small'); assetMeta.className = 'media-item-meta'; assetMeta.dataset.mediaMetadata = '1';
       assetMeta.textContent = [card.dataset.filename, card.dataset.width && card.dataset.height ? `${card.dataset.width} × ${card.dataset.height}` : '', formatBytes(card.dataset.size || null), card.dataset.duration ? `${Number(card.dataset.duration).toFixed(1)} s` : ''].filter(Boolean).join(' · '); actions.append(assetMeta); card.append(actions);
@@ -239,6 +245,13 @@
       card.querySelector('[data-item-key="product_id"]').addEventListener('change', (event) => { if (event.target.value) destination.value = ''; renderPreview(); });
       browse.addEventListener('click', () => openLibrary(index));
       upload.addEventListener('change', () => { if (upload.files[0]) uploadFile(upload.files[0], card); });
+      feature.addEventListener('click', () => {
+        items = collect();
+        const [selected] = items.splice(index, 1);
+        items.unshift(selected);
+        draw();
+        dirty = true;
+      });
     });
     renderPreview();
   }

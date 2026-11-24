@@ -196,8 +196,34 @@ def showcases_by_placement(page):
             {"showcase": showcase, "item": item}
             for item in showcase.items if item.is_active
         )
-    return {
-        key: ([groups[key]] if key in groups else [])
-        for key in SHOWCASE_PLACEMENTS.get(page, {})
-    }
+    result = {}
+    featured_popup_assigned = False
+    for key in SHOWCASE_PLACEMENTS.get(page, {}):
+        group = groups.get(key)
+        if group is None:
+            result[key] = []
+            continue
+        group["featured_item_id"] = None
+        if not featured_popup_assigned:
+            for showcase in group["showcases"]:
+                featured_entry = None
+                for entry in group["items"]:
+                    item = entry["item"]
+                    if entry["showcase"].id != showcase.id:
+                        continue
+                    has_media = (
+                        item.media_type == "video" and bool(item.media_url)
+                    ) or (
+                        item.media_type in {"gif", "image"}
+                        and bool(item.media_url or item.poster_url)
+                    ) or (item.media_type == "link" and bool(item.poster_url))
+                    if has_media:
+                        featured_entry = entry
+                        break
+                if featured_entry:
+                    group["featured_item_id"] = featured_entry["item"].id
+                    featured_popup_assigned = True
+                    break
+        result[key] = [group]
+    return result
 

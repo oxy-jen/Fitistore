@@ -1,10 +1,55 @@
 {% set active_items = showcase.items|selectattr('is_active')|list %}
-<section class="media-showcase media-layout-{{ showcase.layout }} media-density-{{ showcase.density }} media-count-mobile-{{ showcase.visible_cards_mobile }} media-count-tablet-{{ showcase.visible_cards_tablet }} media-count-desktop-{{ showcase.visible_cards_desktop }}" id="media-showcase-{{ showcase.slug }}" style="--showcase-bg: {{ showcase.background_color or '#ffffff' }};{% if showcase.section_padding_px is not none %}--showcase-padding: {{ showcase.section_padding_px }}px;{% endif %}{% if showcase.card_gap_px is not none %}--showcase-gap: {{ showcase.card_gap_px }}px;{% endif %}--showcase-heading: {{ showcase.heading_color }};--showcase-description: {{ showcase.description_color }};--showcase-accent: {{ showcase.accent_color }};--showcase-card-bg: {{ showcase.card_background_color }};--showcase-border: {{ showcase.border_color }};--showcase-button-bg: {{ showcase.button_background_color }};--showcase-button-text: {{ showcase.button_text_color }}" aria-label="{{ showcase.title or showcase.name }}">
-{% if showcase.title or showcase.subtitle or showcase.description %}<header class="media-showcase-heading">{% if showcase.title %}<h2>{{ showcase.title }}</h2>{% endif %}{% if showcase.subtitle %}<p class="media-showcase-subtitle">{{ showcase.subtitle }}</p>{% endif %}{% if showcase.description %}<p>{{ showcase.description }}</p>{% endif %}</header>{% endif %}
-{% if showcase.layout == 'carousel' and active_items|length > 1 %}<div class="media-showcase-controls"><button type="button" aria-label="Scroll media left" data-showcase-scroll="-1">‹</button><button type="button" aria-label="Scroll media right" data-showcase-scroll="1">›</button></div>{% endif %}
-<div class="media-showcase-items{% if showcase.layout == 'carousel' and active_items|length == 1 %} media-showcase-items-single{% endif %}" data-media-showcase-items>{% for item in active_items %}<article class="media-showcase-card" data-media-card data-media-source="{{ item.source_type }}">
-{% include "partials/media_showcase_item.html" %}
-{% if item.title or item.description or item.cta_label %}<div class="media-showcase-copy">{% if item.title %}<h3>{{ item.title }}</h3>{% endif %}{% if item.description %}<p>{{ item.description }}</p>{% endif %}{% if item.cta_label and item.destination_url %}<a class="btn" href="{{ item.destination_url }}"{% if item.destination_url.startswith('http') and request.host not in item.destination_url %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ item.cta_label }}</a>{% endif %}</div>{% endif %}
-</article>{% endfor %}</div>
-<dialog class="media-showcase-player" data-media-showcase-player aria-label="Video player"><div class="media-showcase-player-shell"><button class="media-showcase-player-close" type="button" data-media-player-close aria-label="Close video">Close</button><div class="media-showcase-player-content" data-media-player-content></div></div></dialog>
+{% set layout = 'carousel' if showcase.layout == 'featured' else showcase.layout %}
+{% set density = showcase.density if showcase.density in ['compact', 'balanced', 'spacious'] else 'balanced' %}
+{% set feature = namespace(item_id=None) %}
+{% for item in active_items %}
+  {% if feature.item_id is none and ((item.media_type == 'video' and item.media_url) or (item.media_type in ['gif', 'image'] and (item.media_url or item.poster_url)) or (item.media_type == 'link' and item.poster_url)) %}
+    {% set feature.item_id = item.id %}
+  {% endif %}
+{% endfor %}
+<section id="media-showcase-{{ showcase.slug }}"
+         class="media-showcase media-layout-{{ layout }} media-density-{{ density }} media-count-mobile-{{ showcase.visible_cards_mobile }} media-count-tablet-{{ showcase.visible_cards_tablet }} media-count-desktop-{{ showcase.visible_cards_desktop }}"
+         aria-label="{{ showcase.title or showcase.name }}"
+         style="--showcase-bg: {{ showcase.background_color or '#ffffff' }};{% if showcase.section_padding_px is not none %} --showcase-padding: {{ showcase.section_padding_px }}px;{% endif %}{% if showcase.card_gap_px is not none %} --showcase-gap: {{ showcase.card_gap_px }}px;{% endif %} --showcase-heading: {{ showcase.heading_color }}; --showcase-description: {{ showcase.description_color }}; --showcase-accent: {{ showcase.accent_color }}; --showcase-card-bg: {{ showcase.card_background_color }}; --showcase-border: {{ showcase.border_color }}; --showcase-button-bg: {{ showcase.button_background_color }}; --showcase-button-text: {{ showcase.button_text_color }};">
+  <header class="media-showcase-heading">
+    <div>
+      <p class="media-showcase-eyebrow">Media Showcase</p>
+      <h2>{{ showcase.title or 'Media Showcase' }}</h2>
+      {% if showcase.subtitle %}<p class="media-showcase-subtitle">{{ showcase.subtitle }}</p>{% endif %}
+      {% if showcase.description %}<p>{{ showcase.description }}</p>{% elif not showcase.subtitle %}<p>Discover our latest videos, collections, and featured media.</p>{% endif %}
+    </div>
+    {% if active_items|length > 1 %}
+    <div class="media-showcase-tools">
+      {% if layout == 'carousel' %}
+      <div class="media-showcase-controls" aria-label="Media carousel controls">
+        <button type="button" data-showcase-scroll="-1" aria-label="Scroll media left"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button>
+        <button type="button" data-showcase-scroll="1" aria-label="Scroll media right"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
+      </div>
+      {% endif %}
+      <button class="btn media-showcase-view-all" type="button" data-showcase-view-all aria-controls="media-showcase-rail-{{ showcase.id }}" aria-expanded="false">View all media</button>
+    </div>
+    {% endif %}
+  </header>
+  <div class="media-showcase-items{% if layout == 'carousel' and active_items|length == 1 %} media-showcase-items-single{% endif %}"
+       id="media-showcase-rail-{{ showcase.id }}" data-showcase-rail data-media-showcase-items
+       aria-label="{{ showcase.title or showcase.name }}">
+    {% for item in active_items %}
+    <article class="media-showcase-card" data-showcase-card data-media-card data-media-source="{{ item.source_type }}"
+             {% if feature.item_id == item.id %}data-showcase-featured{% endif %}>
+      {% if feature.item_id == item.id %}<span class="media-showcase-featured-badge">Featured popup</span>{% endif %}
+      {% include "partials/media_showcase_item.html" %}
+      {% if item.title or item.description or item.cta_label or item.destination_url %}
+      <div class="media-showcase-copy">
+        {% if item.title %}<h3>{{ item.title }}</h3>{% endif %}
+        {% if item.description %}<p>{{ item.description }}</p>{% endif %}
+        {% if item.destination_url %}
+          {% if item.destination_url.startswith('http://') or item.destination_url.startswith('https://') %}<a class="btn" href="{{ item.destination_url }}" target="_blank" rel="noopener noreferrer">{{ item.cta_label or 'Explore' }}</a>
+          {% else %}<a class="btn" href="{{ item.destination_url }}">{{ item.cta_label or 'Explore' }}</a>{% endif %}
+        {% elif item.cta_label %}<span class="btn">{{ item.cta_label }}</span>{% endif %}
+      </div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% include "partials/media_showcase_player.html" %}
 </section>
