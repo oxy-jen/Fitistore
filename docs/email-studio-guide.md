@@ -26,9 +26,10 @@ Email Studio lets an admin build, preview, save, and manually send customer emai
 
 1. Preview the exact content and context you plan to send.
 2. For a test, enter an address you control, type **SEND TEST**, and choose **Send test email**. Tests are labelled and are not sent to the customer list.
-3. For a real send, select the intended recipients in the relevant recipient list. Marketing recipients must be active and opted in; the server checks consent and unsubscribe status again when sending. Service messages go only to active, verified accounts and must not contain promotions.
-4. Enter the exact confirmation shown, such as **SEND 2**, then choose **Send manually**. A preview is required for the exact content and recipient selection before the send is accepted.
-5. Check **Customer email → Recent email history** for provider status. “Provider accepted” means the email service accepted the request; it does not guarantee inbox delivery.
+3. For a real send, select the intended recipients in the relevant recipient list. Marketing recipients must be active and opted in; the server checks consent, unsubscribe, suppression, and frequency status again at dispatch. Service messages go only to active, verified accounts and must not contain promotions.
+4. For an immediate marketing send, enter the exact previewed recipient confirmation, such as **SEND 2**, then choose **Send now to eligible recipients**. The admin request submits directly to the provider and does not wait for the marketing worker.
+5. To schedule a campaign, use **Open campaign centre to schedule**. Preview the draft, choose a future date and time, enter **SCHEDULE N**, and choose **Schedule campaign**. The scheduled worker rechecks eligibility and delivers it when due. Automatically prepared drafts remain drafts until an administrator previews and schedules or sends them.
+6. Check **Customer email → Recent email history** for provider status. “Provider accepted” means the email service accepted the request; it does not guarantee inbox delivery.
 
 Cart reminders can be previewed at any time, but sending is held while checkout is active, until the cart has been idle for the configured `CART_REMINDER_IDLE_MINUTES`, and after a reminder has already been sent for that cart episode. The current testing value is 5 minutes; set it to 120 minutes when the two-hour rule is restored.
 

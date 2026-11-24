@@ -560,8 +560,9 @@ def email_campaign_detail(campaign_id):
     from sqlalchemy import inspect
     from app.services.marketing_campaigns import (
         campaign_product_ids, campaign_recovery_candidate_count, campaign_type_enabled, parse_schedule,
-        recover_confirmed_campaign_rejections,
-        render_campaign, schedule_campaign, set_campaign_status,
+        dispatch_campaign_now, prepare_campaign_now,
+        recover_confirmed_campaign_rejections, render_campaign, schedule_campaign,
+        set_campaign_status,
         validate_campaign_content,
     )
     from app.services.email_purpose import MARKETING_CAMPAIGN_TYPES
@@ -582,7 +583,7 @@ def email_campaign_detail(campaign_id):
     if request.method == "POST":
         action = request.form.get("action", "")
         try:
-            if action in {"save", "preview", "schedule"}:
+            if action in {"save", "preview", "schedule", "send_now"}:
                 if campaign.status != "draft":
                     raise ValueError("Only a draft campaign's content can be changed.")
                 name = request.form.get("name", "").strip()
@@ -617,6 +618,33 @@ def email_campaign_detail(campaign_id):
                         f"Campaign scheduled for {scheduled_for:%Y-%m-%d %H:%M UTC}. "
                         f"{report['eligible']} eligible; {report['excluded']} excluded. No email was sent.",
                         "success",
+                    )
+                    return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
+                elif action == "send_now":
+                    report = prepare_campaign_now(
+                        campaign, confirmed_count=request.form.get("send_confirmation", ""),
+                    )
+                    db.session.commit()
+                    result = dispatch_campaign_now(campaign.id)
+                    db.session.add(FinancialAuditEvent(
+                        admin_id=current_user.id,
+                        event_type="marketing_campaign_send_now",
+                        entity_type="EmailCampaign",
+                        entity_id=campaign.id,
+                        note=(
+                            f"provider_accepted={result['accepted']}; failed={result['failed']}; "
+                            f"suppressed={result['suppressed']}; recovery_pending={result['recovery_queued']}"
+                        ),
+                    ))
+                    db.session.commit()
+                    flash(
+                        f"Immediate campaign result: provider accepted {result['accepted']}; "
+                        f"recovery pending {result['recovery_queued']}; failed {result['failed']}; "
+                        f"suppressed {result['suppressed']}. Provider acceptance is not inbox delivery.",
+                        "success" if (
+                            result["accepted"] and not result["failed"]
+                            and not result["suppressed"] and not result["recovery_queued"]
+                        ) else "warning",
                     )
                     return redirect(url_for("admin.email_campaign_detail", campaign_id=campaign.id))
                 db.session.commit()

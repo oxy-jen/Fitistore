@@ -3,11 +3,10 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from secrets import token_urlsafe
 from uuid import UUID, uuid4
 from urllib.parse import urlsplit
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app, flash, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required
@@ -17,8 +16,8 @@ from sqlalchemy.orm import selectinload
 from app.extensions import db
 from app.models import (
     CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink,
-    CustomerToken, EmailDraft, EmailMessage, EmailTemplate, FinancialAuditEvent,
-    Order, OrderItem, Product,
+    CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDraft, EmailMessage,
+    EmailTemplate, FinancialAuditEvent, Order, OrderItem, Product,
 )
 from app.services.cart import validate_cart
 from app.services.email_studio import (
@@ -27,7 +26,10 @@ from app.services.email_studio import (
     SAMPLE_CUSTOMER_CONTEXT, EmailContentError, render_studio_message,
     validate_email_blocks, validate_variables,
 )
-from app.services.email_purpose import studio_email_kind_for_category, STUDIO_TRANSACTIONAL_CATEGORY_KINDS
+from app.services.email_purpose import (
+    MARKETING_CAMPAIGN_TYPE_KINDS, studio_email_kind_for_category,
+    STUDIO_TRANSACTIONAL_CATEGORY_KINDS,
+)
 from app.services.email_template_inventory import SYSTEM_TEMPLATES, build_email_template_inventory
 from app.services.formatting import money
 from app.services.product_images import product_display_image, product_image_alt, product_image_url
@@ -35,6 +37,18 @@ from app.services.settings import current_settings
 from app.services.whatsapp import build_general_message, whatsapp_text_link
 
 logger = logging.getLogger(__name__)
+
+STUDIO_CAMPAIGN_TYPES = {
+    "cart_reminder": "abandoned_cart",
+    "weekly_picks": "weekly_picks",
+    "new_product_announcement": "new_product",
+    "special_offers": "special_offer",
+}
+
+
+def _studio_campaign_type(category):
+    return STUDIO_CAMPAIGN_TYPES.get(category, "custom")
+
 
 def _is_server_defined_transactional_content(category, form, *, blocks=None):
     """Allow transactional Studio sends only for unchanged code-defined notices.
@@ -133,15 +147,152 @@ def _product_card(product):
     }
 
 
-def _issue_unsubscribe(account):
+def _issue_unsubscribe(account, *, commit=True):
     raw = token_urlsafe(32)
     db.session.add(CustomerToken(
         account_id=account.id, purpose="unsubscribe",
         token_hash=hashlib.sha256(raw.encode()).hexdigest(),
         expires_at=datetime.utcnow() + timedelta(days=3650),
     ))
-    db.session.commit()
+    if commit:
+        db.session.commit()
     return _public_url(url_for("customer.unsubscribe", token=raw))
+
+
+def _send_studio_marketing_campaign(
+    *, category, targets, operation_id, fingerprint, request_form, saved_template,
+):
+    from app.services.customer_mail import queue_email
+    from app.services.marketing_campaigns import (
+        campaign_type_enabled, dispatch_campaign_now,
+    )
+
+    campaign_type = _studio_campaign_type(category)
+    if not campaign_type_enabled(campaign_type):
+        raise EmailContentError("This marketing campaign type is disabled in application configuration.")
+
+    generation_key = f"email-studio-manual:{operation_id}"
+    generation_reference = json.dumps({
+        "category": category,
+        "fingerprint": fingerprint,
+        "recipients": [target.id for target in targets],
+    }, sort_keys=True)
+    existing = EmailCampaign.query.filter_by(generation_key=generation_key).first()
+    if existing:
+        if existing.generation_reference != generation_reference:
+            raise EmailContentError("This send operation key is already associated with different campaign content.")
+        accepted = EmailMessage.query.filter(
+            EmailMessage.campaign_id == existing.id,
+            EmailMessage.status.in_(("sent", "delivered")),
+        ).count()
+        failed = EmailCampaignRecipient.query.filter_by(
+            campaign_id=existing.id, status="failed",
+        ).count()
+        suppressed = EmailCampaignRecipient.query.filter_by(
+            campaign_id=existing.id, status="suppressed",
+        ).count()
+        queued = EmailMessage.query.filter(
+            EmailMessage.campaign_id == existing.id,
+            EmailMessage.status.in_(("queued", "sending")),
+        ).count()
+        return {
+            "accepted": accepted, "failed": failed, "suppressed": suppressed,
+            "recovery_queued": queued, "duplicates": len(targets),
+            "already_processed": True,
+        }
+
+    now = datetime.utcnow()
+    try:
+        selected_products = list(dict.fromkeys(
+            int(value) for value in request_form.getlist("product_ids")
+        ))[:30]
+    except (TypeError, ValueError):
+        raise EmailContentError("One or more selected product IDs are invalid.") from None
+    campaign = EmailCampaign(
+        name=EMAIL_CATEGORIES[category]["label"][:120],
+        subject=(request_form.get("subject") or "")[:200],
+        body=(request_form.get("message") or "")[:5000],
+        campaign_type=campaign_type,
+        product_ids_json=json.dumps(selected_products),
+        scheduled_for=now,
+        previewed_at=now,
+        approved_at=now,
+        status="sending_now",
+        created_by_id=current_user.id,
+        generation_key=generation_key,
+        generation_source="email_studio",
+        generation_reason="admin_manual_send",
+        generation_reference=generation_reference,
+    )
+    db.session.add(campaign)
+    db.session.flush()
+    for target in targets:
+        context_form = request_form.copy()
+        if category == "cart_reminder":
+            context_form["order_id"] = ""
+        try:
+            unsubscribe_url = _issue_unsubscribe(target, commit=False)
+            payload_subject, html, text, order, _cards = _render_for(
+                category, context_form, target, unsubscribe_url=unsubscribe_url,
+            )
+        except EmailContentError as exc:
+            db.session.add(EmailCampaignRecipient(
+                campaign_id=campaign.id, account_id=target.id, recipient=target.email,
+                status="failed", failure_reason=str(exc)[:255],
+                exclusion_reason="render_failed",
+            ))
+            continue
+
+        if category == "cart_reminder":
+            cart = CustomerCart.query.filter_by(account_id=target.id).first()
+            idempotency_key = (
+                f"cart-reminder:{cart.episode_key}"
+                if cart else f"email-studio:{operation_id}:{target.id}"
+            )
+        else:
+            idempotency_key = f"email-studio:{operation_id}:{target.id}"
+        prior = EmailMessage.query.filter_by(idempotency_key=idempotency_key).first()
+        if prior:
+            db.session.add(EmailCampaignRecipient(
+                campaign_id=campaign.id, account_id=target.id, recipient=target.email,
+                status="suppressed", failure_reason="A message for this send key was already recorded.",
+                exclusion_reason="already_processed", message_id=prior.id,
+            ))
+            continue
+        message = queue_email(
+            target.email, payload_subject, MARKETING_CAMPAIGN_TYPE_KINDS[campaign_type],
+            idempotency_key, account_id=target.id,
+            order_id=order.id if order else None, campaign_id=campaign.id,
+            template_id=saved_template.id if saved_template else None,
+            html_body=html, text_body=text, commit=False,
+        )
+        db.session.add(EmailCampaignRecipient(
+            campaign_id=campaign.id, account_id=target.id, recipient=target.email,
+            status=message.status, failure_reason=message.failure_reason,
+            exclusion_reason="" if message.status == "queued" else (message.failure_reason or message.status)[:48],
+            message_id=message.id,
+        ))
+
+    db.session.commit()
+    counts = dispatch_campaign_now(campaign.id)
+    counts["duplicates"] = sum(
+        1 for recipient in EmailCampaignRecipient.query.filter_by(
+            campaign_id=campaign.id, status="suppressed",
+        ).all() if recipient.exclusion_reason == "already_processed"
+    )
+    db.session.add(FinancialAuditEvent(
+        admin_id=current_user.id,
+        event_type="email_studio_campaign_send",
+        entity_type="EmailCampaign",
+        entity_id=campaign.id,
+        note=(
+            f"category={category}; provider_accepted={counts['accepted']}; "
+            f"failed={counts['failed']}; suppressed={counts['suppressed']}; "
+            f"recovery_pending={counts['recovery_queued']}"
+        ),
+    ))
+    db.session.commit()
+    return counts
 
 
 def _account_for_preview(raw_id):
@@ -369,7 +520,6 @@ def _render_for(category, form, account, *, test_mode=False, unsubscribe_url="")
         category, subject, headline, message, blocks,
         trusted_transactional=trusted_transactional,
     )
-    unsubscribe_url = ""
     if promotional:
         if account and account.marketing_status != "subscribed" and not test_mode:
             raise EmailContentError("This address is not currently subscribed to marketing email.")
@@ -760,29 +910,12 @@ def register_email_studio_routes(admin_bp):
                         trusted_transactional=trusted_transactional,
                     )
                     if action in {"send", "schedule"}:
-                        if marketing_message:
-                            raise EmailContentError(
-                                "Marketing sends and scheduling now use the isolated marketing campaign centre. "
-                                "Nothing was queued."
-                            )
-                        scheduled_at = None
                         if action == "schedule":
                             if not marketing_message:
-                                raise EmailContentError("Only marketing campaigns can be scheduled; transactional messages remain immediate.")
-                            raw_schedule = request.form.get("schedule_at", "").strip()
-                            try:
-                                local_schedule = datetime.strptime(raw_schedule, "%Y-%m-%dT%H:%M")
-                                zone_name = current_app.config.get("TIMEZONE", "Africa/Nairobi")
-                                try:
-                                    zone = ZoneInfo(zone_name)
-                                except (ZoneInfoNotFoundError, TypeError, ValueError):
-                                    zone = ZoneInfo("Africa/Nairobi")
-                                scheduled_at = local_schedule.replace(tzinfo=zone).astimezone(timezone.utc).replace(tzinfo=None)
-                            except (TypeError, ValueError, OverflowError):
-                                raise EmailContentError("Choose a valid future date and time for the campaign.") from None
-                            now_utc = datetime.utcnow()
-                            if scheduled_at < now_utc + timedelta(minutes=5) or scheduled_at > now_utc + timedelta(days=90):
-                                raise EmailContentError("Schedule campaigns at least 5 minutes ahead and within the next 90 days.")
+                                raise EmailContentError("Transactional messages are sent immediately and cannot be scheduled.")
+                            raise EmailContentError(
+                                "Use the marketing campaign centre to schedule a campaign. Nothing was sent."
+                            )
                         if marketing_message:
                             requested_ids = []
                             for raw in request.form.getlist("account_ids"):
@@ -806,9 +939,8 @@ def register_email_studio_routes(admin_bp):
                                 "Select at least one active, verified subscribed customer who remains eligible "
                                 "after consent, unsubscribe, suppression, and frequency checks."
                             )
-                        phrase = f"SCHEDULE {len(targets)}" if action == "schedule" else f"SEND {len(targets)}"
-                        confirmation_field = "confirm_schedule" if action == "schedule" else "confirm_send"
-                        if request.form.get(confirmation_field, "").strip() != phrase:
+                        phrase = f"SEND {len(targets)}"
+                        if request.form.get("confirm_send", "").strip() != phrase:
                             raise EmailContentError(f"Review the preview and type {phrase} to confirm the exact recipient count.")
                         if session.get("email_studio_preview") != preview_fingerprint():
                             raise EmailContentError("Preview this exact content and recipient selection before sending.")
@@ -818,6 +950,37 @@ def register_email_studio_routes(admin_bp):
                         try: operation_id = str(UUID(request.form.get("operation_id", "")))
                         except (ValueError, TypeError, AttributeError):
                             raise EmailContentError("Refresh the Email Studio and try again; the send operation key is invalid.") from None
+                        if marketing_message:
+                            missing_campaign_schema = sorted({
+                                item for model in (EmailCampaign, EmailCampaignRecipient)
+                                for item in model_schema_missing(model, inspector)
+                            })
+                            if missing_campaign_schema:
+                                raise EmailContentError(
+                                    "Immediate marketing sends are unavailable because the campaign schema is missing: "
+                                    + ", ".join(missing_campaign_schema)
+                                )
+                            counts = _send_studio_marketing_campaign(
+                                category=category, targets=targets, operation_id=operation_id,
+                                fingerprint=preview_fingerprint(), request_form=request.form,
+                                saved_template=saved_template,
+                            )
+                            duplicate_detail = (
+                                f" {counts['duplicates']} duplicate operation(s) were not resent."
+                                if counts.get("duplicates") else ""
+                            )
+                            flash(
+                                "Manual campaign result: provider accepted "
+                                f"{counts['accepted']}; recovery pending {counts['recovery_queued']}; "
+                                f"failed {counts['failed']}; suppressed {counts['suppressed']}."
+                                f"{duplicate_detail} Provider acceptance is not confirmation of inbox delivery.",
+                                "success" if (
+                                    counts["accepted"] and not counts["failed"]
+                                    and not counts["suppressed"] and not counts["recovery_queued"]
+                                ) else "warning",
+                            )
+                            session.pop("email_studio_preview", None)
+                            return redirect(url_for("admin.email_studio", category=category))
                         accepted = queued = failed = suppressed = duplicate = 0
                         suppression_reasons = []
                         provider_failures = []
@@ -849,7 +1012,6 @@ def register_email_studio_routes(admin_bp):
                                     account_id=target.id, order_id=order.id if order else None,
                                     template_id=saved_template.id if saved_template else None,
                                     retry_suppressed=(category == "cart_reminder"),
-                                    not_before=scheduled_at,
                                     html_body=html, text_body=text,
                                 )
                             except Exception:

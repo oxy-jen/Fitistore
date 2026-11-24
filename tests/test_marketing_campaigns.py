@@ -183,6 +183,82 @@ def test_campaign_worker_sends_only_due_campaign_linked_messages(marketing_enabl
     assert campaign.status == "sent"
 
 
+def test_admin_campaign_send_now_submits_directly_without_waiting_for_worker(
+    marketing_enabled, client, app_context, monkeypatch,
+):
+    from app.services import customer_mail
+
+    marketing_enabled.config.update(
+        MAIL_PROVIDER="brevo", BREVO_API_KEY="test-key",
+        MAIL_FROM_VERIFIED=True, MAIL_FROM_ADDRESS="verified@example.test",
+        MAIL_FROM_NAME="Test Shop", MAIL_REPLY_TO="reply@example.test",
+    )
+    delivered = []
+    monkeypatch.setattr(
+        customer_mail, "_send_brevo",
+        lambda *args: delivered.append(args) or "direct-campaign-provider-id",
+    )
+    account = _subscribed_account("direct-campaign@example.test")
+    campaign = EmailCampaign(
+        name="Send now test", subject="A direct update", body="A reviewed campaign.",
+        campaign_type="custom", product_ids_json="[]",
+        status="draft", previewed_at=_utcnow(), created_by_id=1,
+    )
+    db.session.add(campaign)
+    db.session.commit()
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+
+    response = client.post(
+        f"/admin/email/campaigns/{campaign.id}",
+        data={
+            "name": campaign.name, "subject": campaign.subject,
+            "body": campaign.body, "campaign_type": campaign.campaign_type,
+            "action": "send_now", "send_confirmation": "SEND 1",
+        },
+        follow_redirects=True,
+    )
+
+    db.session.refresh(campaign)
+    message = EmailMessage.query.filter_by(campaign_id=campaign.id).one()
+    recipient = EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id).one()
+    assert response.status_code == 200
+    assert len(delivered) == 1 and delivered[0][0] == account.email
+    assert message.status == recipient.status == campaign.status == "sent"
+    assert message.purpose == "marketing"
+    assert EmailDeliveryAttempt.query.filter_by(message_id=message.id, status="accepted").count() == 1
+    assert b"provider accepted 1" in response.data
+
+    result = customer_mail.process_marketing_email_queue(
+        confirmation="RUN MARKETING EMAIL QUEUE",
+    )
+    assert result["sent"] == 0
+    assert len(delivered) == 1
+
+
+def test_marketing_worker_recovers_stale_direct_campaign_messages(marketing_enabled, app_context, monkeypatch):
+    from app.services import customer_mail
+
+    campaign, _account, message = _campaign_with_message(status="sending_now")
+    campaign.updated_at = _utcnow() - timedelta(minutes=6)
+    db.session.commit()
+    monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
+    delivered = []
+    monkeypatch.setattr(
+        customer_mail, "_send_brevo",
+        lambda *args: delivered.append(args) or "stale-campaign-recovery-id",
+    )
+
+    result = customer_mail.process_marketing_email_queue(
+        confirmation="RUN MARKETING EMAIL QUEUE",
+    )
+
+    db.session.refresh(campaign)
+    db.session.refresh(message)
+    assert result["sent"] == 1 and len(delivered) == 1
+    assert message.status == "sent"
+    assert campaign.status == "sent"
+
+
 def test_marketing_claim_is_single_use_for_campaign_message(marketing_enabled, app_context):
     from app.services.customer_mail import _claim_marketing_dispatch
 

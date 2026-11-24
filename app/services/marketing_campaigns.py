@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from secrets import token_urlsafe
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -17,6 +18,8 @@ from app.models import (
     EmailDeliveryInvestigationEvent, EmailMessage, Product,
 )
 from app.services.email_purpose import MARKETING_CAMPAIGN_TYPES, MARKETING_CAMPAIGN_TYPE_KINDS
+
+logger = logging.getLogger(__name__)
 
 CAMPAIGN_TYPE_FLAGS = {
     "new_product": "EMAIL_MARKETING_NEW_PRODUCTS_ENABLED",
@@ -207,7 +210,10 @@ def audience_snapshot(campaign: EmailCampaign, scheduled_for: datetime):
     return accounts, eligible, exclusions
 
 
-def schedule_campaign(campaign: EmailCampaign, scheduled_for: datetime, *, confirmed_count: str):
+def _prepare_campaign_delivery(
+    campaign: EmailCampaign, scheduled_for: datetime, *,
+    confirmed_count: str, confirmation_verb: str, initial_status: str,
+):
     db.session.execute(
         select(EmailCampaign.id).where(EmailCampaign.id == campaign.id).with_for_update()
     ).scalar_one()
@@ -216,22 +222,25 @@ def schedule_campaign(campaign: EmailCampaign, scheduled_for: datetime, *, confi
         raise ValueError("Only a draft campaign can be scheduled.")
     if not campaign.previewed_at:
         raise ValueError("Preview the current campaign content before scheduling.")
-    if not current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False):
+    if (initial_status == "scheduled"
+            and not current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False)):
         raise ValueError("Marketing scheduling is disabled by the EMAIL_MARKETING_QUEUE_ENABLED gate.")
     if not campaign_type_enabled(campaign.campaign_type):
         raise ValueError("This marketing campaign type is disabled in application configuration.")
     accounts, eligible, exclusions = audience_snapshot(campaign, scheduled_for)
     if not eligible:
         raise ValueError("No eligible recipients were found.")
-    if confirmed_count.strip() != f"SCHEDULE {len(eligible)}":
-        raise ValueError(f"Confirmation must exactly match SCHEDULE {len(eligible)}.")
+    if confirmed_count.strip() != f"{confirmation_verb} {len(eligible)}":
+        raise ValueError(
+            f"Confirmation must exactly match {confirmation_verb} {len(eligible)}."
+        )
 
     from app.services.customer_mail import queue_email
     from app.services.marketing_eligibility import evaluate_marketing_eligibility
 
     campaign.scheduled_for = scheduled_for
     campaign.approved_at = _utcnow()
-    campaign.status = "scheduled"
+    campaign.status = initial_status
     campaign_exclusion_rows = 0
     eligible_ids = {account.id for account in eligible}
     for account in accounts:
@@ -277,10 +286,93 @@ def schedule_campaign(campaign: EmailCampaign, scheduled_for: datetime, *, confi
             exclusion_reason="" if message.status == "queued" else (message.failure_reason or message.status)[:48],
             message_id=message.id,
         ))
-    campaign.status = "scheduled"
     db.session.flush()
     return {"eligible": len(eligible), "excluded": campaign_exclusion_rows,
             "exclusion_summary": exclusions}
+
+
+def schedule_campaign(campaign: EmailCampaign, scheduled_for: datetime, *, confirmed_count: str):
+    return _prepare_campaign_delivery(
+        campaign, scheduled_for,
+        confirmed_count=confirmed_count,
+        confirmation_verb="SCHEDULE",
+        initial_status="scheduled",
+    )
+
+
+def prepare_campaign_now(campaign: EmailCampaign, *, confirmed_count: str):
+    """Persist an approved campaign for immediate, synchronous provider dispatch."""
+    return _prepare_campaign_delivery(
+        campaign, _utcnow(),
+        confirmed_count=confirmed_count,
+        confirmation_verb="SEND",
+        initial_status="sending_now",
+    )
+
+
+def dispatch_campaign_now(campaign_id: int) -> dict[str, int]:
+    """Dispatch a prepared campaign synchronously; the marketing worker is not needed."""
+    from app.services.customer_mail import deliver_email
+
+    campaign = db.session.get(EmailCampaign, campaign_id)
+    if not campaign or campaign.status != "sending_now":
+        raise ValueError("Only a prepared immediate campaign can be dispatched.")
+    messages = EmailMessage.query.filter_by(
+        campaign_id=campaign.id, status="queued",
+    ).order_by(EmailMessage.id).all()
+    for message in messages:
+        try:
+            deliver_email(message, allow_immediate_marketing=True)
+            db.session.refresh(message)
+        except Exception:
+            db.session.rollback()
+            logger.exception(
+                "marketing_campaign_immediate_dispatch_failed campaign_id=%s message_id=%s",
+                campaign.id, message.id,
+            )
+
+    db.session.refresh(campaign)
+    active = EmailMessage.query.filter(
+        EmailMessage.campaign_id == campaign.id,
+        or_(
+            EmailMessage.status.in_(("queued", "sending")),
+            and_(
+                EmailMessage.status == "failed",
+                EmailMessage.error_category.in_(("retryable_provider", "retryable_infrastructure")),
+                EmailMessage.retry_count <= 3,
+                EmailMessage.next_attempt_at.isnot(None),
+            ),
+        ),
+    ).count()
+    if campaign.status == "sending_now":
+        if active:
+            # Keep controlled recovery available if a process or provider failed
+            # before every recipient reached a terminal state.
+            campaign.status = "scheduled"
+            campaign.scheduled_for = _utcnow()
+        else:
+            sent = EmailCampaignRecipient.query.filter(
+                EmailCampaignRecipient.campaign_id == campaign.id,
+                EmailCampaignRecipient.status.in_(("sent", "delivered")),
+            ).count()
+            failed = EmailCampaignRecipient.query.filter_by(
+                campaign_id=campaign.id, status="failed",
+            ).count()
+            campaign.status = "partial" if failed else "sent" if sent else "complete"
+            campaign.sent_at = _utcnow() if sent else None
+        db.session.commit()
+
+    statuses = db.session.query(
+        EmailMessage.status, func.count(EmailMessage.id),
+    ).filter(EmailMessage.campaign_id == campaign.id).group_by(EmailMessage.status).all()
+    counts = {status: count for status, count in statuses}
+    recipients = EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id)
+    return {
+        "accepted": counts.get("sent", 0) + counts.get("delivered", 0),
+        "failed": recipients.filter_by(status="failed").count(),
+        "suppressed": recipients.filter_by(status="suppressed").count(),
+        "recovery_queued": counts.get("queued", 0) + counts.get("sending", 0),
+    }
 
 
 def _confirmed_brevo_401_messages(campaign: EmailCampaign) -> list[tuple[EmailCampaignRecipient, EmailMessage, CustomerAccount, EmailDeliveryAttempt]]:

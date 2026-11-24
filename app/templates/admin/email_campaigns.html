@@ -5,7 +5,7 @@
     <div>
       <p class="eyebrow">Marketing · explicit approval required</p>
       <h1>{% if campaign %}{{ campaign.name }}{% else %}Marketing campaigns{% endif %}</h1>
-      <p>Drafting and previewing never sends email. Campaigns can only reach opted-in, eligible subscribers through the separately gated campaign worker.</p>
+      <p>Drafting and previewing never sends email. After preview, an administrator can send directly now or schedule delivery through the campaign worker.</p>
     </div>
     <nav class="actions" aria-label="Campaign navigation">
       <a class="btn" href="{{ url_for('admin.email_center') }}">Email centre</a>
@@ -16,7 +16,7 @@
   <section class="form-card campaign-gates" aria-label="Campaign controls">
     <strong>Queue gate:</strong>
     <span class="admin-email-badge {{ 'is-alert' if not queue_enabled else '' }}">{{ 'enabled in this application context' if queue_enabled else 'disabled' }}</span>
-    <span>Each campaign type also has an independent setting. Production configuration is not changed by this page.</span>
+    <span>Each campaign type also has an independent setting. Scheduling requires the queue gate; an approved send-now action dispatches directly. Production configuration is not changed by this page.</span>
     <span><strong>Automatic draft preparation:</strong> {{ 'enabled in this application context' if preparation_enabled else 'disabled' }}. Preparation creates drafts only; an administrator must edit, preview and schedule them.</span>
   </section>
 
@@ -81,6 +81,15 @@
       <button class="btn" name="action" value="schedule" {% if not queue_enabled or not type_enabled(campaign.campaign_type) or not campaign.previewed_at or eligible_count is none %}disabled{% endif %}>Schedule campaign</button>
       {% if eligible_count is not none %}<p><strong>{{ eligible_count }}</strong> currently eligible. This count can change before scheduling.</p>{% endif %}
       {% if exclusion_summary %}<details><summary>Eligibility exclusions</summary><ul>{% for reason, count in exclusion_summary.items() %}<li>{{ reason|replace('_', ' ')|title }}{% if count %}: {{ count }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+    </div>
+    <div class="campaign-schedule">
+      <h3>Send immediately</h3>
+      <p>This submits the campaign directly now for eligible recipients; it does not wait for the marketing worker. Consent, suppression, frequency, and recipient checks still run at dispatch. Provider acceptance is not inbox delivery.</p>
+      <label>Type the exact audience confirmation
+        <input name="send_confirmation" maxlength="24" autocomplete="off" placeholder="SEND {{ eligible_count if eligible_count is not none else '?' }}">
+      </label>
+      <button class="btn primary" name="action" value="send_now" {% if not type_enabled(campaign.campaign_type) or not campaign.previewed_at or eligible_count is none %}disabled{% endif %}>Send campaign now</button>
+      {% if not type_enabled(campaign.campaign_type) %}<p>Sending is unavailable until the selected campaign type gate is enabled. This page does not change that setting.</p>{% endif %}
     </div>
   </form>
   {% else %}

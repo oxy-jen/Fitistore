@@ -6168,6 +6168,7 @@ def test_email_studio_preview_is_personalized_escaped_and_does_not_send(client, 
 def test_email_studio_saved_customer_service_content_obeys_marketing_consent(client, app, app_context, monkeypatch):
     import app.services.customer_mail as customer_mail
     _configure_brevo_test(app)
+    app.config["EMAIL_MARKETING_CUSTOM_ENABLED"] = True
     sent = []
     monkeypatch.setattr(
         customer_mail, "_send_brevo",
@@ -6197,10 +6198,10 @@ def test_email_studio_saved_customer_service_content_obeys_marketing_consent(cli
         "operation_id": "12345678-1234-5678-1234-567812345678",
     }, follow_redirects=True)
     assert result.status_code == 200
-    assert sent == []
-    customer_mail.process_email_queue(limit=5)
-    assert b"isolated marketing campaign centre" in result.data
-    assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
+    assert len(sent) == 1
+    row = EmailMessage.query.filter_by(account_id=account.id).one()
+    assert row.status == "sent" and row.purpose == "marketing"
+    assert b"provider accepted 1" in result.data
 
 
 def test_email_studio_mixed_promotional_copy_cannot_use_service_category_to_bypass_consent(client, app, app_context):
@@ -6223,7 +6224,7 @@ def test_email_studio_mixed_promotional_copy_cannot_use_service_category_to_bypa
         "operation_id": "12345678-1234-5678-1234-567812345678",
     }, follow_redirects=True)
     assert response.status_code == 200
-    assert b"isolated marketing campaign centre" in response.data
+    assert b"Select at least one active, verified subscribed customer" in response.data
     assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
 
 
@@ -6231,6 +6232,7 @@ def test_email_studio_visual_template_duplicate_blocks_preview_and_send(client, 
     import app.services.customer_mail as customer_mail
     _configure_brevo_test(app)
     app.config.update(PUBLIC_BASE_URL="https://fitystore.top", CLOUDINARY_CLOUD_NAME="fity-test")
+    app.config["EMAIL_MARKETING_CUSTOM_ENABLED"] = True
     sent = []
     monkeypatch.setattr(
         customer_mail, "_send_brevo",
@@ -6297,10 +6299,10 @@ def test_email_studio_visual_template_duplicate_blocks_preview_and_send(client, 
         "operation_id": "87654321-1234-5678-1234-567812345678",
     }, follow_redirects=True)
     assert result.status_code == 200
-    assert sent == []
-    customer_mail.process_email_queue(limit=5)
-    assert b"isolated marketing campaign centre" in result.data
-    assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
+    assert len(sent) == 1
+    row = EmailMessage.query.filter_by(account_id=account.id).one()
+    assert row.status == "sent" and row.purpose == "marketing"
+    assert b"provider accepted 1" in result.data
 
 
 def test_email_studio_test_send_requires_prior_preview_and_explicit_address(client, app, app_context, monkeypatch):
@@ -6503,7 +6505,7 @@ def test_email_studio_manual_marketing_send_rejects_unconsented_and_suppressed_a
             "operation_id": "12345678-1234-5678-1234-567812345678",
         }, follow_redirects=True)
         assert result.status_code == 200
-        assert b"isolated marketing campaign centre" in result.data
+        assert b"Select at least one active, verified subscribed customer" in result.data
 
     assert EmailMessage.query.filter_by(account_id=unconsented.id).count() == 0
     assert EmailMessage.query.filter_by(account_id=suppressed.id).count() == 0
@@ -6515,6 +6517,8 @@ def test_email_studio_promotion_requires_preview_consent_and_real_catalogue_item
     _configure_brevo_test(app)
     app.config["PUBLIC_BASE_URL"] = "https://fitystore.top"
     app.config["CLOUDINARY_CLOUD_NAME"] = "fity-test"
+    app.config["EMAIL_MARKETING_CUSTOM_ENABLED"] = True
+    app.config["EMAIL_MARKETING_QUEUE_ENABLED"] = False
     sent = []
     monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html, text: sent.append((recipient, subject, html, text)) or "studio-promo-id")
     account = CustomerAccount(email="studio-promo@example.test", display_name="Promo Buyer", email_verified_at=datetime.utcnow(), marketing_status="subscribed", marketing_consent_at=datetime.utcnow())
@@ -6538,13 +6542,22 @@ def test_email_studio_promotion_requires_preview_consent_and_real_catalogue_item
     }
     preview = client.post("/admin/email/studio", data={**payload, "action": "preview"})
     assert preview.status_code == 200 and sent == []
+    tokens_after_preview = CustomerToken.query.filter_by(
+        account_id=account.id, purpose="unsubscribe",
+    ).count()
     result = client.post("/admin/email/studio", data={**payload, "action": "send", "confirm_send": "SEND 1", "operation_id": str(uuid4())}, follow_redirects=True)
     assert result.status_code == 200
-    assert sent == []
-    customer_mail.process_email_queue(limit=5)
-    assert b"isolated marketing campaign centre" in result.data
-    assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
-    assert CustomerToken.query.filter_by(account_id=account.id, purpose="unsubscribe").count() == 0
+    assert len(sent) == 1
+    row = EmailMessage.query.filter_by(account_id=account.id).one()
+    campaign = EmailCampaign.query.filter_by(id=row.campaign_id).one()
+    recipient = EmailCampaignRecipient.query.filter_by(campaign_id=campaign.id).one()
+    assert row.status == recipient.status == campaign.status == "sent"
+    assert row.purpose == "marketing"
+    assert campaign.generation_source == "email_studio"
+    assert CustomerToken.query.filter_by(
+        account_id=account.id, purpose="unsubscribe",
+    ).count() == tokens_after_preview + 1
+    assert b"provider accepted 1" in result.data
 
 
 def test_email_studio_schedules_only_previewed_marketing_for_future_queue_delivery(client, app, app_context, monkeypatch):
@@ -6575,7 +6588,7 @@ def test_email_studio_schedules_only_previewed_marketing_for_future_queue_delive
         "confirm_schedule": "SCHEDULE 1",
     }, follow_redirects=True)
     assert scheduled.status_code == 200
-    assert b"isolated marketing campaign centre" in scheduled.data
+    assert b"Use the marketing campaign centre to schedule a campaign" in scheduled.data
     assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
     assert deliveries == []
     customer_mail.process_email_queue(limit=5)
@@ -6795,7 +6808,7 @@ def test_email_studio_custom_order_category_content_remains_marketing(client, ap
         "operation_id": "22222222-3333-4444-8555-666666666666",
     }, follow_redirects=True)
     assert response.status_code == 200
-    assert b"isolated marketing campaign centre" in response.data
+    assert b"Select at least one active, verified subscribed customer" in response.data
     assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
 
     defaults = EMAIL_CATEGORIES["order_confirmation"]
@@ -6811,7 +6824,7 @@ def test_email_studio_custom_order_category_content_remains_marketing(client, ap
         "operation_id": "33333333-4444-4555-8666-777777777777",
     }, follow_redirects=True)
     assert design_response.status_code == 200
-    assert b"isolated marketing campaign centre" in design_response.data
+    assert b"Select at least one active, verified subscribed customer" in design_response.data
     assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
 
 
@@ -6875,6 +6888,7 @@ def test_manual_cart_reminder_revalidates_and_records_one_cart_episode(client, a
     from secrets import token_urlsafe
     import app.services.customer_mail as customer_mail
     _configure_brevo_test(app)
+    app.config["EMAIL_MARKETING_ABANDONED_CART_ENABLED"] = True
     sent = []
     monkeypatch.setattr(customer_mail, "_send_brevo", lambda recipient, subject, html, text: sent.append((recipient, html, text)) or "cart-reminder-provider-id")
     account = CustomerAccount(email="studio-cart-reminder@example.test", display_name="Cart Reminder", email_verified_at=datetime.utcnow(), marketing_status="subscribed", marketing_consent_at=datetime.utcnow())
@@ -6891,12 +6905,12 @@ def test_manual_cart_reminder_revalidates_and_records_one_cart_episode(client, a
     assert preview.status_code == 200 and sent == []
     result = client.post("/admin/email/studio", data={**payload, "action": "send", "confirm_send": "SEND 1", "operation_id": "12345678-1234-5678-1234-567812345678"}, follow_redirects=True)
     assert result.status_code == 200
-    assert sent == []
-    customer_mail.process_email_queue(limit=5)
+    assert len(sent) == 1
     db.session.refresh(cart)
-    assert b"isolated marketing campaign centre" in result.data
-    assert cart.reminder_sent_at is None
-    assert EmailMessage.query.filter_by(account_id=account.id).count() == 0
+    assert b"provider accepted 1" in result.data
+    assert cart.reminder_sent_at is not None
+    row = EmailMessage.query.filter_by(account_id=account.id).one()
+    assert row.status == "sent" and row.purpose == "marketing"
     assert cart.updated_at == original_activity
 
 

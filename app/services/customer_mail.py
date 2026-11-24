@@ -378,7 +378,8 @@ def queue_email(recipient: str, subject: str, kind: str, idempotency_key: str, *
 
 
 def deliver_email(record: EmailMessage, html_body: str | None = None, text_body: str | None = None,
-                  *, expected_test_recipient: str | None = None) -> bool:
+                  *, expected_test_recipient: str | None = None,
+                  allow_immediate_marketing: bool = False) -> bool:
     """Dispatch one persisted outbox row through the atomic delivery claim."""
     if expected_test_recipient is not None:
         target = _normalized_test_address(expected_test_recipient)
@@ -408,7 +409,8 @@ def deliver_email(record: EmailMessage, html_body: str | None = None, text_body:
         return False
     marketing = expected_purpose == "marketing"
     if marketing and (
-        not current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False)
+        (not current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False)
+         and not allow_immediate_marketing)
         or record.campaign_id is None
     ):
         logger.warning("marketing_message_requires_isolated_worker message_id=%s", record.id)
@@ -675,7 +677,7 @@ def _claim_marketing_dispatch(record: EmailMessage, *, claim_token: str | None =
                     .where(EmailCampaign.id == record.campaign_id)
                     .with_for_update()
                 ).mappings().first()
-                if (not campaign or campaign["status"] != "scheduled"
+                if (not campaign or campaign["status"] not in {"scheduled", "sending_now"}
                         or not campaign["scheduled_for"] or campaign["scheduled_for"] > datetime.now(timezone.utc).replace(tzinfo=None)
                         or not _marketing_campaign_type_enabled(campaign["campaign_type"])):
                     return False, None, "queued"
@@ -1051,7 +1053,7 @@ def _update_campaign_recipient(connection, record: EmailMessage, status: str,
         )).scalar_one()
         connection.execute(update(EmailCampaign).where(
             EmailCampaign.id == record.campaign_id,
-            EmailCampaign.status == "scheduled",
+            EmailCampaign.status.in_(("scheduled", "sending_now")),
         ).values(
             status="partial" if failures else "sent" if sent else "complete",
             sent_at=datetime.now(timezone.utc).replace(tzinfo=None) if sent else None,
@@ -1122,7 +1124,6 @@ def _marketing_campaign_type_enabled(campaign_type: str) -> bool:
     }
     return (
         campaign_type in MARKETING_CAMPAIGN_TYPES
-        and bool(current_app.config.get("EMAIL_MARKETING_QUEUE_ENABLED", False))
         and bool(current_app.config.get(config_keys[campaign_type], False))
     )
 
@@ -1271,8 +1272,13 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
         due_failed_query = due_failed_query.join(
             EmailCampaign, EmailCampaign.id == EmailMessage.campaign_id,
         ).filter(
-            EmailCampaign.status == "scheduled",
-            EmailCampaign.scheduled_for <= now,
+            or_(
+                and_(EmailCampaign.status == "scheduled", EmailCampaign.scheduled_for <= now),
+                and_(
+                    EmailCampaign.status == "sending_now",
+                    EmailCampaign.updated_at <= now - timedelta(minutes=5),
+                ),
+            ),
         )
     due_failed = due_failed_query.order_by(EmailMessage.next_attempt_at, EmailMessage.id).limit(limit).all()
     for failed in due_failed:
@@ -1304,8 +1310,13 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
         queued_query = queued_query.join(
             EmailCampaign, EmailCampaign.id == EmailMessage.campaign_id,
         ).filter(
-            EmailCampaign.status == "scheduled",
-            EmailCampaign.scheduled_for <= now,
+            or_(
+                and_(EmailCampaign.status == "scheduled", EmailCampaign.scheduled_for <= now),
+                and_(
+                    EmailCampaign.status == "sending_now",
+                    EmailCampaign.updated_at <= now - timedelta(minutes=5),
+                ),
+            ),
         )
     queued = queued_query.order_by(EmailMessage.created_at, EmailMessage.id).limit(remaining).all() if remaining else []
     row_ids = list(dict.fromkeys([row.id for row in due_failed] + [row.id for row in queued]))
