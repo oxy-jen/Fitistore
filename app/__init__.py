@@ -621,6 +621,8 @@ def register_cli(app: Flask):
                         from .services.marketing_campaign_preparation_schema import apply_marketing_campaign_preparation_schema
                         apply_marketing_campaign_preparation_schema(connection, dialect)
                         validate_columns(connection)
+                        from .services.consent_audit import apply_customer_data_erasure_migration
+                        apply_customer_data_erasure_migration(connection, dialect)
                         transaction.commit()
                     except Exception:
                         transaction.rollback()
@@ -676,6 +678,8 @@ def register_cli(app: Flask):
                     from .services.marketing_campaign_preparation_schema import apply_marketing_campaign_preparation_schema
                     apply_marketing_campaign_preparation_schema(connection, dialect)
                     validate_columns(connection)
+                    from .services.consent_audit import apply_customer_data_erasure_migration
+                    apply_customer_data_erasure_migration(connection, dialect)
 
             after = set(inspect(db.engine).get_table_names())
         except click.ClickException:
@@ -985,12 +989,17 @@ def register_cli(app: Flask):
                 from scripts.customer_email_schema_guard import validate_schema
                 validate_schema(connection, "public", allow_approved_missing=False)
                 applied = apply_marketing_suppression_migration(connection)
+                from .services.consent_audit import apply_customer_data_erasure_migration
+                apply_customer_data_erasure_migration(connection, "postgresql")
             click.echo(
                 "Marketing suppression schema migration "
                 + ("applied" if applied else "already applied and validated")
                 + f": {MIGRATION_ID}."
             )
-            click.echo("Only suppression schema and conservative legacy suppression history were added.")
+            click.echo(
+                "Suppression schema, conservative legacy suppression history, "
+                "and customer-erasure trigger policy were applied."
+            )
         except Exception as exc:
             db.session.rollback()
             detail = str(exc) if isinstance(exc, ValueError) else type(exc).__name__

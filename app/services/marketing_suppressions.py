@@ -206,7 +206,7 @@ def _verify_catalog_indexes(rows, expected_indexes, *, schema: str) -> None:
             raise ValueError(f"Incompatible marketing suppression index definition: {name}.")
 
 
-def _verify_catalog_triggers(rows, *, schema: str) -> None:
+def _verify_catalog_triggers(rows, *, schema: str, erasure_guard_applied: bool = False) -> None:
     triggers = {row["trigger_name"]: row for row in rows}
     expected_types = {
         "trg_marketing_suppression_event_immutable": 27,
@@ -214,14 +214,23 @@ def _verify_catalog_triggers(rows, *, schema: str) -> None:
     }
     if set(triggers) != set(expected_types):
         raise ValueError("Missing or unexpected append-only suppression ledger trigger.")
-    expected_function = normalized_definition("BEGIN RAISE EXCEPTION 'marketing suppression events are append-only'; END;")
+    allowed_functions = {
+        normalized_definition(
+            "BEGIN RAISE EXCEPTION 'marketing suppression events are append-only'; END;"
+        )
+    }
+    if erasure_guard_applied:
+        from app.services.consent_audit import _postgres_erasure_function
+        allowed_functions.add(normalized_definition(
+            _postgres_erasure_function("marketing_suppression_event")
+        ))
     for name, row in triggers.items():
         if (row["tgenabled"] != "O" or int(row["trigger_type"]) != expected_types[name]
                 or row["function_name"] != "fity_reject_suppression_event_mutation"
                 or row["function_schema"] != schema or row["function_return"] != "trigger"
                 or row["function_language"] != "plpgsql" or row["is_constraint_trigger"]
                 or row["is_internal"] or row["function_arg_count"] != 0 or row["trigger_arg_count"] != 0
-                or normalized_definition(row["function_source"]) != expected_function):
+                or normalized_definition(str(row["function_source"] or "")) not in allowed_functions):
             raise ValueError("Suppression ledger trigger/function definition is disabled or incompatible.")
 
 
@@ -418,7 +427,12 @@ def validate_marketing_suppression_schema(connection, *, schema: str = "public")
           AND table_class.relname = 'marketing_suppression_event'
           AND NOT trigger.tgisinternal
     """), {"schema": schema}).mappings().all()
-    _verify_catalog_triggers(trigger_rows, schema=schema)
+    from app.services.consent_audit import erasure_guard_migration_applied
+    _verify_catalog_triggers(
+        trigger_rows,
+        schema=schema,
+        erasure_guard_applied=erasure_guard_migration_applied(connection),
+    )
     for table_name in ("marketing_suppression_case", "marketing_suppression_event"):
         id_default = connection.execute(text("""
             SELECT pg_get_expr(default_row.adbin, default_row.adrelid, true)

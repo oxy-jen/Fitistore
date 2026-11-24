@@ -1,0 +1,8 @@
+-- Versioned policy update for permanent customer erasure.
+-- Immutable consent, suppression, email-investigation, and legacy-review
+-- events remain protected from UPDATE and TRUNCATE. DELETE is allowed only
+-- for records linked to the account being erased, after the account has the
+-- complete anonymization marker and within the transaction-local erasure
+-- authorization. The existing schema is reused; this does not rewrite rows.
+-- Applied by the explicit customer/email migration command. The suppression
+-- trigger is installed or refreshed after the separate suppression migration.

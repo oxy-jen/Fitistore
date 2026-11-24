@@ -65,9 +65,15 @@ payloads, other message kinds, or delivery state. This is separate from the
 historical outbox migration so its recorded checksum remains intact.
 `20261117_customer_consent_audit_immutable` adds database triggers that reject
 updates/deletes (and PostgreSQL truncation) on `customer_consent_event`; it
-does not rewrite consent history. Both are additive and run only through the
-explicit customer/email migration command. Neither migration has been executed
-by this local implementation task.
+does not rewrite consent history. `20261124_customer_data_erasure_guard`
+keeps updates and truncation blocked, but permits deletion of linked consent,
+suppression, email-investigation, and legacy-review events only during the
+authorized permanent-erasure transaction after the account has its complete
+anonymization marker. This lets the explicit erasure flow remove the account
+and its linked audit history without weakening ordinary audit immutability.
+The migration reuses existing tables and runs only through the explicit
+customer/email migration command (or after the suppression migration). It has
+not been applied to production.
 
 `20261116_email_delivery_ops` adds `email_delivery_attempt`, `email_delivery_investigation`,
 `email_delivery_investigation_event`, and `email_worker_run`, plus their indexes

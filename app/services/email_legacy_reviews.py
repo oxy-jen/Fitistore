@@ -153,12 +153,19 @@ def validate_email_legacy_review_schema(connection) -> None:
         """), {"table": _TABLE}).mappings().all()
         by_name = {row["tgname"]: row for row in rows}
         expected = {"trg_email_legacy_review_immutable": 27, "trg_email_legacy_review_no_truncate": 34}
+        allowed_sources = {"beginraiseexception'legacyemailrevieweventsareappend-only';end;"}
+        from app.services.consent_audit import erasure_guard_migration_applied
+        if erasure_guard_migration_applied(connection):
+            from app.services.consent_audit import _postgres_erasure_function
+            allowed_sources.add(normalize_sql_definition(
+                _postgres_erasure_function("email_legacy_payload_review_event")
+            ))
         for name, trigger_type in expected.items():
             row = by_name.get(name)
-            source = "".join((row["prosrc"] if row else "").lower().split())
+            source = normalize_sql_definition(str((row["prosrc"] if row else "") or ""))
             if (not row or row["tgenabled"] != "O" or row["tgtype"] != trigger_type
                     or row["proname"] != _TRIGGER_FUNCTION or row["return_type"] != "trigger"
-                    or row["relname"] != _TABLE or source != "beginraiseexception'legacyemailrevieweventsareappend-only';end;"):
+                    or row["relname"] != _TABLE or source not in allowed_sources):
                 raise ValueError(f"Legacy email review trigger {name} is missing, disabled, or altered.")
     else:
         triggers = {row["name"]: "".join((row["sql"] or "").lower().split())

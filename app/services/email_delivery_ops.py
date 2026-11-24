@@ -210,17 +210,25 @@ def validate_email_delivery_ops_schema(connection, *, schema: str | None = None)
             WHERE c.relname='email_delivery_investigation_event' AND n.nspname=:schema_name AND NOT t.tgisinternal
         """), {"schema_name": schema or connection.execute(text("SELECT current_schema()")).scalar_one()}).mappings().all()
         by_name = {row["tgname"]: row for row in rows}
+        allowed_sources = {
+            "beginraiseexception'emailinvestigationeventsareappend-only';end;"
+        }
+        from app.services.consent_audit import erasure_guard_migration_applied
+        if erasure_guard_migration_applied(connection):
+            from app.services.consent_audit import _postgres_erasure_function
+            allowed_sources.add(normalize_sql_definition(
+                _postgres_erasure_function("email_delivery_investigation_event")
+            ))
         for name in ("trg_email_investigation_event_immutable", "trg_email_investigation_event_no_truncate"):
             row = by_name.get(name)
             expected_tgtype = 27 if name == "trg_email_investigation_event_immutable" else 34
-            expected_source = "beginraiseexception'emailinvestigationeventsareappend-only';end;"
             if (not row or row["tgenabled"] != "O"
                     or row["proname"] != "fity_reject_email_investigation_event_mutation"
                     or row["return_type"] != "trigger"
                     or row["relname"] != "email_delivery_investigation_event"
                     or row["nspname"] != (schema or connection.execute(text("SELECT current_schema()")).scalar_one())
                     or row["tgtype"] != expected_tgtype
-                    or normalize_sql_definition(row["prosrc"]) != expected_source):
+                    or normalize_sql_definition(str(row["prosrc"] or "")) not in allowed_sources):
                 raise ValueError(f"Append-only trigger {name} is missing, disabled, or miswired.")
         mutation = by_name["trg_email_investigation_event_immutable"]
         truncate = by_name["trg_email_investigation_event_no_truncate"]
@@ -276,19 +284,28 @@ def validate_email_delivery_ops_schema(connection, *, schema: str | None = None)
                                for row in connection.execute(text(
                                    "SELECT name, sql FROM sqlite_master WHERE type='trigger'"
                                )).mappings()}
-        expected_trigger_definitions = {
-            "trg_email_investigation_event_immutable": normalize_sql_definition(
-                "CREATE TRIGGER trg_email_investigation_event_immutable BEFORE UPDATE ON "
-                "email_delivery_investigation_event BEGIN SELECT RAISE(ABORT, "
-                "'email investigation events are append-only'); END"),
-            "trg_email_investigation_event_no_delete": normalize_sql_definition(
+        expected_update_definition = normalize_sql_definition(
+            "CREATE TRIGGER trg_email_investigation_event_immutable BEFORE UPDATE ON "
+            "email_delivery_investigation_event BEGIN SELECT RAISE(ABORT, "
+            "'email investigation events are append-only'); END"
+        )
+        expected_delete_definitions = {
+            normalize_sql_definition(
                 "CREATE TRIGGER trg_email_investigation_event_no_delete BEFORE DELETE ON "
                 "email_delivery_investigation_event BEGIN SELECT RAISE(ABORT, "
-                "'email investigation events are append-only'); END"),
+                "'email investigation events are append-only'); END"
+            )
         }
-        for trigger_name, expected_definition in expected_trigger_definitions.items():
-            if trigger_definitions.get(trigger_name) != expected_definition:
-                raise ValueError(f"SQLite append-only trigger {trigger_name} is missing or altered.")
+        from app.services.consent_audit import erasure_guard_migration_applied
+        if erasure_guard_migration_applied(connection):
+            from app.services.consent_audit import _sqlite_delete_trigger
+            expected_delete_definitions.add(normalize_sql_definition(
+                _sqlite_delete_trigger("email_delivery_investigation_event")
+            ))
+        if trigger_definitions.get("trg_email_investigation_event_immutable") != expected_update_definition:
+            raise ValueError("SQLite append-only trigger trg_email_investigation_event_immutable is missing or altered.")
+        if trigger_definitions.get("trg_email_investigation_event_no_delete") not in expected_delete_definitions:
+            raise ValueError("SQLite append-only trigger trg_email_investigation_event_no_delete is missing or altered.")
     if schema and connection.dialect.name == "postgresql":
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema):
             raise ValueError("Email delivery operations schema name is invalid.")

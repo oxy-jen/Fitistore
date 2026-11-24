@@ -3118,6 +3118,21 @@ def test_admin_customer_permanent_deletion_removes_linked_rows_and_payment_proof
         metadata_json={"email": account.email},
     ))
     db.session.commit()
+    from app.services.email_delivery_ops import apply_email_delivery_ops_migration
+    from app.services.email_legacy_reviews import apply_email_legacy_review_migration
+    from app.services.consent_audit import (
+        apply_consent_audit_migration,
+        apply_customer_data_erasure_migration,
+    )
+    migration_connection = db.session.connection()
+    migration_connection.exec_driver_sql(
+        "CREATE TABLE IF NOT EXISTS email_schema_migration "
+        "(migration_id VARCHAR(120) PRIMARY KEY, checksum VARCHAR(64) NOT NULL)"
+    )
+    apply_email_delivery_ops_migration(migration_connection, "sqlite")
+    apply_email_legacy_review_migration(migration_connection, "sqlite")
+    apply_consent_audit_migration(migration_connection, "sqlite")
+    apply_customer_data_erasure_migration(migration_connection, "sqlite")
     account_id = account.id
     order_id = order.id
     cart_id = cart.id
@@ -7259,24 +7274,128 @@ def test_stale_claim_recovery_marks_linked_attempt_ambiguous(app, app_context):
     assert attempt.completed_at is not None
 
 
-def test_consent_audit_migration_is_idempotent_and_blocks_mutation_on_sqlite():
+def test_customer_data_erasure_guards_are_scoped_and_idempotent_on_sqlite():
     from sqlalchemy import create_engine, text
     from sqlalchemy.exc import DBAPIError
-    from app.services.consent_audit import apply_consent_audit_migration
+    from app.services.consent_audit import (
+        apply_consent_audit_migration,
+        apply_customer_data_erasure_migration,
+    )
 
     engine = create_engine("sqlite://")
     try:
         with engine.begin() as connection:
-            connection.execute(text("CREATE TABLE customer_consent_event (id INTEGER PRIMARY KEY, account_id INTEGER, event TEXT, method TEXT, created_at DATETIME)"))
+            connection.execute(text(
+                "CREATE TABLE customer_account ("
+                "id INTEGER PRIMARY KEY, email TEXT NOT NULL, display_name TEXT NOT NULL, "
+                "password_hash TEXT, google_sub TEXT, email_verified_at DATETIME, "
+                "two_factor_enabled BOOLEAN NOT NULL DEFAULT 0, marketing_status TEXT NOT NULL, "
+                "marketing_consent_at DATETIME, marketing_withdrawn_at DATETIME, "
+                "active BOOLEAN NOT NULL)"
+            ))
+            connection.execute(text(
+                "CREATE TABLE customer_consent_event (id INTEGER PRIMARY KEY, "
+                "account_id INTEGER NOT NULL, event TEXT, method TEXT, created_at DATETIME)"
+            ))
+            connection.execute(text(
+                "CREATE TABLE email_message (id INTEGER PRIMARY KEY, account_id INTEGER)"
+            ))
+            connection.execute(text(
+                "CREATE TABLE email_delivery_investigation (id INTEGER PRIMARY KEY, message_id INTEGER)"
+            ))
+            connection.execute(text(
+                "CREATE TABLE email_delivery_investigation_event "
+                "(id INTEGER PRIMARY KEY, investigation_id INTEGER)"
+            ))
+            connection.execute(text(
+                "CREATE TABLE email_legacy_payload_review_event "
+                "(id INTEGER PRIMARY KEY, message_id INTEGER)"
+            ))
+            connection.execute(text(
+                "CREATE TABLE marketing_suppression_event (id INTEGER PRIMARY KEY, account_id INTEGER)"
+            ))
             connection.execute(text("CREATE TABLE email_schema_migration (migration_id VARCHAR(120) PRIMARY KEY, checksum VARCHAR(64) NOT NULL)"))
             assert apply_consent_audit_migration(connection, "sqlite") is True
             assert apply_consent_audit_migration(connection, "sqlite") is False
-            connection.execute(text("INSERT INTO customer_consent_event (id, account_id, event, method, created_at) VALUES (1, 10, 'consent_granted', 'test', CURRENT_TIMESTAMP)"))
+            assert apply_customer_data_erasure_migration(connection, "sqlite") is True
+            assert apply_customer_data_erasure_migration(connection, "sqlite") is False
+            connection.execute(text(
+                "INSERT INTO customer_account "
+                "(id, email, display_name, password_hash, google_sub, email_verified_at, "
+                "two_factor_enabled, marketing_status, marketing_consent_at, "
+                "marketing_withdrawn_at, active) "
+                "VALUES (10, 'customer@example.test', 'Customer', 'hash', 'google', "
+                "CURRENT_TIMESTAMP, 1, 'subscribed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1), "
+                "(11, 'other@example.test', 'Other', NULL, NULL, NULL, 0, "
+                "'unsubscribed', NULL, NULL, 1)"
+            ))
+            connection.execute(text(
+                "INSERT INTO email_message (id, account_id) VALUES (1, 10), (2, 11)"
+            ))
+            connection.execute(text(
+                "INSERT INTO email_delivery_investigation (id, message_id) "
+                "VALUES (1, 1), (2, 2)"
+            ))
+            connection.execute(text(
+                "INSERT INTO email_delivery_investigation_event (id, investigation_id) "
+                "VALUES (1, 1), (2, 2)"
+            ))
+            connection.execute(text(
+                "INSERT INTO email_legacy_payload_review_event (id, message_id) "
+                "VALUES (1, 1), (2, 2)"
+            ))
+            connection.execute(text(
+                "INSERT INTO marketing_suppression_event (id, account_id) "
+                "VALUES (1, 10), (2, 11)"
+            ))
+            connection.execute(text(
+                "INSERT INTO customer_consent_event "
+                "(id, account_id, event, method, created_at) "
+                "VALUES (1, 10, 'consent_granted', 'test', CURRENT_TIMESTAMP)"
+            ))
             with pytest.raises(DBAPIError):
                 connection.execute(text("UPDATE customer_consent_event SET method='changed' WHERE id=1"))
             with pytest.raises(DBAPIError):
                 connection.execute(text("DELETE FROM customer_consent_event WHERE id=1"))
+            for table in (
+                "marketing_suppression_event",
+                "email_delivery_investigation_event",
+                "email_legacy_payload_review_event",
+            ):
+                with pytest.raises(DBAPIError):
+                    connection.execute(text(f"DELETE FROM {table} WHERE id=1"))
+            for statement in (
+                "UPDATE marketing_suppression_event SET account_id=11 WHERE id=1",
+                "UPDATE email_delivery_investigation_event SET investigation_id=2 WHERE id=1",
+                "UPDATE email_legacy_payload_review_event SET message_id=2 WHERE id=1",
+            ):
+                with pytest.raises(DBAPIError):
+                    connection.execute(text(statement))
             assert connection.execute(text("SELECT count(*) FROM customer_consent_event")).scalar_one() == 1
+            connection.execute(text(
+                "UPDATE customer_account SET email='removed-customer-10@redacted.invalid', "
+                "display_name='Deleted customer', password_hash=NULL, google_sub=NULL, "
+                "email_verified_at=NULL, two_factor_enabled=0, marketing_status='unsubscribed', "
+                "marketing_consent_at=NULL, marketing_withdrawn_at=NULL, active=0 WHERE id=10"
+            ))
+            with pytest.raises(DBAPIError):
+                connection.execute(text(
+                    "UPDATE customer_consent_event SET method='still immutable' WHERE id=1"
+                ))
+            connection.execute(text("DELETE FROM customer_consent_event WHERE id=1"))
+            connection.execute(text("DELETE FROM marketing_suppression_event WHERE id=1"))
+            connection.execute(text("DELETE FROM email_delivery_investigation_event WHERE id=1"))
+            connection.execute(text("DELETE FROM email_legacy_payload_review_event WHERE id=1"))
+            assert connection.execute(
+                text("SELECT count(*) FROM customer_consent_event")
+            ).scalar_one() == 0
+            for table in (
+                "marketing_suppression_event",
+                "email_delivery_investigation_event",
+                "email_legacy_payload_review_event",
+            ):
+                with pytest.raises(DBAPIError):
+                    connection.execute(text(f"DELETE FROM {table} WHERE id=2"))
     finally:
         engine.dispose()
 

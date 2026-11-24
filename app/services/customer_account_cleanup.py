@@ -6,7 +6,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from flask import current_app
-from sqlalchemy import MetaData, and_, delete, func, inspect, or_, select, update
+from sqlalchemy import MetaData, and_, delete, func, inspect, or_, select, text, update
 from sqlalchemy import Table
 
 from app.extensions import db
@@ -1091,6 +1091,30 @@ def permanently_delete_customer_account(account_id, *, admin_id):
     if identities:
         for event in FinancialAuditEvent.query.all():
             event.note = _redact_text(event.note, identities)
+
+    for message in messages:
+        if message.account_id not in (None, account.id):
+            raise CustomerCleanupBlocked(
+                "An email record is linked to a different customer account; permanent deletion was stopped."
+            )
+        message.account_id = account.id
+
+    account.email = f"removed-customer-{account.id}@redacted.invalid"
+    account.display_name = "Deleted customer"
+    account.password_hash = None
+    account.google_sub = None
+    account.email_verified_at = None
+    account.two_factor_enabled = False
+    account.marketing_status = "unsubscribed"
+    account.marketing_consent_at = None
+    account.marketing_withdrawn_at = None
+    account.active = False
+    db.session.flush()
+    if db.session.get_bind().dialect.name == "postgresql":
+        db.session.execute(
+            text("SELECT set_config('fity.customer_erasure_account_id', :account_id, true)"),
+            {"account_id": str(account.id)},
+        )
 
     deleted_counts = _permanent_delete_fk_rows(roots)
     db.session.expire_all()
