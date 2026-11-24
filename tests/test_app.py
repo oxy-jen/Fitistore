@@ -2661,6 +2661,460 @@ def test_admin_customer_removal_requires_confirmation_and_waits_for_dispatch(cli
     assert EmailMessage.query.filter_by(account_id=account_id).one().status == "sending"
 
 
+def test_admin_customer_permanent_deletion_removes_linked_rows_and_payment_proof(
+    client, app, app_context, tmp_path,
+):
+    from app.models import (
+        CustomerProfile, ReferralClick, Referral, LoyaltyTransaction,
+        PaymentAttempt, PaymentTransaction, RefundRequest,
+        EmailDeliveryAttempt, EmailDeliveryInvestigation,
+        EmailDeliveryInvestigationEvent, EmailLegacyPayloadReviewEvent,
+        EmailCampaignRecipient, CustomerConsentEvent,
+        MarketingProductExposure, MarketingSuppressionCase,
+        MarketingSuppressionEvent, FinancialAuditEvent, ProductEnquiry,
+        ProductSuggestion, RestockAlert,
+    )
+
+    admin = AdminUser.query.filter_by(username="owner").one()
+    account = CustomerAccount(
+        email="purge-customer@example.test",
+        display_name="Purge Customer",
+    )
+    db.session.add(account)
+    db.session.flush()
+    profile = CustomerProfile(
+        account_id=account.id,
+        phone="254700000077",
+        display_name=account.display_name,
+        referral_code="PURGEME077",
+    )
+    cart = CustomerCart(account_id=account.id, items_json='[{"id": 1}]')
+    order = Order(
+        reference="PURGE001",
+        customer_name=account.display_name,
+        customer_phone=profile.phone,
+        fulfilment_method="collection",
+        payment_proof_filename="purge-proof.png",
+    )
+    campaign = EmailCampaign(
+        name="Shared campaign",
+        subject="Shared subject",
+        body="Shared campaign body",
+        created_by_id=admin.id,
+    )
+    db.session.add_all([profile, cart, order, campaign])
+    db.session.flush()
+    app.config["PAYMENT_PROOF_FOLDER"] = str(tmp_path)
+    proof_path = tmp_path / "purge-proof.png"
+    proof_path.write_bytes(b"private payment proof")
+    payment_attempt = PaymentAttempt(
+        order_id=order.id,
+        customer_phone=profile.phone,
+        raw_payload="payer 254700000077",
+    )
+    db.session.add(payment_attempt)
+    db.session.flush()
+    transaction = PaymentTransaction(
+        order_id=order.id,
+        payment_attempt_id=payment_attempt.id,
+        amount_cents=1000,
+        phone=profile.phone,
+        raw_payload="payment for Purge Customer",
+    )
+    db.session.add(transaction)
+    db.session.flush()
+    message = EmailMessage(
+        recipient=account.email,
+        account_id=account.id,
+        order_id=order.id,
+        kind="order_status",
+        subject="Purge customer",
+        idempotency_key="purge-customer-message",
+        status="sent",
+        html_body="<p>Purge Customer</p>",
+        text_body="Purge Customer",
+    )
+    db.session.add_all([
+        OrderItem(order_id=order.id, product_name="Test item", quantity=1),
+        OrderStatusHistory(
+            order_id=order.id,
+            field="status",
+            old_value="",
+            new_value="Created",
+            note="Purge Customer 254700000077",
+        ),
+        RefundRequest(
+            order_id=order.id,
+            payment_transaction_id=transaction.id,
+            amount_cents=100,
+            reason="Purge Customer requested a refund",
+        ),
+        CustomerOrderLink(account_id=account.id, order_id=order.id),
+        CustomerConsentEvent(
+            account_id=account.id,
+            event="confirmed",
+            method="registration_checkbox",
+        ),
+        EmailCampaignRecipient(
+            campaign_id=campaign.id,
+            account_id=account.id,
+            recipient=account.email,
+        ),
+        MarketingProductExposure(
+            account_id=account.id,
+            product_id=Product.query.first().id,
+            last_sent_at=datetime.utcnow(),
+        ),
+        ProductEnquiry(
+            product_name="Test item",
+            contact=account.email,
+            message="Please contact Purge Customer",
+        ),
+        ProductEnquiry(
+            product_name="Test item",
+            contact=profile.phone,
+            message="Please contact this customer",
+        ),
+        RestockAlert(
+            product_id=Product.query.first().id,
+            contact=account.email,
+            preferred_contact="Email",
+        ),
+        RestockAlert(
+            product_id=Product.query.first().id,
+            contact=profile.phone,
+            preferred_contact="WhatsApp",
+        ),
+        ProductSuggestion(
+            product_name="Test item",
+            category="Accessories",
+            details=f"Contact {account.email}",
+        ),
+        Review(
+            customer_account_id=account.id,
+            display_name=account.display_name,
+            rating=5,
+            text="Purge this review",
+        ),
+    ])
+    db.session.add(message)
+    db.session.flush()
+    attempt = EmailDeliveryAttempt(
+        message_id=message.id,
+        attempt_number=1,
+        attempt_key="purge-customer-attempt",
+        provider="brevo",
+        status="accepted",
+    )
+    db.session.add(attempt)
+    db.session.flush()
+    investigation = EmailDeliveryInvestigation(
+        message_id=message.id,
+        original_attempt_id=attempt.id,
+        provider="brevo",
+        reason="Test investigation",
+    )
+    db.session.add(investigation)
+    db.session.flush()
+    db.session.add_all([
+        EmailDeliveryInvestigationEvent(
+            investigation_id=investigation.id,
+            actor_admin_id=admin.id,
+            event_type="note_added",
+            explanation="Purge Customer",
+            related_attempt_id=attempt.id,
+        ),
+        EmailLegacyPayloadReviewEvent(
+            message_id=message.id,
+            actor_admin_id=admin.id,
+            actor_type="admin",
+            reason="Reviewed during test",
+        ),
+        EmailDraft(
+            name="Purge customer draft",
+            category="customer_service",
+            subject="Purge Customer",
+            headline="Purge Customer",
+            message=account.email,
+            account_ids_json=json.dumps([account.id]),
+            cart_id=cart.id,
+            order_id=order.id,
+            created_by_id=admin.id,
+        ),
+        EmailDraft(
+            name="Unlinked customer follow-up",
+            category="customer_service",
+            subject="Contact customer",
+            headline="Follow up",
+            message=f"Contact {account.email}",
+            account_ids_json="[]",
+            created_by_id=admin.id,
+        ),
+        ReferralClick(
+            referrer_id=profile.id,
+            referral_code=profile.referral_code,
+            visitor_key="purge-visitor-hash",
+        ),
+        Referral(
+            referrer_key=profile.phone,
+            referred_key="254700000078",
+            referral_code="PURGE-REF-077",
+            qualifying_order_id=order.id,
+        ),
+        LoyaltyTransaction(
+            customer_key=profile.phone,
+            order_id=order.id,
+            transaction_type="earn",
+            points=10,
+        ),
+        FinancialAuditEvent(
+            admin_id=admin.id,
+            event_type="order_updated",
+            entity_type="Order",
+            entity_id=order.id,
+            note="Purge Customer payment history",
+        ),
+    ])
+    suppression_case = MarketingSuppressionCase(
+        account_id=account.id,
+        source="admin",
+        reason_code="admin_review",
+        metadata_json={"email": account.email},
+    )
+    db.session.add(suppression_case)
+    db.session.flush()
+    db.session.add(MarketingSuppressionEvent(
+        suppression_case_id=suppression_case.id,
+        account_id=account.id,
+        event_type="suppression_detected",
+        actor_type="admin",
+        admin_id=admin.id,
+        source="admin",
+        reason_code="admin_review",
+        reason_text=f"Review {account.email}",
+        idempotency_key="purge-customer-suppression-event",
+        metadata_json={"email": account.email},
+    ))
+    db.session.commit()
+    account_id = account.id
+    order_id = order.id
+    cart_id = cart.id
+    message_id = message.id
+    campaign_id = campaign.id
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    wrong_confirmation = client.post(
+        f"/admin/email/customers/{account_id}/permanently-delete",
+        data={"confirmation": f"DELETE CUSTOMER {account_id}"},
+        follow_redirects=True,
+    )
+    db.session.expire_all()
+    assert b"Type PURGE CUSTOMER" in wrong_confirmation.data
+    assert db.session.get(CustomerAccount, account_id) is not None
+    assert db.session.get(Order, order_id) is not None
+    assert proof_path.exists()
+
+    response = client.post(
+        f"/admin/email/customers/{account_id}/permanently-delete",
+        data={"confirmation": f"PURGE CUSTOMER {account_id}"},
+        follow_redirects=True,
+    )
+    db.session.expire_all()
+
+    assert response.status_code == 200
+    assert b"Permanent deletion completed" in response.data
+    assert db.session.get(CustomerAccount, account_id) is None
+    assert db.session.get(Order, order_id) is None
+    assert db.session.get(CustomerCart, cart_id) is None
+    assert EmailMessage.query.filter_by(id=message_id).count() == 0
+    assert CustomerProfile.query.filter_by(account_id=account_id).count() == 0
+    assert CustomerConsentEvent.query.filter_by(account_id=account_id).count() == 0
+    assert CustomerOrderLink.query.filter_by(account_id=account_id).count() == 0
+    assert EmailCampaignRecipient.query.filter_by(account_id=account_id).count() == 0
+    assert EmailCampaign.query.filter_by(id=campaign_id).count() == 1
+    assert PaymentAttempt.query.filter_by(order_id=order_id).count() == 0
+    assert PaymentTransaction.query.filter_by(order_id=order_id).count() == 0
+    assert RefundRequest.query.filter_by(order_id=order_id).count() == 0
+    assert EmailDeliveryAttempt.query.filter_by(message_id=message_id).count() == 0
+    assert EmailDeliveryInvestigation.query.filter_by(message_id=message_id).count() == 0
+    assert EmailLegacyPayloadReviewEvent.query.filter_by(message_id=message_id).count() == 0
+    assert EmailDraft.query.filter(EmailDraft.order_id == order_id).count() == 0
+    assert EmailDraft.query.filter(
+        EmailDraft.message.ilike("%purge-customer@example.test%")
+    ).count() == 0
+    assert ReferralClick.query.filter_by(referral_code="PURGEME077").count() == 0
+    assert Referral.query.filter_by(referral_code="PURGE-REF-077").count() == 0
+    assert LoyaltyTransaction.query.filter_by(customer_key="254700000077").count() == 0
+    assert MarketingProductExposure.query.filter_by(account_id=account_id).count() == 0
+    assert MarketingSuppressionCase.query.filter_by(account_id=account_id).count() == 0
+    assert MarketingSuppressionEvent.query.filter_by(account_id=account_id).count() == 0
+    assert ProductEnquiry.query.filter_by(contact="purge-customer@example.test").count() == 0
+    assert ProductEnquiry.query.filter_by(contact="254700000077").count() == 0
+    assert RestockAlert.query.filter_by(contact="purge-customer@example.test").count() == 0
+    assert RestockAlert.query.filter_by(contact="254700000077").count() == 0
+    assert ProductSuggestion.query.filter(
+        ProductSuggestion.details.ilike("%purge-customer@example.test%")
+    ).count() == 0
+    assert Review.query.filter_by(display_name="Purge Customer").count() == 0
+    assert FinancialAuditEvent.query.filter_by(entity_type="Order", entity_id=order_id).count() == 0
+    purge_audit = FinancialAuditEvent.query.filter_by(
+        event_type="customer_account_permanently_deleted",
+        entity_type="CustomerAccount",
+        entity_id=None,
+    ).one()
+    assert "purge-customer@example.test" not in purge_audit.note
+    assert proof_path.exists() is False
+
+
+def test_admin_customer_permanent_deletion_waits_for_email_handoff(client, app, app_context):
+    from app.models import EmailDeliveryAttempt
+
+    admin = AdminUser.query.filter_by(username="owner").one()
+    account = CustomerAccount(email="purge-in-flight@example.test", display_name="In Flight")
+    db.session.add(account)
+    db.session.flush()
+    message = EmailMessage(
+        recipient=account.email,
+        account_id=account.id,
+        kind="order_status",
+        subject="In flight",
+        idempotency_key="purge-customer-in-flight",
+        status="failed",
+    )
+    db.session.add(message)
+    db.session.flush()
+    db.session.add(EmailDeliveryAttempt(
+        message_id=message.id,
+        attempt_number=1,
+        attempt_key="purge-customer-in-flight-attempt",
+        provider="brevo",
+        status="in_flight",
+    ))
+    db.session.commit()
+    account_id = account.id
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post(
+        f"/admin/email/customers/{account_id}/permanently-delete",
+        data={"confirmation": f"PURGE CUSTOMER {account_id}"},
+        follow_redirects=True,
+    )
+
+    db.session.expire_all()
+    assert b"Wait for the provider attempt to finish" in response.data
+    assert db.session.get(CustomerAccount, account_id) is not None
+    assert EmailDeliveryAttempt.query.filter_by(status="in_flight").count() == 1
+
+
+def test_admin_can_permanently_erase_previously_anonymized_account_and_leftover_cart(
+    client, app, app_context,
+):
+    account = CustomerAccount(
+        email="removed-customer-900@redacted.invalid",
+        display_name="Deleted customer",
+        password_hash=None,
+        active=False,
+    )
+    db.session.add(account)
+    db.session.flush()
+    order = Order(
+        reference="PURGEOLD1",
+        customer_name="Deleted customer",
+        customer_phone="",
+        fulfilment_method="collection",
+    )
+    db.session.add(order)
+    db.session.flush()
+    cart = CustomerCart(account_id=account.id, items_json="[]")
+    db.session.add_all([
+        CustomerOrderLink(account_id=account.id, order_id=order.id),
+        EmailMessage(
+            recipient=account.email,
+            account_id=account.id,
+            kind="order_status",
+            subject="Customer data redacted",
+            idempotency_key="purge-previously-anonymized",
+            status="suppressed",
+        ),
+    ])
+    db.session.add(cart)
+    db.session.commit()
+    account_id = account.id
+    order_id = order.id
+    cart_id = cart.id
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post(
+        f"/admin/email/customers/{account_id}/permanently-delete",
+        data={"confirmation": f"PURGE CUSTOMER {account_id}"},
+        follow_redirects=True,
+    )
+
+    db.session.expire_all()
+    assert response.status_code == 200
+    assert b"Permanent deletion completed" in response.data
+    assert db.session.get(CustomerAccount, account_id) is None
+    assert db.session.get(Order, order_id) is None
+    assert db.session.get(CustomerCart, cart_id) is None
+
+
+def test_admin_customer_permanent_deletion_rolls_back_before_removing_proof_on_failure(
+    client, app, app_context, monkeypatch, tmp_path,
+):
+    from sqlalchemy.exc import IntegrityError
+    import app.services.customer_account_cleanup as cleanup
+
+    account = CustomerAccount(
+        email="purge-rollback@example.test",
+        display_name="Rollback Purge",
+    )
+    db.session.add(account)
+    db.session.flush()
+    order = Order(
+        reference="PURGERB01",
+        customer_name="Rollback Purge",
+        customer_phone="254700000088",
+        fulfilment_method="collection",
+        payment_proof_filename="purge-rollback-proof.png",
+    )
+    db.session.add(order)
+    db.session.flush()
+    cart = CustomerCart(account_id=account.id, items_json='[{"id": 1}]')
+    db.session.add_all([
+        cart,
+        CustomerOrderLink(account_id=account.id, order_id=order.id),
+    ])
+    db.session.commit()
+    account_id = account.id
+    order_id = order.id
+    cart_id = cart.id
+    app.config["PAYMENT_PROOF_FOLDER"] = str(tmp_path)
+    proof_path = tmp_path / "purge-rollback-proof.png"
+    proof_path.write_bytes(b"private payment proof")
+
+    original_delete = cleanup.permanently_delete_customer_account
+
+    def fail_before_commit(*args, **kwargs):
+        original_delete(*args, **kwargs)
+        raise IntegrityError("forced commit failure", {}, RuntimeError("test failure"))
+
+    monkeypatch.setattr(cleanup, "permanently_delete_customer_account", fail_before_commit)
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post(
+        f"/admin/email/customers/{account_id}/permanently-delete",
+        data={"confirmation": f"PURGE CUSTOMER {account_id}"},
+        follow_redirects=True,
+    )
+
+    db.session.expire_all()
+    assert response.status_code == 200
+    assert b"failed and was rolled back" in response.data
+    assert db.session.get(CustomerAccount, account_id) is not None
+    assert db.session.get(Order, order_id) is not None
+    assert db.session.get(CustomerCart, cart_id) is not None
+    assert proof_path.exists()
+
+
 def test_admin_email_history_supports_search_status_and_pagination(client, app, app_context):
     client.post("/admin/login", data={"username": "owner", "password": "secret123"})
     rows = [
@@ -4878,6 +5332,8 @@ def test_registered_customer_list_excludes_anonymized_accounts(client, app, app_
     assert b"active-customer@example.test" in response.data
     assert b"removed-customer-2@redacted.invalid" not in response.data
     assert b"Registered customers" in response.data
+    assert b"Anonymized records available for permanent erasure" in response.data
+    assert f"Record {removed.id}".encode() in response.data
 
 
 def test_complete_data_export_skips_optional_missing_mapped_tables(app, app_context):

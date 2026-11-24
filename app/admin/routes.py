@@ -87,6 +87,10 @@ def email_center():
     pending_opt_ins = pending_query.order_by(CustomerAccount.created_at.desc()).limit(100).all()
     pending_opt_in_total = pending_query.count()
     accounts = account_query.order_by(CustomerAccount.created_at.desc()).distinct().limit(100).all()
+    permanently_deleted_accounts = CustomerAccount.query.filter(
+        CustomerAccount.active.is_(False),
+        CustomerAccount.email.ilike("%@redacted.invalid"),
+    ).order_by(CustomerAccount.updated_at.desc()).limit(100).all()
     consent_events = {}
     if accounts and model_schema_ready(CustomerConsentEvent, inspector):
         for event in CustomerConsentEvent.query.filter(
@@ -177,7 +181,7 @@ def email_center():
         from app.services.email_worker import worker_health as get_worker_health
         worker_health = get_worker_health(timeout_seconds=current_app.config.get("EMAIL_WORKER_HEARTBEAT_TIMEOUT_SECONDS", 90))
     legacy_review_schema_ready = model_schema_ready(EmailLegacyPayloadReviewEvent, inspector)
-    return render_template("admin/email.html", title="Customer email", legacy_review_schema_ready=legacy_review_schema_ready, subscribers=subscribers, pending_opt_ins=pending_opt_ins, pending_opt_in_total=pending_opt_in_total, accounts=accounts, order_map=order_map, consent_events=consent_events, campaigns=campaigns, messages=messages, message_page=message_page, message_search=message_search, message_status_filter=message_status_filter, message_status_counts=message_status_counts, ambiguous_message_count=ambiguous_message_count, queue_health=queue_health, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex, promotional_templates=promotional_templates, default_promotional_template_id=default_promotional_template_id, service_templates=service_templates, suppression_schema_ready=suppression_schema_ready, suppression_cases=suppression_cases, suppression_events=suppression_events, investigation_schema_ready=investigation_schema_ready, investigations=investigations, investigation_events_by_id=investigation_events_by_id, attempts_by_message=attempts_by_message, worker_health=worker_health)
+    return render_template("admin/email.html", title="Customer email", legacy_review_schema_ready=legacy_review_schema_ready, subscribers=subscribers, pending_opt_ins=pending_opt_ins, pending_opt_in_total=pending_opt_in_total, accounts=accounts, permanently_deleted_accounts=permanently_deleted_accounts, order_map=order_map, consent_events=consent_events, campaigns=campaigns, messages=messages, message_page=message_page, message_search=message_search, message_status_filter=message_status_filter, message_status_counts=message_status_counts, ambiguous_message_count=ambiguous_message_count, queue_health=queue_health, messages_available=messages_available, service_messages_available=service_messages_available, products=products, search=search, eligible_total=eligible_total, service_eligible_total=service_eligible_total, mail_configured=configured, mail_note=note, test_address=current_app.config.get("MAIL_TEST_ADDRESS", ""), send_key=uuid4().hex, service_send_key=uuid4().hex, promotional_templates=promotional_templates, default_promotional_template_id=default_promotional_template_id, service_templates=service_templates, suppression_schema_ready=suppression_schema_ready, suppression_cases=suppression_cases, suppression_events=suppression_events, investigation_schema_ready=investigation_schema_ready, investigations=investigations, investigation_events_by_id=investigation_events_by_id, attempts_by_message=attempts_by_message, worker_health=worker_health)
 
 
 @admin_bp.post("/email/send-manual")
@@ -981,6 +985,71 @@ def remove_customer_account(account_id):
         message += f" Deleted {counts['reviews']} review(s)."
     if failed_proof_deletes:
         message += f" {failed_proof_deletes} payment proof file(s) could not be removed; check the server log."
+        flash(message, "warning")
+    else:
+        flash(message, "success")
+    return redirect(url_for("admin.email_center"))
+
+
+@admin_bp.post("/email/customers/<int:account_id>/permanently-delete")
+@login_required
+def permanently_delete_customer_account(account_id):
+    from app.services.customer_account_cleanup import (
+        CustomerCleanupBlocked,
+        permanently_delete_customer_account as purge_customer_account,
+    )
+
+    if request.form.get("confirmation", "").strip() != f"PURGE CUSTOMER {account_id}":
+        flash(
+            f"Permanent deletion stopped. Type PURGE CUSTOMER {account_id} exactly to confirm.",
+            "error",
+        )
+        return redirect(url_for("admin.email_center"))
+
+    try:
+        result = purge_customer_account(account_id, admin_id=current_user.id)
+        if result is None:
+            db.session.rollback()
+            flash("Customer account was not found; no data was changed.", "warning")
+            return redirect(url_for("admin.email_center"))
+        db.session.commit()
+    except CustomerCleanupBlocked as exc:
+        db.session.rollback()
+        flash(str(exc), "warning")
+        return redirect(url_for("admin.email_center"))
+    except SQLAlchemyError:
+        db.session.rollback()
+        current_app.logger.exception(
+            "Permanent customer deletion failed; transaction rolled back"
+        )
+        flash(
+            "Permanent deletion failed and was rolled back. Check the server log for details.",
+            "error",
+        )
+        return redirect(url_for("admin.email_center"))
+
+    failed_proof_deletes = 0
+    for path in result["proof_paths"]:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            failed_proof_deletes += 1
+            current_app.logger.exception(
+                "Could not remove a payment proof file after permanent customer deletion"
+            )
+
+    deleted_rows = sum(result["counts"].values())
+    message = (
+        f"Permanent deletion completed: {deleted_rows} related database record(s) were removed. "
+        "This covers the application database and configured payment-proof storage only; "
+        "copies held by email/payment providers, backups, logs, or previously downloaded exports "
+        "must be handled separately."
+    )
+    if failed_proof_deletes:
+        message += (
+            f" {failed_proof_deletes} payment proof file(s) could not be removed; "
+            "check the server log."
+        )
         flash(message, "warning")
     else:
         flash(message, "success")

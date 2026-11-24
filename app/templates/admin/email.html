@@ -1,5 +1,19 @@
 {% extends "base.html" %}
 {% block content %}
+{% macro permanent_delete_panel(account) %}
+<details class="admin-email-delete-panel">
+  <summary>Permanently erase all linked customer data</summary>
+  <p class="status-warn">This irreversibly deletes the account, linked orders and financial records, email history, consent/suppression records, referrals, reviews, contact activity, and payment-proof files from this application. It cannot be undone.</p>
+  <p>Provider-held copies, backups, logs, and previously downloaded exports are outside this action and must be handled separately.</p>
+  <form method="post" action="{{ url_for('admin.permanently_delete_customer_account', account_id=account.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Type <code>PURGE CUSTOMER {{ account.id }}</code> to confirm
+      <input name="confirmation" autocomplete="off" required>
+    </label>
+    <button class="btn danger" type="submit">Permanently erase customer data</button>
+  </form>
+</details>
+{% endmacro %}
 <div class="admin-email-page">
 <section class="page-head admin-head">
   <div>
@@ -108,10 +122,25 @@
       </form>
     </details>
     {% endif %}
+    {{ permanent_delete_panel(account) }}
   </details>
   {% else %}<p>No matching customer accounts.</p>{% endfor %}
   </div>
 </details>
+{% if permanently_deleted_accounts %}
+<details class="form-card admin-email-section">
+  <summary><span class="admin-email-section-title" role="heading" aria-level="2">Anonymized records available for permanent erasure</span><span class="admin-email-summary-meta"><span class="admin-email-badge">{{ permanently_deleted_accounts|length }} record{{ '' if permanently_deleted_accounts|length == 1 else 's' }}</span></span></summary>
+  <div class="admin-email-section-body">
+    <p>These accounts were previously anonymized. Their remaining linked application records can be permanently erased here.</p>
+    {% for account in permanently_deleted_accounts %}
+    <details class="admin-email-account">
+      <summary><span class="admin-email-account-label"><strong>Removed customer</strong><small>Record {{ account.id }}</small></span></summary>
+      {{ permanent_delete_panel(account) }}
+    </details>
+    {% endfor %}
+  </div>
+</details>
+{% endif %}
 {% if messages_available %}
 <details class="form-card admin-email-section" open>
   <summary><span class="admin-email-section-title" role="heading" aria-level="2">Email queue and recent history</span><span class="admin-email-summary-meta"><span class="admin-email-badge">{{ messages|length }} on this page</span><span class="admin-email-badge">{{ message_status_counts.get('queued', 0) }} queued</span></span></summary>
