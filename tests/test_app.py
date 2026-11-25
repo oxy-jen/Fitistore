@@ -299,6 +299,8 @@ def test_media_showcase_editor_offers_fields_and_existing_products(client, app):
     assert quick_publish.status_code == 200
     assert b'name="media"' in quick_publish.data
     assert b'name="media_url"' in quick_publish.data
+    assert b'Display name (shown to customers)' in quick_publish.data
+    assert b'required type="text" name="title"' in quick_publish.data
     assert b"Use the full showcase editor" in quick_publish.data
     response = client.get("/admin/media-showcases/new")
     assert response.status_code == 200
@@ -316,6 +318,7 @@ def test_media_showcase_editor_offers_fields_and_existing_products(client, app):
     editor = client.get("/static/js/media-showcase-editor.js")
     assert b"Set as popup feature" in editor.data
     assert b"Featured popup item" in editor.data
+    assert b"Display name (shown to customers)" in editor.data
 
 
 def test_media_showcase_quick_publish_accepts_upload_or_direct_video_url(client, app):
@@ -352,7 +355,24 @@ def test_media_showcase_quick_publish_accepts_upload_or_direct_video_url(client,
     with app.app_context():
         showcase = MediaShowcase.query.filter_by(name="Quick publish: Hosted clip").one()
         assert showcase.items[0].media_url == "https://cdn.example.test/launch.mp4"
+        assert showcase.items[0].title == "Hosted clip"
         assert showcase.items[0].source_type == "external_url"
+    page = client.get("/")
+    assert b'data-media-title="Hosted clip"' in page.data
+    assert b'data-preview-src="https://cdn.example.test/launch.mp4"' in page.data
+    assert b'data-media-title="https://cdn.example.test/launch.mp4"' not in page.data
+
+
+def test_media_showcase_quick_publish_requires_a_display_name(client, app):
+    _sign_in_admin(client, app)
+    response = client.post("/admin/media-showcases/quick-publish", data={
+        "media_url": "https://cdn.example.test/launch.mp4", "media_type": "video",
+        "page": "home", "placement": "home_after_hero",
+    })
+    assert response.status_code == 200
+    assert b"Enter the display name to show for this media." in response.data
+    with app.app_context():
+        assert MediaShowcase.query.filter(MediaShowcase.name.like("Quick publish:%")).count() == 0
 
 
 def test_media_showcase_quick_publish_requires_exactly_one_source(client, app):

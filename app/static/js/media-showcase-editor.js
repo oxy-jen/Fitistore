@@ -243,7 +243,7 @@
       assetMeta.textContent = [card.dataset.filename, card.dataset.width && card.dataset.height ? `${card.dataset.width} × ${card.dataset.height}` : '', formatBytes(card.dataset.size || null), card.dataset.duration ? `${Number(card.dataset.duration).toFixed(1)} s` : ''].filter(Boolean).join(' · '); actions.append(assetMeta); card.append(actions);
       const fields = document.createElement('div'); fields.className = 'item-fields-grid';
       const typeSelect = choices(fields, 'Media type', 'type', item.type || 'image', [['video', 'Video'], ['gif', 'Animated GIF'], ['image', 'Image'], ['link', 'Link card']]);
-      textField(fields, 'Title', 'title', item.title || '');
+      textField(fields, 'Display name (shown to customers)', 'title', item.title || '');
       const url = textField(fields, 'Media URL', 'url', item.url || '', 'url');
       textField(fields, 'Poster / thumbnail URL', 'poster', item.poster || '', 'url');
       const destination = textField(fields, 'Destination URL', 'destination', item.destination || '', 'url');

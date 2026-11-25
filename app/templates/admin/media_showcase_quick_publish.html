@@ -24,8 +24,8 @@
           {% endfor %}
         </select>
       </label>
-      <label>Media title (optional)
-        <input type="text" name="title" maxlength="160" value="{{ request.form.get('title', '') }}" placeholder="Uses the filename when left blank">
+      <label>Display name (shown to customers)
+        <input required type="text" name="title" maxlength="160" value="{{ request.form.get('title', '') }}" placeholder="For example: Fity Store Logo">
       </label>
       <label class="span-two">Poster / thumbnail URL (optional)
         <input type="text" name="poster_url" value="{{ request.form.get('poster_url', '') }}" placeholder="https://…/poster.jpg">

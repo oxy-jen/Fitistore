@@ -398,13 +398,14 @@ def register_media_showcase_routes(admin_bp):
                     raise ValueError("Choose either a media file or a URL, not both.")
                 if not has_file and not media_url:
                     raise ValueError("Choose a video/image file or paste a direct media URL.")
+                if not title:
+                    raise ValueError("Enter the display name to show for this media.")
 
                 if has_file:
                     filename = Path(uploaded.filename).name
                     file_data = uploaded.stream.read(4 * 1024 * 1024 + 1)
                     media_info = inspect_media_upload(filename, file_data)
                     media_type = media_info["type"]
-                    title = title or Path(filename).stem.replace("_", " ").replace("-", " ")[:160] or "Uploaded media"
                 else:
                     if media_type not in {"video", "gif", "image"}:
                         raise ValueError("Choose video, animated GIF, or image for the URL.")
@@ -412,9 +413,6 @@ def register_media_showcase_routes(admin_bp):
                         _safe_url(media_url, media_type, required=True)
                     elif media_type != "video":
                         _safe_url(media_url, media_type, required=True)
-                    parsed_url = urlparse(media_url)
-                    suggested_title = Path(unquote(parsed_url.path)).stem.replace("_", " ").replace("-", " ")
-                    title = title or suggested_title[:160] or f"Featured {media_type}"
 
                 poster_url = _safe_url(poster_url, "image") if poster_url else ""
                 destination_url = _safe_url(destination_url) if destination_url else ""

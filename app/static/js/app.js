@@ -662,18 +662,6 @@ function playShowcaseVideoPreview(video){
     if(error.name!=='NotAllowedError'&&error.name!=='AbortError')console.warn('Unable to autoplay the storefront video preview.',error);
   });
 }
-function resumeShowcaseVideoPreview(video){
-  if(!video||showcaseReducedMotion.matches)return;
-  if(showcaseVideoPreviewObserver){
-    showcaseVideoPreviewObserver.unobserve(video);
-    showcaseVideoPreviewObserver.observe(video);
-    return;
-  }
-  const bounds=video.getBoundingClientRect();
-  if(bounds.bottom>=-180&&bounds.top<=window.innerHeight+180&&bounds.right>=-320&&bounds.left<=window.innerWidth+320){
-    playShowcaseVideoPreview(video);
-  }
-}
 let showcaseVideoPreviewFallbackFrame=0;
 function updateShowcaseVideoPreviewsInViewport(){
   if(showcaseVideoPreviewFallbackFrame)return;
@@ -729,7 +717,6 @@ document.addEventListener('click',event=>{
       showcasePlayer.style.removeProperty('min-height');
       showcasePlayer.classList.remove('is-pinch-resizing');
       clearShowcasePlayerContent();
-      resumeShowcaseVideoPreview(showcaseCurrentOpener?.querySelector('[data-showcase-video-preview]'));
       if(showcasePlayerContent)showcasePlayerContent.hidden=true;
       if(minimizedPanel)minimizedPanel.hidden=false;
       const enlarge=showcasePlayer.querySelector('[data-media-player-enlarge]');
@@ -776,6 +763,8 @@ let showcasePlayerManuallyPositioned=false;
 let showcasePlayerPositionFrame=0;
 const showcaseTouchPointers=new Map();
 let showcasePinchStart=null;
+let showcaseTouchDrag=null;
+let showcaseTouchHoldTimer=0;
 
 function hasSeenShowcasePopup(){
   return showcasePopupSeenInMemory;
@@ -817,12 +806,49 @@ function scheduleShowcasePlayerPosition(){
     positionShowcasePlayerAwayFromCards();
   });
 }
+function clearShowcaseTouchHoldTimer(){
+  if(showcaseTouchHoldTimer){
+    window.clearTimeout(showcaseTouchHoldTimer);
+    showcaseTouchHoldTimer=0;
+  }
+}
+function positionShowcasePlayerWithinViewport(left,top){
+  if(!showcasePlayer)return;
+  const margin=8;
+  const maxLeft=Math.max(margin,window.innerWidth-showcasePlayer.offsetWidth-margin);
+  const maxTop=Math.max(margin,window.innerHeight-showcasePlayer.offsetHeight-margin);
+  showcasePlayer.style.left=`${Math.min(Math.max(margin,left),maxLeft)}px`;
+  showcasePlayer.style.top=`${Math.min(Math.max(margin,top),maxTop)}px`;
+  showcasePlayer.style.right='auto';
+  showcasePlayer.style.bottom='auto';
+}
 function handleShowcasePinchPointer(event){
   if(event.pointerType!=='touch')return;
   if(event.type==='pointerdown'){
     if(!showcasePlayer?.open||showcasePlayer.classList.contains('is-minimized')||!showcasePlayer.contains(event.target))return;
     showcaseTouchPointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
+    const target=event.target instanceof Element?event.target:null;
+    if(showcaseTouchPointers.size===1&&!target?.closest('button,a,input,select,textarea,[role="button"]')){
+      const rect=showcasePlayer.getBoundingClientRect();
+      showcaseTouchDrag={
+        pointerId:event.pointerId,
+        startX:event.clientX,
+        startY:event.clientY,
+        offsetX:event.clientX-rect.left,
+        offsetY:event.clientY-rect.top,
+        dragging:false
+      };
+      showcaseTouchHoldTimer=window.setTimeout(()=>{
+        if(showcaseTouchDrag?.pointerId!==event.pointerId||showcaseTouchPointers.size!==1)return;
+        showcaseTouchDrag.dragging=true;
+        showcasePlayer.classList.add('is-dragging');
+        try{showcasePlayer.setPointerCapture(event.pointerId);}catch(_){}
+      },240);
+    }
     if(showcaseTouchPointers.size===2){
+      clearShowcaseTouchHoldTimer();
+      showcaseTouchDrag=null;
+      showcasePlayer.classList.remove('is-dragging');
       const pointerIds=[...showcaseTouchPointers.keys()];
       const [first,second]=pointerIds.map(pointerId=>showcaseTouchPointers.get(pointerId));
       const rect=showcasePlayer.getBoundingClientRect();
@@ -851,36 +877,59 @@ function handleShowcasePinchPointer(event){
   if(!showcaseTouchPointers.has(event.pointerId))return;
   if(event.type==='pointermove'){
     showcaseTouchPointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
-    if(!showcasePinchStart)return;
-    const [firstId,secondId]=showcasePinchStart.pointerIds;
-    const first=showcaseTouchPointers.get(firstId);
-    const second=showcaseTouchPointers.get(secondId);
-    if(!first||!second)return;
-    const distance=Math.max(1,Math.hypot(second.x-first.x,second.y-first.y));
-    const minWidth=Math.min(160,window.innerWidth-16);
-    const minHeight=Math.min(112,window.innerHeight-16);
-    const maxWidth=Math.max(minWidth,window.innerWidth-16);
-    const maxHeight=Math.max(minHeight,window.innerHeight*.8);
-    const minScale=Math.max(minWidth/showcasePinchStart.width,minHeight/showcasePinchStart.height);
-    const maxScale=Math.max(minScale,Math.min(maxWidth/showcasePinchStart.width,maxHeight/showcasePinchStart.height));
-    const scale=Math.min(maxScale,Math.max(minScale,distance/showcasePinchStart.distance));
-    const width=showcasePinchStart.width*scale;
-    const height=showcasePinchStart.height*scale;
-    const margin=8;
-    const centerX=showcasePinchStart.left+showcasePinchStart.width/2;
-    const centerY=showcasePinchStart.top+showcasePinchStart.height/2;
-    const maxLeft=Math.max(margin,window.innerWidth-width-margin);
-    const maxTop=Math.max(margin,window.innerHeight-height-margin);
-    showcasePlayer.style.width=`${width}px`;
-    showcasePlayer.style.height=`${height}px`;
-    showcasePlayer.style.left=`${Math.min(maxLeft,Math.max(margin,centerX-width/2))}px`;
-    showcasePlayer.style.top=`${Math.min(maxTop,Math.max(margin,centerY-height/2))}px`;
-    showcasePlayer.style.right='auto';
-    showcasePlayer.style.bottom='auto';
-    event.preventDefault();
+    if(showcasePinchStart){
+      const [firstId,secondId]=showcasePinchStart.pointerIds;
+      const first=showcaseTouchPointers.get(firstId);
+      const second=showcaseTouchPointers.get(secondId);
+      if(!first||!second)return;
+      const distance=Math.max(1,Math.hypot(second.x-first.x,second.y-first.y));
+      const minWidth=Math.min(160,window.innerWidth-16);
+      const minHeight=Math.min(112,window.innerHeight-16);
+      const maxWidth=Math.max(minWidth,window.innerWidth-16);
+      const maxHeight=Math.max(minHeight,window.innerHeight*.8);
+      const minScale=Math.max(minWidth/showcasePinchStart.width,minHeight/showcasePinchStart.height);
+      const maxScale=Math.max(minScale,Math.min(maxWidth/showcasePinchStart.width,maxHeight/showcasePinchStart.height));
+      const scale=Math.min(maxScale,Math.max(minScale,distance/showcasePinchStart.distance));
+      const width=showcasePinchStart.width*scale;
+      const height=showcasePinchStart.height*scale;
+      const margin=8;
+      const centerX=showcasePinchStart.left+showcasePinchStart.width/2;
+      const centerY=showcasePinchStart.top+showcasePinchStart.height/2;
+      const maxLeft=Math.max(margin,window.innerWidth-width-margin);
+      const maxTop=Math.max(margin,window.innerHeight-height-margin);
+      showcasePlayer.style.width=`${width}px`;
+      showcasePlayer.style.height=`${height}px`;
+      showcasePlayer.style.left=`${Math.min(maxLeft,Math.max(margin,centerX-width/2))}px`;
+      showcasePlayer.style.top=`${Math.min(maxTop,Math.max(margin,centerY-height/2))}px`;
+      showcasePlayer.style.right='auto';
+      showcasePlayer.style.bottom='auto';
+      event.preventDefault();
+      return;
+    }
+    if(showcaseTouchDrag?.pointerId===event.pointerId){
+      const drag=showcaseTouchDrag;
+      if(!drag.dragging){
+        if(Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)>10){
+          clearShowcaseTouchHoldTimer();
+          showcaseTouchDrag=null;
+        }
+        return;
+      }
+      showcasePlayerManuallyPositioned=true;
+      positionShowcasePlayerWithinViewport(event.clientX-drag.offsetX,event.clientY-drag.offsetY);
+      event.preventDefault();
+    }
     return;
   }
   showcaseTouchPointers.delete(event.pointerId);
+  if(showcaseTouchDrag?.pointerId===event.pointerId){
+    clearShowcaseTouchHoldTimer();
+    showcaseTouchDrag=null;
+    showcasePlayer?.classList.remove('is-dragging');
+    try{
+      if(showcasePlayer?.hasPointerCapture(event.pointerId))showcasePlayer.releasePointerCapture(event.pointerId);
+    }catch(_){}
+  }
   if(showcasePinchStart?.pointerIds.includes(event.pointerId)){
     showcasePinchStart=null;
     showcaseTouchPointers.clear();
@@ -907,7 +956,6 @@ function clearShowcasePlayerContent(){
 }
 function openShowcasePlayer(opener,automatic){
   if(!showcasePlayer||!showcasePlayerContent)return false;
-  stopShowcaseVideoPreview(opener.querySelector('[data-showcase-video-preview]'));
   showcaseCurrentOpener=opener;
   showcaseCurrentAutomatic=automatic;
   const kind=opener.dataset.mediaKind;
@@ -1001,7 +1049,6 @@ function openShowcasePlayer(opener,automatic){
 
 if(showcasePlayer){
   showcasePlayer.addEventListener('close',()=>{
-    resumeShowcaseVideoPreview(showcaseCurrentOpener?.querySelector('[data-showcase-video-preview]'));
     markShowcasePopupSeen();
     clearShowcasePlayerContent();
     showcasePlayerContent?.removeAttribute('hidden');
@@ -1012,7 +1059,9 @@ if(showcasePlayer){
     showcasePlayer.style.removeProperty('min-width');
     showcasePlayer.style.removeProperty('min-height');
     showcasePlayer.classList.remove('is-expanded','is-minimized');
-    showcasePlayer.classList.remove('is-pinch-resizing');
+    showcasePlayer.classList.remove('is-pinch-resizing','is-dragging');
+    clearShowcaseTouchHoldTimer();
+    showcaseTouchDrag=null;
     showcaseTouchPointers.clear();
     showcasePinchStart=null;
     if(showcaseLastOpener?.isConnected)showcaseLastOpener.focus();
@@ -1024,15 +1073,6 @@ if(showcasePlayer){
 
   const dragHandle=showcasePlayer.querySelector('.media-showcase-player-header');
   let activeDrag=null;
-  const positionWithinViewport=(left,top)=>{
-    const margin=8;
-    const maxLeft=Math.max(margin,window.innerWidth-showcasePlayer.offsetWidth-margin);
-    const maxTop=Math.max(margin,window.innerHeight-showcasePlayer.offsetHeight-margin);
-    showcasePlayer.style.left=`${Math.min(Math.max(margin,left),maxLeft)}px`;
-    showcasePlayer.style.top=`${Math.min(Math.max(margin,top),maxTop)}px`;
-    showcasePlayer.style.right='auto';
-    showcasePlayer.style.bottom='auto';
-  };
   dragHandle?.addEventListener('pointerdown',event=>{
     if(event.pointerType==='touch'||event.button!==0||event.target.closest('button'))return;
     showcasePlayerManuallyPositioned=true;
@@ -1044,7 +1084,7 @@ if(showcasePlayer){
   });
   dragHandle?.addEventListener('pointermove',event=>{
     if(activeDrag?.pointerId!==event.pointerId)return;
-    positionWithinViewport(event.clientX-activeDrag.offsetX,event.clientY-activeDrag.offsetY);
+    positionShowcasePlayerWithinViewport(event.clientX-activeDrag.offsetX,event.clientY-activeDrag.offsetY);
   });
   const stopDragging=event=>{
     if(activeDrag?.pointerId!==event.pointerId)return;
@@ -1056,7 +1096,7 @@ if(showcasePlayer){
   window.addEventListener('resize',()=>{
     if(showcasePlayer.open&&showcasePlayer.style.left){
       const rect=showcasePlayer.getBoundingClientRect();
-      positionWithinViewport(rect.left,rect.top);
+      positionShowcasePlayerWithinViewport(rect.left,rect.top);
     }
     scheduleShowcasePlayerPosition();
   },{passive:true});
