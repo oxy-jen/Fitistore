@@ -895,7 +895,7 @@ function handleShowcasePinchPointer(event){
     if(showcaseTouchDrag?.pointerId===event.pointerId){
       const drag=showcaseTouchDrag;
       if(!drag.dragging){
-        if(Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)<=10)return;
+        if(Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)===0)return;
         drag.dragging=true;
         showcasePlayer.classList.add('is-dragging');
         try{showcasePlayer.setPointerCapture(event.pointerId);}catch(_){}
