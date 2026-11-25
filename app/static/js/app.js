@@ -764,7 +764,6 @@ let showcasePlayerPositionFrame=0;
 const showcaseTouchPointers=new Map();
 let showcasePinchStart=null;
 let showcaseTouchDrag=null;
-let showcaseTouchHoldTimer=0;
 
 function hasSeenShowcasePopup(){
   return showcasePopupSeenInMemory;
@@ -806,12 +805,6 @@ function scheduleShowcasePlayerPosition(){
     positionShowcasePlayerAwayFromCards();
   });
 }
-function clearShowcaseTouchHoldTimer(){
-  if(showcaseTouchHoldTimer){
-    window.clearTimeout(showcaseTouchHoldTimer);
-    showcaseTouchHoldTimer=0;
-  }
-}
 function positionShowcasePlayerWithinViewport(left,top){
   if(!showcasePlayer)return;
   const margin=8;
@@ -838,15 +831,8 @@ function handleShowcasePinchPointer(event){
         offsetY:event.clientY-rect.top,
         dragging:false
       };
-      showcaseTouchHoldTimer=window.setTimeout(()=>{
-        if(showcaseTouchDrag?.pointerId!==event.pointerId||showcaseTouchPointers.size!==1)return;
-        showcaseTouchDrag.dragging=true;
-        showcasePlayer.classList.add('is-dragging');
-        try{showcasePlayer.setPointerCapture(event.pointerId);}catch(_){}
-      },240);
     }
     if(showcaseTouchPointers.size===2){
-      clearShowcaseTouchHoldTimer();
       showcaseTouchDrag=null;
       showcasePlayer.classList.remove('is-dragging');
       const pointerIds=[...showcaseTouchPointers.keys()];
@@ -909,11 +895,10 @@ function handleShowcasePinchPointer(event){
     if(showcaseTouchDrag?.pointerId===event.pointerId){
       const drag=showcaseTouchDrag;
       if(!drag.dragging){
-        if(Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)>10){
-          clearShowcaseTouchHoldTimer();
-          showcaseTouchDrag=null;
-        }
-        return;
+        if(Math.hypot(event.clientX-drag.startX,event.clientY-drag.startY)<=10)return;
+        drag.dragging=true;
+        showcasePlayer.classList.add('is-dragging');
+        try{showcasePlayer.setPointerCapture(event.pointerId);}catch(_){}
       }
       showcasePlayerManuallyPositioned=true;
       positionShowcasePlayerWithinViewport(event.clientX-drag.offsetX,event.clientY-drag.offsetY);
@@ -923,7 +908,6 @@ function handleShowcasePinchPointer(event){
   }
   showcaseTouchPointers.delete(event.pointerId);
   if(showcaseTouchDrag?.pointerId===event.pointerId){
-    clearShowcaseTouchHoldTimer();
     showcaseTouchDrag=null;
     showcasePlayer?.classList.remove('is-dragging');
     try{
@@ -1060,7 +1044,6 @@ if(showcasePlayer){
     showcasePlayer.style.removeProperty('min-height');
     showcasePlayer.classList.remove('is-expanded','is-minimized');
     showcasePlayer.classList.remove('is-pinch-resizing','is-dragging');
-    clearShowcaseTouchHoldTimer();
     showcaseTouchDrag=null;
     showcaseTouchPointers.clear();
     showcasePinchStart=null;
