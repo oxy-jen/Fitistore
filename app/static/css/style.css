@@ -956,10 +956,11 @@ body:has(.about-page) .site-header .nav a[href*="about"]{color:#dc2626;border-bo
 .home-banner-arrow:hover,.home-banner-toggle:hover{background:#e52335}
 .home-banner-arrow .icon{width:18px;height:18px;margin:0;stroke-width:2.4}
 .home-banner-arrow:focus-visible,.home-banner-toggle:focus-visible,.home-banner-dots button:focus-visible{outline:2px solid #fff;outline-offset:2px}
-.home-banner-dots{position:absolute;left:50%;bottom:.88rem;display:flex;align-items:center;gap:.4rem;padding:0;transform:translateX(-50%);pointer-events:auto}
+.home-banner-indicators{position:absolute;left:50%;bottom:.55rem;display:flex;align-items:center;gap:.45rem;transform:translateX(-50%);pointer-events:auto}
+.home-banner-dots{display:flex;align-items:center;gap:.4rem;padding:0}
 .home-banner-dots button{width:8px;height:8px;min-height:8px;padding:0;border-radius:999px;background:rgba(255,255,255,.72);box-shadow:0 1px 4px rgba(0,0,0,.72);transition:width .24s ease,background .24s ease,transform .24s ease}
 .home-banner-dots button[aria-current="true"]{width:20px;background:#ff3548;transform:scaleY(1.15)}
-.home-banner-toggle{position:absolute;top:.6rem;right:.6rem;width:34px;height:34px;border:1px solid rgba(255,255,255,.48);border-radius:50%;background:rgba(12,13,16,.64);box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.home-banner-toggle{width:34px;height:34px;border:1px solid rgba(255,255,255,.48);border-radius:50%;background:rgba(12,13,16,.64);box-shadow:0 2px 8px rgba(0,0,0,.18)}
 .home-banner-toggle .icon{width:15px;height:15px;margin:0;stroke-width:2.5}
 .home-banner-play-icon,.home-banner-toggle[aria-pressed="true"] .home-banner-pause-icon{display:none}
 .home-banner-toggle[aria-pressed="true"] .home-banner-play-icon{display:inline-flex}
