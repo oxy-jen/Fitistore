@@ -109,8 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     while (true) {
       const overflowItem = overflowOrder.find((item) => item.parentElement === nav);
-      const phoneKeepsSecondaryInMenu = mobileNavigation.matches && Boolean(overflowItem);
-      if (!overflowItem || (!phoneKeepsSecondaryInMenu && nav.scrollWidth <= nav.clientWidth + 1)) break;
+      if (!overflowItem || nav.scrollWidth <= nav.clientWidth + 1) break;
       const nextOverflow = originalItems.slice(originalItems.indexOf(overflowItem) + 1)
         .find((item) => item.parentElement === menu);
       menu.insertBefore(overflowItem, nextOverflow || null);

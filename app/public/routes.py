@@ -23,7 +23,7 @@ from app.services.upcoming_products import upcoming_product_schema_ready
 from app.services.product_likes import product_like_schema_ready
 from app.services.category_thumbnails import CATEGORY_GROUPS, category_group_key, category_thumbnails_schema_ready
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
-from app.services.product_images import product_display_image, product_image_alt, product_image_url, valid_product_image
+from app.services.product_images import product_display_image, product_gallery_images, product_image_alt, product_image_url, valid_product_image
 from app.services.referrals import get_or_create_profile, normalize_phone, record_referral_click
 from werkzeug.utils import secure_filename
 from flask_login import current_user, logout_user
@@ -109,6 +109,19 @@ def discounted_products_query():
         Product.previous_price_cents > Product.price_cents,
     )
     return Product.query.filter(Product.active.is_(True), or_(variant_discount, product_discount))
+
+
+def _product_discount_percent(product):
+    variant_discounts = [
+        variant.discount_percent
+        for variant in product.active_variants
+        if variant.has_discount
+    ]
+    if variant_discounts:
+        return max(variant_discounts)
+    if product.has_discount:
+        return (product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents
+    return 0
 
 
 def _product_like_voter_hash(create=False):
@@ -200,7 +213,7 @@ def helpers():
         for index in range(0, min(len(footer_products), 18), 3)
         if len(footer_products[index:index + 3]) == 3
     ]
-    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "category_group_key": category_group_key, "footer_products": footer_products[:3], "footer_product_groups": footer_product_groups, "current_year": datetime.now().year}
+    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_gallery_images": product_gallery_images, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "category_group_key": category_group_key, "footer_products": footer_products[:3], "footer_product_groups": footer_product_groups, "current_year": datetime.now().year}
 
 def product_query(category_group_override=None, sort_override=None):
     q = request.args.get("q", "").strip()
@@ -295,8 +308,9 @@ def home():
     fresh_arrivals = product_list_options(Product.query.filter_by(active=True)).order_by(Product.created_at.desc(), Product.id.desc()).limit(8).all()
     used_product_ids = {product.id for product in fresh_arrivals}
 
-    discounted_query = discounted_products_query().filter(Product.id.notin_(used_product_ids))
-    discounted = product_list_options(discounted_query).order_by(Product.updated_at.desc(), Product.id.desc()).limit(8).all()
+    discounted = product_list_options(discounted_products_query()).order_by(Product.updated_at.desc(), Product.id.desc()).all()
+    discounted.sort(key=_product_discount_percent, reverse=True)
+    discounted = discounted[:8]
     used_product_ids.update(product.id for product in discounted)
 
     featured_query = Product.query.filter_by(active=True, featured=True).filter(Product.id.notin_(used_product_ids))

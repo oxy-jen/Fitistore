@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from io import BytesIO
 from pathlib import Path
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -36,11 +37,16 @@ def configure_cloudinary(require_secret: bool = True):
     )
 
 
-def cloudinary_public_id(product, original_filename: str, prefix: str = "products") -> str:
+def cloudinary_public_id(product, original_filename: str, prefix: str = "products", content_hash: str | None = None) -> str:
     safe_name = Path(original_filename or "product").stem[:60] or "product"
     safe_name = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in safe_name).strip("-_") or "product"
     product_part = f"product-{product.id}" if getattr(product, "id", None) else "new-product"
-    return f"fity/{prefix}/{product_part}/{uuid4().hex}-{safe_name}"
+    asset_key = content_hash or uuid4().hex
+    return f"fity/{prefix}/{product_part}/{asset_key}-{safe_name}"
+
+
+def image_content_hash(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def optimize_image_bytes(data: bytes) -> bytes:
@@ -111,6 +117,23 @@ def legacy_local_image_path(image):
     return image_path
 
 
+def product_image_content_hash(image):
+    if not image:
+        return None
+    public_id = getattr(image, "cloudinary_public_id", "")
+    if public_id:
+        asset_key = public_id.rsplit("/", 1)[-1].split("-", 1)[0].lower()
+        if len(asset_key) == 64 and all(character in "0123456789abcdef" for character in asset_key):
+            return asset_key
+    image_path = legacy_local_image_path(image)
+    if image_path and image_path.is_file():
+        try:
+            return image_content_hash(image_path.read_bytes())
+        except OSError:
+            return None
+    return None
+
+
 def valid_product_image(image) -> bool:
     if not image:
         return False
@@ -150,3 +173,37 @@ def product_display_image(product):
         if valid_product_image(image):
             return image
     return None
+
+
+def product_gallery_images(product, main_image=None):
+    images = list(product.images)
+    main_image = main_image or product_display_image(product)
+    if main_image:
+        images = [main_image, *(image for image in images if image is not main_image)]
+
+    gallery = []
+    seen = set()
+    for image in images:
+        if not valid_product_image(image):
+            continue
+        content_hash = product_image_content_hash(image)
+        public_id = getattr(image, "cloudinary_public_id", "")
+        if content_hash:
+            key = ("content", content_hash)
+        elif public_id:
+            key = ("cloudinary", public_id)
+            source_key = (
+                "legacy-cloudinary-source",
+                (getattr(image, "filename", "") or "").casefold(),
+                (getattr(image, "alt_text", "") or "").casefold(),
+            )
+            if source_key in seen:
+                continue
+            seen.add(source_key)
+        else:
+            key = ("local", getattr(image, "filename", "").casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        gallery.append(image)
+    return gallery

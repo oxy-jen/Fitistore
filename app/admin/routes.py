@@ -25,7 +25,7 @@ from app.services.category_thumbnails import CATEGORY_GROUPS, CATEGORY_GROUPS_BY
 from app.services.formatting import parse_money
 from app.services.inventory import InventoryError, adjust_stock, adjust_variant_stock, low_stock_products
 from app.services.orders import FULFILMENT_STATUSES, PAYMENT_STATUSES, allowed_order_statuses, award_loyalty_for_order, refundable_cents, sales_summary, update_order_status
-from app.services.product_images import ImageStorageError, cloudinary_configured, cloudinary_public_id, delete_cloudinary_asset, legacy_local_image_path, upload_image_bytes
+from app.services.product_images import ImageStorageError, cloudinary_configured, cloudinary_public_id, delete_cloudinary_asset, image_content_hash, legacy_local_image_path, product_image_content_hash, upload_image_bytes
 
 admin_bp = Blueprint("admin", __name__, template_folder="../templates/admin")
 from app.admin.media_showcases import register_media_showcase_routes
@@ -1300,21 +1300,30 @@ def is_public_image_url(url):
 
 def append_product_image(product, filename, alt_text, cloudinary_id=None):
     is_primary = not bool(product.images)
-    product.images.append(ProductImage(
+    image = ProductImage(
         filename=filename,
         storage_backend="cloudinary" if cloudinary_id else "local",
         cloudinary_public_id=cloudinary_id,
         alt_text=alt_text[:255] or f"{product.name} image",
         sort_order=len(product.images),
         is_primary=is_primary,
-    ))
+    )
+    product.images.append(image)
+    return image
 
 
 def append_cloudinary_image(product, original_filename, data, alt_text, prefix="products"):
-    public_id = cloudinary_public_id(product, original_filename, prefix=prefix)
+    content_hash = image_content_hash(data)
+    existing = next(
+        (image for image in product.images if product_image_content_hash(image) == content_hash),
+        None,
+    )
+    if existing:
+        return existing
+    public_id = cloudinary_public_id(product, original_filename, prefix=prefix, content_hash=content_hash)
     upload_image_bytes(data, public_id)
     safe = secure_filename(original_filename) or "product-image"
-    append_product_image(product, safe[:255], alt_text, cloudinary_id=public_id)
+    return append_product_image(product, safe[:255], alt_text, cloudinary_id=public_id)
 
 
 def save_image_from_url(url, product):
@@ -1387,9 +1396,9 @@ def save_variant_image(file, product):
         flash(f"Variant image skipped: {error}", "error")
         return None
     try:
-        append_cloudinary_image(product, file.filename, data, f"{product.name} variant image", prefix="variants")
+        image = append_cloudinary_image(product, file.filename, data, f"{product.name} variant image", prefix="variants")
         db.session.flush()
-        return product.images[-1]
+        return image
     except ImageStorageError as exc:
         current_app.logger.warning("Could not upload variant image to Cloudinary: %s", exc)
         flash(f"Variant image upload failed: {exc}", "error")
@@ -1816,6 +1825,10 @@ def delete_product(product_id):
         db.session.rollback()
         flash(str(exc), "error")
         return redirect(url_for("admin.product_form", product_id=product.id))
+    if mamba_collection_schema_ready():
+        mamba_item = MambaCollectionItem.query.filter_by(product_id=product.id).first()
+        if mamba_item:
+            db.session.delete(mamba_item)
     db.session.delete(product)
     db.session.commit()
     flash("Product deleted.", "success")

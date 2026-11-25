@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 {% set main_image = product_display_image(product) %}
+{% set gallery_images = product_gallery_images(product, main_image) %}
 {% set active_variants = product.variants|selectattr('active')|list %}
 {% macro variant_choice_group(variants, dimension, data_dimension, label, is_color=false) -%}
   {% set values = variants|map(attribute=dimension)|select|unique|list %}
@@ -25,19 +26,29 @@
 
   <section class="product-detail" aria-labelledby="product-title">
     <div class="product-gallery">
-      <div class="detail-image">
+      <div class="detail-image product-gallery-stage" data-product-gallery tabindex="0" role="group" aria-label="Product photo gallery">
         {% if product.available_quantity > 0 or (active_variants and product.display_stock_quantity > 0) %}<span class="product-image-status in-stock">In stock</span>{% else %}<span class="product-image-status out-stock">Out of stock</span>{% endif %}
-        <img id="detail-product-image" src="{{ product_image_url(main_image) }}" alt="{{ product_image_alt(main_image) }}" fetchpriority="high">
+        <img id="detail-product-image" src="{{ product_image_url(main_image) }}" alt="{{ product_image_alt(main_image) }}" data-product-default-src="{{ product_image_url(main_image) }}" data-product-default-alt="{{ product_image_alt(main_image) }}" fetchpriority="high">
+        {% if gallery_images|length > 1 %}
+        <button type="button" class="product-gallery-nav is-previous" data-product-gallery-step="-1" aria-label="Previous product photo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+        <button type="button" class="product-gallery-nav is-next" data-product-gallery-step="1" aria-label="Next product photo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+        <span class="product-gallery-count" data-product-image-count aria-live="polite" aria-atomic="true">1 of {{ gallery_images|length }} photos</span>
+        {% endif %}
+        <button type="button" class="product-gallery-zoom" data-product-image-zoom aria-label="View product photo larger" title="View larger"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M3 3l6 6m7-6h5v5m0-5-6 6M3 16v5h5m-5 0 6-6m10 6h-5m5 0v-5m0 5-6-6"/></svg></button>
       </div>
-      {% if product.images|length > 1 %}
-      <div class="thumbs" aria-label="Product images">
-        {% for image in product.images %}{% if valid_product_image(image) %}
-        <button type="button" class="product-thumb{% if image.id == main_image.id %} active{% endif %}" data-product-thumb="{{ product_image_url(image) }}" data-product-thumb-alt="{{ product_image_alt(image) }}" aria-label="View {{ product_image_alt(image) }}" {% if image.id == main_image.id %}aria-current="true"{% endif %}>
+      {% if gallery_images|length > 1 %}
+      <div class="thumbs" role="group" aria-label="Product photos">
+        {% for image in gallery_images %}
+        <button type="button" class="product-thumb{% if image.id == main_image.id %} active{% endif %}" data-product-thumb="{{ product_image_url(image) }}" data-product-thumb-alt="{{ product_image_alt(image) }}" data-product-thumb-name="{{ image.filename }}" aria-label="View photo {{ loop.index }} of {{ gallery_images|length }}" title="Photo {{ loop.index }} of {{ gallery_images|length }}" {% if image.id == main_image.id %}aria-current="true"{% endif %}>
           <img src="{{ product_image_url(image) }}" alt="" loading="lazy">
         </button>
-        {% endif %}{% endfor %}
+        {% endfor %}
       </div>
       {% endif %}
+      <dialog class="product-image-dialog" data-product-image-dialog aria-label="Product photo viewer">
+        <button type="button" class="product-image-dialog-close" data-product-image-close aria-label="Close photo viewer">×</button>
+        <img data-product-lightbox-image src="{{ product_image_url(main_image) }}" alt="{{ product_image_alt(main_image) }}">
+      </dialog>
     </div>
 
     <div class="detail-copy product-purchase-panel">
@@ -69,7 +80,22 @@
       {% if active_variants %}
         <select id="variant-choice" class="product-option-native" aria-hidden="true" tabindex="-1" required>
           <option value="">Select an available option</option>
-          {% for variant in active_variants %}<option value="{{ variant.id }}" data-price="{{ money(variant.effective_price_cents, settings.currency) }}" data-previous-price="{{ money(variant.previous_price_cents, settings.currency) if variant.has_discount else '' }}" data-discount="{{ (variant.discount_percent ~ '% OFF') if variant.has_discount else '' }}" data-savings="{{ ('Save ' ~ money(variant.discount_amount_cents, settings.currency)) if variant.has_discount else '' }}" data-stock="{{ variant.available_quantity }}" data-size="{{ variant.size or '' }}" data-color="{{ variant.color or '' }}" data-style="{{ variant.style or '' }}" data-material="{{ variant.material or '' }}" data-pack-size="{{ variant.pack_size or '' }}" data-image="{{ product_image_url(variant.image) if variant.image else '' }}" data-image-alt="{{ product_image_alt(variant.image) if variant.image else '' }}" {% if variant.available_quantity < 1 %}disabled{% endif %}>{{ variant.label }}{% if variant.sku %} - {{ variant.sku }}{% endif %} - {{ variant.available_quantity }} available</option>{% endfor %}
+          {% for variant in active_variants %}
+          <option value="{{ variant.id }}"
+            data-price="{{ money(variant.effective_price_cents, settings.currency) }}"
+            data-previous-price="{{ money(variant.previous_price_cents, settings.currency) if variant.has_discount else '' }}"
+            data-discount="{{ (variant.discount_percent ~ '% OFF') if variant.has_discount else '' }}"
+            data-savings="{{ ('Save ' ~ money(variant.discount_amount_cents, settings.currency)) if variant.has_discount else '' }}"
+            data-stock="{{ variant.available_quantity }}" data-size="{{ variant.size or '' }}"
+            data-color="{{ variant.color or '' }}" data-style="{{ variant.style or '' }}"
+            data-material="{{ variant.material or '' }}" data-pack-size="{{ variant.pack_size or '' }}"
+            data-image="{{ product_image_url(variant.image) if variant.image else '' }}"
+            data-image-alt="{{ product_image_alt(variant.image) if variant.image else '' }}"
+            data-image-name="{{ variant.image.filename if variant.image else '' }}"
+            {% if variant.available_quantity < 1 %}disabled{% endif %}>
+            {{ variant.label }}{% if variant.sku %} - {{ variant.sku }}{% endif %} - {{ variant.available_quantity }} available
+          </option>
+          {% endfor %}
         </select>
         <div class="product-variant-picker" aria-label="Available product options">
           {{ variant_choice_group(active_variants, 'color', 'color', 'Colour', true) }}
@@ -158,6 +184,7 @@
     </aside>
   </div>
 </div>
+<script defer src="{{ url_for('static', filename='js/product-gallery.js') }}?v=product-gallery-interactions-20261125"></script>
 <script>
 (() => { try { const key='fity-recently-viewed-products'; const id={{ product.id|tojson }}; const saved=JSON.parse(localStorage.getItem(key)||'[]'); const ids=Array.isArray(saved)?saved.map(Number).filter(value=>Number.isInteger(value)&&value>0):[]; localStorage.setItem(key,JSON.stringify([id,...ids.filter(value=>value!==id)].slice(0,8))); } catch (_) {} })();
 </script>

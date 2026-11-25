@@ -131,6 +131,59 @@ def test_homepage_offers_scroll_copy_with_discounted_products(client, app):
     assert b'class="marquee-track"' not in offers
 
 
+def test_homepage_keeps_fresh_offers_and_sorts_by_highest_discount(client, app):
+    with app.app_context():
+        category = Category.query.first()
+        variant_offer = Product(
+            name="Variant Deal",
+            slug="variant-deal",
+            category=category,
+            description="An option-level offer",
+            price_cents=10000,
+            stock_quantity=4,
+            active=True,
+        )
+        db.session.add_all([
+            Product(
+                name="Biggest Deal",
+                slug="biggest-deal",
+                category=category,
+                description="Largest product discount",
+                price_cents=2500,
+                previous_price_cents=10000,
+                stock_quantity=4,
+                active=True,
+            ),
+            Product(
+                name="Middle Deal",
+                slug="middle-deal",
+                category=category,
+                description="Middle product discount",
+                price_cents=5000,
+                previous_price_cents=10000,
+                stock_quantity=4,
+                active=True,
+            ),
+            variant_offer,
+        ])
+        db.session.flush()
+        db.session.add(ProductVariant(
+            product=variant_offer,
+            price_cents=10000,
+            previous_price_cents=30000,
+            stock_quantity=4,
+            active=True,
+        ))
+        db.session.commit()
+
+    response = client.get("/")
+    assert response.status_code == 200
+    offers = response.data.split(b'id="discounted-goods"', 1)[1]
+    assert offers.index(b"Biggest Deal") < offers.index(b"Variant Deal")
+    assert offers.index(b"Variant Deal") < offers.index(b"Middle Deal")
+    assert offers.index(b"Middle Deal") < offers.index(b"Plain Socks")
+
+
 def test_admin_homepage_has_no_management_links_or_share_controls(client, app):
     _sign_in_admin(client, app)
     response = client.get("/")
@@ -1961,6 +2014,86 @@ def test_multiple_cloudinary_images_primary_selection(client, app, monkeypatch):
         product = Product.query.filter_by(slug="gallery-socks").first()
         assert len(product.images) == 2
         assert [image.is_primary for image in product.images] == [True, False]
+
+
+def test_admin_can_delete_product_when_optional_mamba_collection_table_is_missing(client, app):
+    from app.models import MambaCollectionItem
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        product_id = product.id
+        MambaCollectionItem.__table__.drop(db.engine)
+
+    response = client.post(
+        f"/admin/products/{product_id}/delete",
+        data={"confirm": "DELETE"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Product deleted." in response.data
+    with app.app_context():
+        assert db.session.get(Product, product_id) is None
+
+
+def test_admin_product_delete_removes_existing_mamba_collection_item(client, app):
+    from app.models import MambaCollectionItem
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        product_id = product.id
+        item = MambaCollectionItem(product_id=product_id, sort_order=0)
+        db.session.add(item)
+        db.session.commit()
+        item_id = item.id
+
+    response = client.post(
+        f"/admin/products/{product_id}/delete",
+        data={"confirm": "DELETE"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    with app.app_context():
+        assert db.session.get(Product, product_id) is None
+        assert db.session.get(MambaCollectionItem, item_id) is None
+
+
+def test_duplicate_product_photos_are_reused_and_gallery_is_deduplicated(client, app, monkeypatch):
+    app.config.update(CLOUDINARY_CLOUD_NAME="demo", CLOUDINARY_API_KEY="key", CLOUDINARY_API_SECRET="secret")
+    uploaded_ids = []
+    monkeypatch.setattr(
+        "app.admin.routes.upload_image_bytes",
+        lambda data, public_id, resource_type="image": uploaded_ids.append(public_id),
+    )
+    with app.app_context():
+        from app.admin.routes import append_cloudinary_image
+        from app.services.product_images import image_content_hash, product_gallery_images
+
+        product = Product.query.filter_by(slug="plain-socks").first()
+        image_data = b"identical product photo"
+        first = append_cloudinary_image(product, "socks.jpg", image_data, "Plain Socks image")
+        repeated = append_cloudinary_image(product, "socks-copy.jpg", image_data, "Plain Socks variant image", prefix="variants")
+        assert first is repeated
+        assert len(uploaded_ids) == 1
+        assert image_content_hash(image_data) in first.cloudinary_public_id
+
+        product.images.extend([
+            ProductImage(filename="legacy-repeat.jpg", cloudinary_public_id="legacy/one", alt_text="Repeated upload"),
+            ProductImage(filename="legacy-repeat.jpg", cloudinary_public_id="legacy/two", alt_text="Repeated upload"),
+            ProductImage(filename="legacy-distinct.jpg", cloudinary_public_id="legacy/three", alt_text="Distinct upload"),
+        ])
+        db.session.commit()
+        gallery_images = product_gallery_images(product)
+        assert sum(image.filename == "legacy-repeat.jpg" for image in gallery_images) == 1
+
+    response = client.get("/product/plain-socks")
+    assert response.status_code == 200
+    assert response.data.count(b"data-product-thumb=") == len(gallery_images)
+    assert b'data-product-gallery-step="-1"' in response.data
+    assert b"data-product-image-dialog" in response.data
 
 
 def test_cloudinary_url_and_legacy_fallback_helpers(app):

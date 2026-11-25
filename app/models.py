@@ -82,7 +82,7 @@ class Product(TimestampMixin, db.Model):
     variants = db.relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan", order_by="ProductVariant.sort_order")
     display_note = db.relationship("ProductDisplayNote", back_populates="product", cascade="all, delete-orphan", uselist=False)
     reviews = db.relationship("Review", back_populates="product")
-    mamba_collection_item = db.relationship("MambaCollectionItem", back_populates="product", cascade="all, delete-orphan", uselist=False)
+    mamba_collection_item = db.relationship("MambaCollectionItem", back_populates="product", cascade="all, delete-orphan", passive_deletes=True, uselist=False)
     __table_args__ = (
         CheckConstraint("stock_quantity >= 0", name="ck_product_stock_nonnegative"),
         CheckConstraint("reserved_quantity >= 0", name="ck_product_reserved_nonnegative"),
