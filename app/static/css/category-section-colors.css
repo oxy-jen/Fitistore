@@ -80,8 +80,7 @@
 .home-market > .category-showcase {
   border: 0;
   border-radius: 0;
-  background-color: #f2f2f2;
-  background-image: none;
+  background: linear-gradient(110deg, #050507 0%, #09070e 48%, #1b1024 100%);
 }
 
 .about-dash-current {
@@ -177,7 +176,11 @@
 .home-market > .category-showcase .section-title h2,
 .home-market > .category-showcase .section-title p:not(.eyebrow),
 .home-market > .category-showcase .home-section-actions > a {
-  color: #202124;
+  color: #f5f2fa;
+}
+
+.home-market > .category-showcase .department-card-copy h3 {
+  color: #f5f2fa;
 }
 
 .home-market > .category-showcase .section-title .eyebrow {
