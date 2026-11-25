@@ -80,7 +80,7 @@
 .home-market > .category-showcase {
   border: 0;
   border-radius: 0;
-  background: linear-gradient(110deg, #050507 0%, #09070e 48%, #1b1024 100%);
+  background: linear-gradient(110deg, #281437 0%, #3b1e4c 48%, #572d68 100%);
 }
 
 .about-dash-current {
@@ -180,6 +180,10 @@
 }
 
 .home-market > .category-showcase .department-card-copy h3 {
+  color: #f5f2fa;
+}
+
+.home-market > .category-showcase .department-card-copy {
   color: #f5f2fa;
 }
 
