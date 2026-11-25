@@ -379,10 +379,6 @@ def home():
     home_og_image = url_for("public.home_share_card", section=requested_share, _external=True)
     public_origin = (current_app.config.get("PUBLIC_BASE_URL") or "https://fitystore.top").rstrip("/")
     home_canonical = public_origin + "/" if requested_share == "home" and "share" not in request.args else public_origin + url_for("public.home", share=requested_share)
-    home_share_urls = {
-        key: url_for("public.home", share=key, _anchor={"featured": "featured-picks", "popular": "most-added", "categories": "category-showcase", "offers": "discounted-goods", "mamba": "mamba-collection", "upcoming": "upcoming-strip"}.get(key, ""), _external=True)
-        for key in home_share_specs if key != "home"
-    }
     media_showcases = showcases_by_placement("home")
     return render_template(
         "home.html", title="FityStores essentials", seo_title=section_title + " | FityStores",
@@ -394,7 +390,7 @@ def home():
         category_sections=category_sections, mamba_products=mamba_products, mamba_categories=mamba_categories,
         mamba_collection_configured=mamba_collection_configured,
         suggestion_categories=SUGGESTION_CATEGORIES, upcoming_merchandise=UPCOMING_MERCHANDISE,
-        home_share_urls=home_share_urls, requested_share=requested_share, media_showcases=media_showcases,
+        media_showcases=media_showcases,
     )
 
 

@@ -77,19 +77,24 @@ def test_homepage_renders(client):
     assert b"home-banner-pause-icon" in rv.data
     assert b"home-banner-play-icon" in rv.data
     assert b'home-banner-action-short">Track</span>' in rv.data
-    assert b'home-banner-action-short">Share</span>' in rv.data
+    assert b"data-share-facebook" not in rv.data
+    assert b"data-share-native" not in rv.data
     assert b"https://www.facebook.com/oxy.jen.975729" in rv.data
     assert b"https://www.tiktok.com/@official_fitystore" in rv.data
-    assert b"Manage featured products" not in rv.data
     assert b"Manage products" not in rv.data
+    assert b"Manage featured products" not in rv.data
     assert b"Manage category images" not in rv.data
 
 
-def test_admin_homepage_links_to_category_image_editor(client, app):
+def test_admin_homepage_has_no_management_links_or_share_controls(client, app):
     _sign_in_admin(client, app)
     response = client.get("/")
     assert response.status_code == 200
-    assert b"Manage category images" in response.data
+    assert b"Manage products" not in response.data
+    assert b"Manage featured products" not in response.data
+    assert b"Manage category images" not in response.data
+    assert b"data-share-facebook" not in response.data
+    assert b"data-share-native" not in response.data
 
 
 def test_postgresql_pool_checks_stale_connections_and_recycles():
@@ -1082,6 +1087,7 @@ def test_about_renders_live_categories_products_and_working_destinations(client)
     assert b"making everyday fashion essentials accessible, convenient, and affordable" in rv.data
     assert b"Ankle socks" in rv.data
     assert b"Plain Socks" in rv.data
+    assert b"data-share-facebook" in rv.data
     assert b'href="/shop?category=ankle-socks"' in rv.data
     assert b'href="/contact"' in rv.data
     assert b'href="#about-help"' in rv.data
