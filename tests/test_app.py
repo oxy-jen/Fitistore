@@ -65,7 +65,15 @@ def _confirmed_customer_email_migration_args():
 def test_homepage_renders(client):
     rv = client.get("/")
     assert rv.status_code == 200
-    assert b"Your Style." in rv.data
+    assert b"Shop Smart." in rv.data
+    assert b"Black Friday" in rv.data
+    assert rv.data.count(b"data-home-banner-slide") == 4
+    assert rv.data.index(b"aria-label=\"1 of 4: Get ready for Black Friday\"") < rv.data.index(b"aria-label=\"2 of 4: Shop smart, dress better\"")
+    assert b"images/home-banner/home1banner.webp" in rv.data
+    assert b"images/home-banner/home2banner.webp" in rv.data
+    assert b"images/home-banner/home3banner.webp" in rv.data
+    assert b"data-home-banner-next" in rv.data
+    assert b"data-home-banner-toggle" in rv.data
     assert b"https://www.facebook.com/oxy.jen.975729" in rv.data
     assert b"https://www.tiktok.com/@official_fitystore" in rv.data
 

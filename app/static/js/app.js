@@ -220,6 +220,78 @@ document.addEventListener('DOMContentLoaded',()=>{
   }
 
   const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.querySelectorAll('[data-home-banner]').forEach(banner=>{
+    const slides=Array.from(banner.querySelectorAll('[data-home-banner-slide]'));
+    const previous=banner.querySelector('[data-home-banner-previous]');
+    const next=banner.querySelector('[data-home-banner-next]');
+    const dots=Array.from(banner.querySelectorAll('[data-home-banner-dot]'));
+    const toggle=banner.querySelector('[data-home-banner-toggle]');
+    const toggleLabel=toggle?.querySelector('[data-home-banner-toggle-label]');
+    if(slides.length<2||!previous||!next||dots.length!==slides.length||!toggle||!toggleLabel)return;
+    const interval=Math.max(5000,Number(banner.dataset.interval)||7500);
+    let activeIndex=0;
+    let timer=0;
+    let userPaused=false;
+    let hoverPaused=false;
+    let focusPaused=false;
+    const schedule=()=>{
+      window.clearTimeout(timer);
+      timer=0;
+      if(reducedMotion||userPaused||hoverPaused||focusPaused||document.hidden)return;
+      timer=window.setTimeout(()=>show(activeIndex+1),interval);
+    };
+    const show=index=>{
+      activeIndex=(index+slides.length)%slides.length;
+      slides.forEach((slide,slideIndex)=>{
+        const active=slideIndex===activeIndex;
+        slide.hidden=!active;
+        slide.inert=!active;
+        slide.classList.toggle('is-active',active);
+        slide.setAttribute('aria-hidden',String(!active));
+      });
+      dots.forEach((dot,dotIndex)=>{
+        if(dotIndex===activeIndex)dot.setAttribute('aria-current','true');
+        else dot.removeAttribute('aria-current');
+      });
+      schedule();
+    };
+    const updatePauseControl=()=>{
+      toggleLabel.textContent=userPaused?'Play':'Pause';
+      toggle.setAttribute('aria-label',userPaused?'Resume banner rotation':'Pause banner rotation');
+      toggle.setAttribute('aria-pressed',String(userPaused));
+    };
+    previous.addEventListener('click',()=>show(activeIndex-1));
+    next.addEventListener('click',()=>show(activeIndex+1));
+    dots.forEach((dot,dotIndex)=>dot.addEventListener('click',()=>show(dotIndex)));
+    toggle.addEventListener('click',()=>{
+      userPaused=!userPaused;
+      updatePauseControl();
+      schedule();
+    });
+    banner.addEventListener('pointerenter',event=>{
+      if(event.pointerType!=='mouse'&&event.pointerType!=='pen')return;
+      hoverPaused=true;
+      schedule();
+    });
+    banner.addEventListener('pointerleave',event=>{
+      if(event.pointerType!=='mouse'&&event.pointerType!=='pen')return;
+      hoverPaused=false;
+      schedule();
+    });
+    banner.addEventListener('focusin',()=>{
+      focusPaused=true;
+      schedule();
+    });
+    banner.addEventListener('focusout',event=>{
+      if(banner.contains(event.relatedTarget))return;
+      focusPaused=false;
+      schedule();
+    });
+    document.addEventListener('visibilitychange',schedule);
+    if(reducedMotion)toggle.hidden=true;
+    updatePauseControl();
+    show(activeIndex);
+  });
   document.querySelectorAll('[data-footer-rotator]').forEach(rotator=>{
     const slides=[...rotator.querySelectorAll('[data-footer-slide]')];
     if(slides.length<2||reducedMotion)return;

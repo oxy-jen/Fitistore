@@ -3,12 +3,57 @@
   <section class="market-hero home-shop-start" aria-label="Start shopping">
     <div class="market-main">
       <form class="market-search" action="{{ url_for('public.shop') }}"><input name="q" placeholder="Search products, brands, categories..." aria-label="Search products"><button class="btn primary"><svg class="icon"><use href="#icon-search"></use></svg><span>Search</span></button></form>
-      <div class="market-banner compact-banner home-banner">
-        <img class="home-banner-photo" src="{{ url_for('static', filename='images/shop-hero/home-banner.png') }}" alt="Fity apparel, shoes, socks, cap and gift box">
-        <div class="home-banner-copy"><p class="eyebrow">Everyday essentials</p>
-          <h1>Your Style.<br><span>Your Essentials.</span></h1>
-          <p>Discover everyday finds, fresh arrivals and styles that fit your budget.</p>
-          <div class="actions"><a class="btn primary" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Shop now</span><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></a><a class="btn home-track-button" href="{{ url_for('public.track_order') }}"><svg class="icon"><use href="#icon-truck"></use></svg><span>Track order</span></a><span class="home-social-share" data-social-share data-share-url="{{ url_for('public.home', share='home', _external=True) }}" data-share-image="{{ url_for('public.home_share_card', section='home') }}"><button class="btn home-share-button" type="button" data-share-facebook>Share page</button></span></div>
+      <div class="market-banner home-banner" data-home-banner data-interval="7500" role="region" aria-roledescription="carousel" aria-label="FityStores featured collections">
+        <article class="home-banner-slide home-banner-slide--dark home-banner-slide--black-friday is-active" data-home-banner-slide aria-label="1 of 4: Get ready for Black Friday">
+          <img class="home-banner-photo" src="{{ url_for('static', filename='images/home-banner/home3banner.webp') }}" alt="Black Friday FityStores fashion and footwear offer" fetchpriority="high">
+          <div class="home-banner-copy">
+            <p class="eyebrow">Black Friday</p>
+            <h1>Get ready for<br><span>Black Friday.</span></h1>
+            <p>Your wish list starts here—explore standout finds and seasonal offers.</p>
+            <div class="actions"><a class="btn primary" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Explore the shop</span><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></a></div>
+          </div>
+        </article>
+        <article class="home-banner-slide home-banner-slide--light home-banner-slide--everyday" data-home-banner-slide aria-label="2 of 4: Shop smart, dress better" aria-hidden="true" hidden inert>
+          <img class="home-banner-photo" src="{{ url_for('static', filename='images/home-banner/home1banner.webp') }}" alt="FityStores shoppers showing apparel, footwear and accessories" loading="eager">
+          <div class="home-banner-copy">
+            <p class="eyebrow">Fashion · Comfort · Style</p>
+            <h2>Shop Smart.<br><span>Dress Better.</span></h2>
+            <p>Trendy outfits, quality shoes and everyday essentials—all in one place.</p>
+            <div class="actions">
+              <a class="btn primary" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Shop now</span><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></a>
+              <a class="btn home-track-button" href="{{ url_for('public.track_order') }}" aria-label="Track your order"><svg class="icon" aria-hidden="true"><use href="#icon-truck"></use></svg><span class="home-banner-action-label">Track order</span></a>
+              <span class="home-social-share" data-social-share data-share-url="{{ url_for('public.home', share='home', _external=True) }}" data-share-image="{{ url_for('public.home_share_card', section='home') }}"><button class="btn home-share-button" type="button" data-share-facebook aria-label="Share this page"><svg class="icon" aria-hidden="true"><path d="M12 15V3m-5 5 5-5 5 5M5 13v6h14v-6"></path></svg><span class="home-banner-action-label">Share page</span></button></span>
+            </div>
+          </div>
+        </article>
+        <article class="home-banner-slide home-banner-slide--dark home-banner-slide--discover" data-home-banner-slide aria-label="3 of 4: Find your new everyday favourite" aria-hidden="true" hidden inert>
+          <img class="home-banner-photo" src="{{ url_for('static', filename='images/home-banner/home2banner.webp') }}" alt="FityStores fashion and footwear collection" loading="eager">
+          <div class="home-banner-copy">
+            <p class="eyebrow">Fity finds</p>
+            <h2>Find your new<br><span>everyday favourite.</span></h2>
+            <p>Fresh fits and footwear for every plan on your calendar.</p>
+            <div class="actions"><a class="btn primary" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Explore styles</span><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></a></div>
+          </div>
+        </article>
+        <article class="home-banner-slide home-banner-slide--dark home-banner-slide--brand" data-home-banner-slide aria-label="4 of 4: Style that fits your everyday" aria-hidden="true" hidden inert>
+          <img class="home-banner-photo" src="{{ url_for('static', filename='images/shop-hero/home-banner.png') }}" alt="Fity apparel, shoes, socks, cap and gift box" loading="eager">
+          <div class="home-banner-copy">
+            <p class="eyebrow">FityStores · Fits Poa</p>
+            <h2>Style that fits<br><span>your everyday.</span></h2>
+            <p>From comfortable fits to finishing touches, find pieces for every day.</p>
+            <div class="actions"><a class="btn primary" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Shop essentials</span><svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></a></div>
+          </div>
+        </article>
+        <div class="home-banner-controls" role="group" aria-label="Banner controls">
+          <button class="home-banner-arrow" type="button" data-home-banner-previous aria-label="Previous banner"><svg class="icon" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button>
+          <div class="home-banner-dots" role="group" aria-label="Choose a banner">
+            <button type="button" data-home-banner-dot aria-label="Show banner 1: Black Friday" aria-current="true"></button>
+            <button type="button" data-home-banner-dot aria-label="Show banner 2: Shop Smart, Dress Better"></button>
+            <button type="button" data-home-banner-dot aria-label="Show banner 3: Everyday favourites"></button>
+            <button type="button" data-home-banner-dot aria-label="Show banner 4: Everyday style"></button>
+          </div>
+          <button class="home-banner-arrow" type="button" data-home-banner-next aria-label="Next banner"><svg class="icon" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
+          <button class="home-banner-toggle" type="button" data-home-banner-toggle aria-label="Pause banner rotation" aria-pressed="false"><span data-home-banner-toggle-label>Pause</span></button>
         </div>
       </div>
       <div class="home-banner-benefits" aria-label="FityStores service benefits"><article><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><div><strong>Quality products</strong><span>Trusted and verified</span></div></article><article><svg class="icon" aria-hidden="true"><use href="#icon-truck"></use></svg><div><strong>Fast delivery</strong><span>To your doorstep</span></div></article><article><svg class="icon" aria-hidden="true"><use href="#icon-headset"></use></svg><div><strong>Customer support</strong><span>We’re here to help</span></div></article></div>
