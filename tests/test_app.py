@@ -74,6 +74,8 @@ def test_homepage_renders(client):
     assert b"images/home-banner/home3banner.webp" in rv.data
     assert b"data-home-banner-next" in rv.data
     assert b"data-home-banner-toggle" in rv.data
+    assert b"home-banner-pause-icon" in rv.data
+    assert b"home-banner-play-icon" in rv.data
     assert b'home-banner-action-short">Track</span>' in rv.data
     assert b'home-banner-action-short">Share</span>' in rv.data
     assert b"https://www.facebook.com/oxy.jen.975729" in rv.data
