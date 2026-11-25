@@ -86,6 +86,20 @@ def test_homepage_renders(client):
     assert b"Manage category images" not in rv.data
 
 
+def test_homepage_groups_request_and_fulfillment_options(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert b'id="stock-request-title"' in response.data
+    assert b"Send a stock request" in response.data
+    assert b'action="/mamba-suggestion"' in response.data
+    assert b"Ask on WhatsApp" in response.data
+    assert b'id="home-fulfillment-title"' in response.data
+    assert b'class="delivery-motorbike"' in response.data
+    assert b"walker-arm-a" in response.data
+    assert b"walker-arm-b" in response.data
+    assert b"payment-motion" in response.data
+
+
 def test_homepage_offers_scroll_copy_with_discounted_products(client, app):
     with app.app_context():
         category = Category.query.first()
