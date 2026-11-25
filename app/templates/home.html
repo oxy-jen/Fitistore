@@ -90,7 +90,28 @@
     <div class="department-scroll" data-home-scroll-rail="shop categories" tabindex="0" aria-label="Scroll through shop categories"><div class="department-grid">{% for section in category_sections %}<article class="department-card"><a class="department-image-link" href="{{ url_for('public.shop', category_group=section.group.key) }}" aria-label="Shop {{ section.group.name }}"><img src="{{ section.thumbnail_url }}" alt="{{ section.thumbnail_alt }}" loading="lazy"></a><div class="department-card-copy"><div><h3><a href="{{ url_for('public.shop', category_group=section.group.key) }}">{{ section.group.name }}</a></h3><p>{{ section.group.description }}</p></div>{% if section.products %}<a class="department-shop-link" href="{{ url_for('public.shop', category_group=section.group.key) }}">Shop now <span aria-hidden="true">→</span></a>{% else %}<span class="department-coming-soon">Coming soon</span>{% endif %}</div></article>{% endfor %}</div></div><nav class="home-scroll-dots" data-home-scroll-dots aria-label="Shop categories scrolling"></nav>
   </section>
 
-  {% if discounted %}<section class="product-section promo-showcase" id="discounted-goods"><div class="section-title"><div><p class="eyebrow">Offers</p><h2>Discounted goods</h2></div><a href="{{ url_for('public.shop', sort='price-low') }}">Browse offers</a></div><div class="product-marquee" aria-label="Discounted promotional products"><div class="marquee-track">{% for copy in range(4) %}<div class="marquee-group"{% if copy %} aria-hidden="true" inert{% endif %}>{% for product in discounted %}<div class="marquee-item">{% with home_product_card=true %}{% include "partials/product_card.html" %}{% endwith %}</div>{% endfor %}</div>{% endfor %}</div></div></section>{% endif %}
+  {% if discounted %}
+  <section class="product-section promo-showcase" id="discounted-goods">
+    <div class="offers-scroll-rail" data-home-scroll-rail="discounted offers">
+      <div class="offers-scroll-viewport" data-home-scroll-track tabindex="0" aria-label="Scroll through FityStores offers">
+        <div class="offers-scroll-content">
+          <div class="offers-intro-panel">
+            <p class="eyebrow">FityStores offers</p>
+            <h2>Discounted<br><span>goods</span></h2>
+            <p>Selected styles and everyday essentials, now for less.</p>
+            <a href="{{ url_for('public.shop', sort='price-low') }}">Browse offers <span aria-hidden="true">→</span></a>
+          </div>
+          {% for product in discounted %}
+          <div class="offers-product-item">
+            {% include "partials/offer_product_card.html" %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <nav class="home-scroll-dots offers-scroll-dots" data-home-scroll-dots aria-label="Discounted offers scroll positions"></nav>
+    </div>
+  </section>
+  {% endif %}
 
   {% for showcase_group in media_showcases.home_before_mamba %}{% include "partials/media_showcase_group.html" %}{% endfor %}
   <section class="mamba-browser" id="mamba-collection">

@@ -2,7 +2,7 @@ import io
 import hashlib
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
@@ -84,6 +84,37 @@ def test_homepage_renders(client):
     assert b"Manage products" not in rv.data
     assert b"Manage featured products" not in rv.data
     assert b"Manage category images" not in rv.data
+
+
+def test_homepage_offers_scroll_copy_with_discounted_products(client, app):
+    with app.app_context():
+        category = Category.query.first()
+        for index in range(8):
+            db.session.add(Product(
+                name=f"New Arrival {index}",
+                slug=f"new-arrival-{index}",
+                category=category,
+                description="New everyday item",
+                price_cents=5000,
+                stock_quantity=3,
+                active=True,
+                created_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=index + 1),
+            ))
+        db.session.commit()
+
+    response = client.get("/")
+    assert response.status_code == 200
+    offers = response.data.split(b'id="discounted-goods"', 1)[1]
+    assert b'data-home-scroll-rail="discounted offers"' in offers
+    assert b'data-home-scroll-track' in offers
+    assert b'tabindex="0"' in offers
+    assert b'data-home-scroll-dots' in offers
+    assert b"FityStores offers" in offers
+    assert b"Browse offers" in offers
+    assert b"Plain Socks" in offers
+    assert offers.index(b'class="offers-intro-panel"') < offers.index(b'class="offers-product-card"')
+    assert b'class="product-marquee"' not in offers
+    assert b'class="marquee-track"' not in offers
 
 
 def test_admin_homepage_has_no_management_links_or_share_controls(client, app):
