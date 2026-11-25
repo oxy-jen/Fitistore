@@ -947,11 +947,13 @@ body:has(.about-page) .site-header .nav a[href*="about"]{color:#dc2626;border-bo
 .home-banner .home-track-button,.home-banner .home-share-button{border:1px solid rgba(31,35,40,.18);background:rgba(255,255,255,.88);color:#252a31;backdrop-filter:blur(8px);transition:background .2s ease,color .2s ease,border-color .2s ease,transform .2s ease}
 .home-banner-slide--dark .home-track-button,.home-banner-slide--dark .home-share-button{border-color:rgba(255,255,255,.34);background:rgba(15,15,18,.55);color:#fff}
 .home-banner .home-track-button:hover,.home-banner .home-share-button:hover{border-color:#e52335;background:#fff0f1;color:#a7192a;transform:translateY(-1px)}
+.home-banner-action-short{display:none}
 .home-banner-controls{position:absolute;z-index:4;right:.7rem;bottom:.65rem;display:flex;align-items:center;gap:.12rem;padding:.16rem .22rem;transform:none;border:1px solid rgba(255,255,255,.2);border-radius:999px;background:rgba(12,13,16,.62);color:#fff;box-shadow:0 2px 9px rgba(0,0,0,.16);backdrop-filter:blur(8px)}
 .home-banner-arrow,.home-banner-toggle,.home-banner-dots button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;min-height:28px;border:0;color:#fff;cursor:pointer}
 .home-banner-arrow{width:28px;border-radius:50%;background:rgba(255,255,255,.1)}
 .home-banner-arrow:hover,.home-banner-toggle:hover{background:#e52335}
 .home-banner-arrow .icon{width:14px;height:14px;margin:0}
+.home-banner-arrow:focus-visible,.home-banner-toggle:focus-visible,.home-banner-dots button:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .home-banner-dots{display:flex;align-items:center;gap:.28rem;padding:0 .12rem}
 .home-banner-dots button{width:7px;height:7px;min-height:7px;padding:0;border-radius:999px;background:rgba(255,255,255,.56);transition:width .2s ease,background .2s ease}
 .home-banner-dots button[aria-current="true"]{width:14px;background:#ff3548}
@@ -975,18 +977,20 @@ body:has(.about-page) .site-header .nav a[href*="about"]{color:#dc2626;border-bo
   .home-banner-slide--light::before{background:linear-gradient(90deg,rgba(255,255,255,.97) 0%,rgba(255,255,255,.91) 43%,rgba(255,255,255,.68) 61%,rgba(255,255,255,.18) 82%,transparent 100%)}
   .home-banner-slide--dark::before{background:linear-gradient(90deg,rgba(8,8,10,.97) 0%,rgba(8,8,10,.9) 44%,rgba(8,8,10,.68) 64%,rgba(8,8,10,.3) 84%,rgba(8,8,10,.1) 100%)}
   .home-banner-copy{width:min(78%,390px)}
-  .home-banner h1,.home-banner h2{font-size:clamp(1.8rem,8.5vw,2.7rem)}
-  .home-banner-copy>p:not(.eyebrow){max-width:34ch;font-size:.86rem}
+  .home-banner h1,.home-banner h2{font-size:clamp(1.8rem,8vw,2.4rem)}
+  .home-banner-copy>p:not(.eyebrow){max-width:34ch;font-size:.9rem;line-height:1.45}
   .home-banner .actions{gap:.4rem;margin-top:.65rem}
   .home-banner .actions .btn{min-height:40px;padding:.55rem .7rem;font-size:.78rem}
-  .home-banner .home-track-button,.home-banner .home-share-button{width:40px;min-width:40px;padding:.5rem}
-  .home-banner .home-banner-action-label{display:none}
-  .home-banner .home-social-share,.home-banner .home-social-share .btn{height:40px;min-height:40px}
+  .home-banner .home-track-button,.home-banner .home-share-button{width:auto;min-width:40px;padding:.45rem .55rem}
+  .home-banner .home-banner-action-label{display:inline;font-size:.68rem}
+  .home-banner-action-full{display:none}
+  .home-banner-action-short{display:inline}
+  .home-banner .home-social-share,.home-banner .home-social-share .btn{height:36px;min-height:36px}
   .home-banner-controls{right:.45rem;bottom:.45rem;gap:.08rem;padding:.12rem .18rem}
-  .home-banner-arrow,.home-banner-toggle{min-height:26px}
-  .home-banner-arrow{width:26px}
-  .home-banner-arrow .icon{width:13px;height:13px}
-  .home-banner-toggle{min-width:38px;padding:0 .3rem;font-size:.55rem}
+  .home-banner-arrow,.home-banner-toggle{min-height:32px}
+  .home-banner-arrow{width:30px}
+  .home-banner-arrow .icon{width:16px;height:16px;stroke-width:2.5}
+  .home-banner-toggle{min-width:40px;padding:0 .32rem;font-size:.62rem}
   .home-banner-dots{gap:.24rem}
   .home-banner-dots button{width:6px;height:6px;min-height:6px}
   .home-banner-dots button[aria-current="true"]{width:12px}
@@ -997,12 +1001,13 @@ body:has(.about-page) .site-header .nav a[href*="about"]{color:#dc2626;border-bo
   .home-banner-benefits span{display:none}
 }
 @media(max-width:390px){
-  .home-banner{height:278px;min-height:278px}
-  .home-banner-slide{padding-right:.7rem;padding-left:.75rem}
+  .home-banner{height:278px;min-height:278px;margin-bottom:3rem;overflow:visible}
+  .home-banner-slide{padding-right:.7rem;padding-bottom:1rem;padding-left:.75rem}
   .home-banner-copy{width:100%}
-  .home-banner .eyebrow{font-size:.6rem}
-  .home-banner h1,.home-banner h2{font-size:clamp(1.65rem,8.2vw,2.1rem)}
-  .home-banner-copy>p:not(.eyebrow){font-size:.8rem}
+  .home-banner-controls{top:calc(100% + .4rem);right:50%;bottom:auto;transform:translateX(50%)}
+  .home-banner .eyebrow{font-size:.68rem}
+  .home-banner h1,.home-banner h2{font-size:clamp(1.8rem,8vw,2.3rem)}
+  .home-banner-copy>p:not(.eyebrow){font-size:.9rem}
   .home-banner-benefits article{gap:.25rem}
   .home-banner-benefits article>.icon{flex-basis:26px;width:26px;height:26px;padding:5px}
   .home-banner-benefits strong{font-size:.58rem}
