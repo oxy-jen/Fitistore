@@ -391,6 +391,7 @@
 }
 
 .home-market > .top-added-showcase .most-added-product-card {
+  position: relative;
   border: 2px solid transparent !important;
   border-radius: 8px !important;
   background: transparent !important;
@@ -439,6 +440,62 @@
   font-size: .72rem;
 }
 
+.home-market > .top-added-showcase .most-added-product-card::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #ff4d8d, #ffc857, #51e3b2, #53a9ff, #c17bff);
+  content: "";
+  pointer-events: none;
+}
+
+.home-market > .top-added-showcase .most-added-page:first-child > .marquee-item:first-child .most-added-product-card,
+.home-market > .top-added-showcase .most-added-track > .marquee-item:first-child .most-added-product-card {
+  border-color: transparent !important;
+  background:
+    linear-gradient(#2b1b10, #2b1b10) padding-box,
+    linear-gradient(135deg, #ff4d8d, #ffc857, #51e3b2, #53a9ff, #c17bff) border-box !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .38) !important;
+}
+
+.home-market > .top-added-showcase .most-added-page:first-child > .marquee-item:first-child .most-added-product-card::after,
+.home-market > .top-added-showcase .most-added-track > .marquee-item:first-child .most-added-product-card::after {
+  display: none;
+}
+
+.home-market > .top-added-showcase .most-added-page:first-child > .marquee-item:first-child .most-added-product-card > .product-body,
+.home-market > .top-added-showcase .most-added-track > .marquee-item:first-child .most-added-product-card > .product-body {
+  color: #f5f5f7;
+}
+
+.home-market > .top-added-showcase .most-added-page:first-child > .marquee-item:first-child .most-added-product-card > .product-body > .category,
+.home-market > .top-added-showcase .most-added-track > .marquee-item:first-child .most-added-product-card > .product-body > .category {
+  color: #ddd1c6;
+}
+
+.home-market > .top-added-showcase .most-added-page:first-child > .marquee-item:first-child .most-added-product-card .most-added-product-name,
+.home-market > .top-added-showcase .most-added-page:first-child > .marquee-item:first-child .most-added-product-card .most-added-product-name a,
+.home-market > .top-added-showcase .most-added-track > .marquee-item:first-child .most-added-product-card .most-added-product-name,
+.home-market > .top-added-showcase .most-added-track > .marquee-item:first-child .most-added-product-card .most-added-product-name a {
+  color: #fff;
+}
+
+.home-market > .top-added-showcase .most-added-page:first-child > .marquee-item:first-child .most-added-product-card .most-added-price,
+.home-market > .top-added-showcase .most-added-track > .marquee-item:first-child .most-added-product-card .most-added-price {
+  color: #8be2a9;
+}
+
+.home-market > .top-added-showcase .most-added-page:first-child > .marquee-item:first-child .most-added-product-card .most-added-original-price,
+.home-market > .top-added-showcase .most-added-page:first-child > .marquee-item:first-child .most-added-product-card .most-added-original-price s,
+.home-market > .top-added-showcase .most-added-page:first-child > .marquee-item:first-child .most-added-product-card .most-added-cart-count,
+.home-market > .top-added-showcase .most-added-track > .marquee-item:first-child .most-added-product-card .most-added-original-price,
+.home-market > .top-added-showcase .most-added-track > .marquee-item:first-child .most-added-product-card .most-added-original-price s,
+.home-market > .top-added-showcase .most-added-track > .marquee-item:first-child .most-added-product-card .most-added-cart-count {
+  color: #d3d6dc;
+}
+
 .home-market > .top-added-showcase .most-added-product-card:hover,
 .home-market > .top-added-showcase .most-added-product-card:focus-within,
 .home-market > .top-added-showcase .most-added-product-card:active {
@@ -448,6 +505,12 @@
     linear-gradient(135deg, #ff4d8d, #ffc857, #51e3b2, #53a9ff, #c17bff) border-box !important;
   box-shadow: 0 8px 22px rgba(0, 0, 0, .38) !important;
   transform: translateY(-2px);
+}
+
+.home-market > .top-added-showcase .most-added-product-card:hover::after,
+.home-market > .top-added-showcase .most-added-product-card:focus-within::after,
+.home-market > .top-added-showcase .most-added-product-card:active::after {
+  display: none;
 }
 
 .home-market > .top-added-showcase .most-added-product-card:hover > .product-body,
