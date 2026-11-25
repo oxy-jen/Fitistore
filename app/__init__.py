@@ -167,6 +167,11 @@ def create_app(config_object=Config, *, initialize_media_showcases=False):
     app.extensions["upcoming_product_schema_ready"] = None
     app.extensions["product_like_schema_ready"] = None
     app.extensions["product_display_note_schema_ready"] = None
+    app.extensions["product_variant_discount_schema_ready"] = None
+    if initialize_media_showcases and not app.testing:
+        with app.app_context():
+            ensure_product_variant_discount_schema()
+            app.extensions["product_variant_discount_schema_ready"] = True
     if initialize_media_showcases and not app.testing and app.config.get("AUTO_INITIALIZE_MEDIA_SHOWCASES", True):
         from .services.media_showcases import ensure_media_showcase_schema
         with app.app_context():
@@ -1439,6 +1444,8 @@ def ensure_columns():
             db.session.execute(text('ALTER TABLE product_variant ADD COLUMN pack_size VARCHAR(80) DEFAULT ""'))
         if "price_cents" not in variant_columns:
             db.session.execute(text('ALTER TABLE product_variant ADD COLUMN price_cents INTEGER'))
+        if "previous_price_cents" not in variant_columns:
+            db.session.execute(text('ALTER TABLE product_variant ADD COLUMN previous_price_cents INTEGER'))
         if "unit_cost_cents" not in variant_columns:
             db.session.execute(text('ALTER TABLE product_variant ADD COLUMN unit_cost_cents INTEGER'))
         if "stock_quantity" not in variant_columns:
@@ -1639,6 +1646,33 @@ def ensure_columns():
             db.session.execute(text('ALTER TABLE shop_settings ADD COLUMN referral_min_order_cents INTEGER DEFAULT 0 NOT NULL'))
 
     db.session.commit()
+
+
+def ensure_product_variant_discount_schema(engine=None):
+    """Add the nullable variant previous-price column to an existing store database."""
+    from sqlalchemy import inspect, text
+
+    engine = engine or db.engine
+    dialect = engine.dialect.name
+    if dialect not in {"sqlite", "postgresql"}:
+        raise RuntimeError(f"Variant discount schema setup does not support {dialect}.")
+
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        if not inspector.has_table("product_variant"):
+            return False
+        columns = {column["name"] for column in inspector.get_columns("product_variant")}
+        if "previous_price_cents" in columns:
+            return False
+        if dialect == "postgresql":
+            connection.execute(text(
+                "ALTER TABLE product_variant ADD COLUMN IF NOT EXISTS previous_price_cents INTEGER"
+            ))
+        else:
+            connection.execute(text(
+                "ALTER TABLE product_variant ADD COLUMN previous_price_cents INTEGER"
+            ))
+        return True
 
 
 

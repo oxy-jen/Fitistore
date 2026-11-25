@@ -1,5 +1,6 @@
 {% set offer_image = product_display_image(product) %}
 {% set offer_url = url_for('public.product_detail', slug=product.slug) %}
+{% set discounted_variants = product.active_variants|selectattr('has_discount')|list %}
 <article class="offers-product-card" data-product-card="{{ product.id }}">
   <div class="offers-product-copy">
     <p class="offers-product-category">{{ product.category.name }}</p>
@@ -9,7 +10,18 @@
     <img src="{{ product_image_url(offer_image) }}" alt="{{ product_image_alt(offer_image, product.name) }}" loading="lazy" width="540" height="540">
   </a>
   <div class="offers-price-group">
-    <a class="offers-current-price" href="{{ offer_url }}">{{ money(product.price_cents, settings.currency) }}</a>
-    <s class="offers-original-price">{{ money(product.previous_price_cents, settings.currency) }}</s>
+    {% if discounted_variants %}
+      {% set sale_prices = discounted_variants|map(attribute='effective_price_cents')|list %}
+      {% set previous_prices = discounted_variants|map(attribute='previous_price_cents')|list %}
+      {% set savings = discounted_variants|map(attribute='discount_amount_cents')|list %}
+      {% set discount_percents = discounted_variants|map(attribute='discount_percent')|list %}
+      <a class="offers-current-price" href="{{ offer_url }}">{% if sale_prices|min == sale_prices|max %}{{ money(sale_prices|min, settings.currency) }}{% else %}{{ money(sale_prices|min, settings.currency) }} – {{ money(sale_prices|max, settings.currency) }}{% endif %}</a>
+      <s class="offers-original-price">{% if previous_prices|min == previous_prices|max %}{{ money(previous_prices|min, settings.currency) }}{% else %}{{ money(previous_prices|min, settings.currency) }} – {{ money(previous_prices|max, settings.currency) }}{% endif %}</s>
+      <span class="offers-discount-note">{% if savings|min == savings|max %}Save {{ money(savings|min, settings.currency) }}{% else %}Save {{ money(savings|min, settings.currency) }} – {{ money(savings|max, settings.currency) }}{% endif %} · {% if discount_percents|min == discount_percents|max %}{{ discount_percents|max }}% off selected options{% else %}up to {{ discount_percents|max }}% off options{% endif %}</span>
+    {% else %}
+      <a class="offers-current-price" href="{{ offer_url }}">{{ money(product.price_cents, settings.currency) }}</a>
+      <s class="offers-original-price">{{ money(product.previous_price_cents, settings.currency) }}</s>
+      <span class="offers-discount-note">Save {{ money(product.previous_price_cents - product.price_cents, settings.currency) }} · {{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% off</span>
+    {% endif %}
   </div>
 </article>

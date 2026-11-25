@@ -1100,7 +1100,7 @@ IMAGE_SIGNATURES = {
 }
 
 def submitted_variant_form_rows(form):
-    fields = ("size", "color", "style", "material", "pack_size", "sku", "price", "unit_cost", "stock_quantity", "active", "image_id")
+    fields = ("size", "color", "style", "material", "pack_size", "sku", "price", "previous_price", "unit_cost", "stock_quantity", "active", "image_id")
     columns = {field: form.getlist(f"variant_{field}") for field in fields}
     row_count = max((len(values) for values in columns.values()), default=0)
     return [{field: (columns[field][index] if index < len(columns[field]) else "") for field in fields} for index in range(row_count)]
@@ -1113,6 +1113,7 @@ def product_variant_form_rows(product):
         "size": variant.size or "", "color": variant.color or "", "style": variant.style or "",
         "material": variant.material or "", "pack_size": variant.pack_size or "", "sku": variant.sku or "",
         "price": f"{variant.price_cents / 100:.2f}" if variant.price_cents is not None else "",
+        "previous_price": f"{variant.previous_price_cents / 100:.2f}" if variant.previous_price_cents is not None else "",
         "unit_cost": f"{variant.unit_cost_cents / 100:.2f}" if variant.unit_cost_cents is not None else "",
         "stock_quantity": str(variant.stock_quantity or 0), "active": variant.active,
         "image_id": str(variant.image_id or ""),
@@ -1127,9 +1128,9 @@ def parse_variant_rows(raw_text, product):
         if not line:
             continue
         parts = [part.strip() for part in line.split("|")]
-        while len(parts) < 8:
+        while len(parts) < 9:
             parts.append("")
-        size, color, style, sku, price, cost, stock, active = parts[:8]
+        size, color, style, sku, price, cost, stock, active, previous_price = parts[:9]
         key = (size.casefold(), color.casefold(), style.casefold(), "", "")
         if key in seen:
             raise ValueError(f"Duplicate variant row: {line}")
@@ -1148,6 +1149,7 @@ def parse_variant_rows(raw_text, product):
             "pack_size": "",
             "sku": sku[:80],
             "price_cents": parse_money(price) if price else None,
+            "previous_price_cents": parse_money(previous_price) if previous_price else None,
             "unit_cost_cents": parse_money(cost) if cost else None,
             "stock_quantity": max(0, int(stock or 0)),
             "active": active.lower() not in {"no", "false", "0", "inactive"},
@@ -1157,7 +1159,7 @@ def parse_variant_rows(raw_text, product):
     return rows
 
 def parse_variant_form_rows(form, product):
-    fields = ("size", "color", "style", "material", "pack_size", "sku", "price", "unit_cost", "stock_quantity", "active", "image_id")
+    fields = ("size", "color", "style", "material", "pack_size", "sku", "price", "previous_price", "unit_cost", "stock_quantity", "active", "image_id")
     columns = {field: form.getlist(f"variant_{field}") for field in fields}
     row_count = max((len(values) for values in columns.values()), default=0)
     rows = []
@@ -1168,10 +1170,11 @@ def parse_variant_form_rows(form, product):
         size, color, style = value("size")[:50], value("color")[:50], value("style")[:80]
         material, pack_size = value("material")[:80], value("pack_size")[:80]
         sku = value("sku")[:80]
-        raw_price, raw_cost, raw_stock = value("price"), value("unit_cost"), value("stock_quantity")
+        raw_price, raw_previous_price = value("price"), value("previous_price")
+        raw_cost, raw_stock = value("unit_cost"), value("stock_quantity")
         raw_image_id = value("image_id")
         active = value("active") not in {"", "0", "false", "off", "inactive"}
-        if not any((size, color, style, material, pack_size, sku, raw_price, raw_cost, raw_image_id)) and not int(raw_stock or 0):
+        if not any((size, color, style, material, pack_size, sku, raw_price, raw_previous_price, raw_cost, raw_image_id)) and not int(raw_stock or 0):
             continue
         key = tuple(part.casefold() for part in (size, color, style, material, pack_size))
         if key in seen:
@@ -1189,6 +1192,7 @@ def parse_variant_form_rows(form, product):
         rows.append({
             "size": size, "color": color, "style": style, "material": material, "pack_size": pack_size,
             "sku": sku, "price_cents": parse_money(raw_price) if raw_price else None,
+            "previous_price_cents": parse_money(raw_previous_price) if raw_previous_price else None,
             "unit_cost_cents": parse_money(raw_cost) if raw_cost else None,
             "stock_quantity": max(0, int(raw_stock or 0)), "active": active, "_form_index": index,
             "image_id": image_id, "structured": True,
@@ -1221,6 +1225,7 @@ def sync_product_variants(product, raw_text_or_rows):
         variant.pack_size = row.get("pack_size", "")
         variant.sku = row["sku"]
         variant.price_cents = row["price_cents"]
+        variant.previous_price_cents = row.get("previous_price_cents")
         variant.unit_cost_cents = row["unit_cost_cents"]
         variant.stock_quantity = row["stock_quantity"]
         variant.low_stock_threshold = product.low_stock_threshold

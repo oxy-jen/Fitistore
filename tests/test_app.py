@@ -1733,6 +1733,7 @@ def test_admin_product_form_has_repeatable_variant_controls(client, app):
     assert b'name="variant_color"' in response.data
     assert b'name="variant_material"' in response.data
     assert b'name="variant_pack_size"' in response.data
+    assert b'name="variant_previous_price"' in response.data
     assert b'name="variant_image_files"' in response.data
     assert b"admin-product-variants.js" in response.data
 
@@ -1750,6 +1751,7 @@ def test_admin_can_save_multiple_variant_colours_and_individual_preview_images(c
         "variant_style": ["Basic", "Basic"], "variant_material": ["Elastic", "Elastic"],
         "variant_pack_size": ["Single", "Single"], "variant_sku": ["BAND-BLK", "BAND-PNK"],
         "variant_price": ["25", "30"], "variant_unit_cost": ["10", "12"],
+        "variant_previous_price": ["35", "45"],
         "variant_stock_quantity": ["4", "8"], "variant_active": ["1", "1"],
         "variant_image_id": ["", ""],
         "images": (io.BytesIO(b"\xff\xd8\xffmain-image"), "bands-main.jpg"),
@@ -1759,15 +1761,21 @@ def test_admin_can_save_multiple_variant_colours_and_individual_preview_images(c
     assert b"Product saved" in response.data
     with app.app_context():
         product = Product.query.filter_by(slug="variant-colour-bands").first()
+        product_id = product.id
         variants = {variant.color: variant for variant in product.variants}
         assert set(variants) == {"Black", "Pink"}
         assert variants["Black"].material == "Elastic"
         assert variants["Pink"].pack_size == "Single"
         assert variants["Black"].price_cents == 2500
+        assert variants["Black"].previous_price_cents == 3500
+        assert variants["Pink"].previous_price_cents == 4500
         assert variants["Pink"].stock_quantity == 8
         assert variants["Black"].image_id is None
         assert variants["Pink"].image_id is not None
         assert variants["Pink"].image.alt_text == "Variant Colour Bands variant image"
+    edit_form = client.get(f"/admin/products/{product_id}/edit")
+    assert b'value="35.00"' in edit_form.data
+    assert b'value="45.00"' in edit_form.data
 
 
 def test_variant_product_shows_price_range_and_options(client, app):
@@ -1775,7 +1783,7 @@ def test_variant_product_shows_price_range_and_options(client, app):
         from app.models import ProductVariant
         product = Product.query.filter_by(slug="plain-socks").first()
         db.session.add_all([
-            ProductVariant(product=product, size="Small", color="Black", style="Basic", sku="SOCK-S", price_cents=1000, stock_quantity=5, active=True),
+            ProductVariant(product=product, size="Small", color="Black", style="Basic", sku="SOCK-S", price_cents=1000, previous_price_cents=1500, stock_quantity=5, active=True),
             ProductVariant(product=product, size="Large", color="Black", style="Premium", sku="SOCK-L", price_cents=6000, stock_quantity=3, active=True),
         ])
         db.session.commit()
@@ -1786,6 +1794,69 @@ def test_variant_product_shows_price_range_and_options(client, app):
     assert b"Small / Black / Basic" in detail.data
     assert b"Large / Black / Premium" in detail.data
     assert b"SOCK-S" in detail.data
+    assert b'data-previous-price="KSh 15"' in detail.data
+    assert b'data-discount="33% OFF"' in detail.data
+    assert b'data-savings="Save KSh 5"' in detail.data
+    assert b'id="detail-previous-price" hidden' in detail.data
+
+
+def test_variant_discounts_appear_in_offers_for_available_variants(client, app):
+    with app.app_context():
+        category = Category.query.first()
+        product = Product(
+            name="Variant Sale Boots", slug="variant-sale-boots", category=category,
+            description="Boots with discounted options", price_cents=None, stock_quantity=0,
+            active=True, created_at=datetime(2020, 1, 1),
+        )
+        db.session.add(product)
+        db.session.flush()
+        db.session.add_all([
+            ProductVariant(product=product, size="Small", price_cents=1200, previous_price_cents=1500, stock_quantity=3, active=True),
+            ProductVariant(product=product, size="Large", price_cents=2000, previous_price_cents=2200, stock_quantity=2, active=True),
+            ProductVariant(product=product, size="XL", price_cents=3000, previous_price_cents=3500, stock_quantity=2, active=False),
+        ])
+        for index in range(7):
+            db.session.add(Product(
+                name=f"New Arrival {index}", slug=f"new-arrival-{index}", category=category,
+                description="New product", price_cents=1000, stock_quantity=1, active=True,
+            ))
+        db.session.commit()
+        from app.public.routes import discounted_products_query
+        discounted_slugs = {item.slug for item in discounted_products_query().all()}
+        assert "plain-socks" in discounted_slugs
+        assert "variant-sale-boots" in discounted_slugs
+
+    home = client.get("/")
+    assert home.status_code == 200
+    assert b"Variant Sale Boots" in home.data
+    assert b"KSh 12 - KSh 20" in home.data or b"KSh 12 \xe2\x80\x93 KSh 20" in home.data
+    assert b"up to 20% off options" in home.data
+    assert b"Save KSh 2 \xe2\x80\x93 KSh 3" in home.data
+
+    detail = client.get("/product/variant-sale-boots")
+    assert b'data-previous-price="KSh 15"' in detail.data
+    assert b'data-discount="20% OFF"' in detail.data
+    assert b'data-previous-price="KSh 22"' in detail.data
+    assert b'data-discount="9% OFF"' in detail.data
+    assert b'data-savings="Save KSh 2"' in detail.data
+
+
+def test_variant_discount_schema_setup_adds_missing_column_idempotently():
+    from sqlalchemy import create_engine, inspect
+
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("CREATE TABLE product_variant (id INTEGER PRIMARY KEY)")
+
+        assert app_module.ensure_product_variant_discount_schema(engine) is True
+        assert app_module.ensure_product_variant_discount_schema(engine) is False
+        assert "previous_price_cents" in {
+            column["name"] for column in inspect(engine).get_columns("product_variant")
+        }
+    finally:
+        engine.dispose()
+
 
 def test_cloudinary_missing_credentials_blocks_admin_upload(client, app):
     client.post("/admin/login", data={"username":"owner","password":"secret123"})

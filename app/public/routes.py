@@ -94,6 +94,23 @@ def product_list_options(query):
     )
 
 
+def discounted_products_query():
+    variant_price = func.coalesce(ProductVariant.price_cents, Product.price_cents)
+    variant_discount = Product.variants.any(and_(
+        ProductVariant.active.is_(True),
+        ProductVariant.previous_price_cents.isnot(None),
+        variant_price.isnot(None),
+        ProductVariant.previous_price_cents > variant_price,
+    ))
+    product_discount = and_(
+        ~Product.variants.any(ProductVariant.active.is_(True)),
+        Product.previous_price_cents.isnot(None),
+        Product.price_cents.isnot(None),
+        Product.previous_price_cents > Product.price_cents,
+    )
+    return Product.query.filter(Product.active.is_(True), or_(variant_discount, product_discount))
+
+
 def _product_like_voter_hash(create=False):
     """Return a stable pseudonymous voter key without storing account/email data."""
     identity = None
@@ -278,13 +295,7 @@ def home():
     fresh_arrivals = product_list_options(Product.query.filter_by(active=True)).order_by(Product.created_at.desc(), Product.id.desc()).limit(8).all()
     used_product_ids = {product.id for product in fresh_arrivals}
 
-    discounted_query = Product.query.filter(
-        Product.active.is_(True),
-        Product.previous_price_cents.isnot(None),
-        Product.price_cents.isnot(None),
-        Product.previous_price_cents > Product.price_cents,
-        Product.id.notin_(used_product_ids),
-    )
+    discounted_query = discounted_products_query().filter(Product.id.notin_(used_product_ids))
     discounted = product_list_options(discounted_query).order_by(Product.updated_at.desc(), Product.id.desc()).limit(8).all()
     used_product_ids.update(product.id for product in discounted)
 
@@ -372,7 +383,7 @@ def home():
         "featured": product_list_options(Product.query.filter_by(active=True, featured=True)).order_by(Product.updated_at.desc(), Product.id.desc()),
         "popular": product_list_options(Product.query.join(CartAddCount, CartAddCount.product_id == Product.id).filter(Product.active.is_(True)).order_by(CartAddCount.add_count.desc(), Product.name.asc())),
         "categories": product_list_options(Product.query.filter_by(active=True)).order_by(Product.category_id, Product.updated_at.desc(), Product.id.desc()),
-        "offers": product_list_options(Product.query.filter(Product.active.is_(True), Product.previous_price_cents.isnot(None), Product.price_cents.isnot(None), Product.previous_price_cents > Product.price_cents)).order_by(Product.updated_at.desc(), Product.id.desc()),
+        "offers": product_list_options(discounted_products_query()).order_by(Product.updated_at.desc(), Product.id.desc()),
         "mamba": product_list_options(mamba_products_query()[0]),
     }
     share_product = share_product_queries.get(requested_share, share_product_queries["home"]).first()
@@ -413,7 +424,7 @@ def home_social_card(section):
     q=Product.query.filter_by(active=True)
     if section=="featured":q=q.filter(Product.featured.is_(True))
     elif section=="popular":q=q.join(CartAddCount,CartAddCount.product_id==Product.id).order_by(CartAddCount.add_count.desc())
-    elif section=="offers":q=q.filter(Product.previous_price_cents.isnot(None),Product.price_cents.isnot(None),Product.previous_price_cents>Product.price_cents)
+    elif section=="offers":q=discounted_products_query()
     elif section=="mamba":q=mamba_products_query()[0]
     product=product_list_options(q).order_by(Product.updated_at.desc(),Product.id.desc()).first()
     image=product_display_image(product) if product else None
@@ -451,7 +462,7 @@ def home_share_card(section):
         "featured": product_list_options(Product.query.filter_by(active=True, featured=True)).order_by(Product.updated_at.desc(), Product.id.desc()),
         "popular": product_list_options(Product.query.join(CartAddCount, CartAddCount.product_id == Product.id).filter(Product.active.is_(True)).order_by(CartAddCount.add_count.desc(), Product.name.asc())),
         "categories": product_list_options(Product.query.filter_by(active=True)).order_by(Product.category_id, Product.updated_at.desc(), Product.id.desc()),
-        "offers": product_list_options(Product.query.filter(Product.active.is_(True), Product.previous_price_cents.isnot(None), Product.price_cents.isnot(None), Product.previous_price_cents > Product.price_cents)).order_by(Product.updated_at.desc(), Product.id.desc()),
+        "offers": product_list_options(discounted_products_query()).order_by(Product.updated_at.desc(), Product.id.desc()),
         "mamba": product_list_options(mamba_products_query()[0]),
     }
     product = queries.get(section, queries["home"]).first()

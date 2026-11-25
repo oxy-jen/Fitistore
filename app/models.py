@@ -293,6 +293,7 @@ class ProductVariant(TimestampMixin, db.Model):
     material = db.Column(db.String(80), default="")
     pack_size = db.Column(db.String(80), default="")
     price_cents = db.Column(db.Integer)
+    previous_price_cents = db.Column(db.Integer)
     unit_cost_cents = db.Column(db.Integer)
     stock_quantity = db.Column(db.Integer, default=0, nullable=False)
     reserved_quantity = db.Column(db.Integer, default=0, nullable=False)
@@ -323,6 +324,26 @@ class ProductVariant(TimestampMixin, db.Model):
     @property
     def effective_price_cents(self):
         return self.price_cents if self.price_cents is not None else self.product.price_cents
+
+    @property
+    def has_discount(self):
+        return bool(
+            self.effective_price_cents is not None
+            and self.previous_price_cents is not None
+            and self.previous_price_cents > self.effective_price_cents
+        )
+
+    @property
+    def discount_amount_cents(self):
+        if not self.has_discount:
+            return None
+        return self.previous_price_cents - self.effective_price_cents
+
+    @property
+    def discount_percent(self):
+        if not self.has_discount:
+            return None
+        return self.discount_amount_cents * 100 // self.previous_price_cents
 
 class InventoryMovement(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)

@@ -745,6 +745,13 @@
   line-height: 1.2;
 }
 
+.offers-discount-note {
+  color: #ffbf78;
+  font-size: .72rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
 .offers-scroll-dots {
   display: flex;
   min-height: 14px;
