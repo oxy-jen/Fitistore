@@ -659,6 +659,9 @@ document.addEventListener('click',event=>{
       showcasePlayer.classList.remove('is-expanded');
       showcasePlayer.style.removeProperty('width');
       showcasePlayer.style.removeProperty('height');
+      showcasePlayer.style.removeProperty('min-width');
+      showcasePlayer.style.removeProperty('min-height');
+      showcasePlayer.classList.remove('is-pinch-resizing');
       clearShowcasePlayerContent();
       if(showcasePlayerContent)showcasePlayerContent.hidden=true;
       if(minimizedPanel)minimizedPanel.hidden=false;
@@ -677,6 +680,11 @@ document.addEventListener('click',event=>{
   }
   const enlarge=event.target.closest('[data-media-player-enlarge]');
   if(enlarge&&showcasePlayer){
+    showcasePlayer.style.removeProperty('width');
+    showcasePlayer.style.removeProperty('height');
+    showcasePlayer.style.removeProperty('min-width');
+    showcasePlayer.style.removeProperty('min-height');
+    showcasePlayer.classList.remove('is-pinch-resizing');
     const expanded=showcasePlayer.classList.toggle('is-expanded');
     enlarge.setAttribute('aria-pressed',String(expanded));
     enlarge.setAttribute('aria-label',expanded?'Restore media player size':'Enlarge media player');
@@ -699,6 +707,8 @@ let showcaseCurrentOpener=null;
 let showcaseCurrentAutomatic=false;
 let showcasePlayerManuallyPositioned=false;
 let showcasePlayerPositionFrame=0;
+const showcaseTouchPointers=new Map();
+let showcasePinchStart=null;
 
 function hasSeenShowcasePopup(){
   return showcasePopupSeenInMemory;
@@ -739,6 +749,76 @@ function scheduleShowcasePlayerPosition(){
     showcasePlayerPositionFrame=0;
     positionShowcasePlayerAwayFromCards();
   });
+}
+function handleShowcasePinchPointer(event){
+  if(event.pointerType!=='touch')return;
+  if(event.type==='pointerdown'){
+    if(!showcasePlayer?.open||showcasePlayer.classList.contains('is-minimized')||!showcasePlayer.contains(event.target))return;
+    showcaseTouchPointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
+    if(showcaseTouchPointers.size===2){
+      const pointerIds=[...showcaseTouchPointers.keys()];
+      const [first,second]=pointerIds.map(pointerId=>showcaseTouchPointers.get(pointerId));
+      const rect=showcasePlayer.getBoundingClientRect();
+      showcasePinchStart={
+        pointerIds,
+        distance:Math.max(1,Math.hypot(second.x-first.x,second.y-first.y)),
+        width:rect.width,
+        height:rect.height,
+        left:rect.left,
+        top:rect.top
+      };
+      showcasePlayerManuallyPositioned=true;
+      showcasePlayer.classList.remove('is-expanded');
+      showcasePlayer.classList.add('is-pinch-resizing');
+      showcasePlayer.style.minWidth='0';
+      showcasePlayer.style.minHeight='0';
+      const enlarge=showcasePlayer.querySelector('[data-media-player-enlarge]');
+      if(enlarge){
+        enlarge.setAttribute('aria-pressed','false');
+        enlarge.setAttribute('aria-label','Enlarge media player');
+      }
+      event.preventDefault();
+    }
+    return;
+  }
+  if(!showcaseTouchPointers.has(event.pointerId))return;
+  if(event.type==='pointermove'){
+    showcaseTouchPointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
+    if(!showcasePinchStart)return;
+    const [firstId,secondId]=showcasePinchStart.pointerIds;
+    const first=showcaseTouchPointers.get(firstId);
+    const second=showcaseTouchPointers.get(secondId);
+    if(!first||!second)return;
+    const distance=Math.max(1,Math.hypot(second.x-first.x,second.y-first.y));
+    const minWidth=Math.min(160,window.innerWidth-16);
+    const minHeight=Math.min(112,window.innerHeight-16);
+    const maxWidth=Math.max(minWidth,window.innerWidth-16);
+    const maxHeight=Math.max(minHeight,window.innerHeight*.8);
+    const minScale=Math.max(minWidth/showcasePinchStart.width,minHeight/showcasePinchStart.height);
+    const maxScale=Math.max(minScale,Math.min(maxWidth/showcasePinchStart.width,maxHeight/showcasePinchStart.height));
+    const scale=Math.min(maxScale,Math.max(minScale,distance/showcasePinchStart.distance));
+    const width=showcasePinchStart.width*scale;
+    const height=showcasePinchStart.height*scale;
+    const margin=8;
+    const centerX=showcasePinchStart.left+showcasePinchStart.width/2;
+    const centerY=showcasePinchStart.top+showcasePinchStart.height/2;
+    const maxLeft=Math.max(margin,window.innerWidth-width-margin);
+    const maxTop=Math.max(margin,window.innerHeight-height-margin);
+    showcasePlayer.style.width=`${width}px`;
+    showcasePlayer.style.height=`${height}px`;
+    showcasePlayer.style.left=`${Math.min(maxLeft,Math.max(margin,centerX-width/2))}px`;
+    showcasePlayer.style.top=`${Math.min(maxTop,Math.max(margin,centerY-height/2))}px`;
+    showcasePlayer.style.right='auto';
+    showcasePlayer.style.bottom='auto';
+    event.preventDefault();
+    return;
+  }
+  showcaseTouchPointers.delete(event.pointerId);
+  if(showcasePinchStart?.pointerIds.includes(event.pointerId)){
+    showcasePinchStart=null;
+    showcaseTouchPointers.clear();
+    showcasePlayer?.classList.remove('is-pinch-resizing');
+  }
 }
 function mediaPlayerError(message){
   const notice=document.createElement('p');
@@ -844,7 +924,14 @@ if(showcasePlayer){
     showcasePlayerContent?.removeAttribute('hidden');
     if(showcasePlayerMinimized)showcasePlayerMinimized.hidden=true;
     showcasePlayerContent?.style.removeProperty('--media-player-ratio');
+    showcasePlayer.style.removeProperty('width');
+    showcasePlayer.style.removeProperty('height');
+    showcasePlayer.style.removeProperty('min-width');
+    showcasePlayer.style.removeProperty('min-height');
     showcasePlayer.classList.remove('is-expanded','is-minimized');
+    showcasePlayer.classList.remove('is-pinch-resizing');
+    showcaseTouchPointers.clear();
+    showcasePinchStart=null;
     if(showcaseLastOpener?.isConnected)showcaseLastOpener.focus();
     showcaseLastOpener=null;
     showcaseCurrentOpener=null;
@@ -864,7 +951,7 @@ if(showcasePlayer){
     showcasePlayer.style.bottom='auto';
   };
   dragHandle?.addEventListener('pointerdown',event=>{
-    if(event.button!==0||event.target.closest('button'))return;
+    if(event.pointerType==='touch'||event.button!==0||event.target.closest('button'))return;
     showcasePlayerManuallyPositioned=true;
     const rect=showcasePlayer.getBoundingClientRect();
     activeDrag={pointerId:event.pointerId,offsetX:event.clientX-rect.left,offsetY:event.clientY-rect.top};
@@ -891,6 +978,10 @@ if(showcasePlayer){
     scheduleShowcasePlayerPosition();
   },{passive:true});
   window.addEventListener('scroll',scheduleShowcasePlayerPosition,{passive:true});
+  window.addEventListener('pointerdown',handleShowcasePinchPointer,{capture:true,passive:false});
+  window.addEventListener('pointermove',handleShowcasePinchPointer,{capture:true,passive:false});
+  window.addEventListener('pointerup',handleShowcasePinchPointer,true);
+  window.addEventListener('pointercancel',handleShowcasePinchPointer,true);
 }
 if(showcasePlayer&&!showcaseReducedMotion.matches&&!hasSeenShowcasePopup()){
   const featuredOpener=document.querySelector('[data-showcase-featured] [data-showcase-media-open]');

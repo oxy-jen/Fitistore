@@ -180,4 +180,5 @@
   .media-showcase-player{inset:auto max(.5rem,env(safe-area-inset-right)) max(.5rem,env(safe-area-inset-bottom)) auto;width:min(230px,calc(100vw - 1rem));min-width:min(200px,calc(100vw - 1rem));max-width:calc(100vw - 1rem);max-height:50vh}
   .media-showcase-player.is-expanded{width:min(calc(100vw - 1rem),480px);max-width:calc(100vw - 1rem);max-height:80vh}
 }
+@media(pointer:coarse){.media-showcase-player[open]{touch-action:none}.media-showcase-player.is-pinch-resizing,.media-showcase-player.is-pinch-resizing *{user-select:none}}
 @media(prefers-reduced-motion:reduce){.media-showcase-image-preview img{transition:none}.media-showcase-player[open]{animation:none}}
