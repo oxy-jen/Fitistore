@@ -1031,7 +1031,10 @@ def test_homepage_most_added_carousel_keeps_popularity_order_and_pagination_cont
     assert b'Manage products' not in section
     assert b'most-added-product-name' in section
     assert b'most-added-price-row' in section
-    assert b'available' in section
+    assert b'class="stock' not in section
+    assert b'most-added-like' not in section
+    assert b'most-added-view-detail' not in section
+    assert b'data-cart-count-toggle' in section
     assert b'data-product-id=' in section
     assert b'href="/product/plain-socks"' in section
     assert section.index(b"Unpriced Cap") < section.index(b"Plain Socks")
@@ -1057,7 +1060,8 @@ def test_homepage_most_added_ranks_likes_before_cart_counts(client, app):
     assert section.index(b"Unpriced Cap") < section.index(b"Plain Socks")
     assert b"data-cart-count=\"20\"" in section
     assert b"data-cart-count-toggle" in section
-    assert b"data-product-like" in section
+    assert b"data-like-count=" in section
+    assert b"data-product-like" not in section
     assert b"items added to carts" in section
 
 
