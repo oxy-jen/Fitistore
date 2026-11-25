@@ -56,27 +56,32 @@
 }
 
 .home-market > .featured-showcase {
-  border: 1px solid #f0d7dc;
-  border-radius: 18px;
-  background: linear-gradient(115deg, #fff0f2 0%, #fff8f9 100%);
+  border: 0;
+  border-radius: 0;
+  background-color: #c8173d;
+  background-image: none;
 }
 
 .home-market > .top-added-showcase {
-  border: 1px solid #d7e9f8;
-  border-radius: 18px;
-  background: linear-gradient(115deg, #eaf5ff 0%, #f6fbff 100%);
+  border: 0;
+  border-top: 4px solid #ff5a1f;
+  border-radius: 0;
+  background-color: #17151a;
+  background-image: none;
 }
 
 .home-market > .promo-showcase {
-  border: 1px solid #e6dcf8;
-  border-radius: 18px;
-  background: linear-gradient(115deg, #f5efff 0%, #fbf8ff 100%);
+  border: 0;
+  border-radius: 0;
+  background-color: #f04b20;
+  background-image: none;
 }
 
 .home-market > .category-showcase {
-  border: 1px solid #ccefe2;
-  border-radius: 18px;
-  background: linear-gradient(115deg, #e5fff5 0%, #f4fff9 100%);
+  border: 0;
+  border-radius: 0;
+  background-color: #f2f2f2;
+  background-image: none;
 }
 
 .about-dash-current {

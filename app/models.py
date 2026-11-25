@@ -15,6 +15,11 @@ class AdminUser(UserMixin, TimestampMixin, db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     failed_logins = db.Column(db.Integer, default=0, nullable=False)
 
+    @property
+    def is_admin(self):
+        return True
+
+
 @login_manager.user_loader
 def load_user(user_id):
     try:

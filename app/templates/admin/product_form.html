@@ -59,7 +59,8 @@
   <p class="note small">Paste a public Cloudinary image URL for each image. Use online images only when the license permits it.</p>
   {% if product and product.images %}<div class="image-manager"><h2>Current images</h2>{% for image in product.images %}<article><img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}"><div><strong>{{ 'Primary image' if image.is_primary else 'Gallery image' }}</strong><p>{{ image.alt_text }}</p><button class="btn" type="submit" form="primary-image-{{ image.id }}" {% if image.is_primary %}disabled{% endif %}>Make primary</button><button class="btn danger" type="submit" form="delete-image-{{ image.id }}">Remove image</button></div></article>{% endfor %}</div>{% endif %}
   <label class="check"><input type="checkbox" name="active" {% if not product or product.active %}checked{% endif %}> Active and visible in shop</label>
-  <label class="check"><input type="checkbox" name="featured" {% if product and product.featured %}checked{% endif %}> Featured product</label>
+  <label class="check"><input type="checkbox" name="featured" {% if product and product.featured %}checked{% endif %}> Show in homepage Featured Picks</label>
+  <small>Featured Picks are managed here. Popular Picks are ranked automatically from existing likes and cart activity.</small>
   <button class="btn primary" type="submit">Save product</button>
 </form>
 {% if product and product.images %}{% for image in product.images %}<form id="primary-image-{{ image.id }}" method="post" action="{{ url_for('admin.set_primary_image', product_id=product.id, image_id=image.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form><form id="delete-image-{{ image.id }}" method="post" action="{{ url_for('admin.delete_product_image', product_id=product.id, image_id=image.id) }}" onsubmit="return confirm('Remove this image?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>{% endfor %}{% endif %}

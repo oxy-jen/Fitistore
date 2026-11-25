@@ -1068,6 +1068,82 @@ body:has(.about-page) .site-header .nav a[href*="about"]{color:#dc2626;border-bo
 .upcoming-carousel>.carousel-arrow{flex-basis:25px;width:25px;height:25px;font-size:1rem}
 .category-showcase .department-card{transition:transform .35s ease,opacity .35s ease,border-color .2s ease,box-shadow .2s ease}
 .category-showcase .department-card.category-reveal-ready{opacity:0;transform:translateY(12px)}
+
+/* Homepage merchandising: compact, crisp cards with section color doing the work. */
+.home-section-actions{display:flex;align-items:center;justify-content:flex-end;gap:.65rem;flex-wrap:wrap}
+.home-section-actions>a{font-weight:750;text-decoration:none}
+.home-section-actions>a:hover{text-decoration:underline;text-underline-offset:3px}
+.home-section-actions .home-merch-admin-link{display:inline-flex;align-items:center;min-height:36px;padding:.4rem .65rem;border:1px solid currentColor;border-radius:4px;font-size:.82rem}
+.featured-showcase{padding-top:1rem;padding-bottom:.35rem;color:#fff}
+.featured-showcase .section-title{margin-bottom:.55rem}
+.featured-showcase .section-title .eyebrow,.featured-showcase .section-title h2,.featured-showcase .section-title p{color:#fff}
+.featured-showcase .section-title .eyebrow{font-size:.72rem;letter-spacing:.1em;text-transform:uppercase}
+.featured-showcase .section-title h2{margin:.05rem 0;font-size:clamp(1.35rem,2.1vw,1.8rem);line-height:1.15}
+.featured-showcase .section-title p:not(.eyebrow){color:rgba(255,255,255,.86)}
+.featured-showcase .section-title a{color:#fff}
+.featured-showcase .section-title .btn{min-height:36px;padding:.42rem .68rem;border:0;border-radius:4px;background:#fff;color:#252525}
+.featured-showcase .marquee-item{width:190px;flex-basis:190px}
+.featured-showcase .fresh-arrival-product-card{overflow:hidden;border:0;border-radius:0;background:#fffefa;box-shadow:none}
+.featured-showcase .fresh-arrival-product-card>.product-image{height:138px;max-height:138px;margin:0;aspect-ratio:auto;background:#fffefa}
+.featured-showcase .fresh-arrival-product-card>.product-image img{padding:.25rem;object-fit:contain}
+.featured-showcase .fresh-arrival-product-card .product-body{gap:.12rem;padding:.48rem .55rem .58rem;color:#252525}
+.featured-showcase .fresh-arrival-product-card .category{color:#666;font-size:.68rem}
+.featured-showcase .fresh-arrival-product-card .product-body h3{font-size:.88rem;line-height:1.23}
+.featured-showcase .fresh-arrival-product-card .shop-card-description{font-size:.74rem;line-height:1.25}
+.featured-showcase .fresh-arrival-product-card .price{color:#242424;font-size:1rem}
+.featured-showcase .fresh-arrival-product-card .stock{font-size:.72rem}
+.featured-showcase .fresh-arrival-product-card .shop-card-actions .btn{min-height:34px;border:0;border-radius:3px;background:#e52335;color:#fff}
+.top-added-showcase{margin:0;padding:1.1rem clamp(1rem,4vw,3rem) .8rem;border:0;border-top:4px solid #ff5a1f;border-radius:0;color:#fff}
+.top-added-showcase .section-title{align-items:flex-end;margin-bottom:.75rem}
+.top-added-showcase .section-title .eyebrow{color:#ff7748}
+.top-added-showcase .section-title h2,.top-added-showcase .section-title p:not(.eyebrow){color:#fff}
+.top-added-showcase .section-title p:not(.eyebrow){opacity:.82}
+.top-added-showcase .section-title a,.top-added-showcase .section-title .home-merch-admin-link{color:#fff}
+.top-added-showcase .most-added-product-card{border:0!important;border-radius:0!important;background:#fffefa!important;box-shadow:none!important}
+.top-added-showcase .most-added-product-card>.product-image{width:clamp(112px,11vw,148px);height:clamp(112px,11vw,148px);max-height:148px;margin:.65rem auto .1rem;border-radius:50%;background:#fff}
+.top-added-showcase .most-added-product-card>.product-image img{padding:.7rem;object-fit:contain}
+.top-added-showcase .most-added-product-card>.product-body{background:#fffefa}
+.top-added-showcase .most-added-product-card .most-added-price{color:#232323}
+.top-added-showcase .most-added-product-card .most-added-icon-action{border-radius:3px}
+.top-added-showcase .carousel-arrow{border:0;border-radius:3px;background:#ff5a1f;color:#fff}
+.top-added-showcase .carousel-arrow:hover:not(:disabled){background:#e94712;color:#fff}
+.top-added-showcase .most-added-dot[aria-current="page"]{background:#ff5a1f}
+.category-showcase{padding-top:1.1rem;padding-bottom:1.2rem}
+.category-showcase .section-title{align-items:flex-end}
+.category-showcase .section-title .eyebrow{background:#e52335}
+.category-showcase .section-title h2{color:#202124}
+.category-showcase .section-title p:not(.eyebrow){color:#555}
+.category-showcase .section-title a,.category-showcase .home-section-actions>a{color:#c8173d}
+.category-showcase .department-grid{grid-auto-columns:clamp(112px,13vw,164px);gap:clamp(.65rem,1.5vw,1.2rem)}
+.category-showcase .department-card{display:flex;flex-direction:column;align-items:center;gap:.45rem;padding:.3rem .2rem .55rem;border:0;border-radius:0;background:transparent;box-shadow:none;scroll-snap-align:start}
+.category-showcase .department-card:hover{transform:translateY(-2px);border-color:transparent;box-shadow:none}
+.category-showcase .department-image-link{width:clamp(104px,11.5vw,144px);aspect-ratio:1;border:0;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(20,25,30,.1)}
+.category-showcase .department-image-link img{width:100%;height:100%;aspect-ratio:1;padding:.55rem;border-radius:50%;object-fit:contain}
+.category-showcase .department-card-copy{display:block;width:100%;padding:.15rem .1rem;text-align:center}
+.category-showcase .department-card-copy h3{margin:0;color:#242424;font-size:.88rem;line-height:1.25}
+.category-showcase .department-card-copy h3 a{color:inherit;text-decoration:none}
+.category-showcase .department-card-copy h3 a:hover{text-decoration:underline;text-underline-offset:3px}
+.category-showcase .department-card-copy p,.category-showcase .department-shop-link{display:none}
+.promo-showcase{color:#fff}
+.promo-showcase .section-title .eyebrow,.promo-showcase .section-title h2,.promo-showcase .section-title a{color:#fff}
+.promo-showcase .section-title .btn{border:0;border-radius:4px;background:#fff;color:#252525}
+.promo-showcase .marquee-item .product-card,.home-market .mamba-product .product-card{border:0;border-radius:0;background:#fffefa;color:#242424;box-shadow:none}
+.promo-showcase .marquee-item .product-image,.home-market .mamba-product .product-image{background:#fffefa}
+.promo-showcase .marquee-item .product-body,.home-market .mamba-product .product-body{color:#242424}
+.promo-showcase .marquee-item .price{color:#242424}
+@media(max-width:720px){
+  .home-section-actions{justify-content:flex-start;gap:.5rem}
+  .featured-showcase .section-title{gap:.5rem}
+  .featured-showcase .marquee-item{width:168px;flex-basis:168px}
+  .featured-showcase .fresh-arrival-product-card>.product-image{height:120px;max-height:120px}
+  .top-added-showcase{margin:0;padding:.9rem clamp(.75rem,4vw,1rem) .65rem}
+  .top-added-showcase .section-title{align-items:flex-start}
+  .top-added-showcase .most-added-product-card>.product-image{width:clamp(88px,24vw,118px);height:clamp(88px,24vw,118px);max-height:118px}
+  .category-showcase .section-title{align-items:flex-start}
+  .category-showcase .department-grid{grid-auto-columns:clamp(104px,28vw,132px);gap:.55rem}
+  .category-showcase .department-image-link{width:clamp(92px,24vw,116px)}
+  .category-showcase .department-card-copy h3{font-size:.8rem}
+}
 .category-showcase .department-card.category-reveal-ready.is-visible{opacity:1;transform:translateY(0)}
 @media(max-width:720px){.manual-carousel{gap:.2rem}.manual-carousel-track{gap:.65rem;scroll-padding-inline:.1rem}.manual-carousel-track>.marquee-item{flex-basis:clamp(150px,46vw,190px);width:clamp(150px,46vw,190px)}.carousel-arrow{flex-basis:28px;width:28px;height:28px;font-size:1rem}.mamba-carousel>.carousel-arrow{flex-basis:25px;width:25px;height:25px}.upcoming-carousel>.carousel-arrow{flex-basis:23px;width:23px;height:23px}.category-showcase .department-card.category-reveal-ready{opacity:1;transform:none}}
 @media(max-width:430px){.manual-carousel-track>.marquee-item{flex-basis:clamp(140px,43vw,178px);width:clamp(140px,43vw,178px)}.manual-carousel-track{gap:.5rem}}

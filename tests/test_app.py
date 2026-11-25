@@ -80,6 +80,16 @@ def test_homepage_renders(client):
     assert b'home-banner-action-short">Share</span>' in rv.data
     assert b"https://www.facebook.com/oxy.jen.975729" in rv.data
     assert b"https://www.tiktok.com/@official_fitystore" in rv.data
+    assert b"Manage featured products" not in rv.data
+    assert b"Manage products" not in rv.data
+    assert b"Manage category images" not in rv.data
+
+
+def test_admin_homepage_links_to_category_image_editor(client, app):
+    _sign_in_admin(client, app)
+    response = client.get("/")
+    assert response.status_code == 200
+    assert b"Manage category images" in response.data
 
 
 def test_postgresql_pool_checks_stale_connections_and_recycles():
@@ -1013,6 +1023,7 @@ def test_homepage_most_added_carousel_keeps_popularity_order_and_pagination_cont
     assert b'Most added to cart' in section
     assert b'Discover the products shoppers love.' in section
     assert b'View all products' in section
+    assert b'Manage products' not in section
     assert b'most-added-product-name' in section
     assert b'most-added-price-row' in section
     assert b'available' in section
@@ -1661,6 +1672,8 @@ def test_admin_product_form_has_repeatable_variant_controls(client, app):
     client.post("/admin/login", data={"username": "owner", "password": "secret123"})
     response = client.get("/admin/products/new")
     assert response.status_code == 200
+    assert b"Show in homepage Featured Picks" in response.data
+    assert b"Popular Picks are ranked automatically" in response.data
     assert b"Add another option" in response.data
     assert b'name="variant_color"' in response.data
     assert b'name="variant_material"' in response.data
