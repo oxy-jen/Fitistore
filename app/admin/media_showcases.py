@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.extensions import db
 from app.models import Category, MediaShowcase, MediaShowcaseItem, Product
 from app.services.media_showcases import CARD_ASPECT_RATIOS, DENSITIES, LAYOUTS, SHOWCASE_PLACEMENTS, showcase_schema_ready
+from app.services.product_images import ImageStorageError
 from app.services.showcase_media import existing_media_assets, inspect_media_upload, store_showcase_upload
 
 
@@ -371,6 +372,98 @@ def register_media_showcase_routes(admin_bp):
             query = query.filter(MediaShowcase.items.any(MediaShowcaseItem.media_type == media_type))
         if search: query = query.filter(MediaShowcase.name.ilike(f"%{search}%"))
         return render_template("admin/media_showcases.html", showcases=query.all(), pages=SHOWCASE_PLACEMENTS, now=datetime.utcnow(), statuses=("published", "draft", "scheduled", "expired", "disabled"))
+
+    @admin_bp.route("/media-showcases/quick-publish", methods=["GET", "POST"])
+    @login_required
+    def media_showcase_quick_publish():
+        if not showcase_schema_ready():
+            return migration_required()
+
+        error = ""
+        if request.method == "POST":
+            uploaded = request.files.get("media")
+            has_file = bool(uploaded and uploaded.filename)
+            media_url = request.form.get("media_url", "").strip()
+            page = request.form.get("page", "")
+            placement = request.form.get("placement", "")
+            media_type = request.form.get("media_type", "video")
+            title = request.form.get("title", "").strip()[:160]
+            poster_url = request.form.get("poster_url", "").strip()
+            destination_url = request.form.get("destination_url", "").strip()
+
+            try:
+                if page not in SHOWCASE_PLACEMENTS or placement not in SHOWCASE_PLACEMENTS[page]:
+                    raise ValueError("Choose a currently supported page placement.")
+                if has_file and media_url:
+                    raise ValueError("Choose either a media file or a URL, not both.")
+                if not has_file and not media_url:
+                    raise ValueError("Choose a video/image file or paste a direct media URL.")
+
+                if has_file:
+                    filename = Path(uploaded.filename).name
+                    file_data = uploaded.stream.read(4 * 1024 * 1024 + 1)
+                    media_info = inspect_media_upload(filename, file_data)
+                    media_type = media_info["type"]
+                    title = title or Path(filename).stem.replace("_", " ").replace("-", " ")[:160] or "Uploaded media"
+                else:
+                    if media_type not in {"video", "gif", "image"}:
+                        raise ValueError("Choose video, animated GIF, or image for the URL.")
+                    if media_type == "video" and not _video_embed_url(media_url):
+                        _safe_url(media_url, media_type, required=True)
+                    elif media_type != "video":
+                        _safe_url(media_url, media_type, required=True)
+                    parsed_url = urlparse(media_url)
+                    suggested_title = Path(unquote(parsed_url.path)).stem.replace("_", " ").replace("-", " ")
+                    title = title or suggested_title[:160] or f"Featured {media_type}"
+
+                poster_url = _safe_url(poster_url, "image") if poster_url else ""
+                destination_url = _safe_url(destination_url) if destination_url else ""
+                item_data = {
+                    "type": media_type, "title": title, "url": media_url, "poster": poster_url,
+                    "destination": destination_url, "active": True, "autoplay": True,
+                    "muted": True, "loop": True, "controls": True,
+                }
+
+                if has_file:
+                    stored = store_showcase_upload(filename, file_data, media_info)
+                    if not stored.get("url"):
+                        raise ValueError("The uploaded media did not return a playable URL. Check Cloudinary and try again.")
+                    item_data.update({
+                        "url": stored["url"], "source": stored["source"], "filename": stored["filename"],
+                        "size": stored.get("size"), "width": stored.get("width"), "height": stored.get("height"),
+                        "duration": stored.get("duration"),
+                    })
+                elif media_type == "video" and _video_embed_url(media_url):
+                    item_data["source"] = "video_embed"
+
+                items = _save_items(None, json.dumps([item_data]))
+                name = f"Quick publish: {title}"[:120]
+                slug_base = _slug(name)
+                slug = slug_base
+                suffix = 2
+                while MediaShowcase.query.filter_by(slug=slug).first():
+                    slug = f"{slug_base}-{suffix}"
+                    suffix += 1
+                next_order = db.session.query(db.func.max(MediaShowcase.display_order)).filter_by(
+                    page_identifier=page, placement_identifier=placement
+                ).scalar()
+                showcase = MediaShowcase(
+                    name=name, slug=slug, page_identifier=page, placement_identifier=placement,
+                    layout="single", display_order=(next_order if next_order is not None else -1) + 1,
+                    is_published=True, is_enabled=True, created_by_id=current_user.id,
+                )
+                showcase.items.extend(items)
+                db.session.add(showcase)
+                db.session.commit()
+                flash("Media published.", "success")
+                return redirect(url_for("admin.media_showcases"))
+            except ValueError as exc:
+                error = str(exc)
+            except ImageStorageError as exc:
+                current_app.logger.warning("Quick showcase media upload unavailable: %s", str(exc))
+                error = str(exc)
+
+        return render_template("admin/media_showcase_quick_publish.html", pages=SHOWCASE_PLACEMENTS, error=error)
 
     @admin_bp.route("/media-showcases/new", methods=["GET", "POST"])
     @login_required

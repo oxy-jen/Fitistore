@@ -50,6 +50,7 @@
   let libraryItems = [];
   const selectedLibraryAssets = new Map();
   let dirty = false;
+  let pendingUploads = 0;
 
   function safePreviewUrl(value) {
     const raw = (value || '').trim();
@@ -171,12 +172,17 @@
         const embed = platformEmbed(item.url);
         if (embed) { const old = cachedMedia.get(String(index)); const frame = old?.tagName === 'IFRAME' && old.dataset.previewSource === embed ? old : document.createElement('iframe'); frame.dataset.previewKey = index; frame.dataset.previewSource = embed; frame.src = embed; frame.title = item.title || 'Embedded video preview'; frame.loading = 'lazy'; frame.allow = 'fullscreen; picture-in-picture'; frame.sandbox = 'allow-scripts allow-same-origin allow-presentation'; frame.className = 'media-embed-player'; frame.dataset.aspectRatio = item.aspect_ratio || ''; card.append(frame); }
       } else if (src && item.type === 'video') {
-        const old = cachedMedia.get(String(index)); const video = old?.tagName === 'VIDEO' && old.dataset.previewSource === src ? old : document.createElement('video'); video.dataset.previewKey = index; video.dataset.previewSource = src; if (!video.src || old?.dataset.previewSource !== src) video.src = src; video.poster = safePreviewUrl(item.poster); video.controls = true; video.muted = true; video.preload = 'metadata'; video.className = `media-presentation-${item.presentation || 'original'}`; video.dataset.presentationMode = item.presentation || 'original'; video.dataset.aspectRatio = item.aspect_ratio || ''; video.style.setProperty('--media-position-x', `${item.preview_position_x ?? 50}%`); video.style.setProperty('--media-position-y', `${item.preview_position_y ?? 50}%`);
+        const old = cachedMedia.get(String(index)); const video = old?.tagName === 'VIDEO' && old.dataset.previewSource === src ? old : document.createElement('video'); video.dataset.previewKey = index; video.dataset.previewSource = src; if (!video.src || old?.dataset.previewSource !== src) video.src = src; video.poster = safePreviewUrl(item.poster); video.controls = true; video.defaultMuted = true; video.muted = true; video.autoplay = true; video.loop = true; video.playsInline = true; video.preload = 'metadata'; video.className = `media-presentation-${item.presentation || 'original'}`; video.dataset.presentationMode = item.presentation || 'original'; video.dataset.aspectRatio = item.aspect_ratio || ''; video.style.setProperty('--media-position-x', `${item.preview_position_x ?? 50}%`); video.style.setProperty('--media-position-y', `${item.preview_position_y ?? 50}%`);
         if (item.width && item.height) { const ratio = Number(item.width) / Number(item.height); video.style.setProperty('--media-item-ratio', `${item.width} / ${item.height}`); video.style.maxWidth = `${360 * ratio}px`; }
-        if (video !== old) video.addEventListener('loadedmetadata', () => { const ratio = video.videoWidth / video.videoHeight; video.style.setProperty('--media-item-ratio', `${video.videoWidth} / ${video.videoHeight}`); video.style.maxWidth = `${360 * ratio}px`; recordMetadata(index, video.videoWidth, video.videoHeight, video.duration); });
-        video.addEventListener('error', () => { if (!card.querySelector('.media-preview-error')) { const issue = document.createElement('small'); issue.className = 'media-preview-error'; issue.textContent = 'Video preview unavailable. Check the direct media URL or storage access.'; card.append(issue); } });
+        if (video !== old) {
+          video.addEventListener('loadedmetadata', () => { const ratio = video.videoWidth / video.videoHeight; video.style.setProperty('--media-item-ratio', `${video.videoWidth} / ${video.videoHeight}`); video.style.maxWidth = `${360 * ratio}px`; recordMetadata(index, video.videoWidth, video.videoHeight, video.duration); });
+          video.addEventListener('error', () => { if (!card.querySelector('.media-preview-error')) { const issue = document.createElement('small'); issue.className = 'media-preview-error'; issue.textContent = 'Video preview unavailable. Use a direct playable video URL or a compatible MP4 (H.264) file.'; card.append(issue); } }, { once: true });
+        }
         if (video.readyState >= 1) recordMetadata(index, video.videoWidth, video.videoHeight, video.duration);
         card.append(video);
+        if (video.paused) video.play().catch((error) => {
+          if (error.name !== 'NotAllowedError') console.warn('Unable to autoplay the media showcase preview.', error);
+        });
       } else if (src && ['image', 'gif'].includes(item.type)) {
         const old = cachedMedia.get(String(index)); const image = old?.tagName === 'IMG' && old.dataset.previewSource === src ? old : document.createElement('img'); image.dataset.previewKey = index; image.dataset.previewSource = src; if (!image.src || old?.dataset.previewSource !== src) image.src = src; image.alt = item.alt || item.title || ''; image.loading = 'lazy'; image.className = `media-presentation-${item.presentation || 'original'}`; image.dataset.presentationMode = item.presentation || 'original'; image.dataset.aspectRatio = item.aspect_ratio || ''; if (image !== old) { image.addEventListener('load', () => { card.dataset.dimensions = `${image.naturalWidth} × ${image.naturalHeight}`; recordMetadata(index, image.naturalWidth, image.naturalHeight, 0); }); image.addEventListener('error', () => { const issue = document.createElement('small'); issue.className = 'media-preview-error'; issue.textContent = 'This URL did not return a previewable image.'; card.append(issue); }); } else if (image.complete && image.naturalWidth) recordMetadata(index, image.naturalWidth, image.naturalHeight, 0); card.append(image);
       } else { const placeholder = document.createElement('div'); placeholder.className = 'media-showcase-text-card'; placeholder.textContent = item.type === 'link' ? 'Linked content' : 'Preview available after choosing a supported media URL'; card.append(placeholder); }
@@ -393,6 +399,7 @@
     if (file.size > 3_500_000) { status.textContent = 'File is too large. Limit is 3.5 MB per file.'; return; }
     const data = new FormData(); data.append('media', file);
     const xhr = new XMLHttpRequest(); xhr.open('POST', form.dataset.uploadUrl); xhr.setRequestHeader('X-CSRFToken', form.querySelector('[name="csrf_token"]').value); xhr.setRequestHeader('Accept', 'application/json');
+    pendingUploads += 1;
     progress.hidden = false; progress.value = 0; status.textContent = 'Uploading…';
     xhr.upload.addEventListener('progress', (event) => { if (event.lengthComputable) progress.value = Math.round(event.loaded / event.total * 100); });
     xhr.addEventListener('load', () => {
@@ -409,6 +416,7 @@
       progress.value = 100; dirty = true; renderPreview();
     });
     xhr.addEventListener('error', () => { status.textContent = 'Upload connection failed. No media reference was saved.'; progress.hidden = true; });
+    xhr.addEventListener('loadend', () => { pendingUploads = Math.max(0, pendingUploads - 1); });
     xhr.send(data);
   }
 
@@ -475,6 +483,8 @@
   document.querySelectorAll('[data-live-width]').forEach((button) => button.addEventListener('click', () => { preview.style.maxWidth = `${button.dataset.liveWidth}px`; }));
   form.addEventListener('submit', (event) => {
     const collected = collect();
+    if (pendingUploads) { event.preventDefault(); libraryStatus.textContent = 'Wait for the media upload to finish before publishing.'; return; }
+    if (collected.some((item) => item.type !== 'link' && !item.url.trim())) { event.preventDefault(); libraryStatus.textContent = 'Choose a media file or paste a direct URL for every video, image, or GIF before publishing.'; return; }
     if (collected.some((item) => item.url && !item.title.trim())) { event.preventDefault(); libraryStatus.textContent = 'Give every media item a title before saving.'; return; }
     jsonField.value = JSON.stringify(collected, null, 2); dirty = false;
   });

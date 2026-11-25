@@ -2,7 +2,7 @@
 {% block content %}
 <section class="page-head admin-head media-admin-heading">
   <div><p class="eyebrow">Storefront content</p><h1>Media Showcases</h1><p>Manage FityStores TV and the media sections placed across your store. Showcases with the same page and placement share one compact, scrollable storefront rail.</p></div>
-  <a class="btn primary" href="{{ url_for('admin.media_showcase_new') }}">Create showcase</a>
+  <div class="media-showcase-card-actions"><a class="btn primary" href="{{ url_for('admin.media_showcase_quick_publish') }}">Quick publish one media</a><a class="btn" href="{{ url_for('admin.media_showcase_new') }}">Create showcase</a></div>
 </section>
 <form class="showcase-filters media-showcase-filter" method="get" role="search" aria-label="Filter showcases">
   <input name="q" value="{{ request.args.get('q','') }}" placeholder="Search showcase name" aria-label="Search showcase name">
@@ -37,7 +37,7 @@
     </div>
   </article>
 {% else %}
-  <div class="media-admin-empty"><span aria-hidden="true">▧</span><h2>No showcases yet</h2><p>Create a compact media carousel or a larger campaign feature. Your existing products and store sections remain in place.</p><a class="btn primary" href="{{ url_for('admin.media_showcase_new') }}">Create your first showcase</a></div>
+  <div class="media-admin-empty"><span aria-hidden="true">▧</span><h2>No showcases yet</h2><p>Quickly publish one media item or create a compact media carousel. Your existing products and store sections remain in place.</p><a class="btn primary" href="{{ url_for('admin.media_showcase_quick_publish') }}">Quick publish one media</a> <a class="btn" href="{{ url_for('admin.media_showcase_new') }}">Create your first showcase</a></div>
 {% endfor %}
 </section>
 {% endblock %}

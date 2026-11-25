@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head admin-head media-admin-heading">
+  <div><p class="eyebrow">Storefront content</p><h1>Quick publish one media</h1><p>Publish one video, GIF, or image without setting up a multi-item showcase.</p></div>
+  <a class="btn" href="{{ url_for('admin.media_showcases') }}">Back to showcases</a>
+</section>
+
+<form method="post" enctype="multipart/form-data" class="media-admin-form media-quick-publish">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if error %}<p class="media-preview-error" role="alert">{{ error }}</p>{% endif %}
+  <section class="media-admin-section">
+    <div class="showcase-fields">
+      <label class="span-two">Upload one media file
+        <input type="file" name="media" accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.m4v,.mov,.webm">
+      </label>
+      <p class="showcase-help span-two">Or paste a direct media URL below. Choose one source, not both. Hosted uploads require Cloudinary; otherwise use a direct URL.</p>
+      <label class="span-two">Direct media URL (optional)
+        <input type="text" name="media_url" value="{{ request.form.get('media_url', '') }}" placeholder="https://…/video.mp4 or an image/GIF URL">
+      </label>
+      <label>URL media type
+        <select name="media_type">
+          {% for value, label in [("video", "Video"), ("image", "Image"), ("gif", "Animated GIF")] %}
+          <option value="{{ value }}"{% if request.form.get('media_type', 'video') == value %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Media title (optional)
+        <input type="text" name="title" maxlength="160" value="{{ request.form.get('title', '') }}" placeholder="Uses the filename when left blank">
+      </label>
+      <label class="span-two">Poster / thumbnail URL (optional)
+        <input type="text" name="poster_url" value="{{ request.form.get('poster_url', '') }}" placeholder="https://…/poster.jpg">
+      </label>
+      <label class="span-two">Link title to (optional)
+        <input type="text" name="destination_url" value="{{ request.form.get('destination_url', '') }}" placeholder="/shop or https://…">
+      </label>
+      <label>Page
+        <select required name="page" id="quick-showcase-page">
+          {% for page in pages %}
+          <option value="{{ page }}"{% if request.form.get('page', 'home') == page %} selected{% endif %}>{{ page|title }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Placement
+        <select required name="placement" id="quick-showcase-placement">
+          {% for page, placements in pages.items() %}{% for key, label in placements.items() %}
+          <option data-page="{{ page }}" value="{{ key }}"{% if request.form.get('placement', 'home_after_hero') == key %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}{% endfor %}
+        </select>
+      </label>
+    </div>
+  </section>
+  <div class="form-actions media-form-actions">
+    <button class="btn primary" type="submit">Publish media</button>
+    <a class="btn" href="{{ url_for('admin.media_showcase_new') }}">Use the full showcase editor</a>
+  </div>
+</form>
+
+<script>
+(function () {
+  const page = document.getElementById('quick-showcase-page');
+  const placement = document.getElementById('quick-showcase-placement');
+  function syncPlacements() {
+    [...placement.options].forEach((option) => { option.hidden = option.dataset.page !== page.value; });
+    if (placement.selectedOptions[0]?.dataset.page !== page.value) {
+      placement.value = [...placement.options].find((option) => option.dataset.page === page.value)?.value || '';
+    }
+  }
+  page.addEventListener('change', syncPlacements);
+  syncPlacements();
+})();
+</script>
+{% endblock %}

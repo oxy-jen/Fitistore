@@ -295,6 +295,11 @@ def test_media_showcase_auto_opens_first_active_item_once_per_page_by_default(cl
 
 def test_media_showcase_editor_offers_fields_and_existing_products(client, app):
     _sign_in_admin(client, app)
+    quick_publish = client.get("/admin/media-showcases/quick-publish")
+    assert quick_publish.status_code == 200
+    assert b'name="media"' in quick_publish.data
+    assert b'name="media_url"' in quick_publish.data
+    assert b"Use the full showcase editor" in quick_publish.data
     response = client.get("/admin/media-showcases/new")
     assert response.status_code == 200
     assert b"data-add-showcase-item" in response.data
@@ -311,6 +316,54 @@ def test_media_showcase_editor_offers_fields_and_existing_products(client, app):
     editor = client.get("/static/js/media-showcase-editor.js")
     assert b"Set as popup feature" in editor.data
     assert b"Featured popup item" in editor.data
+
+
+def test_media_showcase_quick_publish_accepts_upload_or_direct_video_url(client, app):
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    _sign_in_admin(client, app)
+    static_root = Path(app.static_folder)
+    video_bytes = b"\x00\x00\x00\x18ftypisom" + (b"\x00" * 24)
+    with TemporaryDirectory(prefix="test-quick-showcase-", dir=static_root) as upload_root:
+        app.config["UPLOAD_FOLDER"] = upload_root
+        uploaded = client.post("/admin/media-showcases/quick-publish", data={
+            "media": (io.BytesIO(video_bytes), "launch.mp4"),
+            "page": "home", "placement": "home_after_hero", "title": "Launch clip",
+        }, content_type="multipart/form-data", follow_redirects=True)
+        assert uploaded.status_code == 200
+        assert b"Media published" in uploaded.data
+        with app.app_context():
+            showcase = MediaShowcase.query.filter_by(name="Quick publish: Launch clip").one()
+            uploaded_item = showcase.items[0]
+            assert showcase.is_published and showcase.is_enabled
+            assert showcase.layout == "single"
+            assert uploaded_item.media_type == "video"
+            assert uploaded_item.media_url.startswith("/static/")
+            assert uploaded_item.source_type == "upload"
+            assert uploaded_item.show_controls
+
+    linked = client.post("/admin/media-showcases/quick-publish", data={
+        "media_url": "https://cdn.example.test/launch.mp4", "media_type": "video",
+        "page": "home", "placement": "home_after_hero", "title": "Hosted clip",
+    }, follow_redirects=True)
+    assert linked.status_code == 200
+    assert b"Media published" in linked.data
+    with app.app_context():
+        showcase = MediaShowcase.query.filter_by(name="Quick publish: Hosted clip").one()
+        assert showcase.items[0].media_url == "https://cdn.example.test/launch.mp4"
+        assert showcase.items[0].source_type == "external_url"
+
+
+def test_media_showcase_quick_publish_requires_exactly_one_source(client, app):
+    _sign_in_admin(client, app)
+    response = client.post("/admin/media-showcases/quick-publish", data={
+        "page": "home", "placement": "home_after_hero",
+    })
+    assert response.status_code == 200
+    assert b"Choose a video/image file or paste a direct media URL" in response.data
+    with app.app_context():
+        assert MediaShowcase.query.filter(MediaShowcase.name.like("Quick publish:%")).count() == 0
 
 
 def test_media_showcases_sharing_a_slot_render_as_one_carousel(client, app):
@@ -7108,7 +7161,7 @@ def test_media_showcase_video_preview_crop_saves_and_renders_without_cropping_so
          "width": 1080, "height": 1920, "preview_position_x": 73, "preview_position_y": 24},
         {"type": "video", "title": "Landscape film", "url": "https://cdn.example.test/landscape.mp4",
          "poster": "https://cdn.example.test/landscape.jpg", "presentation": "contain", "aspect_ratio": "16:9",
-         "width": 1920, "height": 1080},
+         "width": 1920, "height": 1080, "autoplay": False},
     ]
     response = client.post("/admin/media-showcases/new", data={
         "name": "Video crop test", "title": "Video preview", "page": "home",
@@ -7145,6 +7198,17 @@ def test_media_showcase_video_preview_crop_saves_and_renders_without_cropping_so
     assert page.status_code == 200
     assert b"data-showcase-video-open" in page.data
     assert b"data-video-src=\"https://cdn.example.test/portrait.mp4\"" in page.data
+    assert b'data-media-autoplay="1"' in page.data
+    video_tags = re.findall(rb'<video\b[^>]*data-showcase-video-preview[^>]*>', page.data)
+    assert len(video_tags) == 2
+    autoplay_video = next(tag for tag in video_tags if b'data-autoplay="1"' in tag)
+    non_autoplay_video = next(tag for tag in video_tags if b'data-autoplay="0"' in tag)
+    assert b"autoplay" in autoplay_video and b"muted" in autoplay_video
+    assert b"loop" in autoplay_video and b"playsinline" in autoplay_video
+    assert b'data-preview-src="https://cdn.example.test/portrait.mp4"' in autoplay_video
+    assert not re.search(rb'\ssrc=', autoplay_video)
+    assert not re.search(rb'\sautoplay(?:\s|>)', non_autoplay_video)
+    assert b'data-media-autoplay="0"' in page.data
     assert b"--media-item-ratio:9.0 / 16.0" in page.data
     assert b"--media-item-ratio:16.0 / 9.0" in page.data
     assert b"data-media-showcase-player" in page.data
