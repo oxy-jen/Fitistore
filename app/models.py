@@ -82,6 +82,7 @@ class Product(TimestampMixin, db.Model):
     variants = db.relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan", order_by="ProductVariant.sort_order")
     display_note = db.relationship("ProductDisplayNote", back_populates="product", cascade="all, delete-orphan", uselist=False)
     content = db.relationship("ProductDetails", back_populates="product", cascade="all, delete-orphan", passive_deletes=True, uselist=False)
+    content_sections = db.relationship("ProductContentSection", back_populates="product", cascade="all, delete-orphan", passive_deletes=True, order_by="ProductContentSection.sort_order, ProductContentSection.id")
     reviews = db.relationship("Review", back_populates="product")
     mamba_collection_item = db.relationship("MambaCollectionItem", back_populates="product", cascade="all, delete-orphan", passive_deletes=True, uselist=False)
     __table_args__ = (
@@ -375,6 +376,25 @@ class ProductVariantDetails(TimestampMixin, db.Model):
     variant_id = db.Column(db.Integer, db.ForeignKey("product_variant.id", ondelete="CASCADE"), primary_key=True)
     description_override_html = db.Column(db.Text, nullable=False, default="")
     variant = db.relationship("ProductVariant", back_populates="content")
+
+
+class ProductContentSection(TimestampMixin, db.Model):
+    __tablename__ = "product_content_section"
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = db.Column(db.String(160), nullable=False, default="")
+    body_text = db.Column(db.Text, nullable=False, default="")
+    image_id = db.Column(db.Integer, db.ForeignKey("product_image.id", ondelete="SET NULL"))
+    image_alt = db.Column(db.String(255), nullable=False, default="")
+    image_caption = db.Column(db.String(300), nullable=False, default="")
+    image_position = db.Column(db.String(12), nullable=False, default="left")
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+    product = db.relationship("Product", back_populates="content_sections")
+    image = db.relationship("ProductImage")
+    __table_args__ = (
+        CheckConstraint("image_position IN ('left','right','full')", name="ck_product_content_section_position"),
+        CheckConstraint("sort_order >= 0", name="ck_product_content_section_order"),
+    )
 
 
 class InventoryMovement(TimestampMixin, db.Model):

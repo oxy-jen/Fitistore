@@ -81,6 +81,40 @@
           <textarea name="detailed_description_html" data-rich-editor-value hidden>{{ detail_value('detailed_description_html', product_details.detailed_description_html if product_details else '') }}</textarea>
           <small>Formatting is sanitized before storage. Images can be selected from this product's gallery.</small>
         </div></details>
+        <details class="admin-content-group" open><summary>Product story images and sections</summary>
+          <p class="product-section-help">Build the image-and-copy panels shoppers see in Product details. Upload photos in the gallery section above, save the product, then choose those images here. Add a heading, image alt text, and a short explanation for each panel.</p>
+          <div id="product-content-section-rows" class="product-content-section-rows">
+            {% set story_rows = content_section_rows if content_section_rows is defined else [] %}
+            {% if story_rows %}
+              {% for row in story_rows %}
+              <article class="product-content-section-row" data-product-content-row>
+                <div class="product-content-section-heading"><strong>Story section {{ loop.index }}</strong><div><button type="button" class="btn" data-move-product-content-up>Move up</button><button type="button" class="btn" data-move-product-content-down>Move down</button><button type="button" class="btn danger" data-remove-product-content>Remove</button></div></div>
+                <div class="product-content-section-fields">
+                  <label>Section heading<input name="content_section_title" maxlength="160" value="{{ row.get('title', '') }}" placeholder="Example: Designed for everyday use"></label>
+                  <label>Product image<select name="content_section_image_id"><option value="">No image</option>{% if product %}{% for image in product.images %}<option value="{{ image.id }}" {% if row.get('image_id', '')|string == image.id|string %}selected{% endif %}>{{ image.alt_text or ('Product image ' ~ loop.index) }}</option>{% endfor %}{% endif %}</select></label>
+                  <label>Image description (alt text)<input name="content_section_image_alt" maxlength="255" value="{{ row.get('image_alt', '') }}" placeholder="Describe what the image shows"></label>
+                  <label>Image caption<input name="content_section_image_caption" maxlength="300" value="{{ row.get('image_caption', '') }}" placeholder="Optional caption"></label>
+                  <label>Image placement<select name="content_section_image_position"><option value="left" {% if row.get('image_position', 'left') == 'left' %}selected{% endif %}>Image left</option><option value="right" {% if row.get('image_position', 'left') == 'right' %}selected{% endif %}>Image right</option><option value="full" {% if row.get('image_position', 'left') == 'full' %}selected{% endif %}>Full-width image</option></select></label>
+                </div>
+                <label>Product explanation<textarea name="content_section_body_text" rows="3" maxlength="4000" placeholder="Explain the product feature shown in the image.">{{ row.get('body_text', '') }}</textarea></label>
+              </article>
+              {% endfor %}
+            {% else %}
+              <article class="product-content-section-row" data-product-content-row>
+                <div class="product-content-section-heading"><strong>Story section 1</strong><div><button type="button" class="btn" data-move-product-content-up disabled>Move up</button><button type="button" class="btn" data-move-product-content-down disabled>Move down</button><button type="button" class="btn danger" data-remove-product-content>Remove</button></div></div>
+                <div class="product-content-section-fields">
+                  <label>Section heading<input name="content_section_title" maxlength="160" placeholder="Example: Designed for everyday use"></label>
+                  <label>Product image<select name="content_section_image_id"><option value="">No image</option>{% if product %}{% for image in product.images %}<option value="{{ image.id }}">{{ image.alt_text or ('Product image ' ~ loop.index) }}</option>{% endfor %}{% endif %}</select></label>
+                  <label>Image description (alt text)<input name="content_section_image_alt" maxlength="255" placeholder="Describe what the image shows"></label>
+                  <label>Image caption<input name="content_section_image_caption" maxlength="300" placeholder="Optional caption"></label>
+                  <label>Image placement<select name="content_section_image_position"><option value="left" selected>Image left</option><option value="right">Image right</option><option value="full">Full-width image</option></select></label>
+                </div>
+                <label>Product explanation<textarea name="content_section_body_text" rows="3" maxlength="4000" placeholder="Explain the product feature shown in the image."></textarea></label>
+              </article>
+            {% endif %}
+          </div>
+          <button type="button" class="btn" id="add-product-content-section">Add image-and-text section</button>
+        </details>
         <details class="admin-content-group"><summary>Specifications</summary><label>One specification per line: Name | Value<textarea name="specifications" rows="5" placeholder="Brand | Sonar&#10;Capacity | 2 Litres&#10;Material | Stainless steel">{% if details_form %}{{ details_form.get('specifications', '') }}{% elif product_details and product_details.specifications %}{% for spec in product_details.specifications %}{{ spec.get('name', '') }} | {{ spec.get('value', '') }}{% if not loop.last %}&#10;{% endif %}{% endfor %}{% endif %}</textarea></label><small>Leave blank if no specifications are available. Order is preserved.</small></details>
         <details class="admin-content-group"><summary>What's in the box</summary><label>One included item per line<textarea name="box_contents" rows="3" placeholder="Main product&#10;User manual">{{ detail_value('box_contents', (product_details.box_contents|join('\n')) if product_details and product_details.box_contents else '') }}</textarea></label></details>
         <details class="admin-content-group"><summary>Manufacturer, warranty, and care</summary><div class="form-grid"><label>Manufacturer<input name="manufacturer" maxlength="160" value="{{ detail_value('manufacturer', product_details.manufacturer if product_details else '') }}"></label><label>Warranty period<input name="warranty_period" maxlength="120" placeholder="Only if confirmed" value="{{ detail_value('warranty_period', product_details.warranty_period if product_details else '') }}"></label><label>Warranty type<input name="warranty_type" maxlength="120" placeholder="Only if confirmed" value="{{ detail_value('warranty_type', product_details.warranty_type if product_details else '') }}"></label></div><label>Care instructions<textarea name="care_instructions" rows="3">{{ detail_value('care_instructions', product_details.care_instructions if product_details else '') }}</textarea></label><label>Additional product information<textarea name="additional_information" rows="3">{{ detail_value('additional_information', product_details.additional_information if product_details else '') }}</textarea></label></details>
@@ -99,6 +133,19 @@
   </details>
   <button class="btn primary" type="submit">Save product</button>
 </form>
+<template id="product-content-section-template">
+  <article class="product-content-section-row" data-product-content-row>
+    <div class="product-content-section-heading"><strong>New story section</strong><div><button type="button" class="btn" data-move-product-content-up>Move up</button><button type="button" class="btn" data-move-product-content-down>Move down</button><button type="button" class="btn danger" data-remove-product-content>Remove</button></div></div>
+    <div class="product-content-section-fields">
+      <label>Section heading<input name="content_section_title" maxlength="160" placeholder="Example: Designed for everyday use"></label>
+      <label>Product image<select name="content_section_image_id"><option value="">No image</option>{% if product %}{% for image in product.images %}<option value="{{ image.id }}">{{ image.alt_text or ('Product image ' ~ loop.index) }}</option>{% endfor %}{% endif %}</select></label>
+      <label>Image description (alt text)<input name="content_section_image_alt" maxlength="255" placeholder="Describe what the image shows"></label>
+      <label>Image caption<input name="content_section_image_caption" maxlength="300" placeholder="Optional caption"></label>
+      <label>Image placement<select name="content_section_image_position"><option value="left" selected>Image left</option><option value="right">Image right</option><option value="full">Full-width image</option></select></label>
+    </div>
+    <label>Product explanation<textarea name="content_section_body_text" rows="3" maxlength="4000" placeholder="Explain the product feature shown in the image."></textarea></label>
+  </article>
+</template>
 <template id="product-variant-row-template">
   <article class="admin-variant-row" data-product-variant-row>
     <div class="admin-variant-row-heading"><strong>New variant</strong><div><button class="btn" type="button" data-duplicate-product-variant>Duplicate</button><button class="btn danger" type="button" data-remove-product-variant>Remove</button></div></div>
@@ -120,4 +167,5 @@
 {% if product %}<form class="form-card danger-zone" method="post" action="{{ url_for('admin.delete_product', product_id=product.id) }}" onsubmit="return confirm('Delete this product permanently?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><h2>Delete product</h2><p>Type DELETE to remove this product record and uploaded images.</p><input name="confirm" placeholder="DELETE"><button class="btn danger" type="submit">Delete product</button></form>{% endif %}
 <script defer src="{{ url_for('static', filename='js/admin-product-variants.js') }}?v=variant-studio-20261126"></script>
 <script defer src="{{ url_for('static', filename='js/admin-product-content.js') }}?v=rich-product-details-20261126"></script>
+<script defer src="{{ url_for('static', filename='js/admin-product-sections.js') }}?v=product-story-sections-20261126"></script>
 {% endblock %}

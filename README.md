@@ -217,7 +217,7 @@ To verify deployment, open `/admin/products`, edit a product, upload a small jpg
 
 ## Product details and variants
 
-The admin product editor supports optional structured product information and per-variant description overrides. Existing product, variant, image, inventory, cart, checkout, and order records remain in their current tables. The additive `migrate-product-details-schema` command creates only `product_details` and `product_variant_details`; it requires the existing `product` and `product_variant` tables and validates both new tables. It does not populate, rewrite, or delete catalogue or order data. Storefront pages continue to work when the optional tables have not been installed, and the admin form reports that the feature needs setup.
+The admin product editor supports optional structured product information, ordered image-and-copy story sections, and per-variant description overrides. Story sections reuse product-gallery images, with admin-managed headings, explanations, image alt text, captions, and placement. Existing product, variant, image, inventory, cart, checkout, and order records remain in their current tables. The additive `migrate-product-details-schema` command creates only `product_details`, `product_variant_details`, and `product_content_section`; it requires the existing `product`, `product_variant`, and `product_image` tables and validates all three new tables. It does not populate, rewrite, or delete catalogue or order data. Storefront pages continue to work when the optional tables have not been installed, and the admin form reports that the feature needs setup.
 
 For local development, create or update the development database explicitly before using the optional fields:
 
@@ -225,7 +225,7 @@ For local development, create or update the development database explicitly befo
 python -m flask --app manage:app migrate-product-details-schema
 ```
 
-For a production PostgreSQL database, first confirm the target and verify a recent backup using the production database safety steps below. Then run the same command once from the deployed Render service environment, or add it to the approved Build Command after reviewing the schema-only change. The migration is repeatable, takes a transaction-scoped PostgreSQL advisory lock, and reports an error rather than altering an incomplete existing feature table. Do not run `init-db` on production; no production migration is run automatically by application startup.
+For a production PostgreSQL database, first confirm the target and verify a recent backup using the production database safety steps below. Then run the same command from the deployed Render service environment; rerunning it safely creates the story-section table if the earlier two-table version was already installed. The migration is repeatable, takes a transaction-scoped PostgreSQL advisory lock, and reports an error rather than altering an incomplete existing feature table. Do not run `init-db` on production; no production migration is run automatically by application startup.
 
 ## Customer accounts and email
 

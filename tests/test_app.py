@@ -1477,10 +1477,11 @@ def test_product_detail(client):
     assert b"You may also like" in rv.data
     assert b"View category" in rv.data
     assert b'class="product-related-grid"' in rv.data
-    assert b'role="tablist" aria-label="Product details"' in rv.data
-    assert b'id="product-description" class="product-info-section" role="tabpanel" aria-labelledby="product-tab-description"' in rv.data
-    assert b'id="product-specifications" class="product-info-section" role="tabpanel" aria-labelledby="product-tab-specifications" hidden' in rv.data
-    assert b'id="product-reviews" class="product-info-section product-review-section" role="tabpanel" aria-labelledby="product-tab-reviews" hidden' in rv.data
+    assert b'<nav class="product-information-tabs" aria-label="Product content sections">' in rv.data
+    assert b'href="#product-description">Product details</a>' in rv.data
+    assert b'id="product-description" class="product-info-section"' in rv.data
+    assert b'id="product-specifications" class="product-info-section"' in rv.data
+    assert b'id="product-reviews" class="product-info-section product-review-section"' in rv.data
     assert b"Comfortable" in rv.data
     assert b"Soft and comfortable." in rv.data
     assert b"This review is awaiting approval." not in rv.data
@@ -1597,8 +1598,9 @@ def test_product_details_are_saved_sanitized_and_rendered(client, app, monkeypat
 
 
 def test_product_detail_still_renders_without_optional_product_details_schema(client, app):
-    from app.models import ProductDetails, ProductVariantDetails
+    from app.models import ProductContentSection, ProductDetails, ProductVariantDetails
     with app.app_context():
+        ProductContentSection.__table__.drop(db.engine, checkfirst=True)
         ProductVariantDetails.__table__.drop(db.engine, checkfirst=True)
         ProductDetails.__table__.drop(db.engine, checkfirst=True)
         db.session.remove()
@@ -1612,11 +1614,12 @@ def test_product_detail_still_renders_without_optional_product_details_schema(cl
 
 def test_product_details_migration_is_additive_and_repeatable(app):
     from sqlalchemy import inspect
-    from app.models import ProductDetails, ProductVariantDetails
+    from app.models import ProductContentSection, ProductDetails, ProductVariantDetails
     with app.app_context():
         product_count = Product.query.count()
         product = Product.query.filter_by(slug="plain-socks").one()
         original_stock = product.stock_quantity
+        ProductContentSection.__table__.drop(db.engine, checkfirst=True)
         ProductVariantDetails.__table__.drop(db.engine, checkfirst=True)
         ProductDetails.__table__.drop(db.engine, checkfirst=True)
         db.session.remove()
@@ -1626,12 +1629,18 @@ def test_product_details_migration_is_additive_and_repeatable(app):
     second = runner.invoke(args=["migrate-product-details-schema"])
     assert first.exit_code == 0, first.output
     assert second.exit_code == 0, second.output
+    with app.app_context():
+        ProductContentSection.__table__.drop(db.engine, checkfirst=True)
+        db.session.remove()
+    upgrade = runner.invoke(args=["migrate-product-details-schema"])
+    assert upgrade.exit_code == 0, upgrade.output
 
     with app.app_context():
         assert Product.query.count() == product_count
         assert Product.query.filter_by(slug="plain-socks").one().stock_quantity == original_stock
         assert inspect(db.engine).has_table("product_details")
         assert inspect(db.engine).has_table("product_variant_details")
+        assert inspect(db.engine).has_table("product_content_section")
 
 
 def test_recently_viewed_api_only_returns_active_in_stock_products(client, app):
@@ -1668,6 +1677,77 @@ def test_recently_viewed_api_only_returns_active_in_stock_products(client, app):
     assert [product["name"] for product in products] == ["Plain Socks", "Unpriced Cap"]
     assert products[0]["price"] == "KSh 150"
     assert products[1]["price"] == "Contact for price"
+
+
+def test_admin_manages_ordered_product_story_images(client, app):
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").one()
+        image = ProductImage(
+            product_id=product.id,
+            filename="socks-detail.png",
+            alt_text="Close view of the sock stitching",
+            sort_order=0,
+            is_primary=True,
+        )
+        db.session.add(image)
+        db.session.commit()
+        product_id = product.id
+        image_id = image.id
+        category_id = product.category_id
+
+    response = client.post(f"/admin/products/{product_id}/edit", data={
+        "name": "Plain Socks",
+        "sku": "",
+        "category_id": str(category_id),
+        "description": "Soft socks",
+        "price": "150",
+        "previous_price": "180",
+        "unit_cost": "",
+        "stock_quantity": "4",
+        "low_stock_threshold": "2",
+        "size_options": "",
+        "color_options": "",
+        "active": "on",
+        "content_section_title": ["Fine stitching", "Comfortable fit"],
+        "content_section_body_text": [
+            "Reinforced stitching helps the socks hold their shape.",
+            "A close fit <script>alert(1)</script>",
+        ],
+        "content_section_image_id": [str(image_id), ""],
+        "content_section_image_alt": ["Close detail of reinforced sock stitching.", ""],
+        "content_section_image_caption": ["Reinforced toe and heel", ""],
+        "content_section_image_position": ["right", "full"],
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Product saved" in response.data
+
+    with app.app_context():
+        from app.models import ProductContentSection
+        sections = ProductContentSection.query.filter_by(product_id=product_id).order_by(
+            ProductContentSection.sort_order
+        ).all()
+        section = sections[0]
+        assert len(sections) == 2
+        assert section.title == "Fine stitching"
+        assert section.sort_order == 0
+        assert section.image_id == image_id
+        assert section.image_alt == "Close detail of reinforced sock stitching."
+        assert section.image_position == "right"
+        assert sections[1].title == "Comfortable fit"
+        assert sections[1].sort_order == 1
+
+    edit_page = client.get(f"/admin/products/{product_id}/edit")
+    assert b'value="Fine stitching"' in edit_page.data
+    assert b"Close detail of reinforced sock stitching." in edit_page.data
+    storefront = client.get("/product/plain-socks")
+    assert b'class="product-story-section image-right"' in storefront.data
+    assert b'class="product-story-section image-full"' in storefront.data
+    assert b"Reinforced stitching helps the socks hold their shape." in storefront.data
+    assert b"Reinforced toe and heel" in storefront.data
+    assert b'alt="Close detail of reinforced sock stitching."' in storefront.data
+    assert b'&lt;script&gt;alert(1)&lt;/script&gt;' in storefront.data
+    assert b"<script>alert(1)</script>" not in storefront.data
 
 
 def test_product_detail_keeps_real_variant_options_and_stock(client, app):

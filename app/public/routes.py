@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
-from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductDetails, ProductLike, ProductEnquiry, ProductSuggestion, ProductVariant, ProductVariantDetails, ReferralClick, RestockAlert, Review, UpcomingProduct, UpcomingProductVote
+from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductContentSection, ProductDetails, ProductLike, ProductEnquiry, ProductSuggestion, ProductVariant, ProductVariantDetails, ReferralClick, RestockAlert, Review, UpcomingProduct, UpcomingProductVote
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
@@ -1094,6 +1094,22 @@ def product_detail(slug):
             ).all()
             if detail.description_override_html
         }
+    product_story_sections = []
+    if details_ready:
+        for section in ProductContentSection.query.filter_by(product_id=product.id).order_by(
+            ProductContentSection.sort_order, ProductContentSection.id
+        ).all():
+            image = section.image
+            product_story_sections.append({
+                "title": section.title,
+                "body_text": section.body_text,
+                "image_url": product_image_url(image) if image else "",
+                "image_alt": section.image_alt or (
+                    product_image_alt(image, product.name) if image else ""
+                ),
+                "image_caption": section.image_caption,
+                "image_position": section.image_position,
+            })
     product_display_note = get_product_display_note(product.id)
     related = product_list_options(Product.query.filter(Product.active.is_(True), Product.category_id == product.category_id, Product.id != product.id)).order_by(Product.featured.desc(), Product.updated_at.desc(), Product.id.desc()).limit(4).all()
     related_same_category_count = len(related)
@@ -1118,6 +1134,11 @@ def product_detail(slug):
         product_description = product_details.introduction + " " + product_description
     if safe_rich_description:
         product_description += " " + re.sub(r"<[^>]+>", " ", safe_rich_description)
+    if product_story_sections:
+        product_description += " " + " ".join(
+            f"{section['title']}. {section['body_text']}"
+            for section in product_story_sections
+        )
     product_description = " ".join(product_description.split())[:300] or ("View details and current availability for " + product.name + " at FityStores.")
     image_url = product_image_url(product_display_image(product))
     if image_url and image_url.startswith("/"):
@@ -1161,6 +1182,7 @@ def product_detail(slug):
         whatsapp_share_url=whatsapp_share_url,
         product=product,
         product_details=product_details,
+        product_story_sections=product_story_sections,
         product_rich_description=Markup(safe_rich_description),
         variant_descriptions=variant_details,
         product_display_note=product_display_note,

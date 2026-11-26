@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from sqlalchemy import inspect
 
 from app.extensions import db
-from app.models import ProductDetails, ProductVariantDetails
+from app.models import ProductContentSection, ProductDetails, ProductVariantDetails
 
 
 _ALLOWED_TAGS = {
@@ -114,7 +114,7 @@ def sanitize_product_html(value):
 
 def product_details_schema_ready():
     inspector = inspect(db.engine)
-    for model in (ProductDetails, ProductVariantDetails):
+    for model in (ProductDetails, ProductVariantDetails, ProductContentSection):
         table = model.__table__
         if not inspector.has_table(table.name):
             return False

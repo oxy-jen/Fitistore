@@ -1124,14 +1124,14 @@ def register_cli(app: Flask):
     def migrate_product_details_schema():
         """Create additive rich product-content tables without changing existing product data."""
         from sqlalchemy import inspect, text
-        from .models import ProductDetails, ProductVariantDetails
+        from .models import ProductContentSection, ProductDetails, ProductVariantDetails
 
         if db.engine.dialect.name not in {"sqlite", "postgresql"}:
             raise click.ClickException("Product details migration supports SQLite and PostgreSQL only.")
         try:
             with db.engine.begin() as connection:
                 inspector = inspect(connection)
-                required = {"product", "product_variant"}
+                required = {"product", "product_variant", "product_image"}
                 missing = required - set(inspector.get_table_names())
                 if missing:
                     raise click.ClickException(
@@ -1141,7 +1141,7 @@ def register_cli(app: Flask):
                     )
                 if connection.dialect.name == "postgresql":
                     connection.execute(text("SELECT pg_advisory_xact_lock(724930119)"))
-                for model in (ProductDetails, ProductVariantDetails):
+                for model in (ProductDetails, ProductVariantDetails, ProductContentSection):
                     model.__table__.create(bind=connection, checkfirst=True)
                     actual = {column["name"] for column in inspect(connection).get_columns(model.__tablename__)}
                     expected = {column.name for column in model.__table__.columns}

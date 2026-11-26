@@ -1251,36 +1251,3 @@ if('IntersectionObserver'in window){
   }),{rootMargin:'160px'});
   document.querySelectorAll('.media-showcase-video-preview[data-video-meta-src]').forEach(preview=>showcaseMetadataObserver.observe(preview));
 }
-
-function activateProductInfoTab(tab,{focus=false}={}){
-  const tablist=tab.closest('[role="tablist"]');
-  const detail=tablist?.closest('.product-information-card');
-  if(!tablist||!detail)return;
-  const tabs=[...tablist.querySelectorAll('[role="tab"]')];
-  tabs.forEach(item=>{
-    const selected=item===tab;
-    item.setAttribute('aria-selected',String(selected));
-    item.tabIndex=selected?0:-1;
-    const panel=document.getElementById(item.getAttribute('aria-controls'));
-    if(panel&&detail.contains(panel))panel.hidden=!selected;
-  });
-  if(focus)tab.focus();
-}
-document.addEventListener('click',event=>{
-  const tab=event.target.closest('.product-information-tabs [role="tab"]');
-  if(tab)activateProductInfoTab(tab);
-});
-document.addEventListener('keydown',event=>{
-  const tab=event.target.closest('.product-information-tabs [role="tab"]');
-  if(!tab)return;
-  const tabs=[...tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
-  const index=tabs.indexOf(tab);
-  let next=index;
-  if(event.key==='ArrowRight')next=(index+1)%tabs.length;
-  else if(event.key==='ArrowLeft')next=(index-1+tabs.length)%tabs.length;
-  else if(event.key==='Home')next=0;
-  else if(event.key==='End')next=tabs.length-1;
-  else return;
-  event.preventDefault();
-  activateProductInfoTab(tabs[next],{focus:true});
-});

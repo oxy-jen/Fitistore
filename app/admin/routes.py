@@ -19,7 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 from app.extensions import db
-from app.models import AdminUser, CustomerAccount, CustomerCart, CustomerOrderLink, Category, CategoryThumbnail, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, MambaCollection, MambaCollectionItem, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductDetails, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, ProductVariantDetails, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDeliveryAttempt, EmailDeliveryInvestigation, EmailDeliveryInvestigationEvent, EmailDraft, EmailMessage, EmailTemplate, EmailWorkerRun, MarketingSuppressionCase, MarketingSuppressionEvent, EmailLegacyPayloadReviewEvent
+from app.models import AdminUser, CustomerAccount, CustomerCart, CustomerOrderLink, Category, CategoryThumbnail, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, MambaCollection, MambaCollectionItem, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductContentSection, ProductDetails, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, ProductVariantDetails, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDeliveryAttempt, EmailDeliveryInvestigation, EmailDeliveryInvestigationEvent, EmailDraft, EmailMessage, EmailTemplate, EmailWorkerRun, MarketingSuppressionCase, MarketingSuppressionEvent, EmailLegacyPayloadReviewEvent
 from app.services.mamba_collection import MAMBA_CATEGORY_NAMES, mamba_collection_schema_ready
 from app.services.category_thumbnails import CATEGORY_GROUPS, CATEGORY_GROUPS_BY_KEY, category_group_key, category_thumbnails_schema_ready
 from app.services.formatting import parse_money
@@ -1163,6 +1163,66 @@ def parse_product_details_form(form):
     }
 
 
+def product_content_section_form_rows(content_sections):
+    return [{
+        "title": section.title,
+        "body_text": section.body_text,
+        "image_id": str(section.image_id or ""),
+        "image_alt": section.image_alt,
+        "image_caption": section.image_caption,
+        "image_position": section.image_position,
+    } for section in content_sections]
+
+
+def submitted_product_content_section_rows(form):
+    fields = ("title", "body_text", "image_id", "image_alt", "image_caption", "image_position")
+    columns = {field: form.getlist(f"content_section_{field}") for field in fields}
+    row_count = max((len(values) for values in columns.values()), default=0)
+    return [
+        {
+            field: columns[field][index] if index < len(columns[field]) else ""
+            for field in fields
+        }
+        for index in range(row_count)
+    ]
+
+
+def parse_product_content_sections(form, product):
+    image_by_id = {image.id: image for image in product.images} if product.id else {}
+    rows = []
+    for row in submitted_product_content_section_rows(form):
+        title = row["title"].strip()[:160]
+        body_text = row["body_text"].strip()[:4000]
+        raw_image_id = row["image_id"].strip()
+        image_id = int(raw_image_id) if raw_image_id else None
+        if image_id is not None and image_id not in image_by_id:
+            raise ValueError("Choose a description image from this product's gallery.")
+        if not body_text and image_id is None:
+            if title or row["image_alt"].strip() or row["image_caption"].strip():
+                raise ValueError("Each product story section needs text or a gallery image.")
+            continue
+        if not title:
+            raise ValueError("Add a heading to each product story section.")
+        image_position = row["image_position"].strip() or "left"
+        if image_position not in {"left", "right", "full"}:
+            raise ValueError("Choose left, right, or full-width placement for each product story image.")
+        image_alt = row["image_alt"].strip()[:255]
+        if image_id and not image_alt:
+            image_alt = image_by_id[image_id].alt_text or f"{product.name} product detail"
+        rows.append({
+            "title": title,
+            "body_text": body_text,
+            "image_id": image_id,
+            "image_alt": image_alt if image_id else "",
+            "image_caption": row["image_caption"].strip()[:300] if image_id else "",
+            "image_position": image_position,
+            "sort_order": len(rows),
+        })
+        if len(rows) > 20:
+            raise ValueError("A product can have up to 20 story sections.")
+    return rows
+
+
 def parse_variant_rows(raw_text, product):
     rows = []
     seen = set()
@@ -1768,8 +1828,15 @@ def product_form(product_id=None):
                 ProductVariantDetails.variant_id.in_([variant.id for variant in product.variants])
             ).all()
         } if product.variants else {}
+    content_sections = (
+        ProductContentSection.query.filter_by(product_id=product.id)
+        .order_by(ProductContentSection.sort_order, ProductContentSection.id).all()
+        if product and details_ready else []
+    )
 
-    def render_product_form(*, variant_form_rows=None, details_form=None, display_note=""):
+    def render_product_form(
+        *, variant_form_rows=None, content_section_rows=None, details_form=None, display_note=""
+    ):
         description_source = (
             details_form.get("detailed_description_html", "")
             if details_form else
@@ -1787,6 +1854,10 @@ def product_form(product_id=None):
             form_display_note=display_note,
             details_ready=details_ready,
             product_details=product_details,
+            content_section_rows=(
+                content_section_rows if content_section_rows is not None
+                else product_content_section_form_rows(content_sections)
+            ),
             details_form=details_form,
             rich_description_preview=sanitize_product_html(description_source) if details_ready else "",
         )
@@ -1805,6 +1876,11 @@ def product_form(product_id=None):
         if not details_ready and (
             any(request.form.get(name, "").strip() for name in detail_field_names)
             or any(value.strip() for value in request.form.getlist("variant_description_override_html"))
+            or any(
+                value.strip()
+                for field in ("title", "body_text", "image_id", "image_alt", "image_caption")
+                for value in request.form.getlist(f"content_section_{field}")
+            )
         ):
             flash(
                 "Product details storage is not installed. Run "
@@ -1829,14 +1905,23 @@ def product_form(product_id=None):
         product.active = bool(request.form.get("active"))
         product.featured = bool(request.form.get("featured"))
         variant_form_rows = submitted_variant_form_rows(request.form) if "variant_size" in request.form else None
+        content_section_rows = (
+            submitted_product_content_section_rows(request.form)
+            if "content_section_title" in request.form else None
+        )
         try:
             detail_values = parse_product_details_form(request.form) if details_ready else None
+            content_section_values = (
+                parse_product_content_sections(request.form, product)
+                if details_ready and content_section_rows is not None else None
+            )
             variant_rows = parse_variant_form_rows(request.form, product) if variant_form_rows is not None else request.form.get("variants_text", "")
             synced_variants = sync_product_variants(product, variant_rows)
         except ValueError as exc:
             flash(str(exc), "error")
             return render_product_form(
                 variant_form_rows=variant_form_rows,
+                content_section_rows=content_section_rows,
                 details_form=details_form,
                 display_note=form_display_note,
             )
@@ -1869,12 +1954,24 @@ def product_form(product_id=None):
                         existing.description_override_html = description
                     elif existing is not None:
                         db.session.delete(existing)
+            if content_section_values is not None:
+                ProductContentSection.query.filter_by(product_id=product.id).delete(
+                    synchronize_session=False
+                )
+                db.session.add_all(
+                    ProductContentSection(product_id=product.id, **section)
+                    for section in content_section_values
+                )
         for image_url in request.form.getlist("online_image_url"):
             save_image_from_url(image_url, product)
         if not product.images:
             db.session.rollback()
             flash("Add at least one main product image before saving.", "error")
-            return render_product_form(details_form=details_form, display_note=form_display_note)
+            return render_product_form(
+                content_section_rows=content_section_rows,
+                details_form=details_form,
+                display_note=form_display_note,
+            )
         if product.images and not any(image.is_primary for image in product.images):
             product.images[0].is_primary = True
         db.session.commit()
