@@ -40,7 +40,7 @@
 {% if request.endpoint == 'public.shop' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/shop-page.css') }}?v=per-category-inline-sort-20261125">{% endif %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/media-showcases.css') }}?v=media-showcase-lazy-video-v3">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/pwa.css') }}?v=pwa-install-v1">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/category-section-colors.css') }}?v=home-quick-add-20261126">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/category-section-colors.css') }}?v=home-quick-add-all-cards-20261126">
   {% if request.endpoint == 'admin.email_center' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-email.css') }}?v=admin-email-responsive-20261119">{% endif %}
   <script type="application/ld+json">
   {{ {"@context": "https://schema.org", "@type": "Organization", "name": settings.shop_name, "url": "https://fitystore.top/", "logo": url_for('static', filename='images/mainLogo-160.png', _external=True), "owner": {"@type": "Organization", "name": "Oxy-Jen Tech"}, "sameAs": ["https://www.facebook.com/oxy.jen.975729", "https://www.tiktok.com/@official_fitystore"]}|tojson }}

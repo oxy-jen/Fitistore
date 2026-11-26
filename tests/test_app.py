@@ -126,7 +126,7 @@ def test_homepage_offers_scroll_copy_with_discounted_products(client, app):
     assert b"FityStores offers" in offers
     assert b"Browse offers" in offers
     assert b"Plain Socks" in offers
-    assert offers.index(b'class="offers-intro-panel"') < offers.index(b'class="offers-product-card"')
+    assert offers.index(b'class="offers-intro-panel"') < offers.index(b'class="offers-product-card home-quick-add-card"')
     assert b'class="product-marquee"' not in offers
     assert b'class="marquee-track"' not in offers
 
@@ -182,6 +182,8 @@ def test_homepage_keeps_fresh_offers_and_sorts_by_highest_discount(client, app):
     assert offers.index(b"Biggest Deal") < offers.index(b"Variant Deal")
     assert offers.index(b"Variant Deal") < offers.index(b"Middle Deal")
     assert offers.index(b"Middle Deal") < offers.index(b"Plain Socks")
+    assert b'class="offers-product-card home-quick-add-card"' in offers
+    assert b'class="home-card-quick-add" href="/product/biggest-deal"' in offers
 
 
 def test_admin_homepage_has_no_management_links_or_share_controls(client, app):
@@ -1135,8 +1137,10 @@ def test_homepage_most_added_carousel_keeps_popularity_order_and_pagination_cont
     assert b'data-cart-count-toggle' in section
     assert b'data-product-id=' in section
     assert b'data-compact-add' in section
+    assert b'class="home-card-quick-add" href="/product/unpriced-cap"' in section
     assert b'aria-label="Add Plain Socks to cart"' in section
     assert b'Add to Cart' not in section
+    assert b'<span>Choose options</span>' not in section
     assert b'href="/product/plain-socks"' in section
     assert section.index(b"Unpriced Cap") < section.index(b"Plain Socks")
 
@@ -1154,7 +1158,19 @@ def test_home_featured_cards_use_floating_quick_add_without_changing_shop_cards(
             featured=True,
             created_at=datetime(2000, 1, 1),
         )
+        options_product = Product(
+            name="Featured options home test product",
+            slug="featured-options-home-test-product",
+            category=category,
+            price_cents=5000,
+            stock_quantity=2,
+            size_options="Small, Large",
+            active=True,
+            featured=True,
+            created_at=datetime(2000, 1, 1),
+        )
         db.session.add(featured_product)
+        db.session.add(options_product)
         db.session.add_all([
             Product(
                 name=f"New home test product {index}",
@@ -1176,6 +1192,8 @@ def test_home_featured_cards_use_floating_quick_add_without_changing_shop_cards(
     assert b'class="home-card-quick-add add-cart"' in home.data
     assert b'data-compact-add' in home.data
     assert b'aria-label="Add Featured home test product to cart"' in home.data
+    assert b'<a class="home-card-quick-add" href="/product/featured-options-home-test-product" aria-label="Choose options for Featured options home test product"' in home.data
+    assert b"<span>Choose options</span>" not in home.data
 
     shop_card = _shop_product_card(client, product_id)
     assert b"Add to Cart" in shop_card

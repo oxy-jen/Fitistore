@@ -1,14 +1,17 @@
 {% set offer_image = product_display_image(product) %}
 {% set offer_url = url_for('public.product_detail', slug=product.slug) %}
 {% set discounted_variants = product.active_variants|selectattr('has_discount')|list %}
-<article class="offers-product-card" data-product-card="{{ product.id }}">
+<article class="offers-product-card home-quick-add-card" data-product-card="{{ product.id }}">
   <div class="offers-product-copy">
     <p class="offers-product-category">{{ product.category.name }}</p>
     <h3><a href="{{ offer_url }}">{{ product.name }}</a></h3>
   </div>
-  <a class="offers-product-image" href="{{ offer_url }}" aria-label="View {{ product.name }} offer">
-    <img src="{{ product_image_url(offer_image) }}" alt="{{ product_image_alt(offer_image, product.name) }}" loading="lazy" width="540" height="540">
-  </a>
+  <div class="offers-product-image">
+    <a class="offers-product-image-link" href="{{ offer_url }}" aria-label="View {{ product.name }} offer">
+      <img src="{{ product_image_url(offer_image) }}" alt="{{ product_image_alt(offer_image, product.name) }}" loading="lazy" width="540" height="540">
+    </a>
+    <a class="home-card-quick-add" href="{{ offer_url }}" aria-label="View offer details for {{ product.name }}" title="View offer details for {{ product.name }}"><span aria-hidden="true">+</span></a>
+  </div>
   <div class="offers-price-group">
     {% if discounted_variants %}
       {% set sale_prices = discounted_variants|map(attribute='effective_price_cents')|list %}
