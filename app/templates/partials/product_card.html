@@ -33,7 +33,7 @@
         {% if not (most_added_home_card|default(false)) %}<button class="most-added-icon-action most-added-like" type="button" data-product-like data-url="{{ url_for('public.api_toggle_product_like', product_id=product.id) }}" data-liked="{{ 'true' if product.id in (liked_product_ids|default([])) else 'false' }}" aria-pressed="{{ 'true' if product.id in (liked_product_ids|default([])) else 'false' }}" aria-label="{{ 'Unlike' if product.id in (liked_product_ids|default([])) else 'Like' }} {{ product.name }}" {% if not (product_likes_enabled|default(false)) %}disabled title="Likes are temporarily unavailable"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.8a5.5 5.5 0 0 0-7.8 0L12 5.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.3 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg><span data-like-count>{{ (product_like_counts|default({})).get(product.id, 0) }}</span></button>{% endif %}
       </div>
       <p class="most-added-cart-count" id="cart-count-{{ product.id }}" hidden>{{ (cart_add_counts|default({})).get(product.id, 0) }} items added to carts</p>
-      {% if not (most_added_home_card|default(false)) %}<a class="most-added-view-detail" href="{{ url_for('public.product_detail', slug=product.slug) }}">View detail <span aria-hidden="true">→</span></a>{% endif %}
+      {% if not (most_added_home_card|default(false)) %}<a class="most-added-view-detail" href="{{ url_for('public.product_detail', slug=product.slug) }}">View detail <svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></a>{% endif %}
     {% else %}
     <p class="category">{{ product.category.name }}</p>
     <h3><a href="{{ url_for('public.product_detail', slug=product.slug) }}">{{ product.name }}</a></h3>

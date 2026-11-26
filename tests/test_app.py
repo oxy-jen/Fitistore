@@ -1477,11 +1477,19 @@ def test_product_detail(client):
     assert b"You may also like" in rv.data
     assert b"View category" in rv.data
     assert b'class="product-related-grid"' in rv.data
-    assert b'<nav class="product-information-tabs" aria-label="Product content sections">' in rv.data
-    assert b'href="#product-description">Product details</a>' in rv.data
-    assert b'id="product-description" class="product-info-section"' in rv.data
-    assert b'id="product-specifications" class="product-info-section"' in rv.data
-    assert b'id="product-reviews" class="product-info-section product-review-section"' in rv.data
+    assert b'<nav class="product-information-tabs" role="tablist" aria-label="Product information" data-product-detail-tabs>' in rv.data
+    assert b'id="product-tab-details" type="button" role="tab" aria-selected="true"' in rv.data
+    assert b'id="product-tab-specifications" type="button" role="tab" aria-selected="false"' in rv.data
+    assert b'id="product-tab-reviews" type="button" role="tab" aria-selected="false"' in rv.data
+    assert b'id="product-description" class="product-info-panel" role="tabpanel"' in rv.data
+    assert b'id="product-specifications" class="product-info-section product-info-panel" role="tabpanel"' in rv.data
+    assert b'id="product-reviews" class="product-info-section product-review-section product-info-panel" role="tabpanel"' in rv.data
+    assert b'class="product-rating-summary"' in rv.data
+    assert b'id="product-fulfilment-title">Delivery, collection and returns</h2>' in rv.data
+    assert b'class="product-quick-summary" aria-label="Quick product purchase"' in rv.data
+    assert b'data-product-quick-buy' in rv.data
+    assert b'data-product-sticky-buy' in rv.data
+    assert b'js/product-detail-interactions.js' in rv.data
     assert b"Comfortable" in rv.data
     assert b"Soft and comfortable." in rv.data
     assert b"This review is awaiting approval." not in rv.data

@@ -46,7 +46,7 @@
       </div>
       {% endif %}
       <dialog class="product-image-dialog" data-product-image-dialog aria-label="Product photo viewer">
-        <button type="button" class="product-image-dialog-close" data-product-image-close aria-label="Close photo viewer">×</button>
+        <button type="button" class="product-image-dialog-close" data-product-image-close aria-label="Close photo viewer"><svg class="icon" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
         <img data-product-lightbox-image src="{{ product_image_url(main_image) }}" alt="{{ product_image_alt(main_image) }}">
       </dialog>
     </div>
@@ -58,11 +58,18 @@
           <span>Share</span>
           <button type="button" class="product-share-icon" data-share-facebook aria-label="Share {{ product.name }} on Facebook" title="Share on Facebook">f</button>
           <a class="product-share-icon whatsapp" href="{{ whatsapp_share_url }}" target="_blank" rel="noopener" aria-label="Share {{ product.name }} on WhatsApp" title="WhatsApp a friend"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 3.8A11.2 11.2 0 0 0 2.6 17.3L1 23l5.9-1.5a11.2 11.2 0 0 0 5.3 1.3h.1A11.2 11.2 0 0 0 20.2 3.8ZM12.3 20.9a9.3 9.3 0 0 1-4.7-1.3l-.3-.2-3.5.9.9-3.4-.2-.4a9.3 9.3 0 1 1 7.8 4.4Zm5.1-7c-.3-.1-1.6-.8-1.9-.9s-.4-.1-.6.2-.7.9-.9 1.1-.3.2-.6.1a7.7 7.7 0 0 1-2.3-1.4 8.5 8.5 0 0 1-1.6-2c-.2-.3 0-.4.1-.6l.4-.5.3-.5c.1-.2 0-.4 0-.5s-.6-1.5-.9-2c-.2-.5-.5-.4-.6-.4h-.5c-.2 0-.5.1-.7.3s-.9.9-.9 2.2.9 2.5 1 2.7a10.4 10.4 0 0 0 4 3.6c.5.2.9.4 1.2.5.5.2 1 .2 1.3.1.4-.1 1.6-.7 1.8-1.3s.2-1.1.2-1.2-.2-.3-.5-.4Z"/></svg><span class="sr-only">WhatsApp a friend</span></a>
-          <button type="button" class="product-share-icon" data-share-copy aria-label="Copy product link" title="Copy link">↗</button>
+          <button type="button" class="product-share-icon" data-share-copy aria-label="Copy product link" title="Copy link"><svg class="icon" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg></button>
           <button type="button" class="product-share-native" data-share-native>More</button>
           <span class="share-status" data-share-status role="status" aria-live="polite"></span>
         </div>
       </div>
+
+      <a class="product-rating-summary" href="#product-reviews" aria-label="{% if review_count %}Read {{ review_count }} customer reviews, rated {{ '%.1f'|format(review_average) }} out of 5{% else %}Be the first to review this product{% endif %}">
+        <svg class="icon product-rating-star" aria-hidden="true"><use href="#icon-star"></use></svg>
+        {% if review_count %}<strong>{{ '%.1f'|format(review_average) }} / 5</strong><span>{{ review_count }} customer review{{ '' if review_count == 1 else 's' }}</span>
+        {% else %}<span>No customer reviews yet</span>{% endif %}
+        <span class="product-rating-link-label">Read feedback</span>
+      </a>
 
       {% if active_variants and product.min_variant_price_cents is not none %}
         <p class="price big product-detail-price" id="detail-price"><span id="detail-current-price" data-default-price="{% if product.min_variant_price_cents == product.max_variant_price_cents %}{{ money(product.min_variant_price_cents, settings.currency) }}{% else %}{{ money(product.min_variant_price_cents, settings.currency) }} - {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}">{% if product.min_variant_price_cents == product.max_variant_price_cents %}{{ money(product.min_variant_price_cents, settings.currency) }}{% else %}{{ money(product.min_variant_price_cents, settings.currency) }} - {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}</span><s id="detail-previous-price" hidden></s><span class="discount-ribbon detail-discount" id="detail-discount" hidden></span><span class="detail-discount-amount" id="detail-discount-amount" hidden></span></p>
@@ -129,27 +136,61 @@
         {% endif %}
       </div>
       <div class="product-service-promises" aria-label="Shopping information">
-        <div><span aria-hidden="true">✓</span><strong>Secure<br>payments</strong></div><div><span aria-hidden="true">↗</span><strong>Reliable<br>delivery</strong></div><div><span aria-hidden="true">◎</span><strong>Customer<br>support</strong></div>
+        <div><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><strong>Secure<br>payments</strong></div><div><svg class="icon" aria-hidden="true"><use href="#icon-truck"></use></svg><strong>Reliable<br>delivery</strong></div><div><svg class="icon" aria-hidden="true"><use href="#icon-headset"></use></svg><strong>Customer<br>support</strong></div>
       </div>
+    </div>
+  </section>
+
+  <section class="product-fulfilment-panel" id="product-delivery" aria-labelledby="product-fulfilment-title">
+    <div class="product-fulfilment-heading">
+      <div><p>ORDER WITH CONFIDENCE</p><h2 id="product-fulfilment-title">Delivery, collection and returns</h2></div>
+      <a href="{{ url_for('public.delivery_policy') }}">Delivery details <svg class="icon product-link-arrow" aria-hidden="true"><use href="#icon-arrow"></use></svg></a>
+    </div>
+    <div class="product-fulfilment-grid">
+      <article class="product-fulfilment-card">
+        <span class="product-fulfilment-icon" aria-hidden="true"><svg class="icon"><use href="#icon-truck"></use></svg></span>
+        <div><h3>Delivery</h3>
+          <p>{% if product_details and product_details.delivery_note %}{{ product_details.delivery_note }}{% elif settings.delivery_area %}{{ settings.delivery_area }}{% else %}Contact FityStores to confirm delivery availability for your location.{% endif %}</p>
+          <p class="product-fulfilment-detail">{% if settings.delivery_fee_cents is not none %}Listed delivery fee: {{ money(settings.delivery_fee_cents, settings.currency) }}. Confirm that it applies to your order.{% else %}Any delivery fee will be confirmed before payment.{% endif %}</p>
+        </div>
+      </article>
+      <article class="product-fulfilment-card">
+        <span class="product-fulfilment-icon" aria-hidden="true"><svg class="icon"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
+        <div><h3>Collect in person</h3>
+          <p>{% if settings.collection_instructions %}{{ settings.collection_instructions }}{% else %}Ask FityStores to confirm whether collection is available before travelling.{% endif %}</p>
+        </div>
+      </article>
+      <article class="product-fulfilment-card">
+        <span class="product-fulfilment-icon" aria-hidden="true"><svg class="icon"><use href="#icon-refresh"></use></svg></span>
+        <div><h3>Returns and warranty</h3>
+          <p>{% if product_details and product_details.returns_note %}{{ product_details.returns_note }}{% else %}Review the returns policy for the terms that apply to this item.{% endif %}</p>
+          {% if product_details and product_details.warranty_period %}<p class="product-fulfilment-detail">Warranty: {{ product_details.warranty_period }}{% if product_details.warranty_type %} · {{ product_details.warranty_type }}{% endif %}</p>{% endif %}
+          <a href="{{ url_for('public.returns_policy') }}">Returns policy</a>
+        </div>
+      </article>
     </div>
   </section>
 
   <div class="product-below-grid">
     <div class="product-information-column">
       <section class="product-information-card" aria-label="Product information">
-        <nav class="product-information-tabs" aria-label="Product content sections">
-          <a href="#product-description">Product details</a>
-          {% if product_details and product_details.key_features %}<a href="#product-features">Key features</a>{% endif %}
-          <a href="#product-specifications">Specifications</a>
-          {% if product_details and product_details.box_contents %}<a href="#product-box">What's in the box</a>{% endif %}
-          {% if product_details and (product_details.manufacturer or product_details.warranty_period or product_details.warranty_type or product_details.care_instructions or product_details.additional_information) %}<a href="#product-warranty">Warranty & care</a>{% endif %}
-          <a href="#product-delivery">Delivery & returns</a>
-          <a href="#product-reviews">Customer feedback ({{ review_count }})</a>
+        <nav class="product-information-tabs" role="tablist" aria-label="Product information" data-product-detail-tabs>
+          <button id="product-tab-details" type="button" role="tab" aria-selected="true" aria-controls="product-description" data-product-tab="details" tabindex="0">Product details</button>
+          <button id="product-tab-specifications" type="button" role="tab" aria-selected="false" aria-controls="product-specifications" data-product-tab="specifications" tabindex="-1">Specifications</button>
+          <button id="product-tab-reviews" type="button" role="tab" aria-selected="false" aria-controls="product-reviews" data-product-tab="reviews" tabindex="-1">Customer feedback ({{ review_count }})</button>
         </nav>
         <div class="product-information-content">
-          <section id="product-description" class="product-info-section"><h2>Product details</h2>{% if product_details and product_details.introduction %}<p class="product-introduction">{{ product_details.introduction }}</p>{% endif %}{% if product.description %}<p>{{ product.description }}</p>{% endif %}{% if product_rich_description %}<div class="product-rich-description">{{ product_rich_description }}</div>{% endif %}{% if product_story_sections %}<div class="product-story-sections" aria-label="Product image and feature details">{% for section in product_story_sections %}<article class="product-story-section image-{{ section.image_position }}">{% if section.image_url %}<figure><img src="{{ section.image_url }}" alt="{{ section.image_alt }}" loading="lazy">{% if section.image_caption %}<figcaption>{{ section.image_caption }}</figcaption>{% endif %}</figure>{% endif %}<div class="product-story-copy"><h3>{{ section.title }}</h3>{% if section.body_text %}<p>{{ section.body_text }}</p>{% endif %}</div></article>{% endfor %}</div>{% endif %}{% if not product.description and not (product_details and product_details.introduction) and not product_rich_description and not product_story_sections %}<p>Detailed product information is not available yet. Contact FityStores if you need more information.</p>{% endif %}</section>
-          {% if product_details and product_details.key_features %}<section id="product-features" class="product-info-section"><h2>Key features</h2><ul class="product-feature-list">{% for feature in product_details.key_features %}<li>{{ feature }}</li>{% endfor %}</ul></section>{% endif %}
-          <section id="product-specifications" class="product-info-section"><h2>Specifications</h2><dl class="product-spec-list">
+          <div id="product-description" class="product-info-panel" role="tabpanel" aria-labelledby="product-tab-details" data-product-panel="details" tabindex="0">
+            <section class="product-info-section"><h2>Product details</h2>{% if product_details and product_details.introduction %}<p class="product-introduction">{{ product_details.introduction }}</p>{% endif %}{% if product.description %}<p>{{ product.description }}</p>{% endif %}{% if product_rich_description %}<div class="product-rich-description">{{ product_rich_description }}</div>{% endif %}{% if product_story_sections %}<div class="product-story-sections" aria-label="Product image and feature details">{% for section in product_story_sections %}<article class="product-story-section image-{{ section.image_position }}">{% if section.image_url %}<figure><img src="{{ section.image_url }}" alt="{{ section.image_alt }}" loading="lazy">{% if section.image_caption %}<figcaption>{{ section.image_caption }}</figcaption>{% endif %}</figure>{% endif %}<div class="product-story-copy"><h3>{{ section.title }}</h3>{% if section.body_text %}<p>{{ section.body_text }}</p>{% endif %}</div></article>{% endfor %}</div>{% endif %}{% if not product.description and not (product_details and product_details.introduction) and not product_rich_description and not product_story_sections %}<p>Detailed product information is not available yet. Contact FityStores if you need more information.</p>{% endif %}</section>
+          {% if product_details and (product_details.key_features or product_details.box_contents) %}
+          <div class="product-feature-cards">
+            {% if product_details.key_features %}<section id="product-features" class="product-info-section"><h2>Key features</h2><ul class="product-feature-list">{% for feature in product_details.key_features %}<li>{{ feature }}</li>{% endfor %}</ul></section>{% endif %}
+            {% if product_details.box_contents %}<section id="product-box" class="product-info-section"><h2>What's in the box</h2><ul class="product-feature-list">{% for item in product_details.box_contents %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
+          </div>
+          {% endif %}
+          {% if product_details and (product_details.manufacturer or product_details.warranty_period or product_details.warranty_type or product_details.care_instructions or product_details.additional_information) %}<section id="product-warranty" class="product-info-section"><h2>Manufacturer and warranty</h2><dl class="product-spec-list">{% if product_details.manufacturer %}<div><dt>Manufacturer</dt><dd>{{ product_details.manufacturer }}</dd></div>{% endif %}{% if product_details.warranty_period %}<div><dt>Warranty period</dt><dd>{{ product_details.warranty_period }}</dd></div>{% endif %}{% if product_details.warranty_type %}<div><dt>Warranty type</dt><dd>{{ product_details.warranty_type }}</dd></div>{% endif %}</dl>{% if product_details.care_instructions %}<h3>Care instructions</h3><p>{{ product_details.care_instructions }}</p>{% endif %}{% if product_details.additional_information %}<h3>Additional information</h3><p>{{ product_details.additional_information }}</p>{% endif %}</section>{% endif %}
+          </div>
+          <section id="product-specifications" class="product-info-section product-info-panel" role="tabpanel" aria-labelledby="product-tab-specifications" data-product-panel="specifications" tabindex="0" hidden><h2>Specifications</h2><dl class="product-spec-list">
             <div><dt>Category</dt><dd>{{ product.category.name }}</dd></div>
             {% if product.sku %}<div><dt>SKU</dt><dd>{{ product.sku }}</dd></div>{% endif %}
             {% if product_details and product_details.brand %}<div><dt>Brand</dt><dd>{{ product_details.brand }}</dd></div>{% endif %}
@@ -159,20 +200,38 @@
             {% if active_variants %}<div><dt>Available options</dt><dd>{{ active_variants|length }} listed</dd></div>{% endif %}
             {% if product_details and product_details.specifications %}{% for spec in product_details.specifications %}<div><dt>{{ spec.name }}</dt><dd>{{ spec.value }}</dd></div>{% endfor %}{% endif %}
           </dl></section>
-          {% if product_details and product_details.box_contents %}<section id="product-box" class="product-info-section"><h2>What's in the box</h2><ul class="product-feature-list">{% for item in product_details.box_contents %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
-          {% if product_details and (product_details.manufacturer or product_details.warranty_period or product_details.warranty_type or product_details.care_instructions or product_details.additional_information) %}<section id="product-warranty" class="product-info-section"><h2>Manufacturer and warranty</h2><dl class="product-spec-list">{% if product_details.manufacturer %}<div><dt>Manufacturer</dt><dd>{{ product_details.manufacturer }}</dd></div>{% endif %}{% if product_details.warranty_period %}<div><dt>Warranty period</dt><dd>{{ product_details.warranty_period }}</dd></div>{% endif %}{% if product_details.warranty_type %}<div><dt>Warranty type</dt><dd>{{ product_details.warranty_type }}</dd></div>{% endif %}</dl>{% if product_details.care_instructions %}<h3>Care instructions</h3><p>{{ product_details.care_instructions }}</p>{% endif %}{% if product_details.additional_information %}<h3>Additional information</h3><p>{{ product_details.additional_information }}</p>{% endif %}</section>{% endif %}
-          <section id="product-delivery" class="product-info-section"><h2>Delivery, collection, and returns</h2>{% if product_details and product_details.delivery_note %}<p>{{ product_details.delivery_note }}</p>{% elif settings.delivery_area %}<p>{{ settings.delivery_area }}</p>{% else %}<p>Contact FityStores to confirm delivery availability for your location.</p>{% endif %}{% if settings.delivery_fee_cents is not none %}<p>Listed delivery fee: {{ money(settings.delivery_fee_cents, settings.currency) }}. Confirm that it applies to your order.</p>{% else %}<p>Any delivery fee will be confirmed before payment.</p>{% endif %}{% if settings.collection_instructions %}<p><strong>Collection:</strong> {{ settings.collection_instructions }}</p>{% endif %}{% if product_details and product_details.returns_note %}<p>{{ product_details.returns_note }}</p>{% endif %}<p><a href="{{ url_for('public.delivery_policy') }}">Delivery policy</a> · <a href="{{ url_for('public.returns_policy') }}">Returns policy</a></p></section>
-          <section id="product-reviews" class="product-info-section product-review-section">
-            <div class="product-review-heading"><div><h2>Customer reviews</h2>{% if review_count %}<p><span class="product-review-stars" aria-label="Average rating {{ '%.1f'|format(review_average) }} out of 5">★</span> {{ '%.1f'|format(review_average) }} · {{ review_count }} review{{ '' if review_count == 1 else 's' }}</p><div class="product-review-distribution" aria-label="Rating distribution">{% for rating in range(5, 0, -1) %}<div><span>{{ rating }} stars</span><meter min="0" max="{{ review_count }}" value="{{ review_distribution.get(rating, 0) }}">{{ review_distribution.get(rating, 0) }}</meter><span>{{ review_distribution.get(rating, 0) }}</span></div>{% endfor %}</div>{% else %}<p>No approved reviews yet.</p>{% endif %}</div><a href="{{ url_for('public.reviews', product_id=product.id) }}#write-review">Write a review <span aria-hidden="true">→</span></a></div>
-            {% if approved_reviews %}<div class="product-review-list">{% for review in approved_reviews %}<article><div><strong>{{ review.title or review.display_name }}</strong><span class="product-review-stars" aria-label="{{ review.rating }} out of 5 stars">{{ '★' * review.rating }}{{ '☆' * (5 - review.rating) }}</span></div>{% if review.title and review.display_name %}<small>{{ review.display_name }}</small>{% endif %}{% if review.text %}<p>{{ review.text }}</p>{% endif %}</article>{% endfor %}</div>{% else %}<p class="product-review-empty">Be the first to review this product. Your feedback helps other shoppers.</p>{% endif %}
+          <section id="product-reviews" class="product-info-section product-review-section product-info-panel" role="tabpanel" aria-labelledby="product-tab-reviews" data-product-panel="reviews" tabindex="0" hidden>
+            <div class="product-review-heading"><div><h2>Customer reviews</h2>{% if review_count %}<p><span class="product-review-stars" aria-label="Average rating {{ '%.1f'|format(review_average) }} out of 5">{% for _ in range(5) %}<svg class="icon{% if loop.index > review_average|round(0, 'floor')|int %} is-empty{% endif %}" aria-hidden="true"><use href="#icon-star"></use></svg>{% endfor %}</span> {{ '%.1f'|format(review_average) }} · {{ review_count }} review{{ '' if review_count == 1 else 's' }}</p><div class="product-review-distribution" aria-label="Rating distribution">{% for rating in range(5, 0, -1) %}<div><span>{{ rating }} stars</span><meter min="0" max="{{ review_count }}" value="{{ review_distribution.get(rating, 0) }}">{{ review_distribution.get(rating, 0) }}</meter><span>{{ review_distribution.get(rating, 0) }}</span></div>{% endfor %}</div>{% else %}<p>No approved reviews yet.</p>{% endif %}</div><a href="{{ url_for('public.reviews', product_id=product.id) }}#write-review">Write a review <svg class="icon product-link-arrow" aria-hidden="true"><use href="#icon-arrow"></use></svg></a></div>
+            {% if approved_reviews %}<div class="product-review-list">{% for review in approved_reviews %}<article><div><strong>{{ review.title or review.display_name }}</strong><span class="product-review-stars" aria-label="{{ review.rating }} out of 5 stars">{% for _ in range(5) %}<svg class="icon{% if loop.index > review.rating %} is-empty{% endif %}" aria-hidden="true"><use href="#icon-star"></use></svg>{% endfor %}</span></div>{% if review.title and review.display_name %}<small>{{ review.display_name }}</small>{% endif %}{% if review.text %}<p>{{ review.text }}</p>{% endif %}</article>{% endfor %}</div>{% else %}<p class="product-review-empty">Be the first to review this product. Your feedback helps other shoppers.</p>{% endif %}
           </section>
         </div>
       </section>
     </div>
 
     <aside class="product-side-column">
+      <section class="product-quick-summary" aria-label="Quick product purchase">
+        <img src="{{ product_image_url(main_image) }}" alt="" loading="lazy">
+        <div class="product-quick-summary-copy">
+          <p>QUICK BUY</p><h2>{{ product.name }}</h2>
+          <strong class="product-quick-price" data-product-quick-price>{% if active_variants and product.min_variant_price_cents is not none %}{{ money(product.min_variant_price_cents, settings.currency) }}{% if product.min_variant_price_cents != product.max_variant_price_cents %} - {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}{% elif product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}Price to be confirmed{% endif %}</strong>
+          <span class="product-quick-stock" data-product-quick-stock>{{ product.display_stock_quantity }} available</span>
+        </div>
+        <div class="product-quick-actions">
+          {% if product.price_cents is not none or active_variants %}
+          <button type="button" class="btn primary" data-product-quick-buy {% if (active_variants and not active_variants|selectattr('available_quantity')|list) or (not active_variants and product.available_quantity < 1) %}disabled{% endif %}>Add to Cart</button>
+          {% else %}
+          <a class="btn primary" href="{{ product_whatsapp_link(product, settings, request.url, 'confirm_price') }}" target="_blank" rel="noopener">Confirm on WhatsApp</a>
+          {% endif %}
+          <a href="#product-title">View product options</a>
+        </div>
+      </section>
+      <section class="product-seller-card" aria-labelledby="product-seller-title">
+        <p>SELLER INFORMATION</p><h2 id="product-seller-title">FityStores</h2>
+        <span>Everyday essentials, sold by FityStores.</span>
+        <a href="{{ product_whatsapp_link(product, settings, request.url, 'buy') }}" target="_blank" rel="noopener">Message the store <svg class="icon product-link-arrow" aria-hidden="true"><use href="#icon-arrow"></use></svg></a>
+      </section>
       <details class="product-enquiry-disclosure">
-        <summary><span class="enquiry-icon" aria-hidden="true">?</span><span><strong>Ask a question about this product</strong><small>Need help with price, options, or availability?</small></span><span class="enquiry-chevron" aria-hidden="true">⌄</span></summary>
+        <summary><span class="enquiry-icon" aria-hidden="true"><svg class="icon"><use href="#icon-info"></use></svg></span><span><strong>Ask a question about this product</strong><small>Need help with price, options, or availability?</small></span><span class="enquiry-chevron" aria-hidden="true"></span></summary>
         <div class="product-enquiry-content">
           <form class="mini-form" method="post" action="{{ url_for('public.product_enquiry', slug=product.slug) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -193,9 +252,21 @@
         </div>
       </details>
 
-      {% if related %}<section class="product-related-section" aria-labelledby="related-products-title" data-category-group-key="{{ category_group_key(product.category.name) or 'other' }}"><div class="product-related-heading"><div><p class="product-related-kicker">{{ product.category.name }}</p><h2 id="related-products-title">You may also like</h2><p class="product-related-note">{% if related_same_category_count %}More from this category, followed by other store picks.{% else %}More picks from the FityStores catalogue.{% endif %}</p></div><a href="{{ url_for('public.shop', category=product.category.slug) }}">View category <span aria-hidden="true">→</span></a></div><div class="product-related-grid" aria-label="Products you may also like">{% for product in related %}{% with compact_product_card=true %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}</div></section>{% endif %}
+      {% if related %}<section class="product-related-section" aria-labelledby="related-products-title" data-category-group-key="{{ category_group_key(product.category.name) or 'other' }}"><div class="product-related-heading"><div><p class="product-related-kicker">{{ product.category.name }}</p><h2 id="related-products-title">You may also like</h2><p class="product-related-note">{% if related_same_category_count %}More from this category, followed by other store picks.{% else %}More picks from the FityStores catalogue.{% endif %}</p></div><a href="{{ url_for('public.shop', category=product.category.slug) }}">View category <svg class="icon product-link-arrow" aria-hidden="true"><use href="#icon-arrow"></use></svg></a></div><div class="product-related-grid" aria-label="Products you may also like">{% for product in related %}{% with compact_product_card=true %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}</div></section>{% endif %}
     </aside>
   </div>
+  <div class="product-sticky-buy" data-product-sticky-buy hidden>
+    <div><span>Current price</span><strong data-product-sticky-price>{% if active_variants and product.min_variant_price_cents is not none %}{{ money(product.min_variant_price_cents, settings.currency) }}{% if product.min_variant_price_cents != product.max_variant_price_cents %} - {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}{% elif product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}Price to be confirmed{% endif %}</strong><small data-product-sticky-stock>{{ product.display_stock_quantity }} available</small></div>
+    {% if product.price_cents is not none or active_variants %}
+    <button type="button" class="btn primary" data-product-quick-buy {% if (active_variants and not active_variants|selectattr('available_quantity')|list) or (not active_variants and product.available_quantity < 1) %}disabled{% endif %}>Add to Cart</button>
+    {% else %}
+    <a class="btn primary" href="{{ product_whatsapp_link(product, settings, request.url, 'confirm_price') }}" target="_blank" rel="noopener">Confirm on WhatsApp</a>
+    {% endif %}
+  </div>
+  <section class="product-recent-section" data-recently-viewed data-current-product-id="{{ product.id }}" hidden aria-labelledby="recently-viewed-title">
+    <div class="product-related-heading"><div><p class="product-related-kicker">Your browser</p><h2 id="recently-viewed-title">Recently viewed</h2><p class="product-related-note">Products recently viewed on this device.</p></div></div>
+    <div class="product-related-grid" data-recently-viewed-grid></div>
+  </section>
 </div>
 {% set schema_currency = 'KES' if settings.currency == 'KSh' else settings.currency %}
 {% set schema_availability = 'https://schema.org/InStock' if product.display_stock_quantity > 0 else 'https://schema.org/OutOfStock' %}
@@ -221,13 +292,10 @@
   "offers": schema_offer,
   "aggregateRating": ({"@type": "AggregateRating", "ratingValue": "%.1f"|format(review_average), "reviewCount": review_count} if review_count else none)
 }|tojson }}</script>
-<section class="product-recent-section" data-recently-viewed data-current-product-id="{{ product.id }}" hidden aria-labelledby="recently-viewed-title">
-  <div class="product-related-heading"><div><p class="product-related-kicker">Your browser</p><h2 id="recently-viewed-title">Recently viewed</h2><p class="product-related-note">Products recently viewed on this device.</p></div></div>
-  <div class="product-related-grid" data-recently-viewed-grid></div>
-</section>
 <script defer src="{{ url_for('static', filename='js/product-gallery.js') }}?v=product-gallery-interactions-20261125"></script>
 <script defer src="{{ url_for('static', filename='js/product-recently-viewed.js') }}?v=product-recently-viewed-20261126"></script>
 <script defer src="{{ url_for('static', filename='js/product-variant-details.js') }}?v=product-variant-details-20261126"></script>
+<script defer src="{{ url_for('static', filename='js/product-detail-interactions.js') }}?v=product-detail-tabs-20261126"></script>
 <script>
 (() => { try { const key='fity-recently-viewed-products'; const id={{ product.id|tojson }}; const saved=JSON.parse(localStorage.getItem(key)||'[]'); const ids=Array.isArray(saved)?saved.map(Number).filter(value=>Number.isInteger(value)&&value>0):[]; localStorage.setItem(key,JSON.stringify([id,...ids.filter(value=>value!==id)].slice(0,8))); } catch (_) {} })();
 </script>
