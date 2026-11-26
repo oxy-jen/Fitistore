@@ -202,6 +202,16 @@ def test_central_eligibility_blocks_active_case_and_allows_only_cleared_case(
     assert evaluate_marketing_eligibility(account).eligible
 
 
+def test_pre_rollout_subscribed_customer_without_backfilled_timestamp_remains_eligible(app, app_context):
+    from app.services.marketing_eligibility import evaluate_marketing_eligibility
+
+    account = _account("legacy-subscriber@example.test")
+    account.created_at = datetime(2026, 9, 30)
+    account.marketing_consent_at = None
+    db.session.flush()
+    assert evaluate_marketing_eligibility(account).eligible
+
+
 def test_transactional_email_waits_for_outer_commit_then_dispatches_without_worker(app, app_context, monkeypatch):
     from app.services.customer_mail import process_email_queue
 
@@ -235,6 +245,30 @@ def test_transactional_email_waits_for_outer_commit_then_dispatches_without_work
     db.session.refresh(row)
     assert outcome["sent"] == 0
     assert row.status == "sent"
+    assert len(calls) == 1
+
+
+def test_queue_email_persists_without_provider_io_then_worker_dispatches(app, app_context, monkeypatch):
+    from app.services.customer_mail import process_email_queue
+
+    calls = []
+    monkeypatch.setattr("app.services.customer_mail.mail_configuration_status", lambda: (True, "configured"))
+    monkeypatch.setattr("app.services.customer_mail._send_brevo", lambda *args: calls.append(args) or "queued-provider-id")
+    app.config["MAIL_PROVIDER"] = "brevo"
+    row = queue_email(
+        "queue@example.test", "Order update", "order_status", "durable-queue-worker-test",
+        html_body="<p>Persisted</p>", text_body="Persisted", commit=False,
+    )
+    assert row.status == "queued"
+    assert row.html_body == "<p>Persisted</p>"
+    assert calls == []
+    db.session.commit()
+    outcome = process_email_queue(limit=5)
+    db.session.refresh(row)
+    assert outcome["sent"] == 1
+    assert row.status == "sent"
+    assert row.provider_message_id == "queued-provider-id"
+    assert row.html_body is None and row.text_body is None
     assert len(calls) == 1
 
 
