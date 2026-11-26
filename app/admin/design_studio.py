@@ -13,9 +13,10 @@ from flask_login import current_user, login_required
 from app.extensions import db
 from app.models import AdminUser, DesignStudioRole, Product, StorefrontDesign, StorefrontDesignAudit, StorefrontDesignRevision
 from app.services.design_studio import (
-    ROLE_NAMES, audit, parse_lottie_animation, product_api_data, role_for,
+    DEFAULT_OFFERS_TEMPLATE, ROLE_NAMES, audit, parse_lottie_animation, product_api_data, role_for,
     save_revision, schema_ready, snapshot_design, validate_design_payload,
 )
+from app.services.product_discounts import current_discounted_products
 from app.services.product_images import ImageStorageError
 from app.services.showcase_media import inspect_media_upload, store_showcase_upload
 
@@ -63,6 +64,28 @@ def _apply_payload(design, payload, admin, *, new=False):
     design.version = 1 if new else design.version + 1
 
 
+def _editor_defaults():
+    defaults = dict(DEFAULT_OFFERS_TEMPLATE)
+    defaults["product_ids"] = [product.id for product in current_discounted_products()]
+    defaults["motion_config"] = json.dumps(defaults["motion_config"], separators=(",", ":"), sort_keys=True)
+    return defaults
+
+
+def _payload_from_form(*, allow_empty_name=False):
+    form_data = cast(dict[str, object], request.form.to_dict())
+    form_data["product_ids"] = request.form.getlist("product_ids")
+    if allow_empty_name and not str(form_data.get("name", "")).strip():
+        form_data["name"] = "Unsaved design preview"
+    raw_motion_config = form_data.get("motion_config", "{}")
+    if not isinstance(raw_motion_config, str):
+        raise ValueError("Motion settings must be valid JSON.")
+    try:
+        form_data["motion_config"] = json.loads(raw_motion_config)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Motion settings must be valid JSON.") from exc
+    return validate_design_payload(form_data)
+
+
 @design_studio_bp.route("")
 @login_required
 def index():
@@ -94,7 +117,11 @@ def index():
 def new():
     _role_or_403(*EDIT_ROLES)
     products = Product.query.filter_by(active=True).order_by(Product.name).all()
-    return render_template("admin/design_studio.html", unavailable=False, editor=True, design=None, products=products, role=role_for(_current_admin_or_403()), designs=[], users=[], audit_events=[], revisions={})
+    return render_template(
+        "admin/design_studio.html", unavailable=False, editor=True, design=None,
+        products=products, role=role_for(_current_admin_or_403()), designs=[],
+        users=[], audit_events=[], revisions={}, default_template=_editor_defaults(),
+    )
 
 
 @design_studio_bp.route("/<int:design_id>/edit")
@@ -102,7 +129,12 @@ def new():
 def edit(design_id):
     _role_or_403(*EDIT_ROLES)
     design = _design_or_404(design_id)
-    return render_template("admin/design_studio.html", unavailable=False, editor=True, design=design, products=Product.query.filter_by(active=True).order_by(Product.name).all(), role=role_for(_current_admin_or_403()), designs=[], users=[], audit_events=[], revisions={})
+    return render_template(
+        "admin/design_studio.html", unavailable=False, editor=True, design=design,
+        products=Product.query.filter_by(active=True).order_by(Product.name).all(),
+        role=role_for(_current_admin_or_403()), designs=[], users=[],
+        audit_events=[], revisions={}, default_template=_editor_defaults(),
+    )
 
 
 @design_studio_bp.post("/save")
@@ -117,16 +149,7 @@ def save():
     if design and design.status == "published" and role_for(admin) != "owner":
         abort(403, description="Only the Design Studio owner can directly edit a published design.")
     try:
-        form_data = cast(dict[str, object], request.form.to_dict())
-        form_data["product_ids"] = request.form.getlist("product_ids")
-        raw_motion_config = form_data.get("motion_config", "{}")
-        if not isinstance(raw_motion_config, str):
-            raise ValueError("Motion settings must be valid JSON.")
-        try:
-            form_data["motion_config"] = json.loads(raw_motion_config)
-        except json.JSONDecodeError as exc:
-            raise ValueError("Motion settings must be valid JSON.") from exc
-        payload = validate_design_payload(form_data)
+        payload = _payload_from_form()
     except ValueError as exc:
         flash(str(exc), "error")
         return redirect(url_for("design_studio.edit", design_id=design.id) if design else url_for("design_studio.new"))
@@ -323,6 +346,27 @@ def preview_frame(design_id):
     return _design_response(design)
 
 
+@design_studio_bp.route("/preview", methods=["GET", "POST"])
+@login_required
+def preview():
+    _role_or_403(*EDIT_ROLES)
+    if request.method == "GET":
+        form_data = _editor_defaults()
+        form_data["motion_config"] = json.loads(form_data["motion_config"])
+        try:
+            payload = validate_design_payload(form_data)
+        except ValueError as exc:
+            return _preview_error_response(str(exc)), 400
+    else:
+        try:
+            payload = _payload_from_form(allow_empty_name=True)
+        except ValueError as exc:
+            return _preview_error_response(str(exc)), 400
+    design = StorefrontDesign()
+    _apply_payload(design, payload, _current_admin_or_403(), new=True)
+    return _design_response(design)
+
+
 @design_public_bp.route("/render/<int:design_id>")
 def public_frame(design_id):
     if not schema_ready():
@@ -353,11 +397,25 @@ def _design_response(design):
     ordered_products = [by_id[product_id] for product_id in product_ids if product_id in by_id]
     product_cards = render_template("partials/design_studio_products.html", products=ordered_products)
     design_html = design.html.replace("%%FITYSTORES_PRODUCTS%%", product_cards)
+    offer_cards = render_template("partials/design_studio_offers.html", products=ordered_products)
+    design_html = design_html.replace("%%FITYSTORES_OFFERS%%", offer_cards)
     response = Response(render_template(
         "admin/design_studio_frame.html", design=design, design_html=design_html,
         products=products, motion_duration=motion_duration,
         lottie_animation=lottie_animation,
     ), mimetype="text/html")
+    return _secure_frame_response(response)
+
+
+def _preview_error_response(message):
+    response = Response(
+        render_template("admin/design_studio_preview_error.html", message=message),
+        mimetype="text/html",
+    )
+    return _secure_frame_response(response)
+
+
+def _secure_frame_response(response):
     origins = []
     for configured in (current_app.config.get("PUBLIC_BASE_URL", ""), current_app.config.get("SERVER_NAME", "")):
         if not configured:

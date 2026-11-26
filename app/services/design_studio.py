@@ -30,7 +30,67 @@ MAX_JS = 10_000
 MAX_LOTTIE_BYTES = 300_000
 MAX_PRODUCTS = 30
 MOTION_PRESETS = {"none", "fade", "rise", "scale"}
-TEMPLATE_KEYS = {"editorial", "product-grid", "seasonal"}
+TEMPLATE_KEYS = {"editorial", "product-grid", "seasonal", "offers"}
+DEFAULT_OFFERS_TEMPLATE = {
+    "name": "FityStores offers",
+    "title": "Discounted goods",
+    "description": "Selected styles and everyday essentials, now for less.",
+    "placement": "storefront_section",
+    "template_key": "offers",
+    "html": (
+        '<section class="studio-offers" id="discounted-goods">'
+        '<div class="offers-scroll-rail">'
+        '<div class="offers-scroll-viewport" tabindex="0" aria-label="Scroll through FityStores offers">'
+        '<div class="offers-scroll-content">'
+        '<div class="offers-intro-panel"><p class="eyebrow">FityStores offers</p>'
+        '<h2>Discounted<br><span>goods</span></h2>'
+        '<p>Selected styles and everyday essentials, now for less.</p>'
+        '<a href="/shop">Browse offers <span aria-hidden="true">→</span></a></div>'
+        '%%FITYSTORES_OFFERS%%'
+        '</div></div><div class="offers-scroll-dots" aria-hidden="true">'
+        '<span class="home-scroll-dot" aria-current="true"></span></div></div></section>'
+    ),
+    "css": """
+.studio-offers{box-sizing:border-box;min-height:400px;overflow:hidden;padding:clamp(.8rem,2.2vw,1.5rem);border:1px solid rgba(255,255,255,.13);border-radius:12px;background:radial-gradient(ellipse at 82% 48%,rgba(81,46,135,.32),transparent 44%),linear-gradient(112deg,#09080d 0%,#100d18 58%,#21162f 100%);color:#fff}
+.studio-offers,.studio-offers *,.studio-offers *::before,.studio-offers *::after{box-sizing:border-box}
+.studio-offers .offers-scroll-rail{display:grid;min-width:0;gap:.55rem}
+.studio-offers .offers-scroll-viewport{min-width:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+.studio-offers .offers-scroll-content{display:flex;width:max-content;min-width:100%;align-items:stretch;gap:clamp(.4rem,.8vw,.65rem);padding:.35rem .4rem .8rem}
+.studio-offers .offers-intro-panel{display:flex;flex:0 0 clamp(290px,34vw,410px);flex-direction:column;align-items:flex-start;justify-content:center;min-height:300px;padding:clamp(.45rem,2vw,1.75rem);scroll-snap-align:start}
+.studio-offers .offers-intro-panel .eyebrow{margin:0 0 .65rem;color:#ff8751;font-size:.78rem;font-weight:800;letter-spacing:.12em;line-height:1.2;text-transform:uppercase}
+.studio-offers .offers-intro-panel h2{margin:0;color:#fff;font-size:clamp(2.4rem,4vw,3.8rem);font-weight:850;letter-spacing:-.055em;line-height:.96}
+.studio-offers .offers-intro-panel h2 span{color:#ff742e}
+.studio-offers .offers-intro-panel>p:not(.eyebrow){max-width:25rem;margin:.85rem 0 1.2rem;color:#e2dce9;font-size:clamp(.95rem,1.3vw,1.08rem);line-height:1.45}
+.studio-offers .offers-intro-panel>a{display:inline-flex;min-height:42px;align-items:center;gap:.55rem;padding:.55rem 1rem;border-radius:999px;background:#fff;color:#17121e;font-size:.9rem;font-weight:800;text-decoration:none}
+.studio-offers .offers-product-item{display:flex;flex:0 0 clamp(205px,18vw,245px);min-width:0;scroll-snap-align:start}
+.studio-offers .offers-product-card{display:grid;width:100%;min-height:300px;grid-template-rows:auto minmax(140px,1fr) auto;justify-items:center;gap:.38rem;padding:.7rem .45rem .8rem;text-align:center}
+.studio-offers .offers-product-copy{width:100%}
+.studio-offers .offers-product-category{overflow:hidden;margin:0 0 .25rem;color:#c4b8d2;font-size:.68rem;font-weight:750;letter-spacing:.09em;line-height:1.25;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap}
+.studio-offers .offers-product-card h3{display:-webkit-box;overflow:hidden;margin:0;color:#fff;font-size:.97rem;font-weight:750;line-height:1.25;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.studio-offers .offers-product-card h3 a{color:inherit;text-decoration:none}
+.studio-offers .offers-product-image{position:relative;display:grid;width:100%;min-height:140px;place-items:center}
+.studio-offers .offers-product-image-link{position:relative;z-index:1;display:grid;width:100%;height:100%;place-items:center}
+.studio-offers .offers-product-image::before{position:absolute;width:min(78%,170px);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,rgba(102,62,163,.63) 0%,rgba(90,51,147,.3) 53%,transparent 76%);content:""}
+.studio-offers .offers-product-image img{position:relative;z-index:1;display:block;width:100%;height:154px;object-fit:contain}
+.studio-offers .home-quick-add-card{position:relative}
+.studio-offers .home-quick-add-card .home-card-quick-add{position:absolute;z-index:3;top:.55rem;right:.55rem;display:grid;width:44px;height:44px;place-items:center;margin:0;padding:0 0 .1rem;border:0;border-radius:50%;background:#252525;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.28);font-size:30px;font-weight:400;line-height:1;text-decoration:none}
+.studio-offers .offers-price-group{display:grid;justify-items:center;gap:.3rem}
+.studio-offers .offers-current-price{display:inline-flex;min-height:40px;align-items:center;justify-content:center;padding:.45rem 1rem;border-radius:999px;background:#fff;color:#17121e;font-size:1.08rem;font-weight:850;line-height:1;text-decoration:none;white-space:nowrap}
+.studio-offers .offers-original-price{color:#e0d9e8;font-size:.82rem;line-height:1.2}
+.studio-offers .offers-discount-note{color:#ffbf78;font-size:.72rem;font-weight:800;line-height:1.2}
+.studio-offers .offers-scroll-dots{display:flex;min-height:14px;align-items:center;justify-content:center;gap:.42rem}
+.studio-offers .home-scroll-dot{width:8px;height:8px;padding:0;border:0;border-radius:999px;background:rgba(238,233,245,.45)}
+.studio-offers .home-scroll-dot[aria-current=true]{width:22px;background:#ff742e}
+@media(max-width:720px){.studio-offers{min-height:351px;padding:.65rem .55rem .5rem}.studio-offers .offers-intro-panel{flex-basis:82vw;min-width:250px;min-height:258px;padding:.35rem .65rem}.studio-offers .offers-intro-panel h2{font-size:clamp(2.5rem,11vw,3.25rem)}.studio-offers .offers-product-item{flex-basis:72vw;max-width:260px}.studio-offers .offers-product-card{min-height:258px;grid-template-rows:auto minmax(120px,1fr) auto;padding:.55rem .35rem .65rem}.studio-offers .offers-product-image,.studio-offers .offers-product-image img{min-height:120px;height:132px}}
+""",
+    "javascript": "",
+    "lottie_json": "",
+    "product_ids": [],
+    "motion_preset": "none",
+    "motion_config": {"duration": 600},
+    "starts_at": "",
+    "expires_at": "",
+}
 
 
 class DesignStudioSchemaError(RuntimeError):

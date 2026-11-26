@@ -4,7 +4,9 @@
   const html = form.querySelector('[data-studio-html]');
   const css = form.querySelector('[data-studio-css]');
   const templateKey = form.querySelector('[name="template_key"]');
+  const defaultTemplate = JSON.parse(form.querySelector('[data-studio-default-template]').textContent);
   const templates = {
+    offers: {html: defaultTemplate.html, css: defaultTemplate.css},
     editorial: {
       html: '<section class="ds-promo"><p class="ds-kicker">FityStores finds</p><h2>Everyday essentials, better together</h2><p>Fresh picks for your everyday style.</p><a class="ds-cta" href="/shop">Explore the collection</a></section>',
       css: '.ds-promo{padding:clamp(24px,6vw,64px);border-radius:24px;background:linear-gradient(120deg,#fff1f4,#f8e7d2);color:#252525}.ds-kicker{color:#e52335;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-promo h2{max-width:15ch;font-size:clamp(2rem,6vw,4rem);line-height:1.04}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}'
@@ -26,6 +28,7 @@
     html.value = template.html;
     css.value = template.css;
     ensureLottieTarget();
+    schedulePreview();
   }));
   const productSelect = form.querySelector('[data-studio-products]');
   try {
@@ -44,13 +47,74 @@
   }
   motionDuration.addEventListener('input', () => {
     motionConfig.value = JSON.stringify({duration: Number(motionDuration.value || 600)});
+    schedulePreview();
   });
   const previewSize = form.querySelector('[data-preview-size]');
   const preview = form.querySelector('[data-studio-preview]');
+  const previewStatus = form.querySelector('[data-studio-preview-status]');
+  const previewRequest = document.createElement('form');
+  previewRequest.method = 'post';
+  previewRequest.action = form.dataset.previewUrl;
+  previewRequest.target = preview.name;
+  previewRequest.hidden = true;
+  document.body.append(previewRequest);
+  let previewTimer = null;
+  let previewSizeTimer = null;
+  let previewQueued = false;
+  let previewBusy = false;
+  function submitPreview() {
+    if (!previewQueued || previewBusy) return;
+    previewQueued = false;
+    previewBusy = true;
+    previewStatus.textContent = 'Updating preview…';
+    previewRequest.replaceChildren();
+    for (const [name, value] of new FormData(form).entries()) {
+      if (typeof value !== 'string') continue;
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      input.value = value;
+      previewRequest.append(input);
+    }
+    previewRequest.submit();
+  }
+  function schedulePreview() {
+    previewQueued = true;
+    previewStatus.textContent = 'Previewing your latest changes…';
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(submitPreview, 250);
+  }
+  preview.addEventListener('load', () => {
+    if (!previewBusy) {
+      preview.contentWindow.postMessage({type: 'fity-studio-command', action: 'measure'}, '*');
+      return;
+    }
+    previewBusy = false;
+    previewStatus.textContent = 'Live preview updated.';
+    if (previewQueued) submitPreview();
+  });
+  preview.contentWindow.postMessage({type: 'fity-studio-command', action: 'measure'}, '*');
+  window.addEventListener('message', event => {
+    if (event.source !== preview.contentWindow || !event.data || event.data.type !== 'fity-studio') return;
+    if (event.data.action === 'resize') {
+      const height = Number(event.data.height);
+      if (Number.isFinite(height)) preview.style.height = `${Math.max(80, Math.min(1200, Math.round(height)))}px`;
+    }
+  });
   if (previewSize && preview) {
     preview.style.maxWidth = previewSize.value;
-    previewSize.addEventListener('change', () => { preview.style.maxWidth = previewSize.value; });
+    previewSize.addEventListener('change', () => {
+      preview.style.maxWidth = previewSize.value;
+      clearTimeout(previewSizeTimer);
+      previewSizeTimer = setTimeout(() => {
+        preview.contentWindow.postMessage({type: 'fity-studio-command', action: 'measure'}, '*');
+      }, 250);
+    });
   }
+  form.querySelectorAll('[data-studio-html], [data-studio-css], [data-studio-js], [data-studio-lottie-json], [name="product_ids"], [name="motion_preset"]').forEach(field => {
+    field.addEventListener('input', schedulePreview);
+    field.addEventListener('change', schedulePreview);
+  });
   const fileInput = form.querySelector('[data-studio-upload]');
   const uploadButton = form.querySelector('[data-studio-upload-button]');
   const loadLibraryButton = form.querySelector('[data-studio-load-library]');
@@ -104,7 +168,8 @@
     } else {
       insertAtCursor(html, `<img src="${url}" alt="">`);
     }
-    uploadResult.textContent = 'Asset inserted. Save the design to refresh its preview.';
+    uploadResult.textContent = 'Asset inserted. The preview is updating automatically.';
+    schedulePreview();
   });
   const lottieUpload = form.querySelector('[data-studio-lottie-upload]');
   const lottieJson = form.querySelector('[data-studio-lottie-json]');
@@ -121,7 +186,8 @@
       JSON.parse(value);
       lottieJson.value = value;
       ensureLottieTarget();
-      uploadResult.textContent = `${file.name} loaded. Save the design to validate and preview the animation.`;
+      uploadResult.textContent = `${file.name} loaded. The preview is updating automatically.`;
+      schedulePreview();
     } catch {
       uploadResult.textContent = 'Choose a valid Lottie JSON file.';
     }
@@ -153,7 +219,8 @@
       } else {
         insertAtCursor(html, `<img src="${safeUrl}" alt="">`);
       }
-      uploadResult.textContent = `${result.filename || file.name} uploaded. Markup inserted; save the design to refresh its preview.`;
+      uploadResult.textContent = `${result.filename || file.name} uploaded. The preview is updating automatically.`;
+      schedulePreview();
     } catch (error) {
       uploadResult.textContent = error.message || 'The upload could not be completed.';
     } finally {

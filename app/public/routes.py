@@ -22,6 +22,7 @@ from app.services.media_showcases import showcases_by_placement
 from app.services.upcoming_products import upcoming_product_schema_ready
 from app.services.product_likes import product_like_schema_ready
 from app.services.category_thumbnails import CATEGORY_GROUPS, category_group_key, category_thumbnails_schema_ready
+from app.services.product_discounts import current_discounted_products, discounted_products_query
 from app.services.whatsapp import LOCAL_CONTACT_NUMBER, build_general_message, build_mamba_suggestion_message, product_whatsapp_link, whatsapp_link, whatsapp_text_link
 from app.services.product_images import product_display_image, product_gallery_images, product_image_alt, product_image_url, valid_product_image
 from app.services.referrals import get_or_create_profile, normalize_phone, record_referral_click
@@ -92,36 +93,6 @@ def product_list_options(query):
         selectinload(Product.images),
         selectinload(Product.variants).joinedload(ProductVariant.image),
     )
-
-
-def discounted_products_query():
-    variant_price = func.coalesce(ProductVariant.price_cents, Product.price_cents)
-    variant_discount = Product.variants.any(and_(
-        ProductVariant.active.is_(True),
-        ProductVariant.previous_price_cents.isnot(None),
-        variant_price.isnot(None),
-        ProductVariant.previous_price_cents > variant_price,
-    ))
-    product_discount = and_(
-        ~Product.variants.any(ProductVariant.active.is_(True)),
-        Product.previous_price_cents.isnot(None),
-        Product.price_cents.isnot(None),
-        Product.previous_price_cents > Product.price_cents,
-    )
-    return Product.query.filter(Product.active.is_(True), or_(variant_discount, product_discount))
-
-
-def _product_discount_percent(product):
-    variant_discounts = [
-        variant.discount_percent
-        for variant in product.active_variants
-        if variant.has_discount
-    ]
-    if variant_discounts:
-        return max(variant_discounts)
-    if product.has_discount:
-        return (product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents
-    return 0
 
 
 def _product_like_voter_hash(create=False):
@@ -319,9 +290,7 @@ def home():
     fresh_arrivals = product_list_options(Product.query.filter_by(active=True)).order_by(Product.created_at.desc(), Product.id.desc()).limit(8).all()
     used_product_ids = {product.id for product in fresh_arrivals}
 
-    discounted = product_list_options(discounted_products_query()).order_by(Product.updated_at.desc(), Product.id.desc()).all()
-    discounted.sort(key=_product_discount_percent, reverse=True)
-    discounted = discounted[:8]
+    discounted = current_discounted_products()
     used_product_ids.update(product.id for product in discounted)
 
     featured_query = Product.query.filter_by(active=True, featured=True).filter(Product.id.notin_(used_product_ids))

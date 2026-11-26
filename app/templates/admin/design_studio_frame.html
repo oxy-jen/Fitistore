@@ -224,11 +224,18 @@
       });
     }
     {% endif %}
-    const reportHeight = () => parent.postMessage({
-      type:'fity-studio', action:'resize',
-      height:Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)
-    }, '*');
-    new ResizeObserver(reportHeight).observe(document.documentElement);
+    const reportHeight = () => {
+      const content = document.querySelector('.studio-content');
+      const height = content
+        ? Math.max(content.scrollHeight, Math.ceil(content.getBoundingClientRect().height))
+        : document.body.scrollHeight;
+      parent.postMessage({type:'fity-studio', action:'resize', height}, '*');
+    };
+    addEventListener('message', event => {
+      if (event.source === parent && event.data?.type === 'fity-studio-command'
+          && event.data.action === 'measure') reportHeight();
+    });
+    new ResizeObserver(reportHeight).observe(document.querySelector('.studio-content'));
     addEventListener('load', reportHeight);
   </script>
 </body>

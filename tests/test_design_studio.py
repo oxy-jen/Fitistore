@@ -142,6 +142,54 @@ def test_design_studio_ui_is_admin_only_and_role_scoped(app, client):
     assert client.get("/admin/design-studio/new").status_code == 403
 
 
+def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
+    with app.app_context():
+        ensure_design_studio_schema()
+        owner_id = AdminUser.query.filter_by(username="owner").one().id
+        product = Product.query.filter_by(slug="plain-socks").one()
+        product.previous_price_cents = 18000
+        db.session.commit()
+        product_id = product.id
+    _sign_in(client, owner_id)
+
+    editor = client.get("/admin/design-studio/new")
+    assert editor.status_code == 200
+    assert b'data-template="offers"' in editor.data
+    assert f'dataset.selectedProducts="[{product_id}]"'.encode() in editor.data
+    assert b'data-preview-url="/admin/design-studio/preview"' in editor.data
+
+    initial_preview = client.get("/admin/design-studio/preview")
+    assert initial_preview.status_code == 200
+    assert b"Discounted" in initial_preview.data
+    assert b"Plain Socks" in initial_preview.data
+    assert b"%%FITYSTORES_OFFERS%%" not in initial_preview.data
+    with app.app_context():
+        assert StorefrontDesign.query.count() == 0
+
+    updated_preview = client.post("/admin/design-studio/preview", data={
+        "name": "",
+        "title": "Unsaved campaign",
+        "description": "",
+        "placement": "storefront_section",
+        "html": '<section><script>bad()</script><h2>Unsaved campaign</h2></section>',
+        "css": ".draft{color:#222}",
+        "javascript": "",
+        "lottie_json": "",
+        "product_ids": [str(product_id)],
+        "template_key": "offers",
+        "motion_preset": "none",
+        "motion_config": '{"duration":600}',
+        "starts_at": "",
+        "expires_at": "",
+    })
+    assert updated_preview.status_code == 200
+    assert b"<h2>Unsaved campaign</h2>" in updated_preview.data
+    assert b"bad()" not in updated_preview.data
+    assert b"Plain Socks" not in updated_preview.data
+    with app.app_context():
+        assert StorefrontDesign.query.count() == 0
+
+
 def test_design_code_validation_sanitizes_markup_and_rejects_unsafe_operations(app):
     with app.app_context():
         product = Product.query.filter_by(slug="plain-socks").one()
