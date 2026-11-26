@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head admin-head ds-heading">
+  <div><p class="eyebrow">Storefront experience</p><h1>Design Studio</h1><p>Build reusable campaign banners and product-led sections. Every saved edit becomes a revision; publishing requires an approval step.</p></div>
+  {% if role in ['owner','designer','editor'] %}<a class="btn primary" href="{{ url_for('design_studio.new') }}">Create design</a>{% endif %}
+</section>
+{% if unavailable %}
+  <section class="ds-notice"><h2>Design Studio setup is required</h2><p>The storefront remains unchanged until the additive schema migration is run.</p><code>flask --app manage:app migrate-design-studio-schema</code></section>
+{% elif editor %}
+  {% set selected = design.product_ids if design else '[]' %}
+  <form class="ds-editor" method="post" action="{{ url_for('design_studio.save') }}" data-studio-editor>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if design %}<input type="hidden" name="design_id" value="{{ design.id }}">{% endif %}
+    <input type="hidden" name="template_key" value="{{ design.template_key if design else 'editorial' }}">
+    <header class="ds-editor-header"><div><p class="eyebrow">Visual Builder</p><h2>{{ 'Edit design' if design else 'New design' }}</h2><p>Use a template to start, link active catalogue items, then refine the markup and styles. Custom code runs only in a credential-free sandbox.</p></div><button class="btn primary">Save draft</button></header>
+    <div class="ds-editor-grid">
+      <div class="ds-editor-controls">
+        <section class="ds-panel"><h3>Design details</h3>
+          <label>Name <input name="name" maxlength="120" required value="{{ design.name if design else '' }}" placeholder="Weekend essentials offer"></label>
+          <label>Public heading <input name="title" maxlength="160" value="{{ design.title if design else '' }}"></label>
+          <label>Short description <textarea name="description" rows="2" maxlength="500">{{ design.description if design else '' }}</textarea></label>
+          <label>Placement <select name="placement"><option value="storefront_banner" {% if not design or design.placement == 'storefront_banner' %}selected{% endif %}>Storefront banner — top of every public storefront page</option><option value="storefront_section" {% if design and design.placement == 'storefront_section' %}selected{% endif %}>Storefront section — before the footer on every public storefront page</option></select></label>
+          <label>Start (optional, UTC) <input type="datetime-local" name="starts_at" value="{{ design.starts_at.strftime('%Y-%m-%dT%H:%M') if design and design.starts_at else '' }}"></label>
+          <label>End (optional, UTC) <input type="datetime-local" name="expires_at" value="{{ design.expires_at.strftime('%Y-%m-%dT%H:%M') if design and design.expires_at else '' }}"></label>
+        </section>
+        <section class="ds-panel"><h3>Template Library</h3><p>Original FityStores layouts using familiar retail campaign patterns.</p>
+          <div class="ds-template-list">
+            <button type="button" class="ds-template" data-template="editorial"><strong>Editorial banner</strong><span>Bold offer copy with a calm product story.</span></button>
+            <button type="button" class="ds-template" data-template="product-grid"><strong>Product picks</strong><span>Live catalogue products in a responsive card grid.</span></button>
+            <button type="button" class="ds-template" data-template="seasonal"><strong>Seasonal spotlight</strong><span>Warm color block with a clear shopping action.</span></button>
+          </div>
+        </section>
+        <section class="ds-panel"><h3>Live catalogue</h3><p>Product cards always use current names, images, prices, and destination links.</p>
+          <label>Link active products <select name="product_ids" multiple size="7" data-studio-products>{% for product in products %}<option value="{{ product.id }}">{{ product.name }}{% if product.price_cents is not none %} — {{ money(product.price_cents, settings.currency) }}{% endif %}</option>{% endfor %}</select></label>
+          <small>Select up to 30. The Product picks template places cards at <code>%%FITYSTORES_PRODUCTS%%</code>.</small>
+        </section>
+        <section class="ds-panel"><h3>Motion Studio</h3><div class="ds-inline"><label>Preset <select name="motion_preset"><option value="none" {% if not design or design.motion_preset == 'none' %}selected{% endif %}>None</option><option value="fade" {% if design and design.motion_preset == 'fade' %}selected{% endif %}>Fade in</option><option value="rise" {% if design and design.motion_preset == 'rise' %}selected{% endif %}>Rise in</option><option value="scale" {% if design and design.motion_preset == 'scale' %}selected{% endif %}>Soft scale</option></select></label><label>Duration <input type="number" min="100" max="3000" step="100" value="600" data-motion-duration><small>100–3000 ms</small></label></div><input type="hidden" name="motion_config" value="{{ design.motion_config if design else '{}' }}" data-motion-config>        <label>Self-contained Lottie JSON <input type="file" accept=".json,application/json" data-studio-lottie-upload></label><textarea name="lottie_json" rows="5" maxlength="300000" spellcheck="false" data-studio-lottie-json>{{ design.lottie_json if design else '' }}</textarea><small>Upload a vector animation or embedded-image Lottie file (up to 300 KB). Add <code>&lt;div data-studio-lottie aria-hidden="true"&gt;&lt;/div&gt;</code> where it should appear. External assets are blocked.</small><p>Built-in motion presets and Lottie respect reduced-motion preferences. Custom JavaScript runs in a separate worker with a hard execution timeout.</p></section>
+        <section class="ds-panel"><h3>Asset Manager</h3><p>Use the shared Cloudinary/local media library; image, GIF, and video uploads follow existing media validation. Storefront frames allow local and Cloudinary-hosted media only.</p><input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" data-studio-upload><button type="button" class="btn" data-studio-upload-button>Upload asset</button><button type="button" class="btn" data-studio-load-library>Load existing assets</button><div class="ds-upload-result" data-studio-upload-result aria-live="polite"></div><div class="ds-asset-library" data-studio-library></div><p><a href="{{ url_for('admin.media_showcase_library') }}" target="_blank" rel="noopener">Open full media library</a></p></section>
+      </div>
+      <div class="ds-code-workspace">
+        <section class="ds-panel"><div class="ds-panel-title"><h3>Markup</h3><span>HTML is sanitized and sandboxed</span></div><textarea name="html" rows="14" maxlength="20000" spellcheck="false" data-studio-html>{{ design.html if design else '<section class="ds-promo"><p class="ds-kicker">FityStores finds</p><h2>Everyday essentials, better together</h2><p>Fresh picks for your everyday style.</p><a class="ds-cta" href="/shop">Explore the collection</a></section>' }}</textarea><p>Allowed markup is semantic HTML. Scripts, forms, inline event handlers, embeds, and external frames are removed.</p></section>
+        <section class="ds-panel"><div class="ds-panel-title"><h3>Styles</h3><span>20 KB limit · no imports</span></div><textarea name="css" rows="12" maxlength="20000" spellcheck="false" data-studio-css>{{ design.css if design else '.ds-promo{padding:clamp(24px,6vw,64px);border-radius:24px;background:linear-gradient(120deg,#fff1f4,#f8e7d2);color:#252525}.ds-kicker{color:#e52335;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-promo h2{max-width:15ch;font-size:clamp(2rem,6vw,4rem);line-height:1.04}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}' }}</textarea></section>
+        <section class="ds-panel"><div class="ds-panel-title"><h3>Custom JavaScript</h3><span>10 KB limit · approved API only</span></div><textarea name="javascript" rows="8" maxlength="10000" spellcheck="false" data-studio-js>{{ design.javascript if design else '' }}</textarea><p>Use <code>FityStudio.on('ready'|'click', handler)</code>, <code>FityStudio.addToCart(productId, quantity, variantId)</code>, <code>FityStudio.openProduct(productId)</code>, <code>FityStudio.navigate('/shop')</code>, or <code>FityStudio.resize(px)</code>. No DOM, network, timers, or dynamic code execution are exposed; unresponsive workers are terminated.</p></section>
+        <section class="ds-panel ds-preview-panel"><div class="ds-panel-title"><h3>Responsive preview</h3><select data-preview-size aria-label="Preview width"><option value="100%">Desktop</option><option value="768px">Tablet</option><option value="390px">Mobile</option></select></div>
+          {% if design %}<iframe title="Isolated design preview" sandbox="allow-scripts" src="{{ url_for('design_studio.preview_frame', design_id=design.id) }}" data-studio-preview></iframe>{% else %}<div class="ds-preview-empty">Save once to open the isolated preview. Preview width controls are ready.</div>{% endif %}
+          <small>Preview is a separate origin sandbox with no access to the storefront DOM, cookies, or storage.</small>
+        </section>
+      </div>
+    </div>
+  </form>
+  <script>document.querySelector('[data-studio-products]').dataset.selectedProducts={{ selected|tojson }};</script>
+{% else %}
+  <section class="ds-overview">
+    <div class="ds-overview-head"><div><h2>Publishing Center</h2><p>Draft → pending review → approved → published. Scheduled designs only render inside their active time window.</p></div>
+      <span class="ds-role">Your role: {{ role or 'unassigned' }}</span>
+    </div>
+    <div class="ds-design-list">
+      {% for design in designs %}
+      <article class="ds-design-card">
+        <div><span class="ds-status ds-status-{{ design.status }}">{{ design.status|title }}</span><h3>{{ design.name }}</h3><p>{{ design.title or 'No public heading' }}</p><small>{{ design.placement|replace('_',' ')|title }} · v{{ design.version }} · Updated {{ design.updated_at.strftime('%Y-%m-%d %H:%M') }} UTC</small>
+          <small>Schedule: {{ design.starts_at.strftime('%Y-%m-%d %H:%M') if design.starts_at else 'Now' }} – {{ design.expires_at.strftime('%Y-%m-%d %H:%M') if design.expires_at else 'No end' }} UTC</small>
+        </div>
+        <div class="ds-actions">
+          {% if role in ['owner','designer','editor'] %}<a class="btn" href="{{ url_for('design_studio.edit', design_id=design.id) }}">Edit</a>{% endif %}
+          {% if role in ['owner','designer','editor','approver','publisher','viewer'] %}<a class="btn" href="{{ url_for('design_studio.export_design', design_id=design.id) }}">Export JSON</a>{% endif %}
+          {% if role in ['owner','designer','editor'] %}<form method="post" action="{{ url_for('design_studio.workflow', design_id=design.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button name="action" value="duplicate">Duplicate template</button></form>{% endif %}
+          {% if role in ['owner','designer','editor'] and design.status in ['draft','approved'] %}<form method="post" action="{{ url_for('design_studio.workflow', design_id=design.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button name="action" value="submit">Submit for approval</button></form>{% endif %}
+          {% if role in ['owner','approver'] and design.status == 'pending' %}<form method="post" action="{{ url_for('design_studio.workflow', design_id=design.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button name="action" value="approve">Approve</button></form>{% endif %}
+          {% if role in ['owner','publisher'] and design.status == 'approved' %}<form method="post" action="{{ url_for('design_studio.workflow', design_id=design.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="primary" name="action" value="publish">Publish</button></form>{% endif %}
+          {% if role in ['owner','publisher'] and design.status == 'published' %}<form method="post" action="{{ url_for('design_studio.workflow', design_id=design.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button name="action" value="unpublish">Unpublish</button></form>{% endif %}
+          {% if role in ['owner','publisher'] %}<form method="post" action="{{ url_for('design_studio.workflow', design_id=design.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button name="action" value="{{ 'enable' if not design.is_enabled else 'disable' }}">{{ 'Enable' if not design.is_enabled else 'Disable' }}</button></form>{% endif %}
+        </div>
+        {% if revisions.get(design.id) %}<details class="ds-revisions"><summary>Version history ({{ revisions[design.id]|length }})</summary>{% for revision in revisions[design.id] %}<div><span>v{{ revision.revision_number }} · {{ revision.created_at.strftime('%Y-%m-%d %H:%M') }} UTC</span>{% if role in ['owner','designer','editor'] %}<form method="post" action="{{ url_for('design_studio.rollback', design_id=design.id, revision_id=revision.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button>Restore as draft</button></form>{% endif %}</div>{% endfor %}</details>{% endif %}
+      </article>
+      {% else %}<div class="ds-empty"><h3>No designs yet</h3><p>Create a banner or product section from an original template.</p>{% if role in ['owner','designer','editor'] %}<a class="btn primary" href="{{ url_for('design_studio.new') }}">Start designing</a>{% endif %}</div>{% endfor %}
+    </div>
+  </section>
+  {% if role == 'owner' %}
+  <section class="ds-panel ds-admin-panel"><h2>Access and roles</h2><p>The first existing admin is bootstrapped as owner. Other admins begin as designers; only owners can change assignments.</p>
+    {% for user in users %}<div class="ds-role-row"><strong>{{ user.username }}</strong><form method="post" action="{{ url_for('design_studio.assign_role', admin_id=user.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select name="role">{% for value in roles %}<option value="{{ value }}"{% if assignments.get(user.id) == value %} selected{% endif %}>{{ value|title }}</option>{% endfor %}</select><button class="btn">Save role</button></form></div>{% endfor %}
+  </section>
+  {% endif %}
+  <section class="ds-panel ds-admin-panel"><h2>Audit trail</h2><p>Recent Studio actions, retained separately from storefront content.</p><div class="ds-audit-list">{% for event in audit_events %}<div><time>{{ event.created_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</time><strong>{{ event.action|replace('_',' ')|title }}</strong><span>Admin #{{ event.admin_user_id or 'removed' }} · Design #{{ event.design_id or 'removed' }}</span></div>{% else %}<p>No Studio activity yet.</p>{% endfor %}</div></section>
+  {% if role in ['owner','designer','editor'] %}<section class="ds-panel ds-import"><h2>Import a reusable design</h2><p>Import JSON from a Design Studio export. Imported designs always start as unpublished drafts.</p><form method="post" action="{{ url_for('design_studio.import_design') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><textarea name="import_json" rows="5" maxlength="60000" placeholder='{"format":"fitystores-design-studio-v1","design":{...}}' required></textarea><button class="btn">Import draft</button></form></section>{% endif %}
+{% endif %}
+{% endblock %}

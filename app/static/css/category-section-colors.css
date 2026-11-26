@@ -609,7 +609,7 @@
   width: max-content;
   min-width: 100%;
   align-items: stretch;
-  gap: clamp(.8rem, 1.8vw, 1.35rem);
+  gap: clamp(.4rem, .8vw, .65rem);
   padding: .35rem .4rem .8rem;
 }
 

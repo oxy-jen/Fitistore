@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% if lottie_animation %}
+  <script src="{{ url_for('static', filename='vendor/lottie.min.js') }}"></script>
+  <script type="application/json" id="fity-lottie-data">{{ lottie_animation|tojson }}</script>
+  {% endif %}
+</head>
+<body data-motion="{{ design.motion_preset }}" style="--studio-motion-duration:{{ motion_duration }}ms">
+  <main class="studio-content">
+    {{ design_html|safe }}
+  </main>
+  <style>
+    {{ design.css|safe }}
+    html,body{margin:0;padding:0;width:100%;font-family:system-ui,sans-serif}
+    .studio-content{box-sizing:border-box}
+    [data-motion="fade"] .studio-content{animation:studio-fade var(--studio-motion-duration) ease both}
+    [data-motion="rise"] .studio-content{animation:studio-rise var(--studio-motion-duration) ease both}
+    [data-motion="scale"] .studio-content{animation:studio-scale var(--studio-motion-duration) ease both}
+    @keyframes studio-fade{from{opacity:0}to{opacity:1}}
+    @keyframes studio-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes studio-scale{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+  </style>
+  <script type="application/json" id="studio-user-code">{{ design.javascript|tojson }}</script>
+  <script>
+    const studioProducts = {{ products|tojson }};
+    const studioApi = Object.freeze({
+      addToCart(productId, quantity = 1, variantId = null) {
+        parent.postMessage({type:'fity-studio', action:'add-to-cart', productId, quantity, variantId}, '*');
+      },
+      openProduct(productId) {
+        parent.postMessage({type:'fity-studio', action:'open-product', productId}, '*');
+      },
+      navigate(path) {
+        parent.postMessage({type:'fity-studio', action:'navigate', path}, '*');
+      },
+      resize(height) {
+        parent.postMessage({type:'fity-studio', action:'resize', height}, '*');
+      }
+    });
+    document.addEventListener('click', event => {
+      const link = event.target.closest('a[href]');
+      if (link) {
+        const path = link.getAttribute('href');
+        const product = studioProducts.find(item => item.url === path);
+        if (product) {
+          event.preventDefault();
+          studioApi.openProduct(product.id);
+          return;
+        }
+        if (['/shop', '/upcoming', '/cart'].includes(path)) {
+          event.preventDefault();
+          studioApi.navigate(path);
+          return;
+        }
+        event.preventDefault();
+      }
+      const button = event.target.closest('[data-studio-action]');
+      if (button && button.dataset.productId && button.dataset.studioAction === 'add-to-cart') {
+        event.preventDefault();
+        studioApi.addToCart(Number(button.dataset.productId), 1, null);
+      } else if (button && button.dataset.productId && button.dataset.studioAction === 'open-product') {
+        event.preventDefault();
+        studioApi.openProduct(Number(button.dataset.productId));
+      }
+    });
+
+    const userCode = JSON.parse(document.getElementById('studio-user-code').textContent || '""');
+    let studioWorker = null;
+    let studioWorkerUrl = null;
+    let workerReady = false;
+    let workerBusy = false;
+    let workerTimeout = null;
+    const stopStudioWorker = reason => {
+      if (workerTimeout) clearTimeout(workerTimeout);
+      workerTimeout = null;
+      if (studioWorker) studioWorker.terminate();
+      studioWorker = null;
+      if (studioWorkerUrl) URL.revokeObjectURL(studioWorkerUrl);
+      studioWorkerUrl = null;
+      workerReady = false;
+      workerBusy = false;
+      if (reason) {
+        document.body.dataset.studioScriptError = reason;
+        console.warn('FityStores Design Studio custom code stopped:', reason);
+      }
+    };
+    const handleWorkerCommand = command => {
+      if (!command || command.type !== 'studio-command') return;
+      if (command.action === 'navigate') {
+        if (['/shop', '/upcoming', '/cart'].includes(command.path)) studioApi.navigate(command.path);
+        return;
+      }
+      if (command.action === 'resize') {
+        const height = Number(command.height);
+        if (Number.isFinite(height)) studioApi.resize(Math.max(80, Math.min(1200, Math.round(height))));
+        return;
+      }
+      const productId = Number(command.productId);
+      const product = studioProducts.find(item => item.id === productId);
+      if (!product) return;
+      if (command.action === 'open-product') {
+        studioApi.openProduct(productId);
+        return;
+      }
+      if (command.action !== 'add-to-cart') return;
+      const quantity = Number(command.quantity);
+      const variantId = command.variantId === null ? null : Number(command.variantId);
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 5) return;
+      if (variantId !== null && (!Number.isInteger(variantId) || !product.variant_ids.includes(variantId))) return;
+      studioApi.addToCart(productId, quantity, variantId);
+    };
+    const notifyWorker = (name, detail) => {
+      if (!studioWorker || !workerReady || workerBusy) return;
+      workerBusy = true;
+      workerTimeout = setTimeout(() => stopStudioWorker('execution-timeout'), 150);
+      studioWorker.postMessage({type:'studio-event', name, detail});
+    };
+    if (userCode.trim() && typeof Worker === 'function' && typeof Blob === 'function') {
+      const productVariants = JSON.stringify(studioProducts.map(product => [product.id, product.variant_ids]));
+      const workerSource = `
+        "use strict";
+        const sendToFrame = self.postMessage.bind(self);
+        const productVariants = new Map(${productVariants});
+        const callbacks = Object.create(null);
+        const api = Object.freeze({
+          on(name, callback) {
+            if (!["ready","click"].includes(name) || typeof callback !== "function") return;
+            callbacks[name] = callbacks[name] || [];
+            if (callbacks[name].length < 8) callbacks[name].push(callback);
+          },
+          addToCart(productId, quantity = 1, variantId = null) {
+            productId = Number(productId);
+            quantity = Number(quantity);
+            const variants = productVariants.get(productId);
+            if (!variants || !Number.isInteger(quantity) || quantity < 1 || quantity > 5) return;
+            if (variantId !== null && !variants.includes(Number(variantId))) return;
+            sendToFrame({type:"studio-command", action:"add-to-cart", productId, quantity, variantId});
+          },
+          openProduct(productId) {
+            productId = Number(productId);
+            if (productVariants.has(productId)) sendToFrame({type:"studio-command", action:"open-product", productId});
+          },
+          navigate(path) {
+            if (["/shop","/upcoming","/cart"].includes(path)) sendToFrame({type:"studio-command", action:"navigate", path});
+          },
+          resize(height) {
+            height = Number(height);
+            if (Number.isFinite(height)) sendToFrame({type:"studio-command", action:"resize", height});
+          }
+        });
+        (function(FityStudio, document, window, self, globalThis, fetch, XMLHttpRequest, WebSocket, EventSource, setTimeout, setInterval, requestAnimationFrame, Worker, SharedWorker, importScripts, postMessage) {
+          "use strict";
+      ` + userCode + `
+        })(api, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined);
+        sendToFrame({type:"studio-ready"});
+        self.addEventListener("message", event => {
+          const data = event.data;
+          if (!data || data.type !== "studio-event" || !["ready","click"].includes(data.name)) return;
+          for (const callback of callbacks[data.name] || []) {
+            try { callback(Object.freeze(data.detail || {})); }
+            catch { sendToFrame({type:"studio-error"}); }
+          }
+          sendToFrame({type:"studio-event-complete"});
+        });
+      `;
+      try {
+        studioWorkerUrl = URL.createObjectURL(new Blob([workerSource], {type:'text/javascript'}));
+        studioWorker = new Worker(studioWorkerUrl);
+        workerTimeout = setTimeout(() => stopStudioWorker('startup-timeout'), 1000);
+        studioWorker.addEventListener('message', event => {
+          const message = event.data;
+          if (!message || typeof message !== 'object') return;
+          if (message.type === 'studio-command') {
+            handleWorkerCommand(message);
+          } else if (message.type === 'studio-ready') {
+            if (workerTimeout) clearTimeout(workerTimeout);
+            workerTimeout = null;
+            if (studioWorkerUrl) URL.revokeObjectURL(studioWorkerUrl);
+            studioWorkerUrl = null;
+            workerBusy = false;
+            workerReady = true;
+            notifyWorker('ready', {});
+          } else if (message.type === 'studio-event-complete') {
+            if (workerTimeout) clearTimeout(workerTimeout);
+            workerTimeout = null;
+            workerBusy = false;
+          } else if (message.type === 'studio-error') {
+            console.warn('FityStores Design Studio custom code handler failed.');
+          }
+        });
+        studioWorker.addEventListener('error', () => stopStudioWorker('worker-error'));
+      } catch (error) {
+        console.error('FityStores Design Studio custom code worker could not start.', error);
+        stopStudioWorker('worker-start-failed');
+      }
+    }
+    document.addEventListener('click', event => {
+      if (!(event.target instanceof Element)) return;
+      const target = event.target.closest('a[href],[data-studio-action]');
+      if (!target) return;
+      notifyWorker('click', {
+        id: target.id || '',
+        action: target.dataset.studioAction || '',
+        productId: /^\d+$/.test(target.dataset.productId || '') ? Number(target.dataset.productId) : null
+      });
+    });
+
+    {% if lottie_animation %}
+    const lottieData = JSON.parse(document.getElementById('fity-lottie-data').textContent);
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (window.lottie) {
+      document.querySelectorAll('[data-studio-lottie]').forEach(container => {
+        window.lottie.loadAnimation({
+          container,
+          renderer: 'svg',
+          loop: !reduceMotion,
+          autoplay: !reduceMotion,
+          animationData: lottieData
+        });
+      });
+    }
+    {% endif %}
+    const reportHeight = () => parent.postMessage({
+      type:'fity-studio', action:'resize',
+      height:Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)
+    }, '*');
+    new ResizeObserver(reportHeight).observe(document.documentElement);
+    addEventListener('load', reportHeight);
+  </script>
+</body>
+</html>

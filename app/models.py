@@ -262,6 +262,72 @@ class MediaShowcaseItem(TimestampMixin, db.Model):
         CheckConstraint("preview_position_y BETWEEN 0 AND 100", name="ck_media_showcase_item_preview_y"),
     )
 
+
+class DesignStudioRole(db.Model):
+    __tablename__ = "design_studio_role"
+    id = db.Column(db.Integer, primary_key=True)
+    admin_user_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="CASCADE"), nullable=False, unique=True)
+    role = db.Column(db.String(20), nullable=False, default="designer")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    admin_user = db.relationship("AdminUser")
+    __table_args__ = (CheckConstraint("role IN ('owner','designer','editor','approver','publisher','viewer')", name="ck_design_studio_role"),)
+
+
+class StorefrontDesign(TimestampMixin, db.Model):
+    __tablename__ = "storefront_design"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    title = db.Column(db.String(160), nullable=False, default="")
+    description = db.Column(db.String(500), nullable=False, default="")
+    placement = db.Column(db.String(32), nullable=False, default="storefront_banner")
+    status = db.Column(db.String(16), nullable=False, default="draft")
+    is_enabled = db.Column(db.Boolean, nullable=False, default=True)
+    starts_at = db.Column(db.DateTime)
+    expires_at = db.Column(db.DateTime)
+    html = db.Column(db.Text, nullable=False, default="")
+    css = db.Column(db.Text, nullable=False, default="")
+    javascript = db.Column(db.Text, nullable=False, default="")
+    lottie_json = db.Column(db.Text, nullable=False, default="")
+    product_ids = db.Column(db.Text, nullable=False, default="[]")
+    template_key = db.Column(db.String(40), nullable=False, default="editorial")
+    motion_preset = db.Column(db.String(20), nullable=False, default="none")
+    motion_config = db.Column(db.Text, nullable=False, default="{}")
+    version = db.Column(db.Integer, nullable=False, default=1)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="SET NULL"))
+    updated_by_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="SET NULL"))
+    approved_by_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="SET NULL"))
+    published_by_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="SET NULL"))
+    created_by = db.relationship("AdminUser", foreign_keys=[created_by_id])
+    revisions = db.relationship("StorefrontDesignRevision", cascade="all, delete-orphan", order_by="StorefrontDesignRevision.revision_number.desc()")
+    __table_args__ = (
+        CheckConstraint("placement IN ('storefront_banner','storefront_section')", name="ck_storefront_design_placement"),
+        CheckConstraint("status IN ('draft','pending','approved','published')", name="ck_storefront_design_status"),
+        CheckConstraint("version >= 1", name="ck_storefront_design_version"),
+        Index("ix_storefront_design_publish", "status", "is_enabled", "placement"),
+    )
+
+
+class StorefrontDesignRevision(db.Model):
+    __tablename__ = "storefront_design_revision"
+    id = db.Column(db.Integer, primary_key=True)
+    design_id = db.Column(db.Integer, db.ForeignKey("storefront_design.id", ondelete="CASCADE"), nullable=False, index=True)
+    revision_number = db.Column(db.Integer, nullable=False)
+    snapshot = db.Column(db.Text, nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="SET NULL"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (UniqueConstraint("design_id", "revision_number", name="uq_storefront_design_revision_number"),)
+
+
+class StorefrontDesignAudit(db.Model):
+    __tablename__ = "storefront_design_audit"
+    id = db.Column(db.Integer, primary_key=True)
+    design_id = db.Column(db.Integer, db.ForeignKey("storefront_design.id", ondelete="SET NULL"), index=True)
+    admin_user_id = db.Column(db.Integer, db.ForeignKey("admin_user.id", ondelete="SET NULL"), index=True)
+    action = db.Column(db.String(32), nullable=False)
+    details = db.Column(db.Text, nullable=False, default="{}")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
 class MambaCollection(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     is_configured = db.Column(db.Boolean, default=False, nullable=False)

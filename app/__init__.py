@@ -156,10 +156,13 @@ def create_app(config_object=Config, *, initialize_media_showcases=False):
 
     from .public.routes import public_bp
     from .admin.routes import admin_bp
+    from .admin.design_studio import design_public_bp, design_studio_bp
     from .customer.routes import customer_bp
     app.register_blueprint(customer_bp)
     app.register_blueprint(public_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
+    app.register_blueprint(design_studio_bp, url_prefix="/admin/design-studio")
+    app.register_blueprint(design_public_bp)
 
     register_cli(app)
     register_errors(app)
@@ -168,6 +171,7 @@ def create_app(config_object=Config, *, initialize_media_showcases=False):
     app.extensions["product_like_schema_ready"] = None
     app.extensions["product_display_note_schema_ready"] = None
     app.extensions["product_variant_discount_schema_ready"] = None
+    app.extensions["design_studio_schema_ready"] = None
     if initialize_media_showcases and not app.testing:
         with app.app_context():
             ensure_product_variant_discount_schema()
@@ -454,6 +458,21 @@ def register_cli(app: Flask):
             click.echo(f"Created admin user: {username}")
         db.session.commit()
         click.echo("FityStores database is ready.")
+
+    @app.cli.command("migrate-design-studio-schema")
+    def migrate_design_studio_schema():
+        """Create the additive Design Studio tables and bootstrap safe admin roles."""
+        from .services.design_studio import DesignStudioSchemaError, ensure_design_studio_schema
+        from sqlalchemy.exc import SQLAlchemyError
+        try:
+            ensure_design_studio_schema()
+        except (DesignStudioSchemaError, SQLAlchemyError) as exc:
+            db.session.rollback()
+            app.logger.exception("Design Studio schema migration failed.")
+            raise click.ClickException(
+                f"Design Studio schema migration failed: {exc}. No existing showcase tables were changed."
+            ) from None
+        click.echo("Design Studio schema is ready. Existing designs and roles were preserved.")
 
 
     @app.cli.command("run-marketing-automation")

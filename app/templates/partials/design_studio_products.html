@@ -1,0 +1,13 @@
+<div class="studio-product-grid">
+{% for product in products %}
+  {% set image = product_display_image(product) %}
+  <article class="studio-product-card">
+    <a href="/product/{{ product.slug }}" aria-label="View {{ product.name }}">
+      {% if image %}<img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image, product.name) }}" loading="lazy">{% endif %}
+      <strong>{{ product.name }}</strong>
+    </a>
+    <p>{% if product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}See current price{% endif %}</p>
+    {% if product.active_variants %}<button type="button" data-studio-action="open-product" data-product-id="{{ product.id }}">Choose options</button>{% elif product.available_quantity > 0 %}<button type="button" data-studio-action="add-to-cart" data-product-id="{{ product.id }}">Add to cart</button>{% else %}<button type="button" disabled>Out of stock</button>{% endif %}
+  </article>
+{% endfor %}
+</div>

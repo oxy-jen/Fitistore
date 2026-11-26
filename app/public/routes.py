@@ -7,7 +7,7 @@ from urllib.parse import quote
 from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
-from flask import Blueprint, Response, current_app, flash, jsonify, make_response, redirect, render_template, request, session, url_for
+from flask import Blueprint, Response, current_app, flash, has_request_context, jsonify, make_response, redirect, render_template, request, session, url_for
 from sqlalchemy import and_, case, func, or_
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
@@ -213,7 +213,18 @@ def helpers():
         for index in range(0, min(len(footer_products), 18), 3)
         if len(footer_products[index:index + 3]) == 3
     ]
-    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_gallery_images": product_gallery_images, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "category_group_key": category_group_key, "footer_products": footer_products[:3], "footer_product_groups": footer_product_groups, "current_year": datetime.now().year}
+    storefront_designs = {"storefront_banner": [], "storefront_section": []}
+    from app.services.design_studio import product_api_data
+    if has_request_context():
+        endpoint = request.endpoint or ""
+        private_path = request.path.startswith((
+            "/admin", "/account", "/auth", "/login", "/register", "/reset", "/verify", "/track/",
+        )) or request.path in {"/cart", "/checkout", "/track", "/track-order", "/referrals"}
+        excluded_endpoint = endpoint in {"public.checkout", "public.checkout_ready"}
+        if endpoint.startswith("public.") and not private_path and not excluded_endpoint and not request.path.startswith("/checkout"):
+            from app.services.design_studio import active_designs
+            storefront_designs = active_designs()
+    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_gallery_images": product_gallery_images, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "category_group_key": category_group_key, "footer_products": footer_products[:3], "footer_product_groups": footer_product_groups, "design_studio_designs": storefront_designs, "product_api_data": product_api_data, "current_year": datetime.now().year}
 
 def product_query(category_group_override=None, sort_override=None):
     q = request.args.get("q", "").strip()
@@ -1350,6 +1361,35 @@ def api_record_cart_add():
         current_app.logger.exception("Could not record cart addition")
         return jsonify({"ok": False}), 503
     return jsonify({"ok": True, "add_count": counter.add_count})
+
+
+@public_bp.post("/api/design-studio/validate-product")
+def api_validate_design_studio_product():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "message": "The requested product addition is invalid."}), 400
+    raw_product_id = payload.get("product_id")
+    quantity = payload.get("quantity", 1)
+    raw_variant_id = payload.get("variant_id")
+    if set(payload) - {"product_id", "variant_id", "quantity"} or (
+        type(raw_product_id) is not int or type(quantity) is not int
+        or (raw_variant_id is not None and type(raw_variant_id) is not int)
+    ):
+        return jsonify({"ok": False, "message": "The requested product addition is invalid."}), 400
+    product_id, variant_id = raw_product_id, raw_variant_id
+    if quantity < 1 or quantity > 5:
+        return jsonify({"ok": False, "message": "Choose a quantity from 1 to 5."}), 400
+    product = Product.query.filter_by(id=product_id, active=True).first()
+    if not product:
+        return jsonify({"ok": False, "message": "This product is no longer available."}), 404
+    active_variants = ProductVariant.query.filter_by(product_id=product.id, active=True).all()
+    if active_variants:
+        variant = next((item for item in active_variants if item.id == variant_id), None)
+        if variant is None or variant.available_quantity < quantity:
+            return jsonify({"ok": False, "message": "This product or option is no longer available in the requested quantity."}), 409
+    elif variant_id is not None or product.available_quantity < quantity:
+        return jsonify({"ok": False, "message": "This product or option is no longer available in the requested quantity."}), 409
+    return jsonify({"ok": True})
 
 
 @public_bp.post("/api/products/<int:product_id>/like")

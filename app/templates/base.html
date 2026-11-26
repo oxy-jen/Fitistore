@@ -41,6 +41,8 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/media-showcases.css') }}?v=media-showcase-lazy-video-v3">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/pwa.css') }}?v=pwa-install-v1">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/category-section-colors.css') }}?v=home-quick-add-all-cards-20261126">
+  {% if request.endpoint and request.endpoint.startswith('design_studio.') %}<link rel="stylesheet" href="{{ url_for('static', filename='css/design-studio.css') }}?v=20261126">{% endif %}
+  {% if design_studio_designs and (design_studio_designs.storefront_banner or design_studio_designs.storefront_section) %}<link rel="stylesheet" href="{{ url_for('static', filename='css/design-studio-storefront.css') }}?v=20261126">{% endif %}
   {% if request.endpoint == 'admin.email_center' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-email.css') }}?v=admin-email-responsive-20261119">{% endif %}
   <script type="application/ld+json">
   {{ {"@context": "https://schema.org", "@type": "Organization", "name": settings.shop_name, "url": "https://fitystore.top/", "logo": url_for('static', filename='images/mainLogo-160.png', _external=True), "owner": {"@type": "Organization", "name": "Oxy-Jen Tech"}, "sameAs": ["https://www.facebook.com/oxy.jen.975729", "https://www.tiktok.com/@official_fitystore"]}|tojson }}
@@ -53,6 +55,8 @@
   <script defer src="{{ url_for('static', filename='js/nav-overflow.js') }}?v=responsive-nav-overflow-20261125"></script>
   <script defer src="{{ url_for('static', filename='js/app.js') }}?v=home-banner-carousel-20261125"></script>
   <script defer src="{{ url_for('static', filename='js/pwa-install.js') }}?v=pwa-install-v1"></script>
+  {% if request.endpoint and request.endpoint.startswith('design_studio.') %}<script defer src="{{ url_for('static', filename='js/design-studio-editor.js') }}?v=20261126"></script>{% endif %}
+  {% if design_studio_designs and (design_studio_designs.storefront_banner or design_studio_designs.storefront_section) %}<script defer src="{{ url_for('static', filename='js/design-studio-storefront.js') }}?v=20261126"></script>{% endif %}
 </head>
 <body{% if request.endpoint == 'public.upcoming' %} class="upcoming-page-body"{% endif %}>
 <svg class="icon-sprite" aria-hidden="true" focusable="false">
@@ -83,7 +87,7 @@
 
   <div class="header-account-slot">
     {% if current_user.is_authenticated and current_user.is_admin %}
-      <div class="nav-profile nav-profile-group nav-profile-admin nav-item"><a class="nav-profile-account-link" aria-label="Admin dashboard" href="{{ url_for('admin.dashboard') }}"><span class="nav-profile-avatar" aria-hidden="true">{{ (current_user.username or 'A')[0]|upper }}</span><span class="nav-profile-label">{{ current_user.username or 'Admin' }}</span></a><details class="nav-profile-options"><summary aria-label="Admin options"><svg class="icon" aria-hidden="true"><use href="#icon-menu"></use></svg></summary><div class="nav-profile-menu"><a href="{{ url_for('admin.dashboard') }}">Admin dashboard</a><a href="{{ url_for('admin.upcoming_products') }}">Upcoming products</a><a href="{{ url_for('admin.media_showcases') }}">Media Showcases</a><a href="{{ url_for('admin.email_center') }}">Customer email</a><a href="{{ url_for('admin.email_studio_messages') }}">Studio messages</a><a href="{{ url_for('admin.email_studio') }}">Email Studio</a><form method="post" action="{{ url_for('admin.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sign out</button></form></div></details></div>
+      <div class="nav-profile nav-profile-group nav-profile-admin nav-item"><a class="nav-profile-account-link" aria-label="Admin dashboard" href="{{ url_for('admin.dashboard') }}"><span class="nav-profile-avatar" aria-hidden="true">{{ (current_user.username or 'A')[0]|upper }}</span><span class="nav-profile-label">{{ current_user.username or 'Admin' }}</span></a><details class="nav-profile-options"><summary aria-label="Admin options"><svg class="icon" aria-hidden="true"><use href="#icon-menu"></use></svg></summary><div class="nav-profile-menu"><a href="{{ url_for('admin.dashboard') }}">Admin dashboard</a><a href="{{ url_for('design_studio.index') }}">Design Studio</a><a href="{{ url_for('admin.upcoming_products') }}">Upcoming products</a><a href="{{ url_for('admin.media_showcases') }}">Media Showcases</a><a href="{{ url_for('admin.email_center') }}">Customer email</a><a href="{{ url_for('admin.email_studio_messages') }}">Studio messages</a><a href="{{ url_for('admin.email_studio') }}">Email Studio</a><form method="post" action="{{ url_for('admin.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sign out</button></form></div></details></div>
     {% elif current_user.is_authenticated %}
       <div class="nav-profile nav-profile-group nav-item"><a class="nav-profile-account-link" aria-label="My account" href="{{ url_for('customer.dashboard') }}"><span class="nav-profile-avatar" aria-hidden="true">{{ (current_user.display_name or current_user.email or 'C').strip()[0]|upper }}</span><span class="nav-profile-label">{{ current_user.display_name or 'My account' }}</span></a><details class="nav-profile-options"><summary aria-label="Account options"><svg class="icon" aria-hidden="true"><use href="#icon-menu"></use></svg></summary><div class="nav-profile-menu"><p class="nav-profile-email">{{ current_user.email }}</p><a href="{{ url_for('customer.dashboard') }}">Account overview</a><a href="{{ url_for('customer.dashboard') }}#account-orders">My orders</a><a href="{{ url_for('customer.dashboard') }}#account-activity">Recent activity</a><a href="{{ url_for('customer.dashboard') }}#account-details">Profile and security</a><form method="post" action="{{ url_for('customer.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Sign out</button></form></div></details></div>
     {% else %}
@@ -115,8 +119,10 @@
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}<div class="flash-wrap">{% for category, message in messages %}<p class="flash {{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}
   {% endwith %}
+  {% if design_studio_designs.storefront_banner %}<div class="ds-storefront-placements ds-storefront-top" aria-label="Store promotions">{% for design in design_studio_designs.storefront_banner %}<iframe title="{{ design.title or design.name }}" sandbox="allow-scripts" src="{{ url_for('design_public.public_frame', design_id=design.id) }}" data-fity-studio-frame data-products="{{ product_api_data(design)|tojson|forceescape }}" loading="lazy"></iframe>{% endfor %}</div>{% endif %}
   {% block content %}{% endblock %}
 </main>
+{% if design_studio_designs.storefront_section %}<div class="ds-storefront-placements ds-storefront-bottom" aria-label="More from FityStores">{% for design in design_studio_designs.storefront_section %}<iframe title="{{ design.title or design.name }}" sandbox="allow-scripts" src="{{ url_for('design_public.public_frame', design_id=design.id) }}" data-fity-studio-frame data-products="{{ product_api_data(design)|tojson|forceescape }}" loading="lazy"></iframe>{% endfor %}</div>{% endif %}
 <footer class="footer enhanced-footer">
   <section class="footer-showcase" aria-label="Explore FityStores essentials">
     <div class="footer-showcase-copy">
