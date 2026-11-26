@@ -215,6 +215,18 @@ Compare the count with the count before the migration if you captured it during 
 
 To verify deployment, open `/admin/products`, edit a product, upload a small jpg/png/webp/gif, save, and confirm the thumbnail appears in the admin list, home/shop cards, and product detail page. If migration or upload fails, keep the database as-is, check the Render environment variables, rerun `migrate-product-images` for legacy files, or re-upload the affected product photos manually.
 
+## Product details and variants
+
+The admin product editor supports optional structured product information and per-variant description overrides. Existing product, variant, image, inventory, cart, checkout, and order records remain in their current tables. The additive `migrate-product-details-schema` command creates only `product_details` and `product_variant_details`; it requires the existing `product` and `product_variant` tables and validates both new tables. It does not populate, rewrite, or delete catalogue or order data. Storefront pages continue to work when the optional tables have not been installed, and the admin form reports that the feature needs setup.
+
+For local development, create or update the development database explicitly before using the optional fields:
+
+```powershell
+python -m flask --app manage:app migrate-product-details-schema
+```
+
+For a production PostgreSQL database, first confirm the target and verify a recent backup using the production database safety steps below. Then run the same command once from the deployed Render service environment, or add it to the approved Build Command after reviewing the schema-only change. The migration is repeatable, takes a transaction-scoped PostgreSQL advisory lock, and reports an error rather than altering an incomplete existing feature table. Do not run `init-db` on production; no production migration is run automatically by application startup.
+
 ## Customer accounts and email
 
 The existing `AdminUser` table and admin authentication remain separate. Customer accounts use `CustomerAccount`; customer sessions have prefixed IDs and the admin blueprint rejects customer identities. Existing guest checkout and WhatsApp ordering remain available. Only orders submitted while signed into a verified customer account are linked to that account. Older guest orders are not automatically claimed by email or phone matching.

@@ -1120,6 +1120,47 @@ def register_cli(app: Flask):
             ) from None
         click.echo("Mamba collection schema is ready. No catalogue records were changed.")
 
+    @app.cli.command("migrate-product-details-schema")
+    def migrate_product_details_schema():
+        """Create additive rich product-content tables without changing existing product data."""
+        from sqlalchemy import inspect, text
+        from .models import ProductDetails, ProductVariantDetails
+
+        if db.engine.dialect.name not in {"sqlite", "postgresql"}:
+            raise click.ClickException("Product details migration supports SQLite and PostgreSQL only.")
+        try:
+            with db.engine.begin() as connection:
+                inspector = inspect(connection)
+                required = {"product", "product_variant"}
+                missing = required - set(inspector.get_table_names())
+                if missing:
+                    raise click.ClickException(
+                        "Base product schema is missing required table(s): "
+                        + ", ".join(sorted(missing))
+                        + ". Install the store and variant schemas first."
+                    )
+                if connection.dialect.name == "postgresql":
+                    connection.execute(text("SELECT pg_advisory_xact_lock(724930119)"))
+                for model in (ProductDetails, ProductVariantDetails):
+                    model.__table__.create(bind=connection, checkfirst=True)
+                    actual = {column["name"] for column in inspect(connection).get_columns(model.__tablename__)}
+                    expected = {column.name for column in model.__table__.columns}
+                    missing_columns = expected - actual
+                    if missing_columns:
+                        raise click.ClickException(
+                            f"Existing {model.__tablename__} table is incomplete: "
+                            + ", ".join(sorted(missing_columns))
+                            + ". No existing records were changed."
+                        )
+        except click.ClickException:
+            raise
+        except Exception as exc:
+            raise click.ClickException(
+                f"Product details migration failed ({type(exc).__name__}); "
+                "the schema transaction was rolled back where supported."
+            ) from None
+        click.echo("Product details schema is ready. Existing product and order records were not changed.")
+
     @app.cli.command("migrate-category-thumbnails-schema")
     def migrate_category_thumbnails_schema():
         """Create the category thumbnail table without changing category or product records."""

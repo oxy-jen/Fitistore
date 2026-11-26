@@ -81,6 +81,7 @@ class Product(TimestampMixin, db.Model):
     images = db.relationship("ProductImage", back_populates="product", cascade="all, delete-orphan", order_by="ProductImage.sort_order")
     variants = db.relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan", order_by="ProductVariant.sort_order")
     display_note = db.relationship("ProductDisplayNote", back_populates="product", cascade="all, delete-orphan", uselist=False)
+    content = db.relationship("ProductDetails", back_populates="product", cascade="all, delete-orphan", passive_deletes=True, uselist=False)
     reviews = db.relationship("Review", back_populates="product")
     mamba_collection_item = db.relationship("MambaCollectionItem", back_populates="product", cascade="all, delete-orphan", passive_deletes=True, uselist=False)
     __table_args__ = (
@@ -303,6 +304,7 @@ class ProductVariant(TimestampMixin, db.Model):
     sort_order = db.Column(db.Integer, default=0, nullable=False)
     product = db.relationship("Product", back_populates="variants")
     image = db.relationship("ProductImage")
+    content = db.relationship("ProductVariantDetails", back_populates="variant", cascade="all, delete-orphan", passive_deletes=True, uselist=False)
     __table_args__ = (
         UniqueConstraint("product_id", "size", "color", "style", "material", "pack_size", name="uq_variant_options"),
         CheckConstraint("stock_quantity >= 0", name="ck_variant_stock_nonnegative"),
@@ -344,6 +346,36 @@ class ProductVariant(TimestampMixin, db.Model):
         if not self.has_discount:
             return None
         return self.discount_amount_cents * 100 // self.previous_price_cents
+
+
+class ProductDetails(TimestampMixin, db.Model):
+    __tablename__ = "product_details"
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id", ondelete="CASCADE"), primary_key=True)
+    brand = db.Column(db.String(120), nullable=False, default="")
+    model = db.Column(db.String(120), nullable=False, default="")
+    introduction = db.Column(db.Text, nullable=False, default="")
+    detailed_description_html = db.Column(db.Text, nullable=False, default="")
+    key_features = db.Column(db.JSON, nullable=False, default=list)
+    specifications = db.Column(db.JSON, nullable=False, default=list)
+    box_contents = db.Column(db.JSON, nullable=False, default=list)
+    manufacturer = db.Column(db.String(160), nullable=False, default="")
+    warranty_period = db.Column(db.String(120), nullable=False, default="")
+    warranty_type = db.Column(db.String(120), nullable=False, default="")
+    care_instructions = db.Column(db.Text, nullable=False, default="")
+    additional_information = db.Column(db.Text, nullable=False, default="")
+    delivery_note = db.Column(db.Text, nullable=False, default="")
+    returns_note = db.Column(db.Text, nullable=False, default="")
+    seo_title = db.Column(db.String(180), nullable=False, default="")
+    seo_description = db.Column(db.String(320), nullable=False, default="")
+    product = db.relationship("Product", back_populates="content")
+
+
+class ProductVariantDetails(TimestampMixin, db.Model):
+    __tablename__ = "product_variant_details"
+    variant_id = db.Column(db.Integer, db.ForeignKey("product_variant.id", ondelete="CASCADE"), primary_key=True)
+    description_override_html = db.Column(db.Text, nullable=False, default="")
+    variant = db.relationship("ProductVariant", back_populates="content")
+
 
 class InventoryMovement(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)

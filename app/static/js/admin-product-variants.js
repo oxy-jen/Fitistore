@@ -6,17 +6,27 @@
 
   const refreshLabels = () => rows.querySelectorAll('[data-product-variant-row]').forEach((row, index) => {
     const heading = row.querySelector('.admin-variant-row-heading strong');
-    if (heading) heading.textContent = `Option ${index + 1}`;
+    if (heading) heading.textContent = `Variant ${index + 1}`;
   });
 
-  addButton.addEventListener('click', () => {
-    const row = template.content.firstElementChild.cloneNode(true);
+  const appendRow = source => {
+    const row = source ? source.cloneNode(true) : template.content.firstElementChild.cloneNode(true);
+    row.querySelectorAll('input[type="file"]').forEach(input => { input.value = ''; });
+    if (source) {
+      const sku = row.querySelector('[name="variant_sku"]');
+      if (sku) sku.value = '';
+    }
     const existingImages = rows.querySelector('[name="variant_image_id"]');
     const newImageSelect = row.querySelector('[name="variant_image_id"]');
     if (existingImages && newImageSelect) newImageSelect.innerHTML = existingImages.innerHTML;
     rows.append(row);
     refreshLabels();
-    row.querySelector('input:not([type="hidden"]):not([type="checkbox"]),select')?.focus();
+    row.querySelector('input:not([type="hidden"]):not([type="checkbox"]):not([type="file"]),select')?.focus();
+    return row;
+  };
+
+  addButton.addEventListener('click', () => {
+    appendRow();
   });
 
   rows.addEventListener('change', event => {
@@ -27,6 +37,11 @@
   });
 
   rows.addEventListener('click', event => {
+    const duplicate = event.target.closest('[data-duplicate-product-variant]');
+    if (duplicate) {
+      appendRow(duplicate.closest('[data-product-variant-row]'));
+      return;
+    }
     const remove = event.target.closest('[data-remove-product-variant]');
     if (!remove) return;
     const row = remove.closest('[data-product-variant-row]');

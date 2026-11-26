@@ -19,13 +19,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 from app.extensions import db
-from app.models import AdminUser, CustomerAccount, CustomerCart, CustomerOrderLink, Category, CategoryThumbnail, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, MambaCollection, MambaCollectionItem, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDeliveryAttempt, EmailDeliveryInvestigation, EmailDeliveryInvestigationEvent, EmailDraft, EmailMessage, EmailTemplate, EmailWorkerRun, MarketingSuppressionCase, MarketingSuppressionEvent, EmailLegacyPayloadReviewEvent
+from app.models import AdminUser, CustomerAccount, CustomerCart, CustomerOrderLink, Category, CategoryThumbnail, Expense, FinancialAuditEvent, InventoryMovement, LoyaltyTransaction, MambaCollection, MambaCollectionItem, Order, OrderItem, OrderStatusHistory, PaymentAttempt, PaymentTransaction, Product, ProductDetails, ProductEnquiry, ProductImage, ProductSuggestion, ProductVariant, ProductVariantDetails, RefundRequest, RestockAlert, Review, ShopSettings, CustomerConsentEvent, CustomerToken, EmailCampaign, EmailCampaignRecipient, EmailDeliveryAttempt, EmailDeliveryInvestigation, EmailDeliveryInvestigationEvent, EmailDraft, EmailMessage, EmailTemplate, EmailWorkerRun, MarketingSuppressionCase, MarketingSuppressionEvent, EmailLegacyPayloadReviewEvent
 from app.services.mamba_collection import MAMBA_CATEGORY_NAMES, mamba_collection_schema_ready
 from app.services.category_thumbnails import CATEGORY_GROUPS, CATEGORY_GROUPS_BY_KEY, category_group_key, category_thumbnails_schema_ready
 from app.services.formatting import parse_money
 from app.services.inventory import InventoryError, adjust_stock, adjust_variant_stock, low_stock_products
 from app.services.orders import FULFILMENT_STATUSES, PAYMENT_STATUSES, allowed_order_statuses, award_loyalty_for_order, refundable_cents, sales_summary, update_order_status
 from app.services.product_images import ImageStorageError, cloudinary_configured, cloudinary_public_id, delete_cloudinary_asset, image_content_hash, legacy_local_image_path, product_image_content_hash, upload_image_bytes
+from app.services.product_content import product_details_schema_ready, sanitize_product_html
 
 admin_bp = Blueprint("admin", __name__, template_folder="../templates/admin")
 from app.admin.media_showcases import register_media_showcase_routes
@@ -1100,15 +1101,16 @@ IMAGE_SIGNATURES = {
 }
 
 def submitted_variant_form_rows(form):
-    fields = ("size", "color", "style", "material", "pack_size", "sku", "price", "previous_price", "unit_cost", "stock_quantity", "active", "image_id")
+    fields = ("size", "color", "style", "material", "pack_size", "sku", "price", "previous_price", "unit_cost", "stock_quantity", "active", "image_id", "description_override_html")
     columns = {field: form.getlist(f"variant_{field}") for field in fields}
     row_count = max((len(values) for values in columns.values()), default=0)
     return [{field: (columns[field][index] if index < len(columns[field]) else "") for field in fields} for index in range(row_count)]
 
 
-def product_variant_form_rows(product):
+def product_variant_form_rows(product, variant_details=None):
     if not product:
         return []
+    variant_details = variant_details or {}
     return [{
         "size": variant.size or "", "color": variant.color or "", "style": variant.style or "",
         "material": variant.material or "", "pack_size": variant.pack_size or "", "sku": variant.sku or "",
@@ -1117,7 +1119,48 @@ def product_variant_form_rows(product):
         "unit_cost": f"{variant.unit_cost_cents / 100:.2f}" if variant.unit_cost_cents is not None else "",
         "stock_quantity": str(variant.stock_quantity or 0), "active": variant.active,
         "image_id": str(variant.image_id or ""),
+        "description_override_html": variant_details.get(variant.id).description_override_html
+        if variant.id in variant_details else "",
     } for variant in product.variants]
+
+
+def parse_product_details_form(form):
+    from app.services.product_content import sanitize_product_html
+
+    def lines(name, *, limit=40, length=500):
+        return [value.strip()[:length] for value in form.get(name, "").splitlines() if value.strip()][:limit]
+
+    specifications = []
+    seen_specifications = set()
+    for line in lines("specifications", limit=60, length=600):
+        if "|" not in line:
+            raise ValueError("Enter each specification as a name, a vertical bar, and a value.")
+        name, value = (part.strip() for part in line.split("|", 1))
+        if not name or not value:
+            raise ValueError("Each specification needs both a name and a value.")
+        if name.casefold() in seen_specifications:
+            raise ValueError(f"Duplicate specification name: {name}.")
+        seen_specifications.add(name.casefold())
+        specifications.append({"name": name[:100], "value": value[:500]})
+
+    return {
+        "brand": form.get("brand", "").strip()[:120],
+        "model": form.get("model", "").strip()[:120],
+        "introduction": form.get("introduction", "").strip()[:2000],
+        "detailed_description_html": sanitize_product_html(form.get("detailed_description_html", ""))[:50000],
+        "key_features": lines("key_features", limit=40, length=500),
+        "specifications": specifications,
+        "box_contents": lines("box_contents", limit=40, length=500),
+        "manufacturer": form.get("manufacturer", "").strip()[:160],
+        "warranty_period": form.get("warranty_period", "").strip()[:120],
+        "warranty_type": form.get("warranty_type", "").strip()[:120],
+        "care_instructions": form.get("care_instructions", "").strip()[:4000],
+        "additional_information": form.get("additional_information", "").strip()[:4000],
+        "delivery_note": form.get("delivery_note", "").strip()[:1000],
+        "returns_note": form.get("returns_note", "").strip()[:1000],
+        "seo_title": form.get("seo_title", "").strip()[:180],
+        "seo_description": form.get("seo_description", "").strip()[:320],
+    }
 
 
 def parse_variant_rows(raw_text, product):
@@ -1159,11 +1202,12 @@ def parse_variant_rows(raw_text, product):
     return rows
 
 def parse_variant_form_rows(form, product):
-    fields = ("size", "color", "style", "material", "pack_size", "sku", "price", "previous_price", "unit_cost", "stock_quantity", "active", "image_id")
+    fields = ("size", "color", "style", "material", "pack_size", "sku", "price", "previous_price", "unit_cost", "stock_quantity", "active", "image_id", "description_override_html")
     columns = {field: form.getlist(f"variant_{field}") for field in fields}
     row_count = max((len(values) for values in columns.values()), default=0)
     rows = []
     seen = set()
+    seen_skus = set()
     product_image_ids = {image.id for image in product.images} if product.id else set()
     for index in range(row_count):
         value = lambda field: columns[field][index].strip() if index < len(columns[field]) else ""
@@ -1174,13 +1218,17 @@ def parse_variant_form_rows(form, product):
         raw_cost, raw_stock = value("unit_cost"), value("stock_quantity")
         raw_image_id = value("image_id")
         active = value("active") not in {"", "0", "false", "off", "inactive"}
-        if not any((size, color, style, material, pack_size, sku, raw_price, raw_previous_price, raw_cost, raw_image_id)) and not int(raw_stock or 0):
+        raw_description_override = value("description_override_html")
+        if not any((size, color, style, material, pack_size, sku, raw_price, raw_previous_price, raw_cost, raw_image_id, raw_description_override)) and not int(raw_stock or 0):
             continue
         key = tuple(part.casefold() for part in (size, color, style, material, pack_size))
         if key in seen:
             raise ValueError("Each variant must have a unique combination of size, colour, style, material, and pack size.")
         seen.add(key)
         if sku:
+            if sku.casefold() in seen_skus:
+                raise ValueError(f"Variant SKU {sku} appears more than once in this product.")
+            seen_skus.add(sku.casefold())
             duplicate_sku = ProductVariant.query.filter(ProductVariant.sku == sku)
             if product.id:
                 duplicate_sku = duplicate_sku.filter(ProductVariant.product_id != product.id)
@@ -1196,6 +1244,7 @@ def parse_variant_form_rows(form, product):
             "unit_cost_cents": parse_money(raw_cost) if raw_cost else None,
             "stock_quantity": max(0, int(raw_stock or 0)), "active": active, "_form_index": index,
             "image_id": image_id, "structured": True,
+            "description_override_html": sanitize_product_html(raw_description_override)[:12000],
         })
     return rows
 
@@ -1706,10 +1755,63 @@ def save_category_thumbnail(group_key):
 def product_form(product_id=None):
     product = Product.query.get(product_id) if product_id else None
     categories = Category.query.order_by(Category.name).all()
+    details_ready = product_details_schema_ready()
+    product_details = (
+        ProductDetails.query.filter_by(product_id=product.id).first()
+        if product and details_ready else None
+    )
+    variant_details = {}
+    if product and details_ready:
+        variant_details = {
+            detail.variant_id: detail
+            for detail in ProductVariantDetails.query.filter(
+                ProductVariantDetails.variant_id.in_([variant.id for variant in product.variants])
+            ).all()
+        } if product.variants else {}
+
+    def render_product_form(*, variant_form_rows=None, details_form=None, display_note=""):
+        description_source = (
+            details_form.get("detailed_description_html", "")
+            if details_form else
+            product_details.detailed_description_html if product_details else ""
+        )
+        return render_template(
+            "admin/product_form.html",
+            title="Product",
+            product=product,
+            categories=categories,
+            variant_form_rows=(
+                variant_form_rows if variant_form_rows is not None
+                else product_variant_form_rows(product, variant_details)
+            ),
+            form_display_note=display_note,
+            details_ready=details_ready,
+            product_details=product_details,
+            details_form=details_form,
+            rich_description_preview=sanitize_product_html(description_source) if details_ready else "",
+        )
+
     from app.services.product_display_notes import get_product_display_note
     form_display_note = get_product_display_note(product.id) if product else ""
     if request.method == "POST":
         form_display_note = request.form.get("display_note", "").strip()[:180]
+        details_form = request.form
+        detail_field_names = (
+            "brand", "model", "introduction", "detailed_description_html", "key_features",
+            "specifications", "box_contents", "manufacturer", "warranty_period",
+            "warranty_type", "care_instructions", "additional_information", "delivery_note",
+            "returns_note", "seo_title", "seo_description",
+        )
+        if not details_ready and (
+            any(request.form.get(name, "").strip() for name in detail_field_names)
+            or any(value.strip() for value in request.form.getlist("variant_description_override_html"))
+        ):
+            flash(
+                "Product details storage is not installed. Run "
+                "'flask --app manage:app migrate-product-details-schema' before saving these fields.",
+                "error",
+            )
+            return render_product_form(details_form=details_form, display_note=form_display_note)
         if not product:
             product = Product(category_id=categories[0].id if categories else None)
         product.name = request.form["name"].strip()
@@ -1728,11 +1830,16 @@ def product_form(product_id=None):
         product.featured = bool(request.form.get("featured"))
         variant_form_rows = submitted_variant_form_rows(request.form) if "variant_size" in request.form else None
         try:
+            detail_values = parse_product_details_form(request.form) if details_ready else None
             variant_rows = parse_variant_form_rows(request.form, product) if variant_form_rows is not None else request.form.get("variants_text", "")
             synced_variants = sync_product_variants(product, variant_rows)
         except ValueError as exc:
             flash(str(exc), "error")
-            return render_template("admin/product_form.html", title="Product", product=product if product.id else None, categories=categories, variant_form_rows=variant_form_rows, form_display_note=form_display_note)
+            return render_product_form(
+                variant_form_rows=variant_form_rows,
+                details_form=details_form,
+                display_note=form_display_note,
+            )
         db.session.add(product)
         db.session.flush()
         save_images(request.files.getlist("images"), product)
@@ -1744,12 +1851,30 @@ def product_form(product_id=None):
                 image = save_variant_image(file, product)
                 if image:
                     variant.image_id = image.id
+        if details_ready:
+            if product_details is None and any(detail_values.values()):
+                product_details = ProductDetails(product=product)
+                db.session.add(product_details)
+            if product_details:
+                for key, value in detail_values.items():
+                    setattr(product_details, key, value)
+            if variant_form_rows is not None:
+                for row, variant in zip(variant_rows, synced_variants):
+                    description = row.get("description_override_html", "")
+                    existing = variant_details.get(variant.id)
+                    if description:
+                        if existing is None:
+                            existing = ProductVariantDetails(variant=variant)
+                            db.session.add(existing)
+                        existing.description_override_html = description
+                    elif existing is not None:
+                        db.session.delete(existing)
         for image_url in request.form.getlist("online_image_url"):
             save_image_from_url(image_url, product)
         if not product.images:
             db.session.rollback()
             flash("Add at least one main product image before saving.", "error")
-            return render_template("admin/product_form.html", title="Product", product=product if product.id else None, categories=categories, form_display_note=form_display_note)
+            return render_product_form(details_form=details_form, display_note=form_display_note)
         if product.images and not any(image.is_primary for image in product.images):
             product.images[0].is_primary = True
         db.session.commit()
@@ -1766,7 +1891,7 @@ def product_form(product_id=None):
         else:
             flash("Product saved. Short display notes are temporarily unavailable and will be saved after setup completes.", "warning")
         return redirect(url_for("admin.products"))
-    return render_template("admin/product_form.html", title="Product", product=product, categories=categories, variant_form_rows=product_variant_form_rows(product), form_display_note=form_display_note)
+    return render_product_form(display_note=form_display_note)
 
 @admin_bp.post("/products/<int:product_id>/stock")
 @login_required
@@ -1844,6 +1969,28 @@ def set_primary_image(product_id, image_id):
     db.session.commit()
     flash("Primary image updated.", "success")
     return redirect(url_for("admin.product_form", product_id=product.id))
+
+
+@admin_bp.post("/products/<int:product_id>/images/<int:image_id>/move")
+@login_required
+def move_product_image(product_id, image_id):
+    product = Product.query.get_or_404(product_id)
+    image = ProductImage.query.filter_by(id=image_id, product_id=product.id).first_or_404()
+    direction = request.form.get("direction")
+    if direction not in {"up", "down"}:
+        flash("Choose a valid image order direction.", "error")
+        return redirect(url_for("admin.product_form", product_id=product.id))
+    images = sorted(product.images, key=lambda item: (item.sort_order, item.id))
+    current_index = images.index(image)
+    target_index = current_index - 1 if direction == "up" else current_index + 1
+    if 0 <= target_index < len(images):
+        images[current_index], images[target_index] = images[target_index], images[current_index]
+        for order, item in enumerate(images):
+            item.sort_order = order
+        db.session.commit()
+        flash("Product image order updated.", "success")
+    return redirect(url_for("admin.product_form", product_id=product.id))
+
 
 @admin_bp.post("/products/<int:product_id>/images/<int:image_id>/delete")
 @login_required

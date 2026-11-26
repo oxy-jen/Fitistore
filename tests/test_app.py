@@ -1485,6 +1485,191 @@ def test_product_detail(client):
     assert b"Soft and comfortable." in rv.data
     assert b"This review is awaiting approval." not in rv.data
 
+
+def test_product_details_are_saved_sanitized_and_rendered(client, app, monkeypatch):
+    app.config.update(CLOUDINARY_CLOUD_NAME="demo", CLOUDINARY_API_KEY="key", CLOUDINARY_API_SECRET="secret")
+    monkeypatch.setattr("app.admin.routes.upload_image_bytes", lambda data, public_id, resource_type="image": {"public_id": public_id})
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    with app.app_context():
+        category_id = Category.query.first().id
+    response = client.post("/admin/products/new", data={
+        "name": "Detailed Travel Bottle",
+        "category_id": str(category_id),
+        "description": "Reusable bottle",
+        "price": "25",
+        "previous_price": "30",
+        "stock_quantity": "0",
+        "low_stock_threshold": "1",
+        "active": "on",
+        "brand": "Fity Sample Brand",
+        "model": "TB-01",
+        "introduction": "A reusable bottle for everyday use.",
+        "detailed_description_html": '<h2>Built for daily use</h2><p>Strong <b>steel</b>.</p><script>alert("x")</script><img src="https://example.invalid/tracker.png" onerror="alert(1)"><a href="javascript:alert(2)" onclick="alert(3)">Unsafe link</a>',
+        "key_features": "Leak-resistant lid\nEasy to clean",
+        "specifications": "Capacity | 750 ml\nMaterial | Stainless steel",
+        "box_contents": "Bottle\nLid",
+        "manufacturer": "Fity Manufacturing",
+        "warranty_period": "12 months",
+        "warranty_type": "Limited",
+        "care_instructions": "Wash inside-out.",
+        "additional_information": "Keep the lid closed while carrying.",
+        "delivery_note": "Ask us about delivery for this product.",
+        "returns_note": "Returns are subject to the store policy.",
+        "seo_title": "Fity Sample Bottle",
+        "seo_description": "A reusable bottle with a practical design.",
+        "variant_size": ["750 ml"],
+        "variant_color": ["Blue"],
+        "variant_style": ["Standard"],
+        "variant_material": ["Steel"],
+        "variant_pack_size": ["Single"],
+        "variant_sku": ["TB-01-BLUE"],
+        "variant_price": ["25"],
+        "variant_previous_price": ["30"],
+        "variant_unit_cost": ["10"],
+        "variant_stock_quantity": ["4"],
+        "variant_active": ["1"],
+        "variant_image_id": [""],
+        "variant_description_override_html": [
+            '<p>Blue option details.</p><script>steal()</script>'
+        ],
+        "images": (io.BytesIO(b"\xff\xd8\xffbottle-image"), "bottle.jpg"),
+    }, content_type="multipart/form-data", follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Product saved" in response.data
+
+    with app.app_context():
+        from app.models import ProductDetails, ProductVariantDetails
+        product = Product.query.filter_by(slug="detailed-travel-bottle").one()
+        details = ProductDetails.query.filter_by(product_id=product.id).one()
+        variant = product.variants[0]
+        variant_details = ProductVariantDetails.query.filter_by(variant_id=variant.id).one()
+        assert details.key_features == ["Leak-resistant lid", "Easy to clean"]
+        assert details.specifications == [
+            {"name": "Capacity", "value": "750 ml"},
+            {"name": "Material", "value": "Stainless steel"},
+        ]
+        assert "<script" not in details.detailed_description_html
+        assert "alert" not in details.detailed_description_html
+        assert "example.invalid" not in details.detailed_description_html
+        assert "onerror" not in details.detailed_description_html
+        assert "javascript:" not in details.detailed_description_html
+        assert "onclick" not in details.detailed_description_html
+        assert "steal()" not in variant_details.description_override_html
+        product_id = product.id
+        db.session.add(Review(
+            display_name="Amina",
+            title="Useful",
+            rating=4,
+            text="Works well.",
+            product_id=product_id,
+            status="approved",
+        ))
+        db.session.commit()
+
+    edit_form = client.get(f"/admin/products/{product_id}/edit")
+    assert edit_form.status_code == 200
+    assert b'value="Fity Sample Brand"' in edit_form.data
+    assert b"Blue option details." in edit_form.data
+
+    page = client.get("/product/detailed-travel-bottle")
+    assert page.status_code == 200
+    assert b"Fity Sample Brand" in page.data
+    assert b"Leak-resistant lid" in page.data
+    assert b"Capacity" in page.data
+    assert b"750 ml" in page.data
+    assert b"Bottle" in page.data
+    assert b"12 months" in page.data
+    assert b"Wash inside-out." in page.data
+    assert b"Ask us about delivery for this product." in page.data
+    assert b"Blue option details." in page.data
+    assert b"steal()" not in page.data
+    assert b"onerror" not in page.data
+    assert b"product-review-distribution" in page.data
+    assert b"data-recently-viewed" in page.data
+
+    html = page.get_data(as_text=True)
+    json_ld_scripts = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.S)
+    schemas = [json.loads(script) for script in json_ld_scripts]
+    schema = next(item for item in schemas if item.get("@type") == "Product")
+    assert schema["@type"] == "Product"
+    assert schema["offers"]["priceCurrency"] == "KES"
+    assert schema["aggregateRating"]["reviewCount"] == 1
+
+
+def test_product_detail_still_renders_without_optional_product_details_schema(client, app):
+    from app.models import ProductDetails, ProductVariantDetails
+    with app.app_context():
+        ProductVariantDetails.__table__.drop(db.engine, checkfirst=True)
+        ProductDetails.__table__.drop(db.engine, checkfirst=True)
+        db.session.remove()
+
+    response = client.get("/product/plain-socks")
+    assert response.status_code == 200
+    assert b"Plain Socks" in response.data
+    assert b"Soft socks" in response.data
+    assert b"Add to Cart" in response.data
+
+
+def test_product_details_migration_is_additive_and_repeatable(app):
+    from sqlalchemy import inspect
+    from app.models import ProductDetails, ProductVariantDetails
+    with app.app_context():
+        product_count = Product.query.count()
+        product = Product.query.filter_by(slug="plain-socks").one()
+        original_stock = product.stock_quantity
+        ProductVariantDetails.__table__.drop(db.engine, checkfirst=True)
+        ProductDetails.__table__.drop(db.engine, checkfirst=True)
+        db.session.remove()
+
+    runner = app.test_cli_runner()
+    first = runner.invoke(args=["migrate-product-details-schema"])
+    second = runner.invoke(args=["migrate-product-details-schema"])
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+
+    with app.app_context():
+        assert Product.query.count() == product_count
+        assert Product.query.filter_by(slug="plain-socks").one().stock_quantity == original_stock
+        assert inspect(db.engine).has_table("product_details")
+        assert inspect(db.engine).has_table("product_variant_details")
+
+
+def test_recently_viewed_api_only_returns_active_in_stock_products(client, app):
+    with app.app_context():
+        category = Category.query.first()
+        unavailable = Product(
+            name="Sold Out Item",
+            slug="sold-out-item",
+            category=category,
+            price_cents=1000,
+            stock_quantity=0,
+            active=True,
+        )
+        inactive = Product(
+            name="Hidden Item",
+            slug="hidden-item",
+            category=category,
+            price_cents=1000,
+            stock_quantity=3,
+            active=False,
+        )
+        db.session.add_all([unavailable, inactive])
+        db.session.commit()
+        ids = [
+            Product.query.filter_by(slug="plain-socks").one().id,
+            unavailable.id,
+            inactive.id,
+            Product.query.filter_by(slug="unpriced-cap").one().id,
+        ]
+
+    response = client.get("/api/products/recently-viewed?ids=" + ",".join(map(str, ids)) + ",invalid")
+    assert response.status_code == 200
+    products = response.get_json()["products"]
+    assert [product["name"] for product in products] == ["Plain Socks", "Unpriced Cap"]
+    assert products[0]["price"] == "KSh 150"
+    assert products[1]["price"] == "Contact for price"
+
+
 def test_product_detail_keeps_real_variant_options_and_stock(client, app):
     with app.app_context():
         product = Product.query.filter_by(slug="plain-socks").first()
@@ -1782,7 +1967,7 @@ def test_admin_product_form_has_repeatable_variant_controls(client, app):
     assert response.status_code == 200
     assert b"Show in homepage Featured Picks" in response.data
     assert b"Popular Picks are ranked automatically" in response.data
-    assert b"Add another option" in response.data
+    assert b"Add a variant" in response.data
     assert b'name="variant_color"' in response.data
     assert b'name="variant_material"' in response.data
     assert b'name="variant_pack_size"' in response.data

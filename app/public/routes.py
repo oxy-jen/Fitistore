@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
-from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductLike, ProductEnquiry, ProductSuggestion, ProductVariant, ReferralClick, RestockAlert, Review, UpcomingProduct, UpcomingProductVote
+from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductDetails, ProductLike, ProductEnquiry, ProductSuggestion, ProductVariant, ProductVariantDetails, ReferralClick, RestockAlert, Review, UpcomingProduct, UpcomingProductVote
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
@@ -1078,6 +1078,22 @@ def api_search_suggestions():
 def product_detail(slug):
     product = product_list_options(Product.query.filter_by(slug=slug, active=True)).first_or_404()
     from app.services.product_display_notes import get_product_display_note
+    from app.services.product_content import product_details_schema_ready, sanitize_product_html
+    from markupsafe import Markup
+    details_ready = product_details_schema_ready()
+    product_details = (
+        ProductDetails.query.filter_by(product_id=product.id).first()
+        if details_ready else None
+    )
+    variant_details = {}
+    if details_ready and product.variants:
+        variant_details = {
+            detail.variant_id: sanitize_product_html(detail.description_override_html)
+            for detail in ProductVariantDetails.query.filter(
+                ProductVariantDetails.variant_id.in_([variant.id for variant in product.variants])
+            ).all()
+            if detail.description_override_html
+        }
     product_display_note = get_product_display_note(product.id)
     related = product_list_options(Product.query.filter(Product.active.is_(True), Product.category_id == product.category_id, Product.id != product.id)).order_by(Product.featured.desc(), Product.updated_at.desc(), Product.id.desc()).limit(4).all()
     related_same_category_count = len(related)
@@ -1088,8 +1104,20 @@ def product_detail(slug):
     approved_review_query = Review.query.filter_by(product_id=product.id, status="approved")
     review_count = approved_review_query.count()
     review_average = db.session.query(func.avg(Review.rating)).filter_by(product_id=product.id, status="approved").scalar() or 0
+    review_distribution = {
+        rating: count for rating, count in db.session.query(Review.rating, func.count(Review.id))
+        .filter_by(product_id=product.id, status="approved")
+        .group_by(Review.rating).all()
+    }
     approved_reviews = approved_review_query.order_by(Review.created_at.desc(), Review.id.desc()).limit(3).all()
+    safe_rich_description = sanitize_product_html(
+        product_details.detailed_description_html if product_details else ""
+    )
     product_description = re.sub(r"<[^>]+>", " ", product.description or "")
+    if product_details and product_details.introduction:
+        product_description = product_details.introduction + " " + product_description
+    if safe_rich_description:
+        product_description += " " + re.sub(r"<[^>]+>", " ", safe_rich_description)
     product_description = " ".join(product_description.split())[:300] or ("View details and current availability for " + product.name + " at FityStores.")
     image_url = product_image_url(product_display_image(product))
     if image_url and image_url.startswith("/"):
@@ -1107,9 +1135,95 @@ def product_detail(slug):
     share_url = "https://fitystore.top" + request.path
     share_message = f"Check out {product.name} at FityStores! {share_price}. View it here: {share_url}"
     seo_description = (product_description + " " + share_price + ".")[:300]
+    if product_details and product_details.seo_description:
+        seo_description = product_details.seo_description
+    seo_title = (
+        product_details.seo_title
+        if product_details and product_details.seo_title else product.name + " | FityStores"
+    )
     whatsapp_share_url = "https://wa.me/?text=" + quote(share_message)
     card_url = "https://fitystore.top" + url_for("public.product_share_card", slug=product.slug)
-    return render_template("product_detail.html", title=product.name, seo_title=product.name + " | FityStores", seo_description=seo_description, og_type="product", og_image=card_url, og_image_width=1200, og_image_height=630, og_image_type="image/png", og_image_alt=product.name + " at FityStores ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â " + share_price, share_url=share_url, share_message=share_message, whatsapp_share_url=whatsapp_share_url, product=product, product_display_note=product_display_note, related=related, related_same_category_count=related_same_category_count, approved_reviews=approved_reviews, review_count=review_count, review_average=float(review_average))
+    return render_template(
+        "product_detail.html",
+        title=product.name,
+        seo_title=seo_title,
+        seo_description=seo_description,
+        og_type="product",
+        og_image=card_url,
+        og_image_width=1200,
+        og_image_height=630,
+        og_image_type="image/png",
+        og_image_alt=product.name + " at FityStores",
+        product_description=product_description,
+        schema_image_url=image_url,
+        share_url=share_url,
+        share_message=share_message,
+        whatsapp_share_url=whatsapp_share_url,
+        product=product,
+        product_details=product_details,
+        product_rich_description=Markup(safe_rich_description),
+        variant_descriptions=variant_details,
+        product_display_note=product_display_note,
+        related=related,
+        related_same_category_count=related_same_category_count,
+        approved_reviews=approved_reviews,
+        review_count=review_count,
+        review_average=float(review_average),
+        review_distribution=review_distribution,
+        variant_offer_count=len(variant_prices),
+    )
+
+
+@public_bp.get("/api/products/recently-viewed")
+def recently_viewed_products():
+    raw_ids = request.args.get("ids", "")
+    product_ids = []
+    for raw_id in raw_ids.split(","):
+        try:
+            product_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if product_id > 0 and product_id not in product_ids:
+            product_ids.append(product_id)
+        if len(product_ids) == 8:
+            break
+    if not product_ids:
+        return jsonify({"products": []})
+
+    products = Product.query.filter(
+        Product.id.in_(product_ids),
+        Product.active.is_(True),
+    ).all()
+    by_id = {product.id: product for product in products if product.display_stock_quantity > 0}
+    from app.services.product_images import product_display_image, product_image_alt, product_image_url
+    from app.services.formatting import money
+    currency = current_settings().currency
+    result = []
+    for product_id in product_ids:
+        product = by_id.get(product_id)
+        if product is None:
+            continue
+        image = product_display_image(product)
+        price_cents = product.min_variant_price_cents
+        if price_cents is None:
+            price_cents = product.price_cents
+        result.append({
+            "id": product.id,
+            "name": product.name,
+            "url": url_for("public.product_detail", slug=product.slug),
+            "image_url": product_image_url(image),
+            "image_alt": product_image_alt(image, product.name),
+            "price": money(price_cents, currency) if price_cents is not None else "Contact for price",
+            "price_high": (
+                money(product.max_variant_price_cents, currency)
+                if product.max_variant_price_cents is not None
+                and product.max_variant_price_cents != price_cents else None
+            ),
+        })
+    return jsonify({
+        "products": result
+    })
+
 
 @public_bp.route("/share/product/<slug>/social.png")
 def product_social_card(slug):
