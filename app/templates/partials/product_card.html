@@ -1,10 +1,13 @@
-<article class="product-card neu-card shop-product-card{% if compact_product_card|default(false) %} most-added-product-card{% endif %}{% if fresh_arrival_card|default(false) %} fresh-arrival-product-card{% endif %}{% if product.id in (search_match_product_ids|default([])) %} search-match-product{% endif %}" data-product-card="{{ product.id }}" data-category-group="{{ category_group_key(product.category.name) or 'other' }}">
+{% set home_quick_add_card = (fresh_arrival_card|default(false)) or (most_added_home_card|default(false)) or (home_product_card|default(false)) %}
+<article class="product-card neu-card shop-product-card{% if compact_product_card|default(false) %} most-added-product-card{% endif %}{% if fresh_arrival_card|default(false) %} fresh-arrival-product-card{% endif %}{% if home_quick_add_card %} home-quick-add-card{% endif %}{% if product.id in (search_match_product_ids|default([])) %} search-match-product{% endif %}" data-product-card="{{ product.id }}" data-category-group="{{ category_group_key(product.category.name) or 'other' }}">
   {% set image = product_display_image(product) %}
   {% set variant_count = product.active_variants|length %}
   {% set size_option_count = split_options(product.size_options)|length %}
   {% set color_option_count = split_options(product.color_options)|length %}
   {% set requires_option_choice = variant_count > 0 or size_option_count > 1 or color_option_count > 1 %}
   {% set display_stock = product.display_stock_quantity %}
+  {% set can_quick_add = home_quick_add_card and display_stock > 0 and product.price_cents is not none and not requires_option_choice %}
+  {% set compact_home_simple_card = can_quick_add and not (compact_product_card|default(false)) %}
   {% set image_fallback_url = url_for('static', filename='images/mainLogo-160.png') %}
   {% set share_url = "https://fitystore.top" ~ url_for('public.product_detail', slug=product.slug) %}
   {% set share_price = "Contact the store for the current price" %}
@@ -16,6 +19,7 @@
     <img src="{{ product_image_url(image) }}" data-product-image-fallback data-fallback-src="{{ image_fallback_url }}" alt="{{ product_image_alt(image) }}" loading="lazy" width="540" height="540">
     {% if not compact_product_card|default(false) %}{% if display_stock < 1 %}<span class="product-card-badge is-unavailable">Out of stock</span>{% elif product.has_discount %}<span class="discount-ribbon" aria-label="{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% discount">Sale</span>{% elif requires_option_choice %}<span class="badge">Options</span>{% endif %}{% endif %}
   </a>
+  {% if can_quick_add %}<button class="home-card-quick-add add-cart" type="button" data-compact-add data-product-id="{{ product.id }}" data-name="{{ product.name }}" aria-label="Add {{ product.name }} to cart" title="Add {{ product.name }} to cart"><span aria-hidden="true">+</span></button>{% endif %}
   <div class="product-body">
     {% if product.id in (search_match_product_ids|default([])) %}<span class="shop-search-match-label">Best match</span>{% endif %}
     {% if compact_product_card|default(false) %}
@@ -28,7 +32,7 @@
         {% if display_stock < 1 %}<button class="btn primary most-added-add" type="button" disabled aria-label="{{ product.name }} is out of stock"><svg class="icon"><use href="#icon-cart"></use></svg><span>Out of stock</span></button>
         {% elif product.price_cents is none and not requires_option_choice %}<a class="btn primary most-added-add" href="{{ url_for('public.product_detail', slug=product.slug) }}" aria-label="View {{ product.name }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>View product</span></a>
         {% elif requires_option_choice %}<a class="btn primary most-added-add" href="{{ url_for('public.product_detail', slug=product.slug) }}" aria-label="Choose options for {{ product.name }}"><svg class="icon"><use href="#icon-cart"></use></svg><span>Choose options</span></a>
-        {% else %}<button class="btn primary add-cart most-added-add" data-product-id="{{ product.id }}" data-name="{{ product.name }}" aria-label="Add {{ product.name }} to cart"><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to Cart</span></button>{% endif %}
+        {% elif not can_quick_add %}<button class="btn primary add-cart most-added-add" data-product-id="{{ product.id }}" data-name="{{ product.name }}" aria-label="Add {{ product.name }} to cart"><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to Cart</span></button>{% endif %}
         <button class="most-added-icon-action" type="button" data-cart-count-toggle aria-expanded="false" aria-controls="cart-count-{{ product.id }}" aria-label="Show how many {{ product.name }} items shoppers have added to carts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
         {% if not (most_added_home_card|default(false)) %}<button class="most-added-icon-action most-added-like" type="button" data-product-like data-url="{{ url_for('public.api_toggle_product_like', product_id=product.id) }}" data-liked="{{ 'true' if product.id in (liked_product_ids|default([])) else 'false' }}" aria-pressed="{{ 'true' if product.id in (liked_product_ids|default([])) else 'false' }}" aria-label="{{ 'Unlike' if product.id in (liked_product_ids|default([])) else 'Like' }} {{ product.name }}" {% if not (product_likes_enabled|default(false)) %}disabled title="Likes are temporarily unavailable"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.8a5.5 5.5 0 0 0-7.8 0L12 5.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.3 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg><span data-like-count>{{ (product_like_counts|default({})).get(product.id, 0) }}</span></button>{% endif %}
       </div>
@@ -42,18 +46,18 @@
       <p class="price">{% if product.min_variant_price_cents == product.max_variant_price_cents %}{{ money(product.min_variant_price_cents, settings.currency) }}{% else %}{{ money(product.min_variant_price_cents, settings.currency) }} – {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}</p><p class="variant-summary">{{ variant_count }} options available</p>
     {% else %}<p class="price">{% if product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}Ask for price{% endif %}{% if product.has_discount %}<s>{{ money(product.previous_price_cents, settings.currency) }}</s>{% endif %}</p>{% endif %}
     <p class="stock {{ 'bad' if display_stock == 0 else 'warn' if display_stock <= product.low_stock_threshold else '' }}">{% if display_stock > 0 %}{{ display_stock }} in stock{% if variant_count %} across options{% endif %}{% else %}Out of stock{% endif %}</p>
-    <div class="shop-card-actions">
+    {% if not compact_home_simple_card %}<div class="shop-card-actions">
       {% if display_stock < 1 %}
         <button class="btn primary" type="button" disabled aria-label="{{ product.name }} is out of stock"><svg class="icon"><use href="#icon-cart"></use></svg><span>Out of stock</span></button>
       {% elif product.price_cents is none and not requires_option_choice %}
         {% if fresh_arrival_card|default(false) or shop_listing_card|default(false) or compact_product_card|default(false) %}<a class="btn primary" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>View product</span></a>{% else %}<a class="btn primary" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask for price</span></a>{% endif %}
       {% elif requires_option_choice %}
         <a class="btn primary" href="{{ url_for('public.product_detail', slug=product.slug) }}"><svg class="icon"><use href="#icon-arrow"></use></svg><span>Choose options</span></a>
-      {% else %}
+      {% elif not can_quick_add %}
         <button class="btn primary add-cart" data-product-id="{{ product.id }}" data-name="{{ product.name }}" {% if display_stock < 1 %}disabled{% endif %}><svg class="icon"><use href="#icon-cart"></use></svg><span>Add to Cart</span></button>
       {% endif %}
       {% if not (compact_product_card|default(false)) and not (fresh_arrival_card|default(false)) and not (shop_listing_card|default(false)) %}<a class="btn shop-whatsapp" href="{{ product_whatsapp_link(product, settings, url_for('public.product_detail', slug=product.slug, _external=True), 'buy') }}" target="_blank" rel="noopener"><svg class="icon"><use href="#icon-message"></use></svg><span>Ask on WhatsApp</span></a>{% endif %}
-    </div>
+    </div>{% endif %}
     {% if not (compact_product_card|default(false)) and not (fresh_arrival_card|default(false)) and not (shop_listing_card|default(false)) and not (home_product_card|default(false)) %}<div class="card-share shop-card-share" data-product-share data-share-title="{{ product.name }} | FityStores" data-share-text="{{ share_message }}" data-share-url="{{ share_url }}" data-share-image="{{ url_for('public.product_social_card', slug=product.slug) }}"><button class="btn" type="button" data-share-native aria-label="Share {{ product.name }}">Share product</button><button class="btn" type="button" data-share-facebook aria-label="Share {{ product.name }} on Facebook">Facebook</button><span class="share-status" data-share-status role="status" aria-live="polite"></span></div>{% endif %}
     {% endif %}
   </div>

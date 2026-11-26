@@ -1134,8 +1134,52 @@ def test_homepage_most_added_carousel_keeps_popularity_order_and_pagination_cont
     assert b'most-added-view-detail' not in section
     assert b'data-cart-count-toggle' in section
     assert b'data-product-id=' in section
+    assert b'data-compact-add' in section
+    assert b'aria-label="Add Plain Socks to cart"' in section
+    assert b'Add to Cart' not in section
     assert b'href="/product/plain-socks"' in section
     assert section.index(b"Unpriced Cap") < section.index(b"Plain Socks")
+
+
+def test_home_featured_cards_use_floating_quick_add_without_changing_shop_cards(client, app):
+    with app.app_context():
+        category = Category.query.one()
+        featured_product = Product(
+            name="Featured home test product",
+            slug="featured-home-test-product",
+            category=category,
+            price_cents=5000,
+            stock_quantity=2,
+            active=True,
+            featured=True,
+            created_at=datetime(2000, 1, 1),
+        )
+        db.session.add(featured_product)
+        db.session.add_all([
+            Product(
+                name=f"New home test product {index}",
+                slug=f"new-home-test-product-{index}",
+                category=category,
+                price_cents=5000,
+                stock_quantity=2,
+                active=True,
+                featured=False,
+            )
+            for index in range(8)
+        ])
+        db.session.commit()
+        product_id = featured_product.id
+
+    home = client.get("/")
+    assert home.status_code == 200
+    assert b'fresh-arrival-product-card home-quick-add-card' in home.data
+    assert b'class="home-card-quick-add add-cart"' in home.data
+    assert b'data-compact-add' in home.data
+    assert b'aria-label="Add Featured home test product to cart"' in home.data
+
+    shop_card = _shop_product_card(client, product_id)
+    assert b"Add to Cart" in shop_card
+    assert b"data-compact-add" not in shop_card
 
 
 def test_homepage_most_added_ranks_likes_before_cart_counts(client, app):
