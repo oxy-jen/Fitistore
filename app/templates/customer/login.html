@@ -9,20 +9,22 @@
   <div class="account-panel">
     <h2>Sign in</h2>
     <p class="account-muted">Use your password, a one-time email code, or Google.</p>
-    <form method="post" action="{{ url_for('customer.login') }}" class="account-form">
+    <form method="post" action="{{ url_for('customer.login') }}" class="account-form" data-code-loading-form data-loading-message="Checking your sign-in...">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="next" value="{{ next_url }}">
       <label>Email address<input type="email" name="email" autocomplete="email" required></label>
       <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
       <button class="btn primary wide" type="submit">Sign in with password</button>
+      {% include "partials/verification_code_loader.html" %}
     </form>
     <p class="account-inline-links"><a href="{{ url_for('customer.forgot_password') }}">Forgot password?</a><span aria-hidden="true">&middot;</span><a href="{{ url_for('customer.register', next=next_url) }}">Create an account</a></p>
     <div class="account-divider"><span>or use an email code</span></div>
-    <form method="post" action="{{ url_for('customer.email_code_login') }}" class="account-form">
+    <form method="post" action="{{ url_for('customer.email_code_login') }}" class="account-form" data-code-loading-form data-loading-message="Sending your email code...">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="next" value="{{ next_url }}">
       <label>Email address<input type="email" name="email" autocomplete="email" required></label>
       <button class="btn wide" type="submit">Email me a sign-in code</button>
+      {% include "partials/verification_code_loader.html" %}
     </form>
     <div class="account-divider"><span>or continue with Google</span></div>
     {% if google_client_id %}

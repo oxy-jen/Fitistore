@@ -8,14 +8,16 @@
   </div>
   <div class="account-panel">
     <h2>Enter your code</h2>
-    <form method="post" class="account-form">
+    <form method="post" class="account-form" data-code-loading-form data-loading-message="{% if is_verification %}Checking your verification code...{% else %}Checking your sign-in code...{% endif %}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Six-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code" required autofocus></label>
       <button class="btn primary wide" type="submit">Verify and continue</button>
+      {% include "partials/verification_code_loader.html" %}
     </form>
-    <form method="post" action="{{ url_for('customer.resend_email_code') }}" class="account-resend">
+    <form method="post" action="{{ url_for('customer.resend_email_code') }}" class="account-resend" data-code-loading-form data-loading-message="Sending a new verification code...">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn wide" type="submit">Send a new code</button>
+      {% include "partials/verification_code_loader.html" %}
     </form>
     <p class="account-muted">Check your spam folder if you do not see the message. <a href="{{ url_for('customer.login') }}">Return to sign in</a></p>
   </div>

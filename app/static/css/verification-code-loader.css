@@ -1,0 +1,112 @@
+/*
+ * From Uiverse.io by dovatgabriel - https://uiverse.io/dovatgabriel/tidy-walrus-92
+ * MIT License, Copyright (c) dovatgabriel (Gabriel)
+ */
+.fity-verification-loading[hidden] {
+  display: none;
+}
+
+.fity-verification-loading {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin: .85rem 0 0;
+  color: var(--muted);
+  font-size: .9rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.fity-verification-three-body {
+  --fity-uib-size: 35px;
+  --fity-uib-speed: .8s;
+  --fity-uib-color: #5D3FD3;
+  position: relative;
+  display: inline-block;
+  flex: 0 0 var(--fity-uib-size);
+  height: var(--fity-uib-size);
+  width: var(--fity-uib-size);
+  animation: fity-verification-spin78236 calc(var(--fity-uib-speed) * 2.5) infinite linear;
+}
+
+.fity-verification-three-body__dot {
+  position: absolute;
+  height: 100%;
+  width: 30%;
+}
+
+.fity-verification-three-body__dot:after {
+  content: '';
+  position: absolute;
+  height: 0%;
+  width: 100%;
+  padding-bottom: 100%;
+  background-color: var(--fity-uib-color);
+  border-radius: 50%;
+}
+
+.fity-verification-three-body__dot:nth-child(1) {
+  bottom: 5%;
+  left: 0;
+  transform: rotate(60deg);
+  transform-origin: 50% 85%;
+}
+
+.fity-verification-three-body__dot:nth-child(1)::after {
+  bottom: 0;
+  left: 0;
+  animation: fity-verification-wobble1 var(--fity-uib-speed) infinite ease-in-out;
+  animation-delay: calc(var(--fity-uib-speed) * -0.3);
+}
+
+.fity-verification-three-body__dot:nth-child(2) {
+  bottom: 5%;
+  right: 0;
+  transform: rotate(-60deg);
+  transform-origin: 50% 85%;
+}
+
+.fity-verification-three-body__dot:nth-child(2)::after {
+  bottom: 0;
+  left: 0;
+  animation: fity-verification-wobble1 var(--fity-uib-speed) infinite calc(var(--fity-uib-speed) * -0.15) ease-in-out;
+}
+
+.fity-verification-three-body__dot:nth-child(3) {
+  bottom: -5%;
+  left: 0;
+  transform: translateX(116.666%);
+}
+
+.fity-verification-three-body__dot:nth-child(3)::after {
+  top: 0;
+  left: 0;
+  animation: fity-verification-wobble2 var(--fity-uib-speed) infinite ease-in-out;
+}
+
+@keyframes fity-verification-spin78236 {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes fity-verification-wobble1 {
+  0%, 100% {
+    transform: translateY(0%) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(-66%) scale(.65);
+    opacity: .8;
+  }
+}
+
+@keyframes fity-verification-wobble2 {
+  0%, 100% {
+    transform: translateY(0%) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(66%) scale(.65);
+    opacity: .8;
+  }
+}

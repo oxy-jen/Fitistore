@@ -5237,6 +5237,31 @@ def test_customer_auth_forms_keep_csrf_protection(client, app):
     response = client.post("/account/register", data={"email": "csrf@example.com"})
     assert response.status_code == 400
 
+
+def test_verification_loader_is_attached_to_code_send_and_verify_forms(client, app):
+    login_response = client.get("/account/login")
+    assert login_response.status_code == 200
+    assert b"verification-code-loader.css" in login_response.data
+    assert b"verification-code-loader.js" in login_response.data
+    assert login_response.data.count(b'data-code-loader') == 2
+    assert b"Sending your email code..." in login_response.data
+
+    with app.app_context():
+        account = CustomerAccount(email="verification-loader@example.test", display_name="Loader test")
+        db.session.add(account)
+        db.session.commit()
+        account_id = account.id
+    with client.session_transaction() as browser_session:
+        browser_session["pending_customer_id"] = account_id
+        browser_session["pending_customer_purpose"] = "verify_code"
+
+    verify_response = client.get("/account/verify-code")
+    assert verify_response.status_code == 200
+    assert verify_response.data.count(b'data-code-loader') == 2
+    assert b"Checking your verification code..." in verify_response.data
+    assert b"Sending a new verification code..." in verify_response.data
+
+
 def test_checkout_requires_verified_account_and_links_order_to_it(client, app_context, app, monkeypatch):
     import app.services.customer_mail as customer_mail
     guest_get = client.get("/checkout", follow_redirects=False)
