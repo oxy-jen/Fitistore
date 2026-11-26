@@ -129,4 +129,40 @@
     }, { threshold: 0.01 });
     actionObserver.observe(primaryAction);
   }
+
+  const likeButton = page.querySelector('[data-product-like]');
+  const likeStatus = page.querySelector('[data-product-like-status]');
+  if (likeButton) {
+    likeButton.addEventListener('click', async () => {
+      likeButton.disabled = true;
+      if (likeStatus) likeStatus.textContent = '';
+      try {
+        const response = await fetch(likeButton.dataset.url, {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            Accept: 'application/json',
+          },
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) {
+          throw new Error(result.message || 'Your favourite could not be saved.');
+        }
+        likeButton.setAttribute('aria-pressed', String(result.liked));
+        likeButton.setAttribute(
+          'aria-label',
+          `${result.liked ? 'Unlike' : 'Like'} ${likeButton.dataset.productName || 'product'}`,
+        );
+        const count = likeButton.querySelector('[data-like-count]');
+        if (count) count.textContent = String(result.like_count);
+        if (likeStatus) likeStatus.textContent = result.liked
+          ? 'Added to your favourites.'
+          : 'Removed from your favourites.';
+      } catch (error) {
+        if (likeStatus) likeStatus.textContent = error.message || 'Your favourite could not be saved.';
+      } finally {
+        likeButton.disabled = false;
+      }
+    });
+  }
 })();

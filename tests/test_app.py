@@ -1170,6 +1170,11 @@ def test_product_like_endpoint_toggles_one_persistent_vote(client, app):
     first = client.post(f"/api/products/{product_id}/like", json={})
     assert first.status_code == 200
     assert first.get_json() == {"ok": True, "liked": True, "like_count": 1}
+    detail = client.get("/product/plain-socks")
+    assert detail.status_code == 200
+    assert b'data-product-like' in detail.data
+    assert b'aria-pressed="true"' in detail.data
+    assert b'<span data-like-count>1</span>' in detail.data
 
     second = client.post(f"/api/products/{product_id}/like", json={})
     assert second.status_code == 200
@@ -1493,6 +1498,11 @@ def test_product_detail(client):
     assert b'class="product-quick-summary" aria-label="Quick product purchase"' in rv.data
     assert b'data-product-quick-buy' in rv.data
     assert b'data-product-sticky-buy' in rv.data
+    assert b'class="product-sticky-buy product-purchase-dock"' in rv.data
+    assert b'Buy on WhatsApp' in rv.data
+    assert b'data-product-like' in rv.data
+    assert b'data-product-like-status' in rv.data
+    assert b'Collect<br>in person' in rv.data
     assert b'js/product-detail-interactions.js' in rv.data
     assert b"Comfortable" in rv.data
     assert b"Soft and comfortable." in rv.data

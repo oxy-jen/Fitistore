@@ -1126,6 +1126,27 @@ def product_detail(slug):
         .group_by(Review.rating).all()
     }
     approved_reviews = approved_review_query.order_by(Review.created_at.desc(), Review.id.desc()).limit(3).all()
+    product_likes_enabled = product_like_schema_ready()
+    product_like_count = 0
+    product_is_liked = False
+    if product_likes_enabled:
+        try:
+            product_like_count = ProductLike.query.filter_by(product_id=product.id).count()
+            voter_hash = _product_like_voter_hash(create=True)
+            product_is_liked = bool(
+                voter_hash
+                and ProductLike.query.filter_by(
+                    product_id=product.id,
+                    voter_hash=voter_hash,
+                ).first()
+            )
+        except SQLAlchemyError as exc:
+            db.session.rollback()
+            current_app.logger.error(
+                "Product like data could not be loaded (%s).",
+                type(exc).__name__,
+            )
+            product_likes_enabled = False
     safe_rich_description = sanitize_product_html(
         product_details.detailed_description_html if product_details else ""
     )
@@ -1193,6 +1214,9 @@ def product_detail(slug):
         review_average=float(review_average),
         review_distribution=review_distribution,
         variant_offer_count=len(variant_prices),
+        product_likes_enabled=product_likes_enabled,
+        product_like_count=product_like_count,
+        product_is_liked=product_is_liked,
     )
 
 

@@ -17,6 +17,7 @@
 {% set variant_materials = active_variants|map(attribute='material')|select|unique|list %}
 {% set variant_pack_sizes = active_variants|map(attribute='pack_size')|select|unique|list %}
 {% set has_variant_dimensions = variant_colors|length > 1 or variant_sizes|length > 1 or variant_styles|length > 1 or variant_materials|length > 1 or variant_pack_sizes|length > 1 %}
+{% set premium_style_badge = variant_styles|length == 1 and variant_styles[0]|lower == 'premium' %}
 <div class="product-page">
   <nav class="product-breadcrumbs" aria-label="Breadcrumb">
     <a href="{{ url_for('public.home') }}">Home</a><span aria-hidden="true">›</span>
@@ -28,12 +29,13 @@
     <div class="product-gallery">
       <div class="detail-image product-gallery-stage" data-product-gallery tabindex="0" role="group" aria-label="Product photo gallery">
         {% if product.available_quantity > 0 or (active_variants and product.display_stock_quantity > 0) %}<span class="product-image-status in-stock">In stock</span>{% else %}<span class="product-image-status out-stock">Out of stock</span>{% endif %}
+        {% if product.featured or premium_style_badge %}<span class="product-gallery-pick-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 2.4 5.2 5.7.7-4.2 3.9 1.1 5.6-5-2.8-5 2.8 1.1-5.6-4.2-3.9 5.7-.7L12 2Z"/></svg>{% if premium_style_badge %}Premium style{% else %}FityStores pick{% endif %}</span>{% endif %}
         <img id="detail-product-image" src="{{ product_image_url(main_image) }}" alt="{{ product_image_alt(main_image) }}" data-product-default-src="{{ product_image_url(main_image) }}" data-product-default-alt="{{ product_image_alt(main_image) }}" fetchpriority="high">
         {% if gallery_images|length > 1 %}
         <button type="button" class="product-gallery-nav is-previous" data-product-gallery-step="-1" aria-label="Previous product photo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
         <button type="button" class="product-gallery-nav is-next" data-product-gallery-step="1" aria-label="Next product photo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
-        <span class="product-gallery-count" data-product-image-count aria-live="polite" aria-atomic="true">1 of {{ gallery_images|length }} photos</span>
         {% endif %}
+        <span class="product-gallery-count" data-product-image-count aria-live="polite" aria-atomic="true">{% if gallery_images|length > 1 %}1 of {{ gallery_images|length }} photos{% else %}Product photo{% endif %}</span>
         <button type="button" class="product-gallery-zoom" data-product-image-zoom aria-label="View product photo larger" title="View larger"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M3 3l6 6m7-6h5v5m0-5-6 6M3 16v5h5m-5 0 6-6m10 6h-5m5 0v-5m0 5-6-6"/></svg></button>
       </div>
       {% if gallery_images|length > 1 %}
@@ -82,7 +84,7 @@
       {% else %}
         <p class="stock product-availability {{ 'bad' if product.available_quantity == 0 else 'warn' if product.available_quantity <= product.low_stock_threshold else '' }}">{% if product.available_quantity > 0 %}{{ product.available_quantity }} available{% else %}Out of stock{% endif %}</p>
       {% endif %}
-      {% if product_display_note %}<p class="product-detail-description">{{ product_display_note }}</p>{% elif active_variants or split_options(product.size_options) or split_options(product.color_options) %}<p class="product-detail-description product-option-hint">Choose your preferred options below.</p>{% endif %}
+      {% if product_display_note %}<p class="product-detail-description"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><span>{{ product_display_note }}</span></p>{% elif active_variants or split_options(product.size_options) or split_options(product.color_options) %}<p class="product-detail-description product-option-hint"><svg class="icon" aria-hidden="true"><use href="#icon-info"></use></svg><span>Choose your preferred options below.</span></p>{% endif %}
       <p class="product-variant-description" id="product-variant-description" hidden></p>
 
       {% if active_variants %}
@@ -255,13 +257,22 @@
     </aside>
   </div>
   {% if related %}<section class="product-related-section" aria-labelledby="related-products-title" data-category-group-key="{{ category_group_key(product.category.name) or 'other' }}"><div class="product-related-heading"><div><p class="product-related-kicker">{{ product.category.name }}</p><h2 id="related-products-title">You may also like</h2><p class="product-related-note">{% if related_same_category_count %}More from this category, followed by other store picks.{% else %}More picks from the FityStores catalogue.{% endif %}</p></div><a href="{{ url_for('public.shop', category=product.category.slug) }}">View category <svg class="icon product-link-arrow" aria-hidden="true"><use href="#icon-arrow"></use></svg></a></div><div class="product-related-grid" aria-label="Products you may also like">{% for product in related %}{% with compact_product_card=true %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}</div></section>{% endif %}
-  <div class="product-sticky-buy" data-product-sticky-buy hidden>
-    <div><span>Current price</span><strong data-product-sticky-price>{% if active_variants and product.min_variant_price_cents is not none %}{{ money(product.min_variant_price_cents, settings.currency) }}{% if product.min_variant_price_cents != product.max_variant_price_cents %} - {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}{% elif product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}Price to be confirmed{% endif %}</strong><small data-product-sticky-stock>{{ product.display_stock_quantity }} available</small></div>
+  <div class="product-sticky-buy product-purchase-dock" data-product-sticky-buy hidden>
+    <div class="product-dock-promises" aria-label="Shopping information">
+      <div><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span>Secure<br>checkout</span></div>
+      <div><svg class="icon" aria-hidden="true"><use href="#icon-truck"></use></svg><span>Delivery<br>options</span></div>
+      <div><svg class="icon" aria-hidden="true"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Collect<br>in person</span></div>
+      <div><svg class="icon" aria-hidden="true"><use href="#icon-headset"></use></svg><span>Customer<br>support</span></div>
+    </div>
+    <div class="product-dock-price"><span>Current price</span><strong data-product-sticky-price>{% if active_variants and product.min_variant_price_cents is not none %}{{ money(product.min_variant_price_cents, settings.currency) }}{% if product.min_variant_price_cents != product.max_variant_price_cents %} - {{ money(product.max_variant_price_cents, settings.currency) }}{% endif %}{% elif product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}Price to be confirmed{% endif %}</strong><small data-product-sticky-stock>{{ product.display_stock_quantity }} available</small></div>
     {% if product.price_cents is not none or active_variants %}
-    <button type="button" class="btn primary" data-product-quick-buy {% if (active_variants and not active_variants|selectattr('available_quantity')|list) or (not active_variants and product.available_quantity < 1) %}disabled{% endif %}>Add to Cart</button>
+    <button type="button" class="btn primary product-dock-cart" data-product-quick-buy {% if (active_variants and not active_variants|selectattr('available_quantity')|list) or (not active_variants and product.available_quantity < 1) %}disabled{% endif %}><svg class="icon" aria-hidden="true"><use href="#icon-cart"></use></svg><span class="product-dock-label-long">Add to Cart</span><span class="product-dock-label-short">Cart</span></button>
+    <a class="btn product-dock-whatsapp" href="{{ product_whatsapp_link(product, settings, request.url, 'buy') }}" target="_blank" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#icon-message"></use></svg><span class="product-dock-label-long">Buy on WhatsApp</span><span class="product-dock-label-short">WhatsApp</span></a>
     {% else %}
-    <a class="btn primary" href="{{ product_whatsapp_link(product, settings, request.url, 'confirm_price') }}" target="_blank" rel="noopener">Confirm on WhatsApp</a>
+    <a class="btn primary product-dock-cart" href="{{ product_whatsapp_link(product, settings, request.url, 'confirm_price') }}" target="_blank" rel="noopener"><svg class="icon" aria-hidden="true"><use href="#icon-message"></use></svg><span>Confirm price</span></a>
     {% endif %}
+    <button type="button" class="product-dock-like" data-product-like data-url="{{ url_for('public.api_toggle_product_like', product_id=product.id) }}" data-product-name="{{ product.name }}" aria-label="{{ 'Unlike' if product_is_liked else 'Like' }} {{ product.name }}" aria-pressed="{{ 'true' if product_is_liked else 'false' }}" {% if not product_likes_enabled %}disabled title="Likes are temporarily unavailable"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.8a5.5 5.5 0 0 0-7.8 0L12 5.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.3 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg><span data-like-count>{{ product_like_count }}</span></button>
+    <span class="product-dock-like-status" data-product-like-status role="status" aria-live="polite"></span>
   </div>
   <section class="product-recent-section" data-recently-viewed data-current-product-id="{{ product.id }}" hidden aria-labelledby="recently-viewed-title">
     <div class="product-related-heading"><div><p class="product-related-kicker">Your browser</p><h2 id="recently-viewed-title">Recently viewed</h2><p class="product-related-note">Products recently viewed on this device.</p></div></div>
@@ -295,7 +306,7 @@
 <script defer src="{{ url_for('static', filename='js/product-gallery.js') }}?v=product-gallery-interactions-20261125"></script>
 <script defer src="{{ url_for('static', filename='js/product-recently-viewed.js') }}?v=product-recently-viewed-20261126"></script>
 <script defer src="{{ url_for('static', filename='js/product-variant-details.js') }}?v=product-variant-details-20261126"></script>
-<script defer src="{{ url_for('static', filename='js/product-detail-interactions.js') }}?v=product-detail-tabs-20261126"></script>
+<script defer src="{{ url_for('static', filename='js/product-detail-interactions.js') }}?v=product-detail-purchase-dock-like-20261126-v2"></script>
 <script>
 (() => { try { const key='fity-recently-viewed-products'; const id={{ product.id|tojson }}; const saved=JSON.parse(localStorage.getItem(key)||'[]'); const ids=Array.isArray(saved)?saved.map(Number).filter(value=>Number.isInteger(value)&&value>0):[]; localStorage.setItem(key,JSON.stringify([id,...ids.filter(value=>value!==id)].slice(0,8))); } catch (_) {} })();
 </script>
