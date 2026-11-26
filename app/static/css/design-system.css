@@ -950,3 +950,15 @@ input:disabled,select:disabled,textarea:disabled,button:disabled { cursor: not-a
 .product-page .product-recent-section .product-related-grid{scrollbar-color:#cfd4dc transparent}
 @media(max-width:700px){.product-page .product-recent-section .product-related-grid{grid-auto-columns:minmax(150px,30vw)}.product-page .recently-viewed-card img{height:clamp(132px,30vw,160px)}}
 @media(prefers-reduced-motion:reduce){.product-page .recently-viewed-card{transition:none}}
+
+.product-page .product-information-tabs{position:static;top:auto;z-index:auto}
+.product-page .product-related-section{width:100%;min-width:0;margin-top:1rem}
+.product-page .product-related-section .product-related-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:.35rem 1rem;margin-bottom:.85rem}
+.product-page .product-related-section .product-related-heading>div{min-width:0}
+.product-page .product-related-section .product-related-heading>a{display:inline-flex;align-items:center;justify-self:end;gap:.3rem;max-width:100%;padding:.45rem .65rem;border:1px solid #f1c9ce;border-radius:8px;background:#fff;color:#b81729;font-size:.8rem;line-height:1.2;text-align:center;white-space:nowrap}
+.product-page .product-related-section .product-related-grid{grid-auto-flow:row;grid-template-columns:repeat(auto-fill,minmax(min(100%,190px),1fr));grid-auto-columns:auto;grid-auto-rows:auto;align-items:stretch;overflow:visible;overscroll-behavior:auto;scroll-snap-type:none}
+.product-page .product-related-section .product-related-grid>.product-card{align-self:stretch;height:auto;min-height:0;flex-direction:column}
+.product-page .product-related-section .product-related-grid .product-image{width:auto;height:auto;aspect-ratio:1/1;margin:.4rem .4rem 0}
+.product-page .product-related-section .product-related-grid .product-image img{width:100%;height:100%;object-fit:contain}
+@media(max-width:700px){.product-page .product-related-section .product-related-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr));gap:.55rem}}
+@media(max-width:420px){.product-page .product-related-section .product-related-heading{gap:.35rem .5rem}.product-page .product-related-section .product-related-heading>a{padding:.4rem .5rem;font-size:.74rem}}

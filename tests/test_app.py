@@ -1477,6 +1477,10 @@ def test_product_detail(client):
     assert b"You may also like" in rv.data
     assert b"View category" in rv.data
     assert b'class="product-related-grid"' in rv.data
+    related_section_start = rv.data.index(b'<section class="product-related-section"')
+    product_sidebar_start = rv.data.index(b'<aside class="product-side-column">')
+    product_sidebar_end = rv.data.index(b'</aside>', product_sidebar_start)
+    assert related_section_start > product_sidebar_end
     assert b'<nav class="product-information-tabs" role="tablist" aria-label="Product information" data-product-detail-tabs>' in rv.data
     assert b'id="product-tab-details" type="button" role="tab" aria-selected="true"' in rv.data
     assert b'id="product-tab-specifications" type="button" role="tab" aria-selected="false"' in rv.data
