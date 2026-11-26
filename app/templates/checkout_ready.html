@@ -5,7 +5,7 @@
       <div class="receipt-mark"><svg class="icon"><use href="#icon-checkout"></use></svg></div>
       <p class="eyebrow">Order enquiry saved</p>
       <h1 id="receipt-title">Awaiting seller confirmation</h1>
-      <p>Your request is ready. Send the WhatsApp message so FityStores can confirm item availability, the final amount, payment and collection or delivery arrangements.</p>
+      <p>Your request is ready. Send the WhatsApp message so FityStores can confirm item availability, the final amount, payment and collection or delivery arrangements. Requested quantities are held in inventory while the request is reviewed; this is not confirmation of the sale.</p>
     </header>
 
     <div class="receipt-meta">
@@ -62,7 +62,7 @@
       <a class="btn" href="{{ url_for('public.shop') }}"><svg class="icon"><use href="#icon-shop"></use></svg><span>Continue shopping</span></a>
     </div>
 
-    <p class="receipt-note">Your order is a request until FityStores confirms the items, total, payment and collection or delivery. A payment reference or screenshot alone does not confirm payment. <a href="{{ url_for('public.payment_policy') }}">Payment details</a> · <a href="{{ url_for('public.delivery_policy') }}">Delivery and collection</a> · <a href="{{ url_for('public.returns_policy') }}">Returns information</a></p>
+    <p class="receipt-note">Your order is a request until FityStores confirms the items, total, payment and collection or delivery. The inventory hold has no published expiry time. A payment reference or screenshot alone does not confirm payment. <a href="{{ url_for('public.payment_policy') }}">Payment details</a> · <a href="{{ url_for('public.delivery_policy') }}">Delivery and collection</a> · <a href="{{ url_for('public.returns_policy') }}">Returns and refunds</a></p>
   </div>
 </section>
 <script>localStorage.removeItem('fityCart');</script>

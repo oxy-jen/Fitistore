@@ -2660,9 +2660,9 @@ def test_public_policy_pages_and_sitemap_xml(client):
     import xml.etree.ElementTree as ET
 
     pages = {
-        "/delivery-policy": "Delivery and Collection Policy",
+        "/delivery-policy": "Delivery and Collection",
         "/payment-policy": "Payment Policy",
-        "/returns-policy": "Returns, exchanges, and cancellations",
+        "/returns-policy": "Returns, Refunds, and Cancellations",
         "/privacy": "Privacy Policy",
         "/terms": "Terms and Conditions",
     }
@@ -2774,9 +2774,25 @@ def test_checkout_and_policy_pages_show_current_store_terms(client, app):
 
     delivery = client.get("/delivery-policy")
     assert b"KSh 50" in delivery.data
+    assert b"does not publish a guaranteed delivery" in delivery.data
+    payment = client.get("/payment-policy")
+    assert b"does not automatically verify" in payment.data
+    assert b"Do not send another payment" in payment.data
     returns = client.get("/returns-policy")
     assert b"ideally within 48 hours of receiving it" in returns.data
-    assert b"does not by itself approve a refund or exchange" in returns.data
+    assert b"not a deadline" in returns.data
+    assert b"does not limit legal rights or remedies" in returns.data
+    assert b"report it within the 48-hour period stated above" not in returns.data
+
+    terms = client.get("/terms")
+    assert b"records the requested quantities as reserved inventory" in terms.data
+    assert b"no automatic expiry time for the hold is published" in terms.data
+    assert b"does not by itself reserve stock" not in terms.data
+
+    privacy = client.get("/privacy")
+    assert b"Last updated: 26 November 2026" in privacy.data
+    assert b"does not subscribe you to marketing" in privacy.data
+    assert b"withdraw consent" in privacy.data
 
 @pytest.fixture()
 def app_context(app):

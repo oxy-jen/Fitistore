@@ -1866,22 +1866,57 @@ def reviews():
 
 
 def render_policy_page(slug):
-    # Terms are static content. Render them before evaluating store settings used
-    # by the delivery and payment policies, so unrelated configuration cannot
-    # make the terms page fail.
+    updated_on = "26 November 2026"
+
     if slug == "terms":
         policy = {
             "title": "Terms and Conditions",
-            "description": "Terms for using FityStores, placing an order request, paying, and arranging collection or delivery.",
+            "description": "How FityStores listings, customer accounts, order requests, payment checks, and fulfilment work.",
+            "updated_on": updated_on,
+            "notice": "Checkout creates an order request and an inventory hold, not a confirmed sale. Wait for the seller to confirm the items, final total, payment, and fulfilment details.",
             "sections": [
-                ("About these terms and account checkout", ["FityStores is the shop name used on this website. These terms apply when you browse the site, create an account, or place an order request. Checkout requires a customer account; keep your account details accurate and protect your password and verification codes. You are responsible for activity carried out through your signed-in account, subject to rights that cannot be excluded by law."]),
-                ("Products, prices, and availability", ["Product descriptions, images, options, prices, and stock show information currently recorded by the shop. They may change or be incorrect. Check the listing and confirm availability, selected size or colour, final price, and total with the seller before paying. No unlisted price or unavailable item is guaranteed." ]),
-                ("Order requests and confirmation", ["Submitting checkout creates an order request for seller review; it does not by itself reserve stock, accept the order, or confirm a sale. The seller will confirm the item, final total, payment instructions, and fulfilment arrangement. Keep the order reference and check the order status in your account or through the order-tracking page." ]),
-                ("Payment and payment references", ["Follow the payment instructions confirmed for your order. M-Pesa payment is handled outside the website; the site may let you enter a transaction reference or upload proof for the seller to review. Entering a reference or uploading proof does not automatically verify payment. Never share your M-Pesa PIN, password, or one-time sign-in code." ]),
-                ("Collection and delivery", ["The available fulfilment method, meeting point, timing, delivery area, and any fee must be confirmed with the seller for your order. The listed collection reference is Othaya Mathenge Technical Training Institute; confirm the exact meeting place and time before travelling. Do not treat an order request as a confirmed delivery booking." ]),
-                ("Cancellations, returns, and consumer rights", ["Contact the seller promptly if you need to change or cancel an order, or if an item is incorrect, damaged, or faulty. The Returns, Exchanges, and Cancellations policy explains how to raise a request. Nothing in these terms removes a consumer right or remedy that applies under Kenyan law, including rights under the Consumer Protection Act." ]),
-                ("Website use and customer content", ["Use the site lawfully, do not interfere with its operation or security, and submit accurate information. Reviews and other customer submissions must not be unlawful, misleading, abusive, or infringe another person's rights. Reviews may be moderated before publication. Product photos, descriptions, and site branding belong to their respective rights holders; do not copy or reuse them without permission." ]),
-                ("Questions, changes, and applicable law", ["Contact FityStores through the Contact page or call 0791305329 about an order or these terms. These terms are governed by applicable Kenyan law, and any dispute remains subject to consumer protections and the jurisdiction of Kenyan courts. Updated terms will be posted on this page with a revised effective date; changes do not remove rights that already apply to an order."]),
+                ("Who these terms cover", [
+                    "These terms apply when you browse FityStores, create or use a customer account, or submit an order request. Checkout is available to signed-in, verified customer accounts. Give accurate contact and fulfilment details, keep your sign-in credentials private, and contact the store promptly if you think someone else has accessed your account.",
+                    "FityStores is the shop name used on this website. Use the Contact page for current ways to reach the store about an account, order, or these terms.",
+                ]),
+                ("Product information, prices, and offers", [
+                    "Product descriptions, images, specifications, variants, stock counts, and prices reflect information currently recorded by the store. Listings can change, and an error or delay may occur. Check the selected product and variant, quantity, promotional price, and displayed total before submitting a request.",
+                    "A displayed offer is based on the prices and discount currently shown for that product or variant. The seller will confirm availability and the final amount for your order, especially where a price is marked for confirmation. No unlisted price or unavailable item is promised.",
+                ]),
+                ("Order requests and inventory holds", [
+                    "Submitting checkout creates an order request for seller review. The store records the requested quantities as reserved inventory while the request is pending. This operational hold is not acceptance of the order, a confirmed sale, or a guarantee that every listing detail is correct; no automatic expiry time for the hold is published.",
+                    "The seller will review the items, selected options, final amount, payment report, and requested collection or delivery method. Wait for the seller to confirm the order before treating it as accepted or making travel plans. If an item or price needs correction, ask the seller to clarify before proceeding. A cancelled order releases its inventory hold.",
+                    "Keep your order reference and use the account order history or order-tracking page for updates. An order status or payment reference is not a substitute for the seller's confirmation.",
+                ]),
+                ("Payment and payment verification", [
+                    "The website currently records manual M-Pesa payment reports; it does not automatically verify an M-Pesa transfer. Follow the payment instructions shown by the store and confirm the amount and recipient with the seller before paying.",
+                    "A transaction reference or optional screenshot supplied at checkout helps the seller reconcile a payment. It is not proof that the store has received or verified the funds, and it does not by itself confirm the order. Keep the M-Pesa transaction message. Never share your M-Pesa PIN, password, or one-time sign-in code.",
+                    "If you have paid but the order status has not changed, contact the seller with your order reference and transaction reference before sending another payment. See the Payment Policy for payment-reporting and discrepancy steps.",
+                ]),
+                ("Collection, delivery, and handover", [
+                    "The store's current Contact, product, and checkout pages show the collection instructions, delivery area, and any listed fee. The seller must confirm whether the selected method is available for your order, the exact meeting point or delivery address, timing, and any fee before you rely on the arrangement.",
+                    "Provide an accurate phone number and, for delivery, a usable address and location details. Do not travel to collect an order until the seller confirms that it is ready and agrees the meeting details. See Delivery and Collection for more information.",
+                ]),
+                ("Cancellations, returns, refunds, and consumer rights", [
+                    "Contact the seller promptly if you want to change or cancel a request, or if an item is incorrect, damaged, or appears faulty. The Returns and Refunds page explains how to raise a request. Any cancellation, cooling-off right, refund, or other remedy provided by applicable law remains available; this policy does not shorten or waive it.",
+                    "A request for a return or refund is reviewed against the order and applicable law. Do not send an item back until the store confirms the return method. See the Returns and Refunds Policy for practical reporting guidance.",
+                ]),
+                ("Website use, reviews, and content", [
+                    "Use the site lawfully, do not interfere with its operation or security, and submit information you are authorised to provide. Reviews and other customer submissions must not be unlawful, misleading, abusive, or infringe another person's rights. Reviews may be checked before publication; avoid including private information in public content.",
+                    "Product photos, descriptions, and site branding belong to their respective rights holders. Do not copy or reuse material without permission or another lawful basis.",
+                ]),
+                ("Changes, applicable law, and contact", [
+                    "FityStores may update these pages when store processes or legal requirements change. The latest review date appears above. An update does not remove a right or remedy that already applies to an order.",
+                    "These terms are subject to applicable Kenyan law, including mandatory consumer protections. If wording on this page conflicts with a right that applies by law, the law prevails. Contact the store through the Contact page with questions or concerns.",
+                ]),
+            ],
+            "faqs": [
+                ("Does submitting checkout confirm my order?", "No. It creates a request and records an inventory hold. Wait for the seller to confirm the items, final amount, payment, and fulfilment."),
+                ("Does entering an M-Pesa reference confirm payment?", "No. The store checks M-Pesa reports manually. Keep your transaction message and contact the seller if the status needs checking."),
+                ("Where can I ask about collection, delivery, or a return?", "Use the Contact page and include your order reference when asking about an existing order."),
+            ],
+            "sources": [
+                ("Kenya Consumer Protection Act, 2012", "https://new.kenyalaw.org/akn/ke/act/2012/46/eng@2022-12-31"),
             ],
         }
         return render_template(
@@ -1895,62 +1930,175 @@ def render_policy_page(slug):
     settings = current_settings()
     policies = {
         "delivery": {
-            "title": "Delivery and Collection Policy",
-            "description": "Check delivery availability, discuss any fee, and agree collection or delivery details before paying or travelling.",
+            "title": "Delivery and Collection",
+            "description": "How to confirm collection or nearby delivery, fees, addresses, timing, and order handover.",
+            "updated_on": updated_on,
+            "notice": "Delivery availability, fee, location, and timing are confirmed for each order. Do not travel or rely on delivery until the seller confirms the arrangements.",
             "sections": [
-                ("Delivery availability", [settings.delivery_area or "Contact FityStores to check whether delivery is available for your location. Availability, timing, and any fee are confirmed for each order."]),
-                ("Collection", [settings.collection_instructions or "The collection reference point is Othaya Mathenge Technical Training Institute. Contact the seller to agree on the exact meeting point and time before travelling."]),
-                ("Delivery fee", [("The listed delivery fee is " + money(settings.delivery_fee_cents, settings.currency) + ". Confirm that it applies to your order before paying.") if settings.delivery_fee_cents is not None else "There is no set delivery fee. The seller will confirm any fee for your location before payment."]),
-                ("Before travelling or paying", ["Confirm the item, selected options, price, stock, fulfilment method, any delivery fee, and the collection or delivery arrangements with the seller. A checkout request or payment reference alone does not confirm fulfilment."]),
+                ("Available delivery area", [
+                    settings.delivery_area or "Contact FityStores to check whether delivery is available for your location.",
+                    "The area description is a guide, not a confirmation that a particular address can be served. The seller will confirm availability, the address or meeting point, and the expected handover arrangement for each order.",
+                ]),
+                ("Collection", [
+                    settings.collection_instructions or "Contact the seller to confirm the collection point and arrangements.",
+                    "Agree the exact meeting place and time with the seller. Wait for confirmation that your order is ready before travelling. The Contact page shows the current public collection reference.",
+                ]),
+                ("Delivery charges", [
+                    ("The currently listed delivery fee is " + money(settings.delivery_fee_cents, settings.currency) + ". The seller must confirm that it applies to your address and order before payment.") if settings.delivery_fee_cents is not None else "No delivery fee is currently listed. The seller will confirm whether a fee applies to your address and order before payment.",
+                    "Do not assume that a fee shown for one address or order applies to another. Any delivery charge should be included in the total confirmed with you before payment.",
+                ]),
+                ("Addresses, contact, and timing", [
+                    "For delivery, provide a complete address, area, useful landmark, and reachable phone number. Tell the seller promptly if those details change. Keep your phone available for arrangement updates.",
+                    "The store does not publish a guaranteed delivery or collection time. Agree the expected timing directly with the seller. If arrangements change or are delayed, contact the seller before travelling or making other plans.",
+                ]),
+                ("Order readiness and handover", [
+                    "Checkout is an order request, not a confirmed delivery booking or collection appointment. The seller confirms the items, final total, payment status, fulfilment method, and handover details. Order tracking may show updates, but contact the seller if you need clarification.",
+                    "If you need to change a delivery or collection arrangement, contact the store as soon as possible. Any replacement arrangement or additional charge must be discussed and confirmed before it is applied.",
+                ]),
+                ("Problems and consumer rights", [
+                    "Contact the store if an order does not arrive as agreed or you cannot complete the collection. Applicable consumer rights and remedies are not limited by this page.",
+                ]),
+            ],
+            "faqs": [
+                ("Is delivery available to every address?", "No. Check the displayed delivery area and ask the seller to confirm your specific address."),
+                ("Is the displayed delivery fee final?", "It is an indication only. The seller confirms whether it applies to your order before payment."),
+                ("Should I travel as soon as I submit checkout?", "No. Wait for the seller to confirm that the order is ready and agree the meeting details."),
+            ],
+            "sources": [
+                ("Kenya Consumer Protection Act, 2012", "https://new.kenyalaw.org/akn/ke/act/2012/46/eng@2022-12-31"),
             ],
         },
         "payment": {
             "title": "Payment Policy",
-            "description": "Follow the current payment instructions and understand how payment is checked and confirmed.",
+            "description": "Current payment instructions, manual M-Pesa reconciliation, payment reports, and what to do if a payment needs checking.",
+            "updated_on": updated_on,
+            "notice": "Payments are checked manually. Confirm the recipient and final amount with the seller before paying; a reference or screenshot is not payment confirmation.",
             "sections": [
-                ("Available instructions", [settings.payment_instructions or "Ask the seller to confirm the payment method and amount for your order. The website does not process card payments."]),
-                ("Confirm before paying", ["Confirm product availability, the final total, and the payment instructions with the seller before sending payment. Keep the M-Pesa transaction message and enter the requested reference at checkout. Never share your M-Pesa PIN or account password."]),
-                ("Payment review and confirmation", ["M-Pesa is paid outside the website. A reference or optional proof submitted with an order is information for seller review; it is not automatic payment verification or order confirmation. Do not pay a second time just because the status has not updated—contact the seller with your order reference first."]),
+                ("Current payment instructions", [
+                    settings.payment_instructions or "Contact the seller to confirm the payment method, recipient, and amount for your order.",
+                    "The site currently records M-Pesa payment reports for manual review; it does not automatically verify transfers. The payment number and instructions shown on the Contact and checkout pages may change, so confirm them for your order before sending money.",
+                ]),
+                ("Before making a payment", [
+                    "Wait for the seller to confirm the item, selected options, availability, final total, and payment recipient. Check the details in the M-Pesa prompt or message before authorising a transfer.",
+                    "Never share your M-Pesa PIN, account password, one-time code, or other sign-in credentials with the store or anyone claiming to represent it.",
+                ]),
+                ("Payment references and proof", [
+                    "If you have already paid, enter the M-Pesa transaction reference at checkout as requested. An optional screenshot may help the seller investigate, but it does not replace the transaction record or automatically verify the transfer.",
+                    "A submitted reference, screenshot, or WhatsApp message is not confirmation that payment was received, and it does not by itself mean the order is accepted. The seller updates payment status after checking the report.",
+                ]),
+                ("Missing, delayed, or duplicate payment reports", [
+                    "Keep the M-Pesa confirmation message and your order reference. If a payment is missing, duplicated, incorrect, or not reflected in the order status, contact the seller with the transaction reference and amount.",
+                    "Do not send another payment just because the website status has not changed. Ask the seller to check the first transaction before paying again. Never include your PIN or password in a message.",
+                ]),
+                ("Refunds and payment disputes", [
+                    "If you believe money was sent in error, report it promptly and provide the transaction reference. A refund or reversal is not automatic; the seller must check the transaction and your order. For an order return or refund request, see the Returns and Refunds Policy. Any applicable legal right remains unaffected.",
+                ]),
+            ],
+            "faqs": [
+                ("Does checkout charge my M-Pesa account?", "No. Payment is made outside the website using instructions confirmed with the seller."),
+                ("How long does payment verification take?", "No fixed verification time is promised. Contact the seller with your order and transaction references if you need an update."),
+                ("Should I pay again if my status is still awaiting payment?", "No. Ask the seller to check the original transaction first."),
+            ],
+            "sources": [
+                ("Kenya Consumer Protection Act, 2012", "https://new.kenyalaw.org/akn/ke/act/2012/46/eng@2022-12-31"),
             ],
         },
         "returns": {
-            "title": "Returns, exchanges, and cancellations",
-            "description": "How to raise a return, exchange, cancellation, or refund request for review.",
+            "title": "Returns, Refunds, and Cancellations",
+            "description": "How to report an order issue, request cancellation or an exchange, and have a refund reviewed.",
+            "updated_on": updated_on,
+            "notice": "Contact FityStores promptly with your order reference. The suggested 48-hour reporting period below is not a deadline and does not limit rights or remedies provided by law.",
             "sections": [
-                ("Report a problem", ["Contact FityStores as soon as practical if an item is incorrect, damaged, or appears faulty. Prompt reporting—ideally within 48 hours of receiving it—helps the seller investigate while details are fresh; this is not a limit on rights or remedies provided by law. Include your order reference and describe the issue. Photos may help the review."]),
-                ("Cancellation or change of mind", ["If you need to cancel or change an order, contact the seller as soon as possible before it is prepared or handed over. A change-of-mind return is not automatic and must be agreed with the seller, subject always to any applicable legal right to cancel or obtain a remedy."]),
-                ("Review and next steps", ["The seller will review the order and discuss the next step for the specific case. Do not send an item back until the seller confirms the return method. A request starts a review; it does not by itself approve a refund or exchange. Applicable consumer rights are not waived."]),
-                ("Refunds", ["If a refund is agreed or required, the seller will confirm the amount and method with you. The store does not promise an automatic refund or a fixed processing time on this page."]),
-                ("Contact", ["Use the Contact page or call 0791305329 with your order reference and a description of the issue. Never include your M-Pesa PIN or password."]),
+                ("Report an incorrect, damaged, or faulty item", [
+                    "Contact FityStores as soon as practical if an item is incorrect, damaged, or appears faulty. Prompt reporting, ideally within 48 hours of receiving it, helps the seller investigate while details are fresh. This is a request for prompt reporting, not a deadline or a condition that removes a right or remedy provided by law.",
+                    "Include your order reference, the item and variant, when you received it, and a clear description of the issue. Photos may help the review. Keep the item and any relevant packaging where practical while the issue is being discussed.",
+                ]),
+                ("Cancellation or change of mind", [
+                    "If you want to cancel or change an order, contact the seller as soon as possible. A request that has not yet been accepted or prepared may be easier to stop, but you should wait for confirmation that the change or cancellation has been recorded.",
+                    "A change-of-mind return or exchange may need the seller's agreement, subject always to any cancellation, cooling-off, or other right that applies by law. This page does not exclude or shorten a statutory right.",
+                ]),
+                ("How a return or exchange is reviewed", [
+                    "The seller will review the order details and the issue, then discuss the appropriate next step for the specific case. Do not send or hand over an item until the seller confirms the return method, destination, and any agreed arrangements.",
+                    "Any delivery or return transport arrangement and any related charge will be discussed with you before proceeding. Nothing here determines who must bear a cost where applicable law provides otherwise.",
+                    "A request begins a review; it does not by itself approve an exchange, return, or refund. This does not affect a remedy that the law requires.",
+                ]),
+                ("Refunds and payment corrections", [
+                    "If a refund is agreed or required, the seller will confirm the amount, payment method, and next steps with you. The store does not promise automatic approval or a fixed processing time on this page.",
+                    "If you report a duplicate or mistaken M-Pesa payment, provide the transaction reference so the seller can check it. A refund or reversal cannot be confirmed until the payment and order have been reviewed.",
+                ]),
+                ("How to contact the store", [
+                    "Use the Contact page and include your order reference and a brief description of the request. Do not send your M-Pesa PIN, account password, or one-time sign-in code.",
+                ]),
+                ("Consumer rights", [
+                    "Nothing in this policy limits mandatory consumer rights or remedies that apply under Kenyan law. If you are unsure which right applies, consult the relevant law or obtain independent legal advice.",
+                ]),
+            ],
+            "faqs": [
+                ("Is 48 hours the deadline for reporting a problem?", "No. It is a request to report promptly so the store can investigate. It is not a deadline and does not limit legal rights or remedies."),
+                ("Does a refund request mean my refund is approved?", "No. The store reviews the order and confirms the outcome and next steps. Any remedy required by law remains unaffected."),
+                ("Can I return an item without contacting the store?", "Contact the store first so it can confirm the return method and arrangements. This does not remove any legal right that applies."),
+            ],
+            "sources": [
+                ("Kenya Consumer Protection Act, 2012", "https://new.kenyalaw.org/akn/ke/act/2012/46/eng@2022-12-31"),
             ],
         },
         "privacy": {
-            "title": "Privacy information",
-            "description": "What shopping and account features collect, how FityStores uses information, and how to ask a question.",
+            "title": "Privacy Policy",
+            "description": "What personal information FityStores handles, why it is used, how it is protected, and how to exercise your data rights.",
+            "updated_on": updated_on,
+            "notice": "Marketing is optional and separate from account, security, and order messages. You can contact the store about access, correction, objection, or deletion requests.",
             "sections": [
-                ("Who is responsible and how to contact us", ["FityStores is responsible for personal information collected through this shop. For a privacy request or question, use the Contact page or call 0791305329 and ask for the person responsible for privacy. The shop currently publishes under the FityStores trading name; this notice does not invent a separate registered legal entity or postal address."]),
-                ("Information the site collects", ["Depending on how you use the site, it may process your name, email address, phone number, account and verification details, order items, delivery or collection instructions, order history, payment reference, and payment proof you choose to upload. The site also receives the information you submit in contact, enquiry, review, suggestion, and restock forms. Account passwords are stored as password hashes; verification and reset tokens are stored as hashes. Google sign-in may provide your Google account identifier, email, and display name."]),
-                ("Why information is used", ["Information is used to create and secure accounts, process and link order requests, check payment reports, arrange fulfilment, answer enquiries, handle reviews and restock requests, prevent misuse, maintain records, and meet applicable legal obligations. The site may create a one-way hash of an IP address for abuse controls or review moderation. A review may be displayed publicly after moderation; avoid putting private information in a review." ]),
-                ("Marketing and service messages", ["Promotional email is optional and requires a separate marketing opt-in; accepting the Terms and Conditions or creating an account does not subscribe you to marketing. You can withdraw marketing consent using the unsubscribe link or account preference controls. The shop may still send necessary account, security, order, and service messages that are not promotional." ]),
-                ("Cookies, sessions, and browser storage", ["The site uses session and security data needed to sign you in, protect forms, and keep shopping functions working. Cart information may be stored in your browser or account to preserve your selections. This notice does not claim that analytics or advertising trackers are used." ]),
-                ("Service providers and external links", ["Information is hosted and processed by the web host and database provider configured for the site. If enabled, Google handles Google sign-in; Cloudinary may deliver product images; and the configured SMTP, Resend, or Brevo provider may handle email. These providers receive only information needed for their service. The site links to WhatsApp; if you choose to open it and send a message, WhatsApp/Meta receives the message and account details under its own terms. M-Pesa transactions are made outside this website; the shop may record the reference or proof you provide. Provider locations and transfer safeguards depend on the services configured by the shop, so information may be processed outside Kenya." ]),
-                ("Retention and security", ["The shop keeps information only as long as it is reasonably needed for the purposes described, account operation, order records, dispute handling, and legal obligations. The site does not publish fixed retention periods for each record type; contact the shop to ask about a particular record. The shop uses access controls and technical safeguards, but no internet transmission or storage system can be guaranteed completely secure." ]),
-                ("Your choices and data rights", ["Subject to applicable law, you may ask to be informed about, access, correct, or object to processing of your personal information, or request deletion where appropriate. You may also withdraw consent for optional marketing. Contact the shop through the Contact page or call 0791305329; include enough detail to identify the account or order, but do not send a password, PIN, or sign-in code. You may raise a complaint with Kenya's Office of the Data Protection Commissioner."]),
-                ("Children and sensitive information", ["Do not submit another person's personal information unless you are authorised to do so. Do not enter passwords, M-Pesa PINs, payment credentials, or unrelated sensitive information in reviews, enquiries, or order notes. A parent or guardian should contact the shop about information submitted by a child."]),
+                ("Who is responsible and how to contact us", [
+                    "FityStores is the shop name used on this website and identifies Oxy-Jen Tech as its operator on the About page. For a privacy question or request, use the Contact page and ask for the person responsible for data protection. Current contact details are published there; the website does not publish a postal address.",
+                    "This notice explains the shop's current website practices. It should be read with the Kenya Data Protection Act, 2019 and the rights available under applicable law.",
+                ]),
+                ("Information we collect", [
+                    "Depending on the features you use, the shop may process your name, email address, phone number, account and verification details, order items and quantities, order history, collection or delivery address and instructions, M-Pesa payer details, transaction reference, and any payment proof you choose to upload.",
+                    "The shop also receives information you submit through contact, enquiry, review, suggestion, restock, and newsletter forms. Reviews may be displayed publicly after moderation; do not include private information in a review.",
+                    "The site uses session and security information to operate accounts and forms. It may store cart selections and recently viewed products in your browser. A limited technical identifier or one-way IP hash may be used for session operation, abuse prevention, or review moderation. If you use Google sign-in, Google provides account details needed to authenticate you.",
+                ]),
+                ("How and why information is used", [
+                    "The shop uses information to create and secure accounts, verify contact details, provide account and order services, validate availability and stock, review reported payments, arrange collection or delivery, respond to questions, moderate customer content, process requests, prevent misuse, maintain business records, and meet legal obligations.",
+                    "Information is used where needed to provide a service you request, to meet legal requirements, with your consent where consent is required, and for legitimate operational and security interests where permitted by law. The shop aims to use information only for the purposes explained here or another compatible purpose allowed by law.",
+                ]),
+                ("Promotional messages and service communications", [
+                    "Promotional email is optional and requires a separate marketing choice. Creating an account or accepting the Terms and Conditions does not subscribe you to marketing. Withdraw consent using the unsubscribe link or the available account preference controls.",
+                    "The store may still send necessary account, verification, security, order, payment-status, and service messages. These are not promotional messages and may be needed to provide the account or service you requested.",
+                ]),
+                ("Cookies, sessions, and device storage", [
+                    "The website uses session and security mechanisms needed for sign-in, form protection, and shopping functions. Cart and recently viewed product information may be stored in your browser or account to support shopping. You can clear browser storage, but some site features may then need to be set up again.",
+                    "This notice does not state that advertising or analytics trackers are used. If a feature or provider changes how information is collected, this notice should be updated.",
+                ]),
+                ("Who information may be shared with", [
+                    "Information may be processed by the website host, database, email delivery, authentication, and image hosting providers configured for the shop, but only as needed to operate those services. If you request delivery, relevant contact and address details may be shared with the person arranging or completing that delivery.",
+                    "If you choose to contact the store through WhatsApp, your message and account details are handled by WhatsApp/Meta under its own privacy terms. Google handles information needed for Google sign-in when you choose that option. M-Pesa transfers take place outside this website; the store receives only the payment details you provide or that are otherwise available to it for reconciliation.",
+                    "Some service providers may process information outside Kenya. Where a cross-border transfer occurs, the shop will apply the safeguards required by Kenyan law. Contact the store to ask which providers and safeguards apply to a particular service.",
+                ]),
+                ("How long information is kept and security", [
+                    "Information is kept only for as long as reasonably necessary for the purposes above, account operation, order and financial records, dispute handling, security, and legal obligations. Different records may need different retention periods; the shop does not publish a fixed period for every record type. You may ask about a particular record or request deletion, subject to applicable retention requirements.",
+                    "The shop uses account access controls and technical safeguards to protect information. No website, internet transmission, or storage system can be guaranteed completely secure. Contact the store promptly if you believe your account or information has been exposed.",
+                ]),
+                ("Your data protection rights and choices", [
+                    "Subject to applicable law, you may ask to be informed about, access, or correct your personal information; object to processing; request deletion where available; and withdraw consent where processing relies on consent. You may also ask how your information is used and who it is shared with.",
+                    "Contact the store through the Contact page and provide enough information to identify the account or request. The store may need to verify your identity before acting. Do not send a password, M-Pesa PIN, or one-time sign-in code. You may also raise a concern with the Office of the Data Protection Commissioner of Kenya.",
+                ]),
+                ("Children and information about other people", [
+                    "If you are under 18, involve a parent or guardian when creating an account or placing an order. Do not submit another person's personal information unless you are authorised to do so. Do not put passwords, M-Pesa PINs, or unrelated sensitive information in reviews, enquiries, or order notes.",
+                ]),
             ],
-        },
-        "terms": {
-            "title": "Terms of Service",
-            "description": "How FityStores listings, order requests, payment checks, and fulfilment arrangements work.",
-            "sections": [
-                ("Listings, prices, and stock", ["Product information, prices, variants, and stock are shown as currently recorded by the store and may change. Confirm availability, selected options, and the total with the seller before paying. An unavailable or unpriced item cannot be treated as a confirmed sale at a guessed price."]),
-                ("Order review and payment", ["Submitting checkout details creates an order request for seller review. Follow the payment instructions shown by the store and confirm them with the seller. A payment reference or WhatsApp message does not alone mean the order has been accepted or payment verified."]),
-                ("Delivery and collection", ["The seller must confirm the available fulfilment method, location, timing, and any delivery fee for each order before you travel or rely on delivery."]),
-                ("Problems and legal rights", ["Contact the seller promptly about an order problem. These terms do not remove rights that apply under Kenyan law. No legal entity details or guarantees are added by this page."]),
+            "faqs": [
+                ("Does account registration subscribe me to marketing?", "No. Promotional email is optional and requires a separate choice. Essential account and order messages may still be sent."),
+                ("How can I request access or correction?", "Use the Contact page and ask for the person responsible for data protection. The store may verify your identity before responding."),
+                ("Can I complain to the regulator?", "You may contact the Office of the Data Protection Commissioner of Kenya about a data protection concern."),
+            ],
+            "sources": [
+                ("Kenya Data Protection Act, 2019", "https://kenyalaw.org/kl/fileadmin/pdfdownloads/Acts/2019/TheDataProtectionAct__No24of2019.pdf"),
+                ("Office of the Data Protection Commissioner: Rights of a Data Subject", "https://www.odpc.go.ke/rights-of-a-data-subject/"),
             ],
         },
     }
     policy = policies[slug]
+    policy["updated_on"] = updated_on
     return render_template(
         "policy.html",
         title=policy["title"],

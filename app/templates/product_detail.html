@@ -138,14 +138,14 @@
         {% endif %}
       </div>
       <div class="product-service-promises" aria-label="Shopping information">
-        <div><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><strong>Secure<br>payments</strong></div><div><svg class="icon" aria-hidden="true"><use href="#icon-truck"></use></svg><strong>Reliable<br>delivery</strong></div><div><svg class="icon" aria-hidden="true"><use href="#icon-headset"></use></svg><strong>Customer<br>support</strong></div>
+        <div><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><strong>Manual payment<br>checks</strong></div><div><svg class="icon" aria-hidden="true"><use href="#icon-truck"></use></svg><strong>Collection &amp;<br>delivery options</strong></div><div><svg class="icon" aria-hidden="true"><use href="#icon-headset"></use></svg><strong>Customer<br>support</strong></div>
       </div>
     </div>
   </section>
 
   <section class="product-fulfilment-panel" id="product-delivery" aria-labelledby="product-fulfilment-title">
     <div class="product-fulfilment-heading">
-      <div><p>ORDER WITH CONFIDENCE</p><h2 id="product-fulfilment-title">Delivery, collection and returns</h2></div>
+      <div><p>ORDER AND FULFILMENT DETAILS</p><h2 id="product-fulfilment-title">Delivery, collection and returns</h2></div>
       <a href="{{ url_for('public.delivery_policy') }}">Delivery details <svg class="icon product-link-arrow" aria-hidden="true"><use href="#icon-arrow"></use></svg></a>
     </div>
     <div class="product-fulfilment-grid">
@@ -259,7 +259,7 @@
   {% if related %}<section class="product-related-section" aria-labelledby="related-products-title" data-category-group-key="{{ category_group_key(product.category.name) or 'other' }}"><div class="product-related-heading"><div><p class="product-related-kicker">{{ product.category.name }}</p><h2 id="related-products-title">You may also like</h2><p class="product-related-note">{% if related_same_category_count %}More from this category, followed by other store picks.{% else %}More picks from the FityStores catalogue.{% endif %}</p></div><a href="{{ url_for('public.shop', category=product.category.slug) }}">View category <svg class="icon product-link-arrow" aria-hidden="true"><use href="#icon-arrow"></use></svg></a></div><div class="product-related-grid" aria-label="Products you may also like">{% for product in related %}{% with compact_product_card=true %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}</div></section>{% endif %}
   <div class="product-sticky-buy product-purchase-dock" data-product-sticky-buy hidden>
     <div class="product-dock-promises" aria-label="Shopping information">
-      <div><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span>Secure<br>checkout</span></div>
+      <div><svg class="icon" aria-hidden="true"><use href="#icon-shield"></use></svg><span>Order<br>request</span></div>
       <div><svg class="icon" aria-hidden="true"><use href="#icon-truck"></use></svg><span>Delivery<br>options</span></div>
       <div><svg class="icon" aria-hidden="true"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Collect<br>in person</span></div>
       <div><svg class="icon" aria-hidden="true"><use href="#icon-headset"></use></svg><span>Customer<br>support</span></div>
