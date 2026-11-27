@@ -29,6 +29,7 @@ app/static/uploads/*
 .pytest-*/
 .coverage
 htmlcov/
+.playwright-mcp/
 
 # Logs
 *.log
