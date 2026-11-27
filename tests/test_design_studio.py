@@ -165,7 +165,7 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
     assert b'data-template="offers"' in editor.data
     assert b'data-studio-product-picker' in editor.data
     assert b'data-studio-lottie-target' in editor.data
-    assert b'premium product card below' in editor.data
+    assert b'catalogue product below to add it to this design' in editor.data
     assert b'data-discount-percent="16"' in editor.data
     for template_key in (
         "deal-of-day", "black-friday-feature", "smartphones", "beauty", "home",

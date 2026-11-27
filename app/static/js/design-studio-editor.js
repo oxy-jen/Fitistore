@@ -330,9 +330,8 @@
   let selectionLoadFailed = false;
   function lottieProductChoices() {
     const choices = new Map();
-    selectedProductIds.forEach(id => {
-      const option = [...productPicker.options].find(item => item.value === id);
-      if (option) choices.set(`p-${id}`, option.dataset.name || option.textContent.trim());
+    [...productPicker.options].slice(1).forEach(option => {
+      choices.set(`p-${option.value}`, option.dataset.name || option.textContent.trim());
     });
     const markup = new DOMParser().parseFromString(html.value || '', 'text/html');
     markup.body.querySelectorAll('[data-studio-card-key^="c-"]').forEach(card => {
@@ -347,20 +346,22 @@
     const root = markup.body.querySelector('[data-studio-lottie-target]') || markup.body.firstElementChild;
     const savedTarget = root?.dataset.studioLottieTarget || lottieTargetSelect.value || 'section';
     const choices = lottieProductChoices();
+    const savedProductId = /^p-(\d+)$/.exec(savedTarget)?.[1];
     lottieTargetSelect.replaceChildren(new Option('Section background', 'section'));
     if (choices.size) {
       const group = document.createElement('optgroup');
-      group.label = 'Premium product card background';
+      group.label = 'Product displayed over Lottie background';
       choices.forEach((name, key) => {
         group.append(new Option(name.slice(0, 120), key));
       });
       lottieTargetSelect.append(group);
     }
-    if (savedTarget === 'section' || choices.has(savedTarget)) {
+    if (savedTarget === 'section' || (choices.has(savedTarget)
+      && (!savedProductId || selectedProductIds.has(savedProductId)))) {
       lottieTargetSelect.value = savedTarget;
       lottieTargetStatus.textContent = savedTarget === 'section'
         ? 'The animation will preview automatically behind the selected section.'
-        : 'The animation will preview as a background on the selected premium product card.';
+        : 'This product card will render over the Lottie animation.';
       return;
     }
     lottieTargetSelect.value = 'section';
@@ -382,7 +383,18 @@
     return true;
   }
   lottieTargetSelect.addEventListener('change', () => {
-    if (!persistLottieTarget(lottieTargetSelect.value)) {
+    const target = lottieTargetSelect.value;
+    const productId = /^p-(\d+)$/.exec(target)?.[1];
+    if (productId && !selectedProductIds.has(productId)) {
+      if (selectedProductIds.size >= 30) {
+        syncLottieTargetOptions();
+        lottieTargetStatus.textContent = 'Remove a product from the design before choosing another animation product (maximum 30).';
+        return;
+      }
+      selectedProductIds.add(productId);
+      renderSelectedProducts();
+    }
+    if (!persistLottieTarget(target)) {
       syncLottieTargetOptions();
       lottieTargetStatus.textContent = 'Choose a section or an available product card as the animation target.';
       return;
