@@ -155,6 +155,11 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
     editor = client.get("/admin/design-studio/new")
     assert editor.status_code == 200
     assert b'data-template="offers"' in editor.data
+    for template_key in (
+        "deal-of-day", "black-friday-feature", "smartphones", "beauty", "home",
+    ):
+        assert f'data-template="{template_key}"'.encode() in editor.data
+    assert b'data-template-cutouts' in editor.data
     assert f'dataset.selectedProducts="[{product_id}]"'.encode() in editor.data
     assert b'data-preview-url="/admin/design-studio/preview"' in editor.data
 
@@ -208,6 +213,27 @@ def test_design_code_validation_sanitizes_markup_and_rejects_unsafe_operations(a
             validate_design_payload({"name": "Unsafe", "javascript": "setTimeout(() => {}, 1)"})
         assert validate_design_payload({"name": "Worker loop", "javascript": "while (true) {}"})["javascript"] == "while (true) {}"
         assert sanitize_design_html('<iframe src="https://evil.test"></iframe><p>ok</p>') == "<p>ok</p>"
+
+
+@pytest.mark.parametrize(
+    "template_key",
+    ["deal-of-day", "black-friday-feature", "smartphones", "beauty", "home"],
+)
+def test_campaign_templates_keep_editable_safe_template_metadata(app, template_key):
+    with app.app_context():
+        payload = validate_design_payload({
+            "name": "Editable campaign",
+            "template_key": template_key,
+            "html": (
+                f'<section class="ds-campaign" data-template-key="{template_key}" '
+                'data-template-headline="Smartphones" data-template-cutouts="true">'
+                "<h2>Smartphones</h2></section>"
+            ),
+        })
+
+        assert payload["template_key"] == template_key
+        assert 'data-template-headline="Smartphones"' in payload["html"]
+        assert 'data-template-cutouts="true"' in payload["html"]
 
 
 def test_lottie_json_is_bounded_and_rejects_external_assets():

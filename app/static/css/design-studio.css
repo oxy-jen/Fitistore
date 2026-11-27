@@ -19,8 +19,27 @@
 .ds-panel textarea[spellcheck=false]{font-family:Consolas,"Cascadia Code",monospace;font-size:.88rem}
 .ds-template-list{display:grid;gap:8px}
 .ds-template{display:grid;gap:5px;padding:12px;text-align:left;border:1px solid #e2dadd;border-radius:12px;background:#fff7f8;color:#252525;cursor:pointer}
-.ds-template:hover,.ds-template:focus-visible{border-color:#e52335;outline:2px solid #f8c3ca}
+.ds-template:hover,.ds-template:focus-visible,.ds-template[aria-pressed=true]{border-color:#e52335;outline:2px solid #f8c3ca}
 .ds-template span{color:#686870;font-size:.9rem}
+.ds-template-mini{position:relative;display:flex;min-height:48px;align-items:flex-end;justify-content:space-evenly;gap:6px;overflow:hidden;padding:7px 10px;border-radius:8px;background:linear-gradient(110deg,#09080d,#241047);isolation:isolate}
+.ds-template-mini::before{position:absolute;z-index:-1;top:-35px;right:-5px;width:120px;height:120px;border-radius:50%;background:radial-gradient(circle,#673cb0,transparent 70%);content:""}
+.ds-template-mini i{position:relative;width:15%;height:50%;border-radius:8px 8px 4px 4px;background:linear-gradient(180deg,#eee9f7 0 70%,#c7a6ff 71%);box-shadow:0 5px 0 -2px #c7a6ff}
+.ds-template-mini--deal i{width:12%;height:57%}
+.ds-template-mini--feature i:first-child{width:24%;height:26%;align-self:center;margin-right:auto;background:#fff}
+.ds-template-mini--feature i:not(:first-child){width:18%;height:42%}
+.ds-template-mini--beauty::before{background:radial-gradient(circle,#7842aa,transparent 70%)}
+.ds-template-mini--home::before{background:radial-gradient(circle,#493184,transparent 70%)}
+.ds-template-mini--offers{background:linear-gradient(110deg,#09080d,#21162f)}
+.ds-template-mini--offers i{height:36%}
+.ds-template-mini--editorial{background:linear-gradient(110deg,#fff1f4,#f8e7d2)}
+.ds-template-mini--editorial i{width:35%;height:12%;align-self:center;background:#e52335}
+.ds-template-mini--grid{background:#fff8f4}
+.ds-template-mini--grid i{background:linear-gradient(180deg,#fff 0 72%,#e52335 73%);outline:1px solid #eadfe0}
+.ds-template-mini--seasonal{background:#252525}
+.ds-template-mini--seasonal i{width:36%;height:35%;align-self:center;background:#e52335}
+.ds-panel .ds-campaign-colors input[type=color]{height:42px;padding:4px}
+.ds-panel .ds-check-label{display:flex;align-items:center;gap:9px;font-weight:650}
+.ds-panel .ds-check-label input[type=checkbox]{width:18px;height:18px;flex:0 0 18px;margin:0;accent-color:#e52335}
 .ds-inline{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .ds-panel-title{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .ds-panel-title h3{margin:0}

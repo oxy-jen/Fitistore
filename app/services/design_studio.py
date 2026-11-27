@@ -30,7 +30,10 @@ MAX_JS = 10_000
 MAX_LOTTIE_BYTES = 300_000
 MAX_PRODUCTS = 30
 MOTION_PRESETS = {"none", "fade", "rise", "scale"}
-TEMPLATE_KEYS = {"editorial", "product-grid", "seasonal", "offers"}
+TEMPLATE_KEYS = {
+    "editorial", "product-grid", "seasonal", "offers",
+    "deal-of-day", "black-friday-feature", "smartphones", "beauty", "home",
+}
 DEFAULT_OFFERS_TEMPLATE = {
     "name": "FityStores offers",
     "title": "Discounted goods",
@@ -257,7 +260,16 @@ SAFE_TAGS = {
     "span", "strong", "ul", "video", "source",
 }
 VOID_TAGS = {"br", "hr", "img", "source"}
-SAFE_ATTRS = {"alt", "aria-hidden", "aria-label", "class", "controls", "data-product-id", "data-studio-action", "data-studio-lottie", "height", "id", "loading", "loop", "muted", "playsinline", "poster", "src", "type", "width", "href"}
+SAFE_ATTRS = {
+    "alt", "aria-hidden", "aria-label", "class", "controls", "data-product-id",
+    "data-studio-action", "data-studio-lottie", "data-template-key",
+    "data-template-brand", "data-template-kicker", "data-template-badge",
+    "data-template-headline", "data-template-highlight", "data-template-copy",
+    "data-template-cta", "data-template-url", "data-template-background",
+    "data-template-accent", "data-template-platform", "data-template-cutouts",
+    "height", "id", "loading", "loop", "muted", "playsinline", "poster",
+    "src", "type", "width", "href",
+}
 
 
 def _safe_url(value, *, image=False):

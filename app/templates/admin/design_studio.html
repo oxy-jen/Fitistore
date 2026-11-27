@@ -25,17 +25,42 @@
         <label>Start (optional, UTC) <input type="datetime-local" name="starts_at" value="{{ editor_defaults.starts_at.strftime('%Y-%m-%dT%H:%M') if design and editor_defaults.starts_at else '' }}"></label>
         <label>End (optional, UTC) <input type="datetime-local" name="expires_at" value="{{ editor_defaults.expires_at.strftime('%Y-%m-%dT%H:%M') if design and editor_defaults.expires_at else '' }}"></label>
         </section>
-        <section class="ds-panel"><h3>Template Library</h3><p>Original FityStores layouts using familiar retail campaign patterns.</p>
+        <section class="ds-panel"><h3>Template Library</h3><p>Choose an editable campaign layout. Product names, images and prices come from the live catalogue; replace the sample copy and colors below.</p>
           <div class="ds-template-list">
-          <button type="button" class="ds-template" data-template="offers"><strong>FityStores offers</strong><span>Start from the current discounted goods section and its live products.</span></button>
-            <button type="button" class="ds-template" data-template="editorial"><strong>Editorial banner</strong><span>Bold offer copy with a calm product story.</span></button>
-            <button type="button" class="ds-template" data-template="product-grid"><strong>Product picks</strong><span>Live catalogue products in a responsive card grid.</span></button>
-            <button type="button" class="ds-template" data-template="seasonal"><strong>Seasonal spotlight</strong><span>Warm color block with a clear shopping action.</span></button>
+            <button type="button" class="ds-template" data-template="deal-of-day" aria-pressed="false"><span class="ds-template-mini ds-template-mini--deal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><strong>Deal of the day</strong><span>Bold campaign copy with a row of products on rounded color plinths.</span></button>
+            <button type="button" class="ds-template" data-template="black-friday-feature" aria-pressed="false"><span class="ds-template-mini ds-template-mini--feature" aria-hidden="true"><i></i><i></i><i></i></span><strong>Featured collection</strong><span>Large left-side offer and an illuminated product showcase.</span></button>
+            <button type="button" class="ds-template" data-template="smartphones" aria-pressed="false"><span class="ds-template-mini ds-template-mini--phones" aria-hidden="true"><i></i><i></i><i></i></span><strong>Smartphones</strong><span>Three product pedestals, price pills, and category-led copy.</span></button>
+            <button type="button" class="ds-template" data-template="beauty" aria-pressed="false"><span class="ds-template-mini ds-template-mini--beauty" aria-hidden="true"><i></i><i></i><i></i></span><strong>Beauty</strong><span>Warm orange and lilac accents with a clean three-product layout.</span></button>
+            <button type="button" class="ds-template" data-template="home" aria-pressed="false"><span class="ds-template-mini ds-template-mini--home" aria-hidden="true"><i></i><i></i><i></i></span><strong>Home</strong><span>Roomy homeware showcase with matching product platforms.</span></button>
+            <button type="button" class="ds-template" data-template="offers" aria-pressed="false"><span class="ds-template-mini ds-template-mini--offers" aria-hidden="true"><i></i><i></i><i></i></span><strong>FityStores offers</strong><span>Start from the current discounted-goods section and its live products.</span></button>
+            <button type="button" class="ds-template" data-template="editorial" aria-pressed="false"><span class="ds-template-mini ds-template-mini--editorial" aria-hidden="true"><i></i></span><strong>Editorial banner</strong><span>Offer copy with a calm product story.</span></button>
+            <button type="button" class="ds-template" data-template="product-grid" aria-pressed="false"><span class="ds-template-mini ds-template-mini--grid" aria-hidden="true"><i></i><i></i><i></i></span><strong>Product picks</strong><span>Live catalogue products in a responsive card grid.</span></button>
+            <button type="button" class="ds-template" data-template="seasonal" aria-pressed="false"><span class="ds-template-mini ds-template-mini--seasonal" aria-hidden="true"><i></i></span><strong>Seasonal spotlight</strong><span>Warm color block with a clear shopping action.</span></button>
           </div>
         </section>
-      <section class="ds-panel"><h3>Live catalogue</h3><p>Current discounted products are selected by default. Change the selection anytime; product cards always use live names, images, prices, and links.</p>
+        <section class="ds-panel" data-campaign-settings hidden><h3>Campaign content and colors</h3>
+          <p>These controls update the preview immediately. Keep product photos on transparent PNG or WebP backgrounds for the clean cutout look; the colored halo and rounded pedestal sit behind the image.</p>
+          <label>Brand line <input type="text" maxlength="60" data-template-brand value="FityStores"></label>
+          <label>Campaign label <input type="text" maxlength="70" data-template-kicker value="Black Friday"></label>
+          <label>Small badge (optional) <input type="text" maxlength="40" data-template-badge value="FEW DAYS LEFT"></label>
+          <label>Main heading <input type="text" maxlength="60" data-template-headline value="Smartphones"></label>
+          <label>Highlighted heading (optional) <input type="text" maxlength="40" data-template-highlight></label>
+          <label>Offer details <textarea rows="2" maxlength="180" data-template-copy>Curated picks for your everyday style.</textarea></label>
+          <div class="ds-inline">
+            <label>Button label <input type="text" maxlength="30" data-template-cta value="Shop now"></label>
+            <label>Button destination <select data-template-url><option value="/shop">Shop</option><option value="/upcoming">Upcoming</option><option value="/cart">Cart</option></select></label>
+          </div>
+          <div class="ds-inline ds-campaign-colors">
+            <label>Backdrop <input type="color" data-template-background value="#241047"></label>
+            <label>Accent <input type="color" data-template-accent value="#ff5c2c"></label>
+            <label>Product pedestal <input type="color" data-template-platform value="#c7a6ff"></label>
+          </div>
+          <label class="ds-check-label"><input type="checkbox" data-template-cutouts checked> Cutout display for transparent product images</label>
+          <small>Only images with real transparency appear as cutouts. Upload transparent PNG/WebP product images in the product catalog; this option keeps the image clear and adds a matching glow and pedestal.</small>
+        </section>
+      <section class="ds-panel"><h3>Live catalogue</h3><p>Current discounted products are selected by default. Choose the products to display; names, images, current prices, sale prices, and links stay synchronized with the catalogue.</p>
           <label>Link active products <select name="product_ids" multiple size="7" data-studio-products>{% for product in products %}<option value="{{ product.id }}">{{ product.name }}{% if product.price_cents is not none %} — {{ money(product.price_cents, settings.currency) }}{% endif %}</option>{% endfor %}</select></label>
-          <small>Select up to 30. The Product picks template places cards at <code>%%FITYSTORES_PRODUCTS%%</code>.</small>
+          <small>Select up to 30. The campaign templates display up to five products for Deal of the Day and three prominent products for the category layouts.</small>
         </section>
       <section class="ds-panel"><h3>Motion Studio</h3><div class="ds-inline"><label>Preset <select name="motion_preset"><option value="none" {% if editor_defaults.motion_preset == 'none' %}selected{% endif %}>None</option><option value="fade" {% if editor_defaults.motion_preset == 'fade' %}selected{% endif %}>Fade in</option><option value="rise" {% if editor_defaults.motion_preset == 'rise' %}selected{% endif %}>Rise in</option><option value="scale" {% if editor_defaults.motion_preset == 'scale' %}selected{% endif %}>Soft scale</option></select></label><label>Duration <input type="number" min="100" max="3000" step="100" value="600" data-motion-duration><small>100–3000 ms</small></label></div><input type="hidden" name="motion_config" value="{{ editor_defaults.motion_config }}" data-motion-config>        <label>Self-contained Lottie JSON <input type="file" accept=".json,application/json" data-studio-lottie-upload></label><textarea name="lottie_json" rows="5" maxlength="300000" spellcheck="false" data-studio-lottie-json>{{ editor_defaults.lottie_json }}</textarea><small>Upload a vector animation or embedded-image Lottie file (up to 300 KB). Add <code>&lt;div data-studio-lottie aria-hidden="true"&gt;&lt;/div&gt;</code> where it should appear. External assets are blocked.</small><p>Built-in motion presets and Lottie respect reduced-motion preferences. Custom JavaScript runs in a separate worker with a hard execution timeout.</p></section>
         <section class="ds-panel"><h3>Asset Manager</h3><p>Use the shared Cloudinary/local media library; image, GIF, and video uploads follow existing media validation. Storefront frames allow local and Cloudinary-hosted media only.</p><input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" data-studio-upload><button type="button" class="btn" data-studio-upload-button>Upload asset</button><button type="button" class="btn" data-studio-load-library>Load existing assets</button><div class="ds-upload-result" data-studio-upload-result aria-live="polite"></div><div class="ds-asset-library" data-studio-library></div><p><a href="{{ url_for('admin.media_showcase_library') }}" target="_blank" rel="noopener">Open full media library</a></p></section>
