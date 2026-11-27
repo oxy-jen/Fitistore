@@ -1886,11 +1886,11 @@ def render_policy_page(slug):
         policy = {
             "title": "Terms and Conditions",
             "description": "How FityStores listings, customer accounts, order requests, payment checks, and fulfilment work.",
-            "updated_on": updated_on,
+            "updated_on": "27 November 2026",
             "notice": "Checkout creates an order request and an inventory hold, not a confirmed sale. Wait for the seller to confirm the items, final total, payment, and fulfilment details.",
             "sections": [
                 ("Who these terms cover", [
-                    "These terms apply when you browse FityStores, create or use a customer account, or submit an order request. Checkout is available to signed-in, verified customer accounts. Give accurate contact and fulfilment details, keep your sign-in credentials private, and contact the store promptly if you think someone else has accessed your account.",
+                    "These terms apply when you browse FityStores, create or use a customer account, or submit an order request. Checkout is available to signed-in, verified customer accounts. Create or access an account with your email and a one-time verification code, or use Google sign-in when available. Never share your code.",
                     "FityStores is the shop name used on this website. Use the Contact page for current ways to reach the store about an account, order, or these terms.",
                 ]),
                 ("Product information, prices, and offers", [

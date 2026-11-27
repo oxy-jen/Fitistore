@@ -1,37 +1,43 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="account-page">
+<!-- From Uiverse.io by Yaya12085 - https://uiverse.io/Yaya12085/ordinary-octopus-24
+MIT License, Copyright (c) https://daisyui.com/ -->
+<section class="account-page fity-login-page">
   <div class="account-intro">
     <p class="eyebrow">FityStores account</p>
-    <h1>Your orders and account details, together.</h1>
-    <p>Sign in to see orders linked to your account and manage your preferences.</p>
+    <h1>Shop first. Sign in in moments.</h1>
+    <p>Enter your email, verify a code, and get back to shopping.</p>
   </div>
-  <div class="account-panel">
-    <h2>Sign in</h2>
-    <p class="account-muted">Use your password, a one-time email code, or Google.</p>
-    <form method="post" action="{{ url_for('customer.login') }}" class="account-form" data-code-loading-form data-loading-message="Checking your sign-in...">
+  <div class="account-panel fity-login-panel">
+    <h2>Continue with email</h2>
+    <p class="fity-login-terms-note">We updated our Terms. Please review them before you continue.</p>
+    <form method="post" action="{{ url_for('customer.email_code_login') }}" class="account-form fity-login-form" data-code-loading-form data-loading-message="Sending your verification code...">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="next" value="{{ next_url }}">
-      <label>Email address<input type="email" name="email" autocomplete="email" required></label>
-      <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
-      <button class="btn primary wide" type="submit">Sign in with password</button>
+      <label class="fity-login-email">Email address<input type="email" name="email" maxlength="254" autocomplete="email" placeholder="you@example.com" required></label>
+      <label class="fity-login-toggle">
+        <span>I agree to the updated <a href="{{ url_for('public.terms') }}">Terms</a> and acknowledge the <a href="{{ url_for('public.privacy_policy') }}">Privacy Notice</a></span>
+        <span class="fity-login-switch"><input type="checkbox" name="accept_terms" value="yes" required><span aria-hidden="true"></span></span>
+      </label>
+      <label class="fity-login-toggle">
+        <span>Send me FityStores offers</span>
+        <span class="fity-login-switch"><input type="checkbox" name="marketing_opt_in" value="yes"><span aria-hidden="true"></span></span>
+      </label>
+      <button class="btn primary wide fity-login-submit" type="submit">Continue</button>
       {% include "partials/verification_code_loader.html" %}
     </form>
-    <p class="account-inline-links"><a href="{{ url_for('customer.forgot_password') }}">Forgot password?</a><span aria-hidden="true">&middot;</span><a href="{{ url_for('customer.register', next=next_url) }}">Create an account</a></p>
-    <div class="account-divider"><span>or use an email code</span></div>
-    <form method="post" action="{{ url_for('customer.email_code_login') }}" class="account-form" data-code-loading-form data-loading-message="Sending your email code...">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="next" value="{{ next_url }}">
-      <label>Email address<input type="email" name="email" autocomplete="email" required></label>
-      <button class="btn wide" type="submit">Email me a sign-in code</button>
-      {% include "partials/verification_code_loader.html" %}
-    </form>
-    <div class="account-divider"><span>or continue with Google</span></div>
+    <div class="account-divider fity-login-divider"><span>or continue with Google</span></div>
     {% if google_client_id %}
-      <label class="check account-consent account-consent-compact"><input type="checkbox" name="accept_terms" value="yes" form="google-signin-form" required> I have read and agree to the <a href="{{ url_for('public.terms') }}">Terms and Conditions</a> and acknowledge the <a href="{{ url_for('public.privacy_policy') }}">Privacy Notice</a>.</label>
-      <small class="account-legal account-consent-note">Password and email-code sign-ins will show the same acknowledgement after successful sign-in when it is needed.</small>
-      <label class="check account-consent account-consent-compact"><input type="checkbox" name="marketing_opt_in" value="yes" form="google-signin-form"> I'd love to receive FityStores promotions, special offers, new arrivals and product updates by email.</label>
-      <small class="account-legal account-consent-note">You can unsubscribe at any time. This choice applies only when creating a new Google account.</small>
+      <div class="fity-login-google-consents">
+        <label class="fity-login-toggle">
+          <span>I agree to the updated <a href="{{ url_for('public.terms') }}">Terms</a> and acknowledge the <a href="{{ url_for('public.privacy_policy') }}">Privacy Notice</a></span>
+          <span class="fity-login-switch"><input type="checkbox" name="accept_terms" value="yes" form="google-signin-form" required><span aria-hidden="true"></span></span>
+        </label>
+        <label class="fity-login-toggle">
+          <span>Send me FityStores offers</span>
+          <span class="fity-login-switch"><input type="checkbox" name="marketing_opt_in" value="yes" form="google-signin-form"><span aria-hidden="true"></span></span>
+        </label>
+      </div>
       <script src="https://accounts.google.com/gsi/client" async defer></script>
       <div id="g_id_onload" data-client_id="{{ google_client_id }}" data-login_uri="{{ google_login_uri }}" data-callback="onGoogleSignIn" data-ux_mode="popup" data-auto_prompt="false"></div>
       <div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline" data-text="continue_with" data-shape="rectangular"></div>
@@ -42,7 +48,7 @@
       </form>
       <script>function onGoogleSignIn(result){const form=document.getElementById("google-signin-form");document.getElementById("google-credential").value=result.credential;form.requestSubmit();}</script>
     {% else %}
-      <p class="account-note">Google sign-in is temporarily unavailable. You can still sign in with your email.</p>
+      <p class="account-note">Google sign-in is temporarily unavailable.</p>
     {% endif %}
   </div>
 </section>

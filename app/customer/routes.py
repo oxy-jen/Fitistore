@@ -14,12 +14,12 @@ from urllib.parse import urlsplit
 from email_validator import EmailNotValidError, validate_email
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_user, logout_user
-from werkzeug.security import check_password_hash, generate_password_hash
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy import select
+from werkzeug.security import generate_password_hash
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy import inspect, select
 
 from app.extensions import db, csrf
-from app.models import AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailMessage, Order, Product, Review
+from app.models import AuthRateLimit, CustomerAccount, CustomerConsentEvent, CustomerOrderLink, CustomerToken, EmailMessage, MarketingSuppressionCase, Order, Product, Review
 from app.services.customer_mail import (
     cleanup_expired_authentication_payloads, dispatch_authentication_email_now,
     dispatch_transactional_email_now, mail_configuration_status, queue_branded_email,
@@ -28,9 +28,9 @@ from app.services.product_images import product_display_image, product_image_alt
 
 customer_bp = Blueprint("customer", __name__, url_prefix="/account")
 CONSENT_TEXT_VERSION = "2026-10-explicit-registration-opt-in"
-REGISTRATION_CONSENT_TEXT_VERSION = "2026-11-registration-email-marketing-consent-v1"
+REGISTRATION_CONSENT_TEXT_VERSION = "2026-11-email-first-marketing-consent-v1"
 WELCOME_INVITATION_CONSENT_VERSION = "2026-11-welcome-invitation-email-marketing-v1"
-TERMS_ACCEPTANCE_VERSION = "2026-11-customer-terms-acknowledgement-v1"
+TERMS_ACCEPTANCE_VERSION = "2026-11-customer-terms-acknowledgement-v2"
 WELCOME_OPT_IN_PURPOSE = "welcome_opt_in"
 logger = logging.getLogger(__name__)
 _AUTH_PAYLOAD_CLEANUP_LOCK = Lock()
@@ -89,7 +89,7 @@ def _login_and_continue(account, next_url=None):
 
 
 def _public_url(endpoint, **values):
-    path = url_for(endpoint, **values)
+    path = url_for(endpoint, _external=False, **values)
     base = (current_app.config.get("PUBLIC_BASE_URL") or "https://fitystore.top").strip().rstrip("/")
     parsed = urlsplit(base)
     if parsed.scheme.lower() != "https" or not parsed.netloc or parsed.path or parsed.query or parsed.fragment:
@@ -149,45 +149,6 @@ def _delivery_message(result, label="verification"):
     if status == "failed":
         return f"We couldn’t send your {label} email. Please try again in a moment."
     return f"We couldn’t prepare your {label} email. Please try again shortly."
-
-
-def _registration_message(result):
-    status = getattr(result, "status", "")
-    if status == "sent":
-        return (
-            "Your account was created successfully. The provider accepted your verification email, "
-            "but inbox delivery is not confirmed. Once it arrives, verify your email and sign in to shop."
-        )
-    if status == "delivered":
-        return (
-            "Your account was created successfully. The provider confirmed delivery of your verification "
-            "email. Verify your email and sign in to start shopping."
-        )
-    if status == "queued":
-        return (
-            "Your account was created successfully. Your verification email is pending delivery. "
-            "It will be sent when email delivery is available."
-        )
-    category = getattr(result, "error_category", "")
-    if category == "auth_rate_limited":
-        return (
-            "Your account was created successfully. Email delivery is temporarily rate-limited. "
-            "Please wait before signing in to request a fresh verification code."
-        )
-    if category == "auth_delivery_unavailable":
-        return (
-            "Your account was created successfully, but email delivery is currently unavailable. "
-            "Please try signing in later to request a verification code."
-        )
-    if category == "ambiguous_outcome":
-        return (
-            "Your account was created successfully. We couldn't confirm whether the verification email was accepted. "
-            "Please wait a few minutes before signing in to request another code."
-        )
-    return (
-        "Your account was created successfully, but email verification still needs to be completed. "
-        "Sign in with your email and password to request a verification code, or try again later."
-    )
 
 
 def customer_required(view):
@@ -361,18 +322,32 @@ def _start_email_code(account, purpose):
     return dispatch_authentication_email_now(result, account_id=account.id, purpose=purpose)
 
 
-def _begin_code_challenge(account, purpose, next_url=None):
+def _begin_code_challenge(
+    account, purpose, next_url=None, *, accepted_terms_version=None,
+    marketing_opt_in=None, new_customer=False,
+):
     result = _start_email_code(account, purpose)
     if not result or result.status not in {"sent", "queued"}:
         session.pop("pending_customer_id", None)
         session.pop("pending_customer_purpose", None)
         session.pop("pending_customer_next", None)
+        session.pop("pending_customer_terms_version", None)
+        session.pop("pending_customer_marketing_opt_in", None)
+        session.pop("pending_customer_new", None)
         flash(_delivery_message(result, "verification code"), "warning")
         return redirect(url_for("customer.login", next=_safe_customer_next(next_url)))
 
     session["pending_customer_id"] = account.id
     session["pending_customer_purpose"] = purpose
     session["pending_customer_next"] = _safe_customer_next(next_url)
+    if accepted_terms_version:
+        session["pending_customer_terms_version"] = accepted_terms_version
+        session["pending_customer_marketing_opt_in"] = bool(marketing_opt_in)
+        session["pending_customer_new"] = bool(new_customer)
+    else:
+        session.pop("pending_customer_terms_version", None)
+        session.pop("pending_customer_marketing_opt_in", None)
+        session.pop("pending_customer_new", None)
     session.permanent = True
     flash(_delivery_message(result, "verification code"), "success")
     return redirect(url_for("customer.verify_code"))
@@ -405,6 +380,49 @@ def _record_terms_acceptance(account, method):
         account_id=account.id, event="terms_accepted", method=method,
         wording_version=TERMS_ACCEPTANCE_VERSION,
     ))
+
+
+def _marketing_suppression_state(account):
+    if account.marketing_status == "suppressed":
+        return True
+    try:
+        inspector = inspect(db.engine)
+        if not inspector.has_table(MarketingSuppressionCase.__tablename__):
+            logger.error("customer_marketing_opt_in_suppression_schema_unavailable")
+            return None
+        columns = {column["name"] for column in inspector.get_columns(MarketingSuppressionCase.__tablename__)}
+        if not {"account_id", "cleared_at"} <= columns:
+            logger.error("customer_marketing_opt_in_suppression_schema_incomplete")
+            return None
+        return db.session.execute(
+            select(MarketingSuppressionCase.id).where(
+                MarketingSuppressionCase.account_id == account.id,
+                MarketingSuppressionCase.cleared_at.is_(None),
+            ).limit(1)
+        ).first() is not None
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        logger.error(
+            "customer_marketing_opt_in_suppression_check_failed account_id=%s error_type=%s",
+            account.id, type(exc).__name__,
+        )
+        return None
+
+
+def _apply_marketing_opt_in(account, method):
+    if account.marketing_status == "subscribed" and account.marketing_withdrawn_at is None:
+        return
+    suppression_state = _marketing_suppression_state(account)
+    if suppression_state is None:
+        flash("Your account is ready, but we couldn't save the newsletter choice. You can update it later.", "warning")
+        return
+    if suppression_state:
+        flash("Your account is ready, but this address can't receive promotional email.", "warning")
+        return
+    _record_consent(
+        account, "confirmed", method, REGISTRATION_CONSENT_TEXT_VERSION,
+    )
+    db.session.commit()
 
 
 def _send_registration_welcome_email(account):
@@ -526,56 +544,57 @@ def _google_email_authoritative(claims):
 def register():
     next_url = _safe_customer_next(request.values.get("next"))
     if request.method == "POST":
-        if request.form.get("accept_terms") != "yes":
-            flash("Please accept the Terms and Conditions and acknowledge the Privacy Notice to create an account.", "error")
-            return render_template("customer/register.html", title="Create account", next_url=next_url)
-        email_input = request.form.get("email", "")
-        key = email_input.strip().lower()[:254]
-        if not _rate_allowed("register", key):
-            flash("Please wait before trying registration again.", "warning")
-            return render_template("customer/register.html", title="Create account", next_url=next_url)
-        try:
-            email = normalize_email(email_input)
-        except (EmailNotValidError, AttributeError, TypeError):
-            flash("Enter a valid email address.", "error")
-            return render_template("customer/register.html", title="Create account", next_url=next_url)
-        name = request.form.get("display_name", "").strip()[:120]
-        password = request.form.get("password", "")
-        if len(name) < 1 or len(password) < 4 or len(password) > 1024 or password != request.form.get("confirm_password", ""):
-            flash("Enter your name and a matching password between 4 and 1024 characters.", "error")
-            return render_template("customer/register.html", title="Create account", next_url=next_url)
-        if CustomerAccount.query.filter_by(email=email).first():
-            flash("If this address can be registered, we will send the next steps to it.", "info")
-            return redirect(url_for("customer.login", next=next_url))
-        account = CustomerAccount(email=email, display_name=name, password_hash=generate_password_hash(password))
+        flash("Use the email sign-in form to create or access your account.", "info")
+    return redirect(url_for("customer.login", next=next_url))
+
+
+def _start_email_code_login():
+    email_input = request.form.get("email", "").strip()
+    next_url = _safe_customer_next(request.form.get("next"))
+    if request.form.get("accept_terms") != "yes":
+        flash("Please accept the updated Terms and Conditions to continue.", "error")
+        return redirect(url_for("customer.login", next=next_url))
+    if not _rate_allowed("email_code_request", email_input.lower()[:254], limit=4, window_minutes=15):
+        flash("Too many code requests. Please wait before trying again.", "warning")
+        return redirect(url_for("customer.login", next=next_url))
+    try:
+        email = normalize_email(email_input)
+    except (EmailNotValidError, AttributeError, TypeError):
+        flash("Enter a valid email address.", "error")
+        return redirect(url_for("customer.login", next=next_url))
+
+    account = CustomerAccount.query.filter_by(email=email).first()
+    created_account = False
+    if account and not account.active:
+        flash("If this address can sign in, we'll send a verification code.", "info")
+        return redirect(url_for("customer.login", next=next_url))
+    if not account:
+        account = CustomerAccount(email=email, display_name="")
         db.session.add(account)
         try:
             db.session.flush()
+            created_account = True
         except IntegrityError:
             db.session.rollback()
-            flash("If this address can be registered, we will send the next steps to it.", "info")
-            return redirect(url_for("customer.login", next=next_url))
-        _record_terms_acceptance(account, "registration_checkbox")
-        if request.form.get("marketing_opt_in") == "yes":
-            _record_consent(
-                account, "confirmed", "registration_checkbox",
-                REGISTRATION_CONSENT_TEXT_VERSION,
-            )
-        else:
-            _record_consent(
-                account, "declined", "registration_checkbox",
-                REGISTRATION_CONSENT_TEXT_VERSION,
-            )
-        db.session.commit()
-        try:
-            _send_registration_welcome_email(account)
-        except Exception:
-            db.session.rollback()
-            logger.exception("registration_welcome_email_failed account_id=%s", account.id)
-        result = _issue_and_send(account, "verify_email", next_url=next_url)
-        flash(_registration_message(result), "success" if result and result.status in {"sent", "queued"} else "warning")
-        return redirect(url_for("customer.login", next=next_url))
-    return render_template("customer/register.html", title="Create account", next_url=next_url)
+            account = CustomerAccount.query.filter_by(email=email).first()
+            if not account or not account.active:
+                flash("If this address can sign in, we'll send a verification code.", "info")
+                return redirect(url_for("customer.login", next=next_url))
+    new_customer = created_account or (
+        not account.email_verified_at
+        and not _has_current_terms_acceptance(account)
+        and not EmailMessage.query.filter_by(
+            idempotency_key=f"welcome:{account.id}",
+        ).first()
+    )
+
+    purpose = "verify_code" if not account.email_verified_at else "login_code"
+    return _begin_code_challenge(
+        account, purpose, next_url,
+        accepted_terms_version=TERMS_ACCEPTANCE_VERSION,
+        marketing_opt_in=request.form.get("marketing_opt_in") == "yes",
+        new_customer=new_customer,
+    )
 
 
 @customer_bp.route("/login", methods=["GET", "POST"])
@@ -587,19 +606,7 @@ def login():
             return redirect(url_for("customer.accept_terms"))
         return redirect(next_url)
     if request.method == "POST":
-        email_input = request.form.get("email", "").strip().lower()
-        if not _rate_allowed("login", email_input[:254], limit=10):
-            flash("Too many sign-in attempts. Please wait and try again.", "warning")
-        else:
-            account = CustomerAccount.query.filter_by(email=email_input).first()
-            password = request.form.get("password", "")
-            if account and account.active and account.password_hash and check_password_hash(account.password_hash, password):
-                if not account.email_verified_at:
-                    return _begin_code_challenge(account, "verify_code", next_url)
-                if account.two_factor_enabled:
-                    return _begin_code_challenge(account, "login_code", next_url)
-                return _login_and_continue(account, next_url)
-            flash("The email or password was not recognized.", "error")
+        return _start_email_code_login()
     return render_template(
         "customer/login.html",
         title="Sign in to your FityStores account",
@@ -611,17 +618,7 @@ def login():
 
 @customer_bp.post("/email-code")
 def email_code_login():
-    email_input = request.form.get("email", "").strip().lower()
-    next_url = _safe_customer_next(request.form.get("next"))
-    if not _rate_allowed("email_code_request", email_input[:254], limit=4, window_minutes=15):
-        flash("Too many code requests. Please wait before trying again.", "warning")
-        return redirect(url_for("customer.login", next=next_url))
-    account = CustomerAccount.query.filter_by(email=email_input).first()
-    if not account or not account.active:
-        flash("If there's an account for that email, we'll send a sign-in code when email sign-in is available.", "info")
-        return redirect(url_for("customer.login", next=next_url))
-    purpose = "verify_code" if not account.email_verified_at else "login_code"
-    return _begin_code_challenge(account, purpose, next_url)
+    return _start_email_code_login()
 
 
 @customer_bp.route("/verify-code", methods=["GET", "POST"])
@@ -636,6 +633,9 @@ def verify_code():
         session.pop("pending_customer_id", None)
         session.pop("pending_customer_purpose", None)
         session.pop("pending_customer_next", None)
+        session.pop("pending_customer_terms_version", None)
+        session.pop("pending_customer_marketing_opt_in", None)
+        session.pop("pending_customer_new", None)
         flash("This customer account is unavailable. Contact FityStores for help.", "error")
         return redirect(url_for("customer.login"))
     if request.method == "POST":
@@ -654,6 +654,10 @@ def verify_code():
                     flash("That code is incorrect, expired, or already used. Request another code.", "otp-error")
                 else:
                     now = datetime.utcnow()
+                    newly_verified = purpose == "verify_code" and account.email_verified_at is None
+                    accepted_terms_version = session.get("pending_customer_terms_version")
+                    marketing_opt_in = bool(session.get("pending_customer_marketing_opt_in"))
+                    new_customer = bool(session.get("pending_customer_new"))
                     row.used_at = now
                     if purpose == "verify_code":
                         account.email_verified_at = account.email_verified_at or now
@@ -662,10 +666,36 @@ def verify_code():
                             CustomerToken.purpose == "verify_email",
                             CustomerToken.used_at.is_(None),
                         ).update({"used_at": now}, synchronize_session="fetch")
+                    if (
+                        accepted_terms_version == TERMS_ACCEPTANCE_VERSION
+                        and not _has_current_terms_acceptance(account)
+                    ):
+                        _record_terms_acceptance(
+                            account,
+                            "email_code_signup" if new_customer else "email_code_signin",
+                        )
+                    if new_customer and not marketing_opt_in:
+                        _record_consent(
+                            account, "declined", "email_code_signup",
+                            REGISTRATION_CONSENT_TEXT_VERSION,
+                        )
                     db.session.commit()
                     next_url = session.pop("pending_customer_next", None)
                     session.pop("pending_customer_id", None)
                     session.pop("pending_customer_purpose", None)
+                    session.pop("pending_customer_terms_version", None)
+                    session.pop("pending_customer_marketing_opt_in", None)
+                    session.pop("pending_customer_new", None)
+                    if marketing_opt_in:
+                        _apply_marketing_opt_in(account, "email_code_optin")
+                    if newly_verified and not EmailMessage.query.filter_by(
+                        idempotency_key=f"welcome:{account.id}",
+                    ).first():
+                        try:
+                            _send_registration_welcome_email(account)
+                        except Exception:
+                            db.session.rollback()
+                            logger.exception("registration_welcome_email_failed account_id=%s", account.id)
                     response = _login_and_continue(account, next_url)
                     flash("Your email is verified." if purpose == "verify_code" else "You are signed in.", "otp-success")
                     return response
@@ -1177,6 +1207,9 @@ def google_signin():
     if not _google_email_authoritative(claims):
         flash("Use a Google account with a verified Gmail or Google Workspace email address.", "error")
         return redirect(url_for("customer.login", next=next_url))
+    if request.form.get("accept_terms") != "yes":
+        flash("Please accept the updated Terms and Conditions to continue.", "error")
+        return redirect(url_for("customer.login", next=next_url))
     if not _rate_allowed("google", claims["email"], limit=8):
         flash("Too many sign-in attempts for this account. Please wait and try again.", "warning")
         return redirect(url_for("customer.login", next=next_url))
@@ -1185,16 +1218,26 @@ def google_signin():
         if not account.active:
             flash("This customer account is unavailable. Contact FityStores for help.", "error")
             return redirect(url_for("customer.login", next=next_url))
+        if not _has_current_terms_acceptance(account):
+            _record_terms_acceptance(account, "google_signin")
+            db.session.commit()
         if not account.email_verified_at:
-            return _begin_code_challenge(account, "verify_code", next_url)
+            return _begin_code_challenge(
+                account, "verify_code", next_url,
+                accepted_terms_version=TERMS_ACCEPTANCE_VERSION,
+                marketing_opt_in=request.form.get("marketing_opt_in") == "yes",
+            )
         if account.two_factor_enabled:
-            return _begin_code_challenge(account, "login_code", next_url)
+            return _begin_code_challenge(
+                account, "login_code", next_url,
+                accepted_terms_version=TERMS_ACCEPTANCE_VERSION,
+                marketing_opt_in=request.form.get("marketing_opt_in") == "yes",
+            )
+        if request.form.get("marketing_opt_in") == "yes":
+            _apply_marketing_opt_in(account, "google_optin")
         return _login_and_continue(account, next_url)
     if CustomerAccount.query.filter_by(email=claims["email"]).first():
         flash("An account already uses this email. Sign in with its existing method, then link Google from your account.", "warning")
-        return redirect(url_for("customer.login", next=next_url))
-    if request.form.get("accept_terms") != "yes":
-        flash("Please accept the Terms and Conditions and acknowledge the Privacy Notice before creating a Google account.", "error")
         return redirect(url_for("customer.login", next=next_url))
     account = CustomerAccount(
         email=claims["email"], display_name=claims.get("name", ""),

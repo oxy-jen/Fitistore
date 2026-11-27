@@ -3068,51 +3068,92 @@ def app_context(app):
     with app.app_context():
         yield
 
-def _register_customer(client, email="customer@example.com", marketing=False):
-    data = {
-        "display_name": "Test Customer",
-        "email": email,
-        "password": "a-strong-test-password-123",
-        "confirm_password": "a-strong-test-password-123",
-        "accept_terms": "yes",
-    }
-    if marketing:
-        data["marketing_opt_in"] = "yes"
-    return client.post("/account/register", data=data, follow_redirects=True)
+def _email_code_auth(
+    client, email, marketing=False, *, follow_redirects=True,
+    complete_verification=True, provider="brevo", sender=None,
+):
+    import app.customer.routes as customer_routes
+    import app.services.customer_mail as customer_mail
+
+    app = client.application
+    config_keys = (
+        "MAIL_PROVIDER", "BREVO_API_KEY", "MAIL_FROM_VERIFIED",
+        "MAIL_FROM_ADDRESS", "MAIL_SERVER", "MAIL_PORT", "MAIL_USE_TLS",
+        "MAIL_USE_SSL",
+    )
+    old_config = {key: app.config.get(key) for key in config_keys}
+    old_randbelow = customer_routes.randbelow
+    old_mail_status = customer_mail.mail_configuration_status
+    with app.app_context():
+        test_code = f"{(123456 + CustomerToken.query.count()) % 1_000_000:06d}"
+    sender_name = "_send_smtp" if provider == "smtp" else "_send_brevo"
+    old_sender = getattr(customer_mail, sender_name)
+    customer_routes.randbelow = lambda _limit: int(test_code)
+    customer_mail.mail_configuration_status = lambda: (True, "configured")
+    if sender is None:
+        sender = lambda *_args: "test-authentication-provider-id"
+    setattr(customer_mail, sender_name, sender)
+    app.config.update(
+        MAIL_PROVIDER=provider, BREVO_API_KEY="test-brevo-key",
+        MAIL_FROM_VERIFIED=True, MAIL_FROM_ADDRESS="verified@example.test",
+        MAIL_SERVER="smtp.example.test", MAIL_PORT=587,
+        MAIL_USE_TLS=True, MAIL_USE_SSL=False,
+    )
+    try:
+        response = client.post("/account/email-code", data={
+            "email": email,
+            "accept_terms": "yes",
+            "marketing_opt_in": "yes" if marketing else "",
+        })
+    finally:
+        customer_routes.randbelow = old_randbelow
+        customer_mail.mail_configuration_status = old_mail_status
+        setattr(customer_mail, sender_name, old_sender)
+        app.config.update(old_config)
+    if (
+        complete_verification and response.status_code == 302
+        and response.location.endswith("/account/verify-code")
+    ):
+        return client.post(
+            "/account/verify-code", data={"code": test_code},
+            follow_redirects=follow_redirects,
+        )
+    return response
+
+
+def _register_customer(client, email="customer@example.com", marketing=False, **kwargs):
+    response = _email_code_auth(client, email, marketing, **kwargs)
+    client.post("/account/logout", follow_redirects=True)
+    return response
 
 def test_registration_requires_terms_acceptance(client, app):
-    response = client.post("/account/register", data={
-        "display_name": "Test Customer",
+    response = client.post("/account/email-code", data={
         "email": "terms@example.com",
-        "password": "a-strong-test-password-123",
-        "confirm_password": "a-strong-test-password-123",
-    })
+    }, follow_redirects=True)
     assert response.status_code == 200
-    assert b"Please accept the Terms and Conditions" in response.data
+    assert b"Please accept the updated Terms and Conditions" in response.data
     with app.app_context():
         assert CustomerAccount.query.filter_by(email="terms@example.com").count() == 0
         assert EmailMessage.query.filter_by(kind="welcome").count() == 0
 
 
-def test_customer_registration_hashes_password_and_defaults_marketing_off(client, app):
+def test_email_first_signup_creates_verified_account_and_welcomes_once(client, app):
     app.config["MAIL_PROVIDER"] = ""
     response = _register_customer(client)
     assert response.status_code == 200
-    assert b"Your account was created successfully" in response.data
-    assert b"Your verification email is pending delivery" in response.data
+    assert b"Your email is verified" in response.data
     with app.app_context():
         account = CustomerAccount.query.filter_by(email="customer@example.com").one()
-        assert account.password_hash != "a-strong-test-password-123"
-        assert check_password_hash(account.password_hash, "a-strong-test-password-123")
-        assert account.email_verified_at is None
+        assert account.password_hash is None
+        assert account.email_verified_at is not None
         assert account.marketing_status == "none"
-        token = CustomerToken.query.filter_by(account_id=account.id, purpose="verify_email").one()
+        token = CustomerToken.query.filter_by(account_id=account.id, purpose="verify_code").one()
         assert len(token.token_hash) == 64
-        assert EmailMessage.query.filter_by(kind="verify_email").one().status == "queued"
+        assert token.used_at is not None
+        assert EmailMessage.query.filter_by(kind="verify_code").one().status == "sent"
         welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
         assert welcome.status == "queued"
         assert welcome.purpose == "transactional"
-        assert account.display_name in welcome.text_body
         assert "Would you like to hear about our latest offers?" in welcome.text_body
         assert "Yes, I'd love to receive FityStores offers." in welcome.text_body
         invitation = CustomerToken.query.filter_by(
@@ -3122,8 +3163,55 @@ def test_customer_registration_hashes_password_and_defaults_marketing_off(client
         assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="terms_accepted").count() == 1
         assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed").count() == 0
         assert CustomerConsentEvent.query.filter_by(
-            account_id=account.id, event="declined", method="registration_checkbox",
-        ).one().wording_version == "2026-11-registration-email-marketing-consent-v1"
+            account_id=account.id, event="declined", method="email_code_signup",
+        ).one().wording_version == "2026-11-email-first-marketing-consent-v1"
+
+
+def test_email_first_signup_sends_no_welcome_before_code_verification(client, app):
+    response = _email_code_auth(
+        client, "pending-signup@example.com", complete_verification=False,
+    )
+    assert response.status_code == 302
+    assert response.location.endswith("/account/verify-code")
+    with app.app_context():
+        account = CustomerAccount.query.filter_by(email="pending-signup@example.com").one()
+        assert account.email_verified_at is None
+        assert EmailMessage.query.filter_by(kind="welcome", account_id=account.id).count() == 0
+
+    verified = client.post(
+        "/account/verify-code", data={"code": "123456"}, follow_redirects=True,
+    )
+    assert verified.status_code == 200
+    assert b"Your email is verified" in verified.data
+    with app.app_context():
+        account = CustomerAccount.query.filter_by(email="pending-signup@example.com").one()
+        assert account.email_verified_at is not None
+        assert EmailMessage.query.filter_by(kind="welcome", account_id=account.id).count() == 1
+
+
+def test_email_first_signup_retry_preserves_new_customer_consent_state(client, app):
+    app.config["MAIL_PROVIDER"] = ""
+    unavailable = client.post("/account/email-code", data={
+        "email": "signup-retry@example.com",
+        "accept_terms": "yes",
+    })
+    assert unavailable.status_code == 302
+    with app.app_context():
+        account = CustomerAccount.query.filter_by(email="signup-retry@example.com").one()
+        assert account.email_verified_at is None
+        assert CustomerConsentEvent.query.filter_by(account_id=account.id).count() == 0
+
+    _email_code_auth(client, "signup-retry@example.com")
+    with app.app_context():
+        account = CustomerAccount.query.filter_by(email="signup-retry@example.com").one()
+        assert account.email_verified_at is not None
+        assert CustomerConsentEvent.query.filter_by(
+            account_id=account.id, event="terms_accepted", method="email_code_signup",
+        ).count() == 1
+        assert CustomerConsentEvent.query.filter_by(
+            account_id=account.id, event="declined", method="email_code_signup",
+        ).count() == 1
+        assert EmailMessage.query.filter_by(kind="welcome", account_id=account.id).count() == 1
 
 
 def test_email_verification_is_expiring_and_single_use(client, app, app_context):
@@ -3175,13 +3263,13 @@ def test_registration_checkbox_subscribes_immediately_and_unsubscribe_history(cl
     account = CustomerAccount.query.filter_by(email="offers@example.com").one()
     assert account.marketing_status == "subscribed"
     assert account.marketing_consent_at is not None
-    assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed", method="registration_checkbox").count() == 1
+    assert CustomerConsentEvent.query.filter_by(account_id=account.id, event="confirmed", method="email_code_optin").count() == 1
     welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
     assert "Congratulations" in welcome.text_body
     assert "successfully opted in" in welcome.text_body
     assert "Would you like to hear about our latest offers?" not in welcome.text_body
     assert CustomerConsentEvent.query.filter_by(
-        account_id=account.id, event="declined", method="registration_checkbox",
+        account_id=account.id, event="declined", method="email_code_signup",
     ).count() == 0
     account.email_verified_at = datetime.utcnow()
     assert CustomerToken.query.filter_by(account_id=account.id, purpose="marketing_confirm").count() == 0
@@ -3236,7 +3324,9 @@ def test_registration_welcome_is_submitted_directly_and_recovers_after_temporary
 
     monkeypatch.setattr(customer_mail, "mail_configuration_status", lambda: (True, "configured"))
     monkeypatch.setattr(customer_mail, "_send_brevo", fake_brevo)
-    _register_customer(client, email="welcome-retry@example.com")
+    _register_customer(
+        client, email="welcome-retry@example.com", sender=fake_brevo,
+    )
     account = CustomerAccount.query.filter_by(email="welcome-retry@example.com").one()
     welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
 
@@ -3308,8 +3398,11 @@ def test_google_registration_records_explicit_marketing_choice_and_sends_welcome
 
 def test_welcome_invitation_requires_explicit_post_and_is_single_use(client, app, app_context):
     app.config["MAIL_PROVIDER"] = ""
-    _register_customer(client, email="welcome-invitation@example.com")
-    account = CustomerAccount.query.filter_by(email="welcome-invitation@example.com").one()
+    account = CustomerAccount(email="welcome-invitation@example.com", display_name="")
+    db.session.add(account)
+    db.session.commit()
+    import app.customer.routes as customer_routes
+    customer_routes._send_registration_welcome_email(account)
     welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
     match = re.search(
         r"https://fitystore\.top/account/marketing/confirm/([A-Za-z0-9_-]+)",
@@ -3373,10 +3466,7 @@ def test_login_does_not_send_another_welcome_email(client, app, monkeypatch, app
     account = CustomerAccount.query.filter_by(email="welcome-once@example.com").one()
     welcome = EmailMessage.query.filter_by(kind="welcome", account_id=account.id).one()
     assert welcome.status == "sent"
-    client.post("/account/login", data={
-        "email": "welcome-once@example.com",
-        "password": "a-strong-test-password-123",
-    })
+    _email_code_auth(client, "welcome-once@example.com")
     assert EmailMessage.query.filter_by(kind="welcome", account_id=account.id).count() == 1
     assert len([item for item in sends if item[1] == "Welcome to FityStores"]) == 1
 
@@ -4737,7 +4827,8 @@ def test_customer_orders_are_account_scoped_and_admin_is_not_customer(client, ap
     db.session.flush()
     db.session.add_all([CustomerOrderLink(account_id=first.id, order_id=order1.id), CustomerOrderLink(account_id=second.id, order_id=order2.id)])
     db.session.commit()
-    response = client.post("/account/login", data={"email": first.email, "password": "a-strong-test-password-123"}, follow_redirects=True)
+    sign_in_verified_customer(client, first.email)
+    response = client.get("/account/", follow_redirects=True)
     assert response.status_code == 200
     assert b"FITY-ACCOUNT-1" in response.data
     assert b"FITY-ACCOUNT-2" not in response.data
@@ -4757,7 +4848,7 @@ def test_customer_dashboard_activity_uses_owned_order_history_without_internal_n
         new_value="Ready for collection", note="Internal stockroom note: keep private",
     ))
     db.session.commit()
-    sign_in_verified_customer(client, account.email)
+    _email_code_auth(client, account.email)
 
     response = client.get("/account/")
     assert response.status_code == 200
@@ -4777,9 +4868,9 @@ def test_customer_profile_menu_and_remembered_session(client, app, app_context):
     db.session.commit()
     accept_current_terms_for_test(account)
 
-    signed_in = client.post("/account/login", data={
-        "email": account.email, "password": "a-strong-test-password-123",
-    }, follow_redirects=False)
+    signed_in = _email_code_auth(
+        client, account.email, follow_redirects=False,
+    )
     assert signed_in.status_code == 302
     cookies = signed_in.headers.getlist("Set-Cookie")
     assert any(cookie.startswith("remember_token=") and "Expires=" in cookie for cookie in cookies), cookies
@@ -4838,7 +4929,8 @@ def test_checkout_redirect_preserves_checkout_return_for_login_and_registration(
     assert response.headers["Location"].endswith("/account/login?next=/checkout")
     login = client.get(response.headers["Location"])
     assert b'name="next" value="/checkout"' in login.data
-    assert b"/account/register?next=/checkout" in login.data
+    assert b'action="/account/email-code"' in login.data
+    assert b'name="email"' in login.data
 
 
 def test_google_signin_uses_mocked_verified_sub_and_refuses_unsafe_link(client, app, monkeypatch, app_context):
@@ -5441,7 +5533,7 @@ def test_customer_email_migration_refuses_sqlite_on_render(app, monkeypatch):
 
 def test_customer_auth_forms_keep_csrf_protection(client, app):
     app.config["WTF_CSRF_ENABLED"] = True
-    response = client.post("/account/register", data={"email": "csrf@example.com"})
+    response = client.post("/account/email-code", data={"email": "csrf@example.com"})
     assert response.status_code == 400
 
 
@@ -5451,8 +5543,8 @@ def test_verification_code_page_has_six_inputs_and_requested_loader(client, app)
     assert b"verification-code-loader.css" in login_response.data
     assert b"verification-code-loader.js" in login_response.data
     assert b"otp-code-ui-20261127-v1" in login_response.data
-    assert login_response.data.count(b'data-code-loader') == 2
-    assert b"Sending your email code..." in login_response.data
+    assert login_response.data.count(b'data-code-loader') == 1
+    assert b"Sending your verification code..." in login_response.data
 
     with app.app_context():
         account = CustomerAccount(email="verification-loader@example.test", display_name="Loader test")
@@ -5558,7 +5650,7 @@ def test_checkout_requires_verified_account_and_links_order_to_it(client, app_co
     db.session.add(account)
     db.session.commit()
     accept_current_terms_for_test(account)
-    assert client.post("/account/login", data={"email": account.email, "password": "a-strong-test-password-123"}, follow_redirects=True).status_code == 200
+    _email_code_auth(client, account.email)
     app.config.update({
         "MAIL_PROVIDER": "brevo",
         "MAIL_FROM_ADDRESS": "orders@fitystore.top",
@@ -6431,7 +6523,9 @@ def test_payment_confirmation_email_requires_paid_order(client, app_context, app
     assert EmailMessage.query.filter_by(idempotency_key="verified-payment-event").one().status == "queued"
 
 
-def test_registration_shows_honest_email_delivery_status_and_public_url(client, app, monkeypatch):
+def test_email_code_delivery_reports_provider_acceptance_without_claiming_inbox_delivery(
+    client, app, monkeypatch,
+):
     import app.services.customer_mail as customer_mail
     app.config.update(
         MAIL_PROVIDER="smtp", MAIL_FROM_VERIFIED=True,
@@ -6439,21 +6533,23 @@ def test_registration_shows_honest_email_delivery_status_and_public_url(client, 
         MAIL_USE_TLS=True, MAIL_USE_SSL=False, PUBLIC_BASE_URL="https://fitystore.top",
     )
     sent = []
-    monkeypatch.setattr(customer_mail, "_send_smtp", lambda recipient, subject, html, text: sent.append(text))
-    response = _register_customer(client, email="mail-status@example.com")
+    monkeypatch.setattr(
+        customer_mail, "_send_smtp",
+        lambda recipient, subject, html, text: sent.append((subject, text)),
+    )
+    response = _register_customer(
+        client, email="mail-status@example.com", provider="smtp",
+        sender=lambda recipient, subject, html, text: sent.append((subject, text)),
+    )
     assert response.status_code == 200
-    assert b"Your account was created successfully" in response.data
-    assert b"The provider accepted your verification email" in response.data
-    assert b"inbox delivery is not confirmed" in response.data
+    assert b"Your email is verified" in response.data
+    assert b"The provider accepted your verification code" in response.data
+    assert b"Inbox delivery is not confirmed" in response.data
     assert len(sent) == 2
-    verification_bodies = [body for body in sent if "account/verify/" in body]
-    assert verification_bodies
-    assert "https://fitystore.top/account/verify/" in verification_bodies[0]
+    code_bodies = [body for subject, body in sent if "verification code" in subject.lower()]
+    assert code_bodies and "123456" in code_bodies[0]
     with app.app_context():
-        customer_mail.process_email_queue(limit=5)
-    assert len(sent) == 2
-    with app.app_context():
-        row = EmailMessage.query.filter_by(kind="verify_email").one()
+        row = EmailMessage.query.filter_by(kind="verify_code").one()
         assert row.status == "sent"
         welcome = EmailMessage.query.filter_by(kind="welcome").one()
         assert welcome.status == "sent"
@@ -7055,7 +7151,7 @@ def test_customer_cart_snapshot_requires_verified_account_and_tracks_episode(cli
     account=CustomerAccount(email="cart-owner@example.com",display_name="Cart Owner",password_hash=generate_password_hash("a-strong-test-password-123"),email_verified_at=datetime.utcnow(),marketing_status="subscribed",marketing_consent_at=datetime.utcnow())
     db.session.add(account);db.session.commit()
     accept_current_terms_for_test(account)
-    assert client.post("/account/login",data={"email":account.email,"password":"a-strong-test-password-123"}).status_code==302
+    _email_code_auth(client, account.email)
     response=client.post("/api/cart/snapshot",json={"items":[{"product_id":1,"quantity":2}]})
     assert response.status_code==200 and response.get_json()["ok"]
     cart=CustomerCart.query.filter_by(account_id=account.id).one()

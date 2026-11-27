@@ -1,0 +1,29 @@
+/* From Uiverse.io by Yaya12085 - https://uiverse.io/Yaya12085/ordinary-octopus-24
+MIT License, Copyright (c) https://daisyui.com/ */
+.fity-login-page{max-width:980px;grid-template-columns:minmax(0,1fr) minmax(340px,440px);gap:clamp(1rem,4vw,3rem)}
+.fity-login-page .account-intro h1{max-width:10ch}
+.fity-login-panel{padding:clamp(1.1rem,3vw,2rem)}
+.fity-login-panel h2{margin-bottom:.55rem}
+.fity-login-terms-note{margin:.25rem 0 1rem;color:var(--muted);font-size:.83rem;line-height:1.45}
+.fity-login-terms-note:before{content:"";display:inline-block;width:.55rem;height:.55rem;margin-right:.45rem;border-radius:50%;background:var(--red)}
+.fity-login-form{max-width:none;margin:.5rem 0}
+.fity-login-email{display:grid;gap:.45rem;margin:.75rem 0 1rem;font-size:.88rem;font-weight:750}
+.fity-login-email input{box-sizing:border-box;width:100%;min-height:48px;padding:.75rem .9rem;border:1px solid #d5d8de;border-radius:11px;background:#fff;color:#252525;font:inherit}
+.fity-login-email input:focus{border-color:var(--red);outline:2px solid rgba(229,35,53,.24);outline-offset:1px}
+.fity-login-toggle{display:flex!important;align-items:center;justify-content:space-between;gap:.8rem;margin:.5rem 0!important;padding:.65rem .15rem;font-size:.83rem!important;font-weight:600!important;line-height:1.4}
+.fity-login-toggle a{color:var(--red);text-underline-offset:2px}
+.fity-login-switch{position:relative;display:inline-flex;flex:0 0 48px;align-items:center;width:48px;height:26px}
+.fity-login-switch input{position:absolute;z-index:1;inset:0;width:48px;height:26px;margin:0;opacity:0;cursor:pointer}
+.fity-login-switch>span{position:relative;display:block;width:48px;height:26px;border:1px solid #cbd0d7;border-radius:999px;background:#fff;transition:background-color .2s,border-color .2s}
+.fity-login-switch>span:after{position:absolute;top:4px;left:4px;width:16px;height:16px;border-radius:50%;background:#aab0b9;content:"";transition:transform .2s,background-color .2s}
+.fity-login-switch input:checked+span{border-color:var(--red);background:var(--red)}
+.fity-login-switch input:checked+span:after{transform:translateX(22px);background:#fff}
+.fity-login-switch input:focus-visible+span{outline:2px solid #222;outline-offset:3px}
+.fity-login-submit{margin-top:.75rem;min-height:48px;border-radius:11px;font-weight:800;letter-spacing:.02em;transition:filter .2s,transform .2s}
+.fity-login-submit:hover{filter:brightness(.92)}
+.fity-login-submit:active{transform:scale(.98)}
+.fity-login-divider{margin:1.25rem 0}
+.fity-login-google-consents{margin:.25rem 0 .75rem;padding:.35rem .7rem;border:1px solid var(--border-subtle);border-radius:12px;background:#fafafa}
+.fity-login-panel .g_id_signin{display:flex;justify-content:center;min-height:42px}
+@media(max-width:760px){.fity-login-page{grid-template-columns:1fr;gap:.4rem}.fity-login-page .account-intro h1{max-width:14ch}.fity-login-panel{width:100%;box-sizing:border-box}}
+@media(prefers-reduced-motion:reduce){.fity-login-switch>span,.fity-login-switch>span:after,.fity-login-submit{transition:none}}
