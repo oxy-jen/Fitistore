@@ -1228,6 +1228,13 @@ def _process_email_queue_batch(*, limit: int = 50, now: datetime | None = None,
             EmailMessage.status.in_(("queued", "failed")), EmailMessage.kind == kind,
             EmailMessage.created_at <= now - ttl,
         )
+        if kind == "verify_code":
+            expiry_query = expiry_query.where(
+                or_(
+                    EmailMessage.error_category.is_(None),
+                    EmailMessage.error_category != "expired_auth_payload",
+                )
+            )
         if required_purpose is not None:
             expiry_query = expiry_query.where(EmailMessage.purpose == required_purpose)
         expired_result = db.session.execute(expiry_query.values(
