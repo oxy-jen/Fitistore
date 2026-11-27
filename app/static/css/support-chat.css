@@ -6,27 +6,33 @@
 }
 
 .fity-support {
+  --support-launcher-bottom: max(20px, env(safe-area-inset-bottom));
+  --support-launcher-size: 58px;
+  --support-panel-gap: 13px;
   --support-red: #e52335;
   --support-ink: #171717;
   --support-muted: #707070;
   --support-line: #e8e8e8;
   --support-soft: #f7f7f7;
   position: relative;
-  z-index: 1200;
+  z-index: 1300;
   font-family: inherit;
 }
 
 .fity-support-launcher {
   position: fixed;
-  right: max(20px, env(safe-area-inset-right));
-  bottom: max(20px, env(safe-area-inset-bottom));
-  display: grid;
-  width: 58px;
-  height: 58px;
-  place-items: center;
-  padding: 0;
+  right: var(--support-launcher-right, max(20px, env(safe-area-inset-right)));
+  left: var(--support-launcher-left, auto);
+  bottom: var(--support-launcher-bottom);
+  display: flex;
+  min-width: var(--support-launcher-size);
+  height: var(--support-launcher-size);
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 999px;
   color: #fff;
   background-color: var(--support-red);
   background-image: linear-gradient(147deg, #f34150, #171717 54%, #e52335);
@@ -34,6 +40,10 @@
   background-position: left;
   box-shadow: 0 8px 25px rgba(0, 0, 0, .24);
   cursor: pointer;
+  font: inherit;
+  font-size: .84rem;
+  font-weight: 800;
+  white-space: nowrap;
   transition: background-position .6s ease, transform .2s ease, box-shadow .2s ease;
 }
 
@@ -52,8 +62,9 @@
 }
 
 .fity-support-launcher svg {
-  width: 29px;
-  height: 29px;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
   fill: currentColor;
 }
 
@@ -84,12 +95,13 @@
 
 .fity-support-panel {
   position: fixed;
-  right: max(20px, env(safe-area-inset-right));
-  bottom: max(91px, calc(env(safe-area-inset-bottom) + 91px));
+  right: var(--support-panel-right, max(20px, env(safe-area-inset-right)));
+  left: var(--support-panel-left, auto);
+  bottom: calc(var(--support-launcher-bottom) + var(--support-launcher-size) + var(--support-panel-gap));
   display: flex;
   width: min(390px, calc(100vw - 28px));
-  max-height: min(620px, calc(100dvh - 120px));
-  min-height: 390px;
+  max-height: min(620px, calc(100dvh - var(--support-launcher-bottom) - var(--support-launcher-size) - var(--support-panel-gap) - 16px));
+  min-height: min(390px, calc(100dvh - var(--support-launcher-bottom) - var(--support-launcher-size) - var(--support-panel-gap) - 16px));
   flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, .08);
@@ -695,19 +707,20 @@
 }
 
 @media (max-width: 720px) {
+  .fity-support {
+    --support-launcher-bottom: max(16px, env(safe-area-inset-bottom));
+    --support-launcher-size: 54px;
+    --support-panel-gap: 12px;
+  }
+
   .fity-support-panel {
     right: 12px;
-    bottom: max(82px, calc(env(safe-area-inset-bottom) + 82px));
-    width: calc(100vw - 24px);
-    max-height: min(650px, calc(100dvh - 105px));
-    min-height: min(440px, calc(100dvh - 105px));
   }
 
   .fity-support-launcher {
-    right: 16px;
-    bottom: max(16px, env(safe-area-inset-bottom));
-    width: 54px;
-    height: 54px;
+    right: var(--support-launcher-right, 16px);
+    left: var(--support-launcher-left, auto);
+    padding: 0 14px;
   }
 
   .support-admin-heading {

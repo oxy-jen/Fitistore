@@ -224,6 +224,7 @@ def test_support_launcher_is_present_on_storefront_only(support_client):
     assert storefront.status_code == 200
     assert b"data-support-widget" in storefront.data
     assert b"data-support-launcher" in storefront.data
+    assert b'<span class="fity-support-label">Chat</span>' in storefront.data
     assert b"support-chat.js" in storefront.data
     assert b"support-admin.js" not in storefront.data
 

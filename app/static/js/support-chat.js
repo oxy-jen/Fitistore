@@ -22,6 +22,7 @@
   const loaderMessage = root.querySelector('[data-support-loader-message]');
   const restartButton = root.querySelector('[data-support-restart]');
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+  const cookieNotice = document.querySelector('[data-cookie-notice]');
   const topicNames = {
     general: 'General help',
     orders: 'Orders',
@@ -44,6 +45,40 @@
 
   const customerName = root.dataset.supportCustomerName?.trim();
   greeting.textContent = `Hi ${customerName || 'there'}, welcome to FityStores! How can we help you today?`;
+
+  function avoidCookieNoticeOverlap() {
+    root.style.removeProperty('--support-launcher-bottom');
+    root.style.removeProperty('--support-launcher-left');
+    root.style.removeProperty('--support-launcher-right');
+    root.style.removeProperty('--support-panel-left');
+    root.style.removeProperty('--support-panel-right');
+    if (!cookieNotice || !document.body.contains(cookieNotice)) return;
+    const cookieBounds = cookieNotice.getBoundingClientRect();
+    const launcherBounds = launcher.getBoundingClientRect();
+    const overlaps = launcherBounds.right > cookieBounds.left
+      && launcherBounds.left < cookieBounds.right
+      && launcherBounds.bottom > cookieBounds.top
+      && launcherBounds.top < cookieBounds.bottom;
+    if (!overlaps) return;
+    if (cookieBounds.left >= launcherBounds.width + 32) {
+      root.style.setProperty('--support-launcher-left', '16px');
+      root.style.setProperty('--support-launcher-right', 'auto');
+      root.style.setProperty('--support-panel-left', '16px');
+      root.style.setProperty('--support-panel-right', 'auto');
+      return;
+    }
+    root.style.setProperty(
+      '--support-launcher-bottom',
+      `${Math.ceil(window.innerHeight - cookieBounds.top + 12)}px`,
+    );
+  }
+
+  window.addEventListener('resize', avoidCookieNoticeOverlap, { passive: true });
+  if (cookieNotice) {
+    new MutationObserver(avoidCookieNoticeOverlap).observe(document.body, { childList: true });
+    window.addEventListener('load', avoidCookieNoticeOverlap, { once: true });
+    window.requestAnimationFrame(avoidCookieNoticeOverlap);
+  }
 
   async function request(url, options = {}) {
     const response = await fetch(url, {
@@ -339,6 +374,7 @@
   window.setInterval(() => {
     if (!panel.hidden) refreshPresence();
   }, 30000);
+  avoidCookieNoticeOverlap();
   refreshPresence();
   restoreConversation();
 })();
