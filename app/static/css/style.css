@@ -1371,3 +1371,17 @@ body:has(.about-page) .site-header .nav a[href*="about"]{color:#dc2626;border-bo
 .product-image-crop-profile .btn{justify-self:start;min-height:34px;padding:.35rem .6rem;font-size:.74rem}
 .product-image-crop-editor>.note{margin:.65rem 0 0;padding:0}
 @media(max-width:650px){.product-image-manager-item{grid-template-columns:82px minmax(0,1fr)!important}.product-image-crop-editor{padding:.55rem}.product-image-crop-preview-stage.is-shop .shop-page{width:340px}.product-image-crop-preview-stage.is-featured .featured-showcase,.product-image-crop-preview-stage.is-offers .promo-showcase{width:270px}}
+
+/* Verification result cards remain styled after authentication redirects. */
+.fity-otp-feedback{position:relative;display:flex;align-items:center;gap:.85rem;box-sizing:border-box;width:calc(100% - 2rem);max-width:560px;min-height:78px;margin:.85rem auto;padding:.85rem 1rem;overflow:hidden;border:1px solid #d5e9d8;border-left:4px solid #269b24;border-radius:10px;background:#fff;box-shadow:rgba(60,75,65,.12) 0 8px 24px;transition:transform .2s ease,background-color .2s ease}
+.fity-otp-feedback:hover{transform:scale(1.01)}
+.fity-otp-feedback--error{border-color:#f0d2d0;border-left-color:#c62828;background:#fffafa}
+.fity-otp-feedback__wave{position:absolute;top:24px;left:-34px;width:82px;transform:rotate(90deg);opacity:.14}
+.fity-otp-feedback__icon{z-index:1;display:flex;flex:0 0 36px;align-items:center;justify-content:center;width:36px;height:36px;margin-left:.2rem;border-radius:50%;background:rgba(38,155,36,.12);color:#269b24}
+.fity-otp-feedback--error .fity-otp-feedback__icon{background:rgba(198,40,40,.1);color:#c62828}
+.fity-otp-feedback__icon svg{width:20px;height:20px;fill:currentColor}
+.fity-otp-feedback__text{z-index:1;display:grid;gap:.18rem;color:#38433a;text-align:left}
+.fity-otp-feedback__text strong{color:#237b21;font-size:.96rem}
+.fity-otp-feedback--error .fity-otp-feedback__text strong{color:#a71f1f}
+.fity-otp-feedback__text span{font-size:.86rem;line-height:1.45}
+@media(prefers-reduced-motion:reduce){.fity-otp-feedback{transition:none}.fity-otp-feedback:hover{transform:none}}

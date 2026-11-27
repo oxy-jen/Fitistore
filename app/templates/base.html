@@ -35,9 +35,9 @@
   <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/mainLogo-160.png') }}">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/pwa/apple-touch-icon.png') }}">
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=product-card-preview-20261127-v1">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=otp-feedback-20261127-v1">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}?v=product-gallery-purchase-dock-20261126-v2">
-{% if request.endpoint in ['customer.login', 'customer.verify_code'] %}<link rel="stylesheet" href="{{ url_for('static', filename='css/verification-code-loader.css') }}?v=verification-loader-v1">{% endif %}
+{% if request.endpoint in ['customer.login', 'customer.verify_code'] %}<link rel="stylesheet" href="{{ url_for('static', filename='css/verification-code-loader.css') }}?v=otp-code-ui-20261127-v1">{% endif %}
 {% if request.endpoint == 'public.shop' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/shop-page.css') }}?v=per-category-inline-sort-20261125">{% endif %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/media-showcases.css') }}?v=media-showcase-lazy-video-v3">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/pwa.css') }}?v=pwa-install-v1">
@@ -56,7 +56,7 @@
   <script defer src="{{ url_for('static', filename='js/nav-overflow.js') }}?v=responsive-nav-overflow-20261125"></script>
   <script defer src="{{ url_for('static', filename='js/app.js') }}?v=home-banner-carousel-20261125"></script>
   <script defer src="{{ url_for('static', filename='js/pwa-install.js') }}?v=pwa-install-v1"></script>
-  {% if request.endpoint in ['customer.login', 'customer.verify_code'] %}<script defer src="{{ url_for('static', filename='js/verification-code-loader.js') }}?v=verification-loader-v1"></script>{% endif %}
+  {% if request.endpoint in ['customer.login', 'customer.verify_code'] %}<script defer src="{{ url_for('static', filename='js/verification-code-loader.js') }}?v=otp-code-ui-20261127-v1"></script>{% endif %}
   {% if request.endpoint and request.endpoint.startswith('design_studio.') %}<script defer src="{{ url_for('static', filename='js/design-studio-editor.js') }}?v=20261127-card-part-selection-v6"></script>{% endif %}
   {% if design_studio_designs and (design_studio_designs.storefront_banner or design_studio_designs.storefront_section) %}<script defer src="{{ url_for('static', filename='js/design-studio-storefront.js') }}?v=20261126"></script>{% endif %}
 </head>
@@ -119,7 +119,7 @@
 </header>
 <main>
   {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}<div class="flash-wrap">{% for category, message in messages %}<p class="flash {{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+    {% if messages %}<div class="flash-wrap">{% for category, message in messages %}{% if category in ['otp-success', 'otp-error'] %}{% include "partials/otp_feedback.html" %}{% else %}<p class="flash {{ category }}">{{ message }}</p>{% endif %}{% endfor %}</div>{% endif %}
   {% endwith %}
   {% if design_studio_designs.storefront_banner %}<div class="ds-storefront-placements ds-storefront-top" aria-label="Store promotions">{% for design in design_studio_designs.storefront_banner %}<iframe title="{{ design.title or design.name }}" sandbox="allow-scripts" src="{{ url_for('design_public.public_frame', design_id=design.id) }}" data-fity-studio-frame data-products="{{ product_api_data(design)|tojson|forceescape }}" loading="lazy"></iframe>{% endfor %}</div>{% endif %}
   {% block content %}{% endblock %}

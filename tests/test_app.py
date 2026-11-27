@@ -5428,11 +5428,12 @@ def test_customer_auth_forms_keep_csrf_protection(client, app):
     assert response.status_code == 400
 
 
-def test_verification_loader_is_attached_to_code_send_and_verify_forms(client, app):
+def test_verification_code_page_has_six_inputs_and_requested_loader(client, app):
     login_response = client.get("/account/login")
     assert login_response.status_code == 200
     assert b"verification-code-loader.css" in login_response.data
     assert b"verification-code-loader.js" in login_response.data
+    assert b"otp-code-ui-20261127-v1" in login_response.data
     assert login_response.data.count(b'data-code-loader') == 2
     assert b"Sending your email code..." in login_response.data
 
@@ -5450,6 +5451,81 @@ def test_verification_loader_is_attached_to_code_send_and_verify_forms(client, a
     assert verify_response.data.count(b'data-code-loader') == 2
     assert b"Checking your verification code..." in verify_response.data
     assert b"Sending a new verification code..." in verify_response.data
+    assert verify_response.data.count(b'class="qf-otp-input__digit"') == 6
+    assert b'role="group" aria-label="6-digit verification code"' in verify_response.data
+    assert b'data-otp-form' in verify_response.data
+    assert verify_response.data.count(b'class="fity-otp-loader__dot"') == 10
+
+
+def test_verify_code_accepts_digit_fields_and_shows_success_card(client, app):
+    from werkzeug.datastructures import MultiDict
+
+    code = "048291"
+    with app.app_context():
+        account = CustomerAccount(email="otp-success@example.test", display_name="OTP success")
+        db.session.add(account)
+        db.session.flush()
+        token = CustomerToken(
+            account_id=account.id,
+            purpose="verify_code",
+            token_hash=hashlib.sha256(code.encode()).hexdigest(),
+            expires_at=datetime.utcnow() + timedelta(minutes=10),
+        )
+        db.session.add(token)
+        db.session.commit()
+        account_id = account.id
+        token_id = token.id
+    with client.session_transaction() as browser_session:
+        browser_session["pending_customer_id"] = account_id
+        browser_session["pending_customer_purpose"] = "verify_code"
+
+    response = client.post(
+        "/account/verify-code",
+        data=MultiDict([("code_digit", digit) for digit in code]),
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"fity-otp-feedback--success" in response.data
+    assert b"otp-feedback-20261127-v1" in response.data
+    assert b"Your email is verified." in response.data
+    with app.app_context():
+        account = db.session.get(CustomerAccount, account_id)
+        token = db.session.get(CustomerToken, token_id)
+        assert account.email_verified_at is not None
+        assert token.used_at is not None
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_verify_code_wrong_or_expired_shows_error_card(client, app, expired):
+    from datetime import timedelta
+
+    code = "048291"
+    with app.app_context():
+        account = CustomerAccount(email=f"otp-error-{expired}@example.test", display_name="OTP error")
+        db.session.add(account)
+        db.session.flush()
+        if expired:
+            db.session.add(CustomerToken(
+                account_id=account.id,
+                purpose="verify_code",
+                token_hash=hashlib.sha256(code.encode()).hexdigest(),
+                expires_at=datetime.utcnow() - timedelta(seconds=1),
+            ))
+        db.session.commit()
+        account_id = account.id
+    with client.session_transaction() as browser_session:
+        browser_session["pending_customer_id"] = account_id
+        browser_session["pending_customer_purpose"] = "verify_code"
+
+    response = client.post(
+        "/account/verify-code",
+        data={"code": code if expired else "000000"},
+    )
+
+    assert response.status_code == 200
+    assert b"fity-otp-feedback--error" in response.data
+    assert b"That code is incorrect, expired, or already used." in response.data
 
 
 def test_checkout_requires_verified_account_and_links_order_to_it(client, app_context, app, monkeypatch):
@@ -5482,7 +5558,7 @@ def test_checkout_requires_verified_account_and_links_order_to_it(client, app_co
     assert email.provider_message_id == "test-provider-message-id"
 
 
-def test_branded_auth_email_renders_manual_copy_code_and_security_details(app_context):
+def test_branded_auth_email_renders_simple_code_and_security_details(app_context):
     import app.services.customer_mail as customer_mail
 
     for kind in ("verify_code", "login_code"):
@@ -5493,20 +5569,17 @@ def test_branded_auth_email_renders_manual_copy_code_and_security_details(app_co
             security_code="048291",
         )
 
-        assert html_body.count('class="email-code-digit"') == 6
-        for digit in "048291":
-            assert f">{digit}</td>" in html_body
-        assert "Code Requested" in html_body
-        assert "Select code to copy" in html_body
-        assert "Select the six digits above and copy them using your email app." in html_body
-        assert 'bgcolor="#0876ad"' in html_body
+        assert html_body.count('class="email-code-value"') == 1
+        assert ">048291</p>" in html_body
+        assert "Your verification code" in html_body
         assert "This code expires 10 minutes after it was requested." in html_body
-        assert "FityStores will never ask you to email or share this code." in html_body
-        assert '<svg xmlns="http://www.w3.org/2000/svg"' in html_body
+        assert "Never share it with anyone." in html_body
+        assert "Select code to copy" not in html_body
+        assert "email-code-digit" not in html_body
         assert "<script" not in html_body.lower()
         assert "onclick=" not in html_body.lower()
         assert "<button" not in html_body.lower()
-        assert "Your one-time code (select and copy manually):\n048291" in text_body
+        assert "Your one-time code:\n048291" in text_body
 
     for kind, expiry in (
         ("verify_email", "24 hours"),

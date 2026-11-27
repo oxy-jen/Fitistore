@@ -1489,7 +1489,7 @@ def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str
     )
     lines = [heading, ""]
     if security_code:
-        lines.extend(["Your one-time code (select and copy manually):", security_code, ""])
+        lines.extend(["Your one-time code:", security_code, ""])
     if expiration_notice:
         lines.append(expiration_notice)
         lines.append("")

@@ -39,7 +39,6 @@
 
               {% if security_code %}
                 {{ email_code_card(security_code, expiration_notice) }}
-                {{ email_info_card("Keep your code private", "FityStores will never ask you to email or share this code. Enter it only on the FityStores verification screen.", "warning") }}
               {% elif expiration_notice %}
                 {{ email_info_card("Link expiration", expiration_notice, "warning") }}
               {% endif %}

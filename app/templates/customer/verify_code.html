@@ -1,25 +1,51 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="account-page account-page-single">
-  <div class="account-intro">
+<section class="account-page account-page-single fity-otp-page">
+  <div class="account-panel fity-otp-card">
+    <div class="fity-otp-illustration" aria-hidden="true">
+      <svg viewBox="0 0 96 76" role="presentation">
+        <rect x="11" y="23" width="74" height="46" rx="8" fill="#ffffff" stroke="#e6e3f0" stroke-width="2"/>
+        <path d="M13 27 48 53 83 27" fill="none" stroke="#d8d5e3" stroke-width="2"/>
+        <rect x="34" y="8" width="28" height="34" rx="9" fill="#6846ef"/>
+        <path d="m48 15 2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5-3.6-3.5 5-.7L48 15Z" fill="#ffffff"/>
+        <path d="m13 65 25-22m45 22L58 43" fill="none" stroke="#e6e3f0" stroke-width="2"/>
+      </svg>
+    </div>
     <p class="eyebrow">{% if is_verification %}Email verification{% else %}Secure sign-in{% endif %}</p>
-    <h1>{% if is_verification %}Verify your email address.{% else %}Enter your sign-in code.{% endif %}</h1>
-    <p>We sent a six-digit code to <strong>{{ email }}</strong>. It expires in 10 minutes and can only be used once.</p>
-  </div>
-  <div class="account-panel">
-    <h2>Enter your code</h2>
-    <form method="post" class="account-form" data-code-loading-form data-loading-message="{% if is_verification %}Checking your verification code...{% else %}Checking your sign-in code...{% endif %}">
+    <h1>Check verification code</h1>
+    <p class="fity-otp-intro">We've sent a special code to <strong>{{ email }}</strong>. Enter it below to {% if is_verification %}verify your email{% else %}sign in{% endif %}.</p>
+
+    <form method="post" class="account-form fity-otp-form" data-code-loading-form data-otp-form data-loading-message="{% if is_verification %}Checking your verification code...{% else %}Checking your sign-in code...{% endif %}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label>Six-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code" required autofocus></label>
-      <button class="btn primary wide" type="submit">Verify and continue</button>
+      <input type="hidden" name="code" value="" data-otp-code>
+      <div class="qf-otp-input" role="group" aria-label="6-digit verification code">
+        {% for digit_index in range(1, 7) %}
+        <input
+          class="qf-otp-input__digit"
+          type="text"
+          name="code_digit"
+          inputmode="numeric"
+          pattern="[0-9]"
+          maxlength="1"
+          aria-label="Digit {{ digit_index }}"
+          aria-describedby="fity-otp-hint"
+          autocomplete="{% if loop.first %}one-time-code{% else %}off{% endif %}"
+          {% if loop.first %}autofocus{% endif %}
+          required
+          data-otp-digit>
+        {% endfor %}
+      </div>
+      <p class="fity-otp-hint" id="fity-otp-hint">Enter or paste the six-digit code. It will be checked automatically.</p>
+      <button class="fity-otp-submit" type="submit">Verify code</button>
       {% include "partials/verification_code_loader.html" %}
     </form>
+
     <form method="post" action="{{ url_for('customer.resend_email_code') }}" class="account-resend" data-code-loading-form data-loading-message="Sending a new verification code...">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn wide" type="submit">Send a new code</button>
       {% include "partials/verification_code_loader.html" %}
     </form>
-    <p class="account-muted">Check your spam folder if you do not see the message. <a href="{{ url_for('customer.login') }}">Return to sign in</a></p>
+    <p class="account-muted">The code expires in 10 minutes and can only be used once. Check your spam folder if you do not see the message. <a href="{{ url_for('customer.login') }}">Return to sign in</a></p>
   </div>
 </section>
 {% endblock %}

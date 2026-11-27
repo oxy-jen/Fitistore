@@ -324,10 +324,7 @@ def _start_email_code(account, purpose):
     now = datetime.utcnow()
     heading = "Verify your FityStores account" if purpose == "verify_code" else "Your FityStores sign-in code"
     subject = "Your FityStores verification code" if purpose == "verify_code" else "Your FityStores sign-in code"
-    code_copy = (
-        "Enter this code on FityStores within 10 minutes. Select and copy the characters manually. "
-        "Never share it with anyone."
-    )
+    code_copy = "Enter this code on FityStores within 10 minutes. Never share it with anyone."
     try:
         # Challenge replacement and the delivery claim serialize on this row.
         # A prior challenge cannot be dispatched after this transaction wins.
@@ -646,13 +643,15 @@ def verify_code():
             flash("Too many code attempts. Wait 15 minutes before trying again.", "warning")
         else:
             code = request.form.get("code", "").strip()
+            if not code:
+                code = "".join(request.form.getlist("code_digit")).strip()
             if not re.fullmatch(r"[0-9]{6}", code):
-                flash("Enter the six-digit code from your email.", "error")
+                flash("Enter the six-digit code from your email.", "otp-error")
             else:
                 digest = hashlib.sha256(code.encode()).hexdigest()
                 row = CustomerToken.query.filter_by(account_id=account.id, purpose=purpose, token_hash=digest, used_at=None).first()
                 if not row or row.expires_at <= datetime.utcnow():
-                    flash("That code is incorrect, expired, or already used. Request another code.", "error")
+                    flash("That code is incorrect, expired, or already used. Request another code.", "otp-error")
                 else:
                     now = datetime.utcnow()
                     row.used_at = now
@@ -668,7 +667,7 @@ def verify_code():
                     session.pop("pending_customer_id", None)
                     session.pop("pending_customer_purpose", None)
                     response = _login_and_continue(account, next_url)
-                    flash("Your email is verified." if purpose == "verify_code" else "You are signed in.", "success")
+                    flash("Your email is verified." if purpose == "verify_code" else "You are signed in.", "otp-success")
                     return response
         db.session.commit()
     return render_template(
