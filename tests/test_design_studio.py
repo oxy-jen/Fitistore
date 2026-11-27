@@ -291,6 +291,9 @@ def test_editor_prefills_all_active_discounted_catalogue_products(app, client):
     assert editor.data.count(b'data-discount-percent="50"') == 10
     assert b'data-discount-percent="20"' in editor.data
     assert b'data-current-price="KSh 80"' in editor.data
+    assert b'data-studio-card-builder' in editor.data
+    assert b'value="/product/plain-socks"' in editor.data
+    assert b'data-current-cents="15000"' in editor.data
 
 
 def test_design_code_validation_sanitizes_markup_and_rejects_unsafe_operations(app):
@@ -319,6 +322,13 @@ def test_design_code_validation_sanitizes_markup_and_rejects_unsafe_operations(a
         })["css"]
         assert validate_design_payload({"name": "Worker loop", "javascript": "while (true) {}"})["javascript"] == "while (true) {}"
         assert sanitize_design_html('<iframe src="https://evil.test"></iframe><p>ok</p>') == "<p>ok</p>"
+        product_card = sanitize_design_html(
+            '<article><a href="/product/plain-socks"><img src="/static/socks.webp" alt="Socks">'
+            '<s>KSh 180</s></a><a href="https://evil.test">unsafe</a></article>'
+        )
+        assert 'href="/product/plain-socks"' in product_card
+        assert "<s>KSh 180</s>" in product_card
+        assert 'href="https://evil.test"' not in product_card
 
 
 @pytest.mark.parametrize(

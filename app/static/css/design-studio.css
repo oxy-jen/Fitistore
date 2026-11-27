@@ -63,6 +63,14 @@
 .ds-preview-status{margin:8px 0;color:#28633b;font-size:.88rem}
 .ds-preview-empty{display:grid;min-height:150px;place-items:center;margin:15px 0;border:1px dashed #bbb;border-radius:12px;color:#666;text-align:center}
 .ds-upload-result{margin-top:8px;color:#28633b}
+.ds-product-card-builder{display:grid;gap:8px;margin-top:16px;padding:14px;border:1px solid #e8e2e8;border-radius:14px;background:#fff9fb}
+.ds-product-card-builder h4{margin:0}
+.ds-product-card-builder label{margin:4px 0}
+.ds-card-image-preview{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:center;gap:10px;padding:8px;border:1px solid #e8e2e8;border-radius:10px;background:#fff}
+.ds-card-image-preview[hidden]{display:none}
+.ds-card-image-preview img{width:72px;height:72px;object-fit:contain;border-radius:8px;background:#f4effa}
+.ds-card-image-preview span{overflow:hidden;color:#555;font-size:.82rem;text-overflow:ellipsis;white-space:nowrap}
+.ds-product-card-builder button:disabled{opacity:.55;cursor:not-allowed}
 .ds-asset-library{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:8px;margin-top:12px}
 .ds-asset-item{display:grid;gap:6px;min-width:0;padding:7px;border:1px solid #e1e1e5;border-radius:10px;background:#fff;text-align:left;cursor:pointer}
 .ds-asset-item img,.ds-asset-item>span:first-child{display:grid;width:100%;height:72px;place-items:center;object-fit:cover;border-radius:7px;background:#f1f1f3;color:#444;font-weight:800}

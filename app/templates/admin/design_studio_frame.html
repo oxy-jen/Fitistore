@@ -51,6 +51,11 @@
           studioApi.openProduct(product.id);
           return;
         }
+        if (typeof path === 'string' && /^\/product\/[A-Za-z0-9_-]{1,170}$/.test(path)) {
+          event.preventDefault();
+          studioApi.navigate(path);
+          return;
+        }
         if (['/shop', '/upcoming', '/cart'].includes(path)) {
           event.preventDefault();
           studioApi.navigate(path);

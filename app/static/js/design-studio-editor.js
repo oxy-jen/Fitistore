@@ -6,11 +6,12 @@
   const templateKey = form.querySelector('[name="template_key"]');
   const defaultTemplate = JSON.parse(form.querySelector('[data-studio-default-template]').textContent);
   const productGridStyles = `
-.studio-product-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:16px}
-.studio-product-card{padding:14px;border:1px solid #eadfe0;border-radius:16px;background:#fff;color:#252525}
+.studio-product-grid{display:contents}
+.studio-product-rail{display:flex;width:100%;min-width:0;align-items:stretch;gap:14px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scrollbar-width:thin;-webkit-overflow-scrolling:touch;padding:8px 4px 14px}
+.studio-product-card{display:grid;flex:0 0 clamp(175px,20vw,245px);min-width:0;min-height:300px;grid-template-rows:auto minmax(0,1fr) auto;gap:10px;padding:12px;border:1px solid #eadfe0;border-radius:16px;background:#fff;color:#252525;scroll-snap-align:start}
 .studio-product-card a{display:grid;gap:10px;color:inherit;text-decoration:none}
-.studio-product-image{position:relative;display:grid;min-height:180px;place-items:center;overflow:hidden;border-radius:12px;background:radial-gradient(circle,rgba(113,77,164,.18),transparent 72%)}
-.studio-product-image img{position:relative;z-index:2;width:100%;height:160px;padding-bottom:12px;object-fit:contain;filter:drop-shadow(0 4px 4px rgba(0,0,0,.16))}
+.studio-product-image{position:relative;display:grid;min-height:170px;place-items:center;overflow:hidden;border-radius:12px;background:radial-gradient(circle,rgba(113,77,164,.18),transparent 72%)}
+.studio-product-image img{position:relative;z-index:2;width:100%;height:154px;padding-bottom:12px;object-fit:contain;filter:drop-shadow(0 4px 4px rgba(0,0,0,.16))}
 .studio-product-pedestal{position:absolute;z-index:1;right:9%;bottom:10px;left:9%;height:28px;filter:drop-shadow(0 5px 6px rgba(35,21,55,.2))}
 .studio-product-pedestal-base{position:absolute;top:8px;right:3%;bottom:0;left:3%;border-radius:0 0 48% 48%/0 0 34% 34%;background:linear-gradient(180deg,#c8a9ff 0%,#a879ec 58%,#8050c8 100%)}
 .studio-product-pedestal-top{position:absolute;top:0;right:0;left:0;height:13px;border-radius:50%;background:linear-gradient(180deg,#fff 0%,#f5f0ff 62%,#ddd0f8 100%);box-shadow:inset 0 2px 2px rgba(255,255,255,.95),0 1px 2px rgba(31,16,54,.24)}
@@ -19,20 +20,21 @@
 .studio-product-previous-price{color:#777;font-size:.86rem}
 .studio-product-discount{padding:4px 8px;border-radius:999px;background:#fff0e8;color:#c5441a;font-size:.72rem;font-weight:850}
 .studio-product-card button{padding:10px 14px;border:0;border-radius:999px;background:#e52335;color:#fff}
+@media(max-width:720px){.studio-product-rail{gap:10px}.studio-product-card{flex-basis:72vw;max-width:260px;min-height:258px;grid-template-rows:auto minmax(0,1fr) auto;padding:9px}.studio-product-image{min-height:120px}.studio-product-image img{height:132px}}
 `;
   const templates = {
     offers: {html: defaultTemplate.html, css: defaultTemplate.css},
     editorial: {
-      html: '<section class="ds-promo"><p class="ds-kicker">FityStores finds</p><h2>Everyday essentials, better together</h2><p>Fresh picks for your everyday style.</p><a class="ds-cta" href="/shop">Explore the collection</a>%%FITYSTORES_PRODUCTS%%</section>',
-      css: '.ds-promo{padding:clamp(24px,6vw,64px);border-radius:24px;background:linear-gradient(120deg,#fff1f4,#f8e7d2);color:#252525}.ds-kicker{color:#e52335;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-promo h2{max-width:15ch;font-size:clamp(2rem,6vw,4rem);line-height:1.04}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}' + productGridStyles
+      html: '<section class="ds-promo"><div class="ds-promo-copy"><p class="ds-kicker">FityStores finds</p><h2>Everyday essentials, better together</h2><p>Fresh picks for your everyday style.</p><a class="ds-cta" href="/shop">Explore the collection</a></div><div class="studio-product-rail">%%FITYSTORES_PRODUCTS%%</div></section>',
+      css: '.ds-promo{box-sizing:border-box;display:grid;grid-template-columns:minmax(190px,.8fr) minmax(0,2fr);align-items:center;gap:20px;width:100%;height:400px;min-height:400px;max-height:400px;overflow:hidden;padding:clamp(16px,3vw,34px);border-radius:24px;background:linear-gradient(120deg,#fff1f4,#f8e7d2);color:#252525}.ds-promo-copy{min-width:0}.ds-kicker{color:#e52335;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-promo h2{max-width:15ch;font-size:clamp(1.7rem,3vw,3rem);line-height:1.04}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}@media(max-width:720px){.ds-promo{grid-template-columns:minmax(115px,.72fr) minmax(0,1.5fr);gap:10px;height:351px;min-height:351px;max-height:351px;padding:12px}.ds-promo h2{font-size:clamp(1.25rem,5vw,2rem)}.ds-promo-copy>p:not(.ds-kicker){font-size:.8rem}.ds-promo .ds-cta{padding:8px 10px;font-size:.75rem}}' + productGridStyles
     },
     'product-grid': {
-      html: '<section class="ds-products"><p class="ds-kicker">Shop the edit</p><h2>Everyday favourites</h2><p>Current picks, straight from the FityStores catalogue.</p>%%FITYSTORES_PRODUCTS%%</section>',
-      css: '.ds-products{padding:clamp(20px,4vw,48px);background:#fff8f4;border-radius:20px;color:#252525}.ds-products h2{font-size:clamp(1.7rem,4vw,3rem)}' + productGridStyles
+      html: '<section class="ds-products"><div class="ds-products-copy"><p class="ds-kicker">Shop the edit</p><h2>Everyday favourites</h2><p>Current picks, straight from the FityStores catalogue.</p></div><div class="studio-product-rail">%%FITYSTORES_PRODUCTS%%</div></section>',
+      css: '.ds-products{box-sizing:border-box;display:grid;grid-template-columns:minmax(190px,.8fr) minmax(0,2fr);align-items:center;gap:20px;width:100%;height:400px;min-height:400px;max-height:400px;overflow:hidden;padding:clamp(16px,3vw,34px);background:#fff8f4;border-radius:20px;color:#252525}.ds-products-copy{min-width:0}.ds-products h2{font-size:clamp(1.7rem,3vw,3rem)}@media(max-width:720px){.ds-products{grid-template-columns:minmax(115px,.72fr) minmax(0,1.5fr);gap:10px;height:351px;min-height:351px;max-height:351px;padding:12px}.ds-products h2{font-size:clamp(1.25rem,5vw,2rem)}.ds-products-copy>p:not(.ds-kicker){font-size:.8rem}}' + productGridStyles
     },
     seasonal: {
-      html: '<section class="ds-season"><div><p class="ds-kicker">Your next everyday favourite</p><h2>Small details. Big feel-good energy.</h2><p>Discover comfort-first finds picked for the season.</p><a class="ds-cta" href="/shop">Shop the edit</a></div><span class="ds-season-mark" aria-hidden="true">F</span>%%FITYSTORES_PRODUCTS%%</section>',
-      css: '.ds-season{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:20px;padding:clamp(24px,6vw,64px);border-radius:24px;background:#252525;color:white}.ds-season>div{max-width:620px}.ds-season .studio-product-grid{grid-column:1/-1}.ds-season h2{font-size:clamp(2rem,5vw,3.8rem);line-height:1.05}.ds-kicker{color:#ffb5bd;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}.ds-season-mark{font-size:clamp(5rem,15vw,12rem);color:#e52335;font-weight:900}' + productGridStyles
+      html: '<section class="ds-season"><div class="ds-season-copy"><p class="ds-kicker">Your next everyday favourite</p><h2>Small details. Big feel-good energy.</h2><p>Discover comfort-first finds picked for the season.</p><a class="ds-cta" href="/shop">Shop the edit</a><span class="ds-season-mark" aria-hidden="true">F</span></div><div class="studio-product-rail">%%FITYSTORES_PRODUCTS%%</div></section>',
+      css: '.ds-season{box-sizing:border-box;display:grid;grid-template-columns:minmax(190px,.8fr) minmax(0,2fr);align-items:center;gap:20px;width:100%;height:400px;min-height:400px;max-height:400px;overflow:hidden;padding:clamp(16px,3vw,34px);border-radius:24px;background:#252525;color:white}.ds-season-copy{position:relative;min-width:0}.ds-season h2{font-size:clamp(1.7rem,3vw,3rem);line-height:1.05}.ds-kicker{color:#ffb5bd;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}.ds-season-mark{position:absolute;right:0;bottom:-.25em;color:#e52335;font-size:clamp(3rem,7vw,6rem);font-weight:900;opacity:.5;pointer-events:none}@media(max-width:720px){.ds-season{grid-template-columns:minmax(115px,.72fr) minmax(0,1.5fr);gap:10px;height:351px;min-height:351px;max-height:351px;padding:12px}.ds-season h2{font-size:clamp(1.25rem,5vw,2rem)}.ds-season-copy>p:not(.ds-kicker){font-size:.8rem}.ds-season .ds-cta{padding:8px 10px;font-size:.75rem}}' + productGridStyles
     }
   };
   const campaignTemplates = {
@@ -102,7 +104,7 @@
     cutouts: campaignFields.cutouts.checked
   });
   const campaignCss = (key, value) => `
-.ds-campaign{--ds-campaign-background:${value.background};--ds-campaign-accent:${value.accent};--ds-campaign-platform:${value.platform};box-sizing:border-box;position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(210px,.82fr) minmax(0,2.4fr);align-items:center;gap:clamp(14px,2.4vw,34px);min-height:320px;overflow:hidden;padding:clamp(20px,3.3vw,42px);border-radius:20px;background:linear-gradient(112deg,#08070b 0%,#100c18 42%,var(--ds-campaign-background) 100%);color:#fff;font-family:system-ui,sans-serif}
+.ds-campaign{--ds-campaign-background:${value.background};--ds-campaign-accent:${value.accent};--ds-campaign-platform:${value.platform};box-sizing:border-box;position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(210px,.82fr) minmax(0,2.4fr);align-items:center;gap:clamp(14px,2.4vw,34px);width:100%;height:400px;min-height:400px;max-height:400px;overflow:hidden;padding:clamp(20px,3.3vw,42px);border-radius:20px;background:linear-gradient(112deg,#08070b 0%,#100c18 42%,var(--ds-campaign-background) 100%);color:#fff;font-family:system-ui,sans-serif}
 .ds-campaign,.ds-campaign *,.ds-campaign *::before,.ds-campaign *::after{box-sizing:border-box}
 .ds-campaign::before{position:absolute;z-index:-1;inset:0;background:radial-gradient(ellipse at 76% 54%,rgba(255,255,255,.12),transparent 57%);content:""}
 .ds-campaign-copy{position:relative;z-index:2;display:flex;min-width:0;flex-direction:column;align-items:flex-start;justify-content:center}
@@ -136,8 +138,8 @@
 .ds-campaign:not(.ds-campaign--cutouts) .offers-product-image img{filter:none}
 .ds-campaign--black-friday-feature .ds-campaign-products::before{position:absolute;z-index:-1;inset:4% 5%;border-radius:50%;background:radial-gradient(circle,var(--ds-campaign-accent),transparent 72%);opacity:.48;content:""}
 .ds-campaign--deal-of-day .ds-campaign-product-track{gap:clamp(0px,.5vw,8px)}
-@media(max-width:760px){.ds-campaign{grid-template-columns:minmax(145px,.72fr) minmax(0,1.65fr);gap:10px;min-height:285px;padding:18px 14px}.ds-campaign h2{font-size:clamp(1.7rem,5vw,2.8rem)}.ds-campaign .offers-product-item{min-height:190px}.ds-campaign .offers-product-card{grid-template-rows:auto minmax(100px,1fr) auto}.ds-campaign .offers-product-image{min-height:100px}.ds-campaign .offers-product-image img{height:clamp(100px,20vw,145px)}.ds-campaign .offers-current-price{white-space:normal}}
-@media(max-width:520px){.ds-campaign{grid-template-columns:1fr;gap:8px;min-height:0;padding:17px 13px}.ds-campaign-copy{display:grid;grid-template-columns:1fr auto;column-gap:8px;align-items:center}.ds-campaign-brand,.ds-campaign-kicker,.ds-campaign-badge,.ds-campaign h2,.ds-campaign-copyline,.ds-campaign-cta{grid-column:1}.ds-campaign-brand{font-size:.86rem}.ds-campaign-kicker{font-size:1.1rem}.ds-campaign-badge{justify-self:start;margin:.2rem 0}.ds-campaign h2{margin:.25rem 0;font-size:2rem}.ds-campaign-copyline{margin:0 0 .45rem;font-size:.82rem}.ds-campaign-cta{grid-row:1/5;grid-column:2;align-self:center;white-space:nowrap}.ds-campaign-product-track{gap:7px}.ds-campaign .offers-product-item{flex-basis:clamp(112px,29vw,150px);min-height:190px}.ds-campaign .offers-product-card h3{font-size:.72rem}.ds-campaign .offers-product-image img{height:126px}}
+@media(max-width:760px){.ds-campaign{grid-template-columns:minmax(145px,.72fr) minmax(0,1.65fr);gap:10px;height:351px;min-height:351px;max-height:351px;padding:18px 14px}.ds-campaign h2{font-size:clamp(1.7rem,5vw,2.8rem)}.ds-campaign .offers-product-item{min-height:258px}.ds-campaign .offers-product-card{min-height:258px;grid-template-rows:auto minmax(100px,1fr) auto}.ds-campaign .offers-product-image{min-height:100px}.ds-campaign .offers-product-image img{height:clamp(100px,20vw,145px)}.ds-campaign .offers-current-price{white-space:normal}}
+@media(max-width:520px){.ds-campaign{grid-template-columns:minmax(105px,.72fr) minmax(0,1.65fr);gap:7px;height:351px;min-height:351px;max-height:351px;padding:12px 9px}.ds-campaign h2{font-size:clamp(1.2rem,6vw,1.8rem)}.ds-campaign-brand{font-size:.75rem}.ds-campaign-kicker{font-size:.95rem}.ds-campaign-badge{font-size:.48rem}.ds-campaign-copyline{font-size:.69rem}.ds-campaign-cta{min-height:30px;padding:.35rem .55rem;font-size:.68rem}.ds-campaign-product-track{gap:7px}.ds-campaign .offers-product-item{flex-basis:clamp(112px,29vw,150px);min-height:258px}.ds-campaign .offers-product-card h3{font-size:.72rem}.ds-campaign .offers-product-image img{height:126px}}
 @media(prefers-reduced-motion:reduce){.ds-campaign *{scroll-behavior:auto!important}}
 `;
   function applyCampaignFields(values) {
@@ -412,6 +414,90 @@
   const loadLibraryButton = form.querySelector('[data-studio-load-library]');
   const uploadResult = form.querySelector('[data-studio-upload-result]');
   const library = form.querySelector('[data-studio-library]');
+  const cardBuilder = form.querySelector('[data-studio-card-builder]');
+  const cardImagePreview = form.querySelector('[data-studio-card-image-preview]');
+  const cardImage = form.querySelector('[data-studio-card-image]');
+  const cardImageName = form.querySelector('[data-studio-card-image-name]');
+  const cardName = form.querySelector('[data-studio-card-name]');
+  const cardCurrentPrice = form.querySelector('[data-studio-card-current-price]');
+  const cardPreviousPrice = form.querySelector('[data-studio-card-previous-price]');
+  const cardLink = form.querySelector('[data-studio-card-link]');
+  const addProductCard = form.querySelector('[data-studio-add-product-card]');
+  let selectedCardImageUrl = '';
+  function selectProductImage(url, name) {
+    if ((!url.startsWith('/static/') || url.startsWith('//') || url.includes('..'))
+        && !url.startsWith('https://res.cloudinary.com/')) {
+      uploadResult.textContent = 'Choose an image from the approved local or Cloudinary media library.';
+      return;
+    }
+    selectedCardImageUrl = url;
+    cardImage.src = url;
+    cardImage.alt = name || 'Uploaded product';
+    cardImageName.textContent = name || 'Selected product image';
+    cardImagePreview.hidden = false;
+    addProductCard.disabled = false;
+    uploadResult.textContent = 'Image selected. Complete the product details and add it to the template.';
+  }
+  function currencyAmount(value) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount) || amount <= 0) return '';
+    const [whole, fraction] = amount.toFixed(2).split('.');
+    const currency = cardBuilder.dataset.currency || '';
+    return `${currency} ${Number(whole).toLocaleString('en')}${fraction === '00' ? '' : `.${fraction}`}`.trim();
+  }
+  function customProductCardMarkup(url, name, currentPrice, previousPrice, destination) {
+    const safeUrl = escapeMarkup(url);
+    const safeName = escapeMarkup(name);
+    const safeDestination = escapeMarkup(destination);
+    const discountPercent = previousPrice ? Math.floor(((previousPrice - currentPrice) / previousPrice) * 100) : 0;
+    if (templateKey.value === 'offers' || campaignKeys.has(templateKey.value)) {
+      return `<div class="offers-product-item"><article class="offers-product-card"><div class="offers-product-copy"><p class="offers-product-category">Featured</p><h3><a href="${safeDestination}">${safeName}</a></h3></div><div class="offers-product-image"><span class="offers-product-pedestal" aria-hidden="true"><span class="offers-product-pedestal-base"></span><span class="offers-product-pedestal-top"></span></span><a class="offers-product-image-link" href="${safeDestination}" aria-label="View ${safeName}"><img src="${safeUrl}" alt="${safeName}" loading="lazy" width="540" height="540"></a></div><div class="offers-price-group"><span class="offers-current-price">${currencyAmount(currentPrice)}</span>${previousPrice ? `<s class="offers-original-price">${currencyAmount(previousPrice)}</s><span class="offers-discount-note">${discountPercent}% off</span>` : '<span class="offers-discount-note">Available now</span>'}</div></article></div>`;
+    }
+    return `<article class="studio-product-card"><a href="${safeDestination}" aria-label="View ${safeName}"><span class="studio-product-image"><img src="${safeUrl}" alt="${safeName}" loading="lazy" width="540" height="540"><span class="studio-product-pedestal" aria-hidden="true"><span class="studio-product-pedestal-base"></span><span class="studio-product-pedestal-top"></span></span></span><strong>${safeName}</strong></a><div class="studio-product-price"><strong class="studio-product-current-price">${currencyAmount(currentPrice)}</strong>${previousPrice ? `<s class="studio-product-previous-price">${currencyAmount(previousPrice)}</s><span class="studio-product-discount">${discountPercent}% OFF</span>` : ''}</div></article>`;
+  }
+  cardLink.addEventListener('change', () => {
+    const option = cardLink.selectedOptions[0];
+    if (!option || !option.value) return;
+    cardName.value = option.dataset.productName || '';
+    const currentCents = Number(option.dataset.currentCents);
+    const previousCents = Number(option.dataset.previousCents);
+    cardCurrentPrice.value = Number.isFinite(currentCents) && currentCents > 0 ? (currentCents / 100).toFixed(2) : '';
+    cardPreviousPrice.value = Number.isFinite(previousCents) && previousCents > 0 ? (previousCents / 100).toFixed(2) : '';
+  });
+  addProductCard.addEventListener('click', () => {
+    const name = cardName.value.trim();
+    const currentPrice = Number(cardCurrentPrice.value);
+    const previousPrice = cardPreviousPrice.value ? Number(cardPreviousPrice.value) : null;
+    const destination = cardLink.value;
+    if (!selectedCardImageUrl || !name || !Number.isFinite(currentPrice) || currentPrice <= 0
+        || (previousPrice !== null && (!Number.isFinite(previousPrice) || previousPrice <= currentPrice))
+        || !/^\/product\/[A-Za-z0-9_-]{1,170}$/.test(destination)) {
+      uploadResult.textContent = 'Add an image, product name, valid current price, and product destination. Previous price must exceed current price.';
+      return;
+    }
+    const placeholder = templateKey.value === 'offers' || campaignKeys.has(templateKey.value)
+      ? '%%FITYSTORES_OFFERS%%' : '%%FITYSTORES_PRODUCTS%%';
+    if (!html.value.includes(placeholder)) {
+      uploadResult.textContent = 'This template has no product rail. Choose an editable product template before adding a product card.';
+      return;
+    }
+    const markup = customProductCardMarkup(
+      selectedCardImageUrl, name, currentPrice, previousPrice, destination
+    );
+    html.value = html.value.replace(placeholder, `${placeholder}${markup}`);
+    html.dispatchEvent(new Event('input', {bubbles: true}));
+    selectedCardImageUrl = '';
+    cardImage.removeAttribute('src');
+    cardImage.alt = '';
+    cardImageName.textContent = '';
+    cardImagePreview.hidden = true;
+    cardName.value = '';
+    cardCurrentPrice.value = '';
+    cardPreviousPrice.value = '';
+    cardLink.value = '';
+    addProductCard.disabled = true;
+    uploadResult.textContent = 'Product card added to the template rail. Preview updated automatically.';
+  });
   loadLibraryButton.addEventListener('click', async () => {
     loadLibraryButton.disabled = true;
     uploadResult.textContent = 'Loading media library…';
@@ -444,7 +530,7 @@
         button.append(label);
         library.append(button);
       });
-      uploadResult.textContent = `${library.childElementCount} approved assets available. Select one to insert it.`;
+      uploadResult.textContent = `${library.childElementCount} approved assets available. Select an image for a product card; videos insert into the markup.`;
     } catch (error) {
       uploadResult.textContent = error.message || 'The shared media library is unavailable.';
     } finally {
@@ -456,12 +542,12 @@
     if (!button) return;
     const url = button.dataset.assetUrl;
     if (button.dataset.assetType === 'video') {
-      insertAtCursor(html, `<video controls muted playsinline src="${url}"></video>`);
+      insertAtCursor(html, `<video controls muted playsinline src="${escapeMarkup(url)}"></video>`);
+      uploadResult.textContent = 'Video inserted. The preview is updating automatically.';
+      schedulePreview();
     } else {
-      insertAtCursor(html, `<img src="${url}" alt="">`);
+      selectProductImage(url, button.querySelector('span:last-child')?.textContent || '');
     }
-    uploadResult.textContent = 'Asset inserted. The preview is updating automatically.';
-    schedulePreview();
   });
   const lottieUpload = form.querySelector('[data-studio-lottie-upload]');
   const lottieJson = form.querySelector('[data-studio-lottie-json]');
@@ -507,12 +593,13 @@
         throw new Error('The media URL did not match the approved storage locations.');
       }
       if (result.type === 'video') {
-        insertAtCursor(html, `<video controls muted playsinline src="${safeUrl}"></video>`);
+        insertAtCursor(html, `<video controls muted playsinline src="${escapeMarkup(safeUrl)}"></video>`);
+        uploadResult.textContent = `${result.filename || file.name} uploaded and inserted. The preview is updating automatically.`;
+        schedulePreview();
       } else {
-        insertAtCursor(html, `<img src="${safeUrl}" alt="">`);
+        selectProductImage(safeUrl, result.filename || file.name);
+        fileInput.value = '';
       }
-      uploadResult.textContent = `${result.filename || file.name} uploaded. The preview is updating automatically.`;
-      schedulePreview();
     } catch (error) {
       uploadResult.textContent = error.message || 'The upload could not be completed.';
     } finally {

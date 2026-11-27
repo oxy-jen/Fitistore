@@ -1,5 +1,6 @@
 (() => {
   const allowedPaths = new Set(['/shop', '/upcoming', '/cart']);
+  const isAllowedPath = path => allowedPaths.has(path) || /^\/product\/[A-Za-z0-9_-]{1,170}$/.test(path);
   let lastMessageAt = 0;
   window.addEventListener('message', async event => {
     if (event.origin !== 'null' || !event.data || event.data.type !== 'fity-studio') return;
@@ -16,7 +17,7 @@
       return;
     }
     if (data.action === 'navigate') {
-      if (typeof data.path === 'string' && allowedPaths.has(data.path)) window.location.assign(data.path);
+      if (typeof data.path === 'string' && isAllowedPath(data.path)) window.location.assign(data.path);
       return;
     }
     const products = JSON.parse(frame.dataset.products || '[]');

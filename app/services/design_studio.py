@@ -258,7 +258,7 @@ def save_revision(design, admin, action):
 
 
 SAFE_TAGS = {
-    "a", "article", "aside", "b", "br", "button", "div", "em", "figure", "figcaption",
+    "a", "article", "aside", "b", "br", "button", "div", "em", "figure", "figcaption", "s",
     "h1", "h2", "h3", "h4", "hr", "i", "img", "li", "ol", "p", "section", "small",
     "span", "strong", "ul", "video", "source",
 }
