@@ -359,7 +359,7 @@ class ProductImage(TimestampMixin, db.Model):
 
 
 class ProductImageCrop(db.Model):
-    """Independent, non-destructive crop profiles for standard and Shop cards."""
+    """Independent, non-destructive crop profiles for storefront card contexts."""
     __tablename__ = "product_image_crop"
     image_id = db.Column(
         db.Integer,
@@ -368,6 +368,7 @@ class ProductImageCrop(db.Model):
     )
     normal_settings = db.Column(db.String(160), nullable=False, default="")
     shop_settings = db.Column(db.String(160), nullable=False, default="")
+    section_settings = db.Column(db.Text, nullable=False, default="{}", server_default="{}")
     image = db.relationship("ProductImage", back_populates="crop_settings")
 
 class ProductVariant(TimestampMixin, db.Model):

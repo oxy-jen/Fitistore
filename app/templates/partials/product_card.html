@@ -1,8 +1,16 @@
 {% set home_quick_add_card = (fresh_arrival_card|default(false)) or (most_added_home_card|default(false)) or (home_product_card|default(false)) %}
 <article class="product-card neu-card shop-product-card{% if compact_product_card|default(false) %} most-added-product-card{% endif %}{% if fresh_arrival_card|default(false) %} fresh-arrival-product-card{% endif %}{% if home_quick_add_card %} home-quick-add-card{% endif %}{% if product.id in (search_match_product_ids|default([])) %} search-match-product{% endif %}" data-product-card="{{ product.id }}" data-category-group="{{ category_group_key(product.category.name) or 'other' }}">
-  {% set image = product_display_image(product) %}
-  {% set crop_profile = 'shop' if shop_listing_card|default(false) else ('normal' if not (compact_product_card|default(false)) and not (home_product_card|default(false)) else none) %}
-  {% if crop_profile %}{% set image_crop = product_image_crop_settings(image, crop_profile) %}{% endif %}
+  {% set image = crop_preview_image if crop_preview_image is defined else product_display_image(product) %}
+  {% if crop_profile_override is defined %}{% set crop_profile = crop_profile_override %}
+  {% elif shop_listing_card|default(false) %}{% set crop_profile = 'shop' %}
+  {% elif fresh_arrival_card|default(false) %}{% set crop_profile = 'featured' %}
+  {% elif most_added_home_card|default(false) %}{% set crop_profile = 'most_added' %}
+  {% elif home_product_card|default(false) %}{% set crop_profile = 'mamba' %}
+  {% elif compact_product_card|default(false) %}{% set crop_profile = 'related' %}
+  {% elif image_crop_profile is defined %}{% set crop_profile = image_crop_profile %}
+  {% else %}{% set crop_profile = 'normal' %}{% endif %}
+  {% set image_crop = product_image_crop_settings(image, crop_profile) %}
+  {% set preview_id_suffix = '-' ~ crop_profile if crop_preview_image is defined else '' %}
   {% set variant_count = product.active_variants|length %}
   {% set size_option_count = split_options(product.size_options)|length %}
   {% set color_option_count = split_options(product.color_options)|length %}
@@ -17,8 +25,9 @@
     {% if product.min_variant_price_cents == product.max_variant_price_cents %}{% set share_price = "Price: " ~ money(product.min_variant_price_cents, settings.currency) %}{% else %}{% set share_price = "Options: " ~ money(product.min_variant_price_cents, settings.currency) ~ " - " ~ money(product.max_variant_price_cents, settings.currency) %}{% endif %}
   {% elif product.price_cents is not none %}{% set share_price = "Price: " ~ money(product.price_cents, settings.currency) %}{% endif %}
   {% set share_message = "Check out " ~ product.name ~ " at FityStores! " ~ share_price ~ ". View it here: " ~ share_url %}
-  <a href="{{ url_for('public.product_detail', slug=product.slug) }}" class="product-image" aria-label="View {{ product.name }}">
-    <img src="{{ product_image_url(image) }}" data-product-image-fallback data-fallback-src="{{ image_fallback_url }}" alt="{{ product_image_alt(image) }}" loading="lazy" width="540" height="540"{% if crop_profile %} style="object-fit: {{ image_crop.fit }}; object-position: {{ image_crop.x }}% {{ image_crop.y }}%; scale: {{ image_crop.zoom / 100 }}; transform-origin: {{ image_crop.x }}% {{ image_crop.y }}%; clip-path: inset({{ image_crop.top }}% {{ image_crop.right }}% {{ image_crop.bottom }}% {{ image_crop.left }}%);"{% endif %}>
+  <a href="{{ url_for('public.product_detail', slug=product.slug) }}" class="product-image" aria-label="View {{ product.name }}"{% if crop_preview_image is defined %} data-crop-preview{% endif %}>
+    <img src="{{ product_image_url(image) }}" data-product-image-fallback data-fallback-src="{{ image_fallback_url }}" alt="{{ product_image_alt(image) }}" loading="lazy" width="540" height="540"{% if crop_preview_image is defined %} data-crop-preview-image{% endif %} style="object-fit: {{ image_crop.fit }}; object-position: {{ image_crop.x }}% {{ image_crop.y }}%; scale: {{ image_crop.zoom / 100 }}; transform-origin: {{ image_crop.x }}% {{ image_crop.y }}%; clip-path: inset({{ image_crop.top }}% {{ image_crop.right }}% {{ image_crop.bottom }}% {{ image_crop.left }}%);">
+    {% if crop_preview_image is defined %}<span class="product-image-crop-overlay" aria-hidden="true"><span class="product-image-crop-frame" data-crop-frame><span class="product-image-crop-handle is-top" data-crop-edge="top"></span><span class="product-image-crop-handle is-right" data-crop-edge="right"></span><span class="product-image-crop-handle is-bottom" data-crop-edge="bottom"></span><span class="product-image-crop-handle is-left" data-crop-edge="left"></span></span></span>{% endif %}
     {% if not compact_product_card|default(false) %}{% if display_stock < 1 %}<span class="product-card-badge is-unavailable">Out of stock</span>{% elif product.has_discount %}<span class="discount-ribbon" aria-label="{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% discount">Sale</span>{% elif requires_option_choice %}<span class="badge">Options</span>{% endif %}{% endif %}
   </a>
   {% if home_quick_add_card %}
@@ -44,7 +53,7 @@
         <button class="most-added-icon-action" type="button" data-cart-count-toggle aria-expanded="false" aria-controls="cart-count-{{ product.id }}" aria-label="Show how many {{ product.name }} items shoppers have added to carts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
         {% if not (most_added_home_card|default(false)) %}<button class="most-added-icon-action most-added-like" type="button" data-product-like data-url="{{ url_for('public.api_toggle_product_like', product_id=product.id) }}" data-liked="{{ 'true' if product.id in (liked_product_ids|default([])) else 'false' }}" aria-pressed="{{ 'true' if product.id in (liked_product_ids|default([])) else 'false' }}" aria-label="{{ 'Unlike' if product.id in (liked_product_ids|default([])) else 'Like' }} {{ product.name }}" {% if not (product_likes_enabled|default(false)) %}disabled title="Likes are temporarily unavailable"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.8a5.5 5.5 0 0 0-7.8 0L12 5.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.3 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg><span data-like-count>{{ (product_like_counts|default({})).get(product.id, 0) }}</span></button>{% endif %}
       </div>
-      <p class="most-added-cart-count" id="cart-count-{{ product.id }}" hidden>{{ (cart_add_counts|default({})).get(product.id, 0) }} items added to carts</p>
+      <p class="most-added-cart-count" id="cart-count-{{ product.id }}{{ preview_id_suffix }}" hidden>{{ (cart_add_counts|default({})).get(product.id, 0) }} items added to carts</p>
       {% if not (most_added_home_card|default(false)) %}<a class="most-added-view-detail" href="{{ url_for('public.product_detail', slug=product.slug) }}">View detail <svg class="icon" aria-hidden="true"><use href="#icon-arrow"></use></svg></a>{% endif %}
     {% else %}
     <p class="category">{{ product.category.name }}</p>

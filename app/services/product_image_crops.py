@@ -21,7 +21,19 @@ DEFAULT_PRODUCT_IMAGE_CROP = {
     "left": 0,
 }
 PRODUCT_IMAGE_CROP_POSTGRES_ADVISORY_LOCK = 724930126
-_CROP_PROFILES = {"normal", "shop"}
+PRODUCT_IMAGE_CROP_PROFILES = (
+    ("shop", "Shop page"),
+    ("featured", "Homepage Featured Picks"),
+    ("most_added", "Homepage Most Added"),
+    ("mamba", "Homepage Mamba collection"),
+    ("related", "Product recommendations"),
+    ("about", "About page"),
+    ("customer_dashboard", "Customer dashboard"),
+    ("offers", "Offers"),
+    ("normal", "Standard product card"),
+)
+_CROP_PROFILES = {profile for profile, _ in PRODUCT_IMAGE_CROP_PROFILES}
+_LEGACY_CROP_PROFILES = {"normal", "shop"}
 _CROP_FITS = {"contain", "cover"}
 
 
@@ -74,6 +86,12 @@ def _ensure_crop_table(connection):
     if not inspector.has_table(table.name):
         raise RuntimeError("The product image crop table was not created.")
     columns = {column["name"] for column in inspector.get_columns(table.name)}
+    if "section_settings" not in columns:
+        connection.exec_driver_sql(
+            "ALTER TABLE product_image_crop "
+            "ADD COLUMN section_settings TEXT NOT NULL DEFAULT '{}'"
+        )
+        columns.add("section_settings")
     if {column.name for column in table.columns} - columns:
         raise RuntimeError("The product image crop table is incomplete.")
 
@@ -114,7 +132,10 @@ def product_image_crop_schema_ready():
             actual = {column["name"] for column in inspector.get_columns(ProductImageCrop.__tablename__)}
             table = db.metadata.tables[ProductImageCrop.__tablename__]
             expected = {column.name for column in table.columns}
-            return expected <= actual
+            ready = expected <= actual
+            if ready:
+                current_app.extensions["product_image_crop_schema_ready"] = True
+            return ready
     except SQLAlchemyError as exc:
         current_app.logger.error("Product image crop settings are unavailable (%s).", type(exc).__name__)
         return False
@@ -122,13 +143,23 @@ def product_image_crop_schema_ready():
 
 def product_image_crop_settings(image, profile):
     if profile not in _CROP_PROFILES:
-        raise ValueError("Choose the normal or Shop image crop profile.")
+        raise ValueError("Choose a supported product-card image crop profile.")
     defaults = DEFAULT_PRODUCT_IMAGE_CROP.copy()
     if image is None or not product_image_crop_schema_ready():
         return defaults
     try:
         row = image.crop_settings
-        raw = getattr(row, f"{profile}_settings", "") if row else ""
+        if not row:
+            raw = ""
+        elif profile in _LEGACY_CROP_PROFILES:
+            raw = getattr(row, f"{profile}_settings", "")
+        else:
+            section_settings = json.loads(row.section_settings or "{}")
+            if not isinstance(section_settings, dict):
+                raise ValueError("Section crop settings must be an object.")
+            raw = section_settings.get(profile, "")
+            if not raw and profile in {"about", "customer_dashboard"}:
+                raw = row.normal_settings
         return normalize_product_image_crop(raw) if raw else defaults
     except (TypeError, ValueError) as exc:
         current_app.logger.warning(
@@ -151,7 +182,7 @@ def product_image_crop_settings(image, profile):
 def save_product_image_crop_settings(image_id, profile, settings):
     """Update one image/profile within the caller's database transaction."""
     if profile not in _CROP_PROFILES:
-        raise ValueError("Choose the normal or Shop image crop profile.")
+        raise ValueError("Choose a supported product-card image crop profile.")
     if not product_image_crop_schema_ready():
         raise RuntimeError("Product image crop storage is not ready.")
     normalized = normalize_product_image_crop(settings)
@@ -160,4 +191,15 @@ def save_product_image_crop_settings(image_id, profile, settings):
         row = ProductImageCrop()
         row.image_id = image_id
         db.session.add(row)
-    setattr(row, f"{profile}_settings", json.dumps(normalized, separators=(",", ":")))
+    serialized = json.dumps(normalized, separators=(",", ":"))
+    if profile in _LEGACY_CROP_PROFILES:
+        setattr(row, f"{profile}_settings", serialized)
+    else:
+        try:
+            section_settings = json.loads(row.section_settings or "{}")
+        except (TypeError, ValueError):
+            raise ValueError("Stored section crop settings are invalid; existing settings were not changed.") from None
+        if not isinstance(section_settings, dict):
+            raise ValueError("Stored section crop settings are invalid; existing settings were not changed.")
+        section_settings[profile] = normalized
+        row.section_settings = json.dumps(section_settings, separators=(",", ":"))

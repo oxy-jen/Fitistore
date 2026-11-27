@@ -5,7 +5,20 @@
   };
 
   document.querySelectorAll("[data-product-image-crop-editor]").forEach((editor) => {
-    editor.querySelectorAll("[data-crop-profile]").forEach((profile) => {
+    const profiles = Array.from(editor.querySelectorAll("[data-crop-profile]"));
+    const sectionSelect = editor.querySelector("[data-crop-section-select]");
+    const showSelectedProfile = () => {
+      if (!sectionSelect) return;
+      profiles.forEach((profile) => {
+        profile.hidden = profile.dataset.cropProfile !== sectionSelect.value;
+      });
+    };
+    if (sectionSelect) {
+      sectionSelect.addEventListener("change", showSelectedProfile);
+      showSelectedProfile();
+    }
+
+    profiles.forEach((profile) => {
       const fit = profile.querySelector("[data-crop-fit]");
       const preview = profile.querySelector("[data-crop-preview-image]");
       const settings = profile.querySelector("[data-crop-settings]");
@@ -72,6 +85,14 @@
         fit.value = defaults.fit;
         Object.entries(values).forEach(([key, input]) => {
           input.value = defaults[key];
+        });
+        profile.querySelectorAll(".product-image-crop-preview-stage a").forEach((link) => {
+          link.tabIndex = -1;
+          link.addEventListener("click", (event) => event.preventDefault());
+        });
+        profile.querySelectorAll(".product-image-crop-preview-stage button").forEach((button) => {
+          button.type = "button";
+          button.addEventListener("click", (event) => event.preventDefault());
         });
         update();
       });

@@ -2165,6 +2165,26 @@ def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
             "fit": "contain", "zoom": 125, "x": 70, "y": 40,
             "top": 0, "right": 10, "bottom": 5, "left": 2,
         }),
+        f"image_crop_featured_{image_id}": json.dumps({
+            "fit": "cover", "zoom": 140, "x": 35, "y": 65,
+            "top": 4, "right": 2, "bottom": 6, "left": 3,
+        }),
+        f"image_crop_most_added_{image_id}": json.dumps({
+            "fit": "contain", "zoom": 135, "x": 60, "y": 45,
+            "top": 1, "right": 2, "bottom": 3, "left": 4,
+        }),
+        f"image_crop_mamba_{image_id}": json.dumps({
+            "fit": "cover", "zoom": 165, "x": 25, "y": 50,
+            "top": 5, "right": 4, "bottom": 3, "left": 2,
+        }),
+        f"image_crop_related_{image_id}": json.dumps({
+            "fit": "contain", "zoom": 110, "x": 55, "y": 35,
+            "top": 0, "right": 1, "bottom": 2, "left": 3,
+        }),
+        f"image_crop_offers_{image_id}": json.dumps({
+            "fit": "cover", "zoom": 120, "x": 80, "y": 30,
+            "top": 2, "right": 3, "bottom": 4, "left": 5,
+        }),
     }, follow_redirects=True)
     assert response.status_code == 200
     assert b"Product saved" in response.data
@@ -2180,12 +2200,30 @@ def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
             "fit": "contain", "zoom": 125, "x": 70, "y": 40,
             "top": 0, "right": 10, "bottom": 5, "left": 2,
         }
+        section_settings = json.loads(crop.section_settings)
+        assert section_settings["featured"] == {
+            "fit": "cover", "zoom": 140, "x": 35, "y": 65,
+            "top": 4, "right": 2, "bottom": 6, "left": 3,
+        }
+        assert section_settings["mamba"] == {
+            "fit": "cover", "zoom": 165, "x": 25, "y": 50,
+            "top": 5, "right": 4, "bottom": 3, "left": 2,
+        }
+        assert section_settings["offers"] == {
+            "fit": "cover", "zoom": 120, "x": 80, "y": 30,
+            "top": 2, "right": 3, "bottom": 4, "left": 5,
+        }
 
     admin_form = client.get(f"/admin/products/{product_id}/edit")
     assert admin_form.status_code == 200
-    assert b"data-crop-preview" in admin_form.data
-    assert b"product-image-crop-card-preview is-normal" in admin_form.data
-    assert b"product-image-crop-card-preview is-shop" in admin_form.data
+    assert b"data-crop-section-select" in admin_form.data
+    assert b'<option value="shop" selected>' in admin_form.data
+    assert b'value="offers"' in admin_form.data
+    assert b"data-crop-preview-image" in admin_form.data
+    assert b"object-position: 35% 65%" in admin_form.data
+    assert b"fresh-arrival-product-card" in admin_form.data
+    assert b"most-added-product-card" in admin_form.data
+    assert b"offers-product-card" in admin_form.data
     assert b'data-crop-value="top"' in admin_form.data
     assert b'data-crop-value="right"' in admin_form.data
     assert b'data-crop-value="bottom"' in admin_form.data
@@ -2205,10 +2243,10 @@ def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
     assert "clip-path: inset(0% 10% 5% 2%)" in shop_api.get_json()["html"]
     offers = home.data.split(b'id="discounted-goods"', 1)[1].split(b"</section>", 1)[0]
     assert b"offers-product-card" in offers
-    assert b"object-fit:" not in offers
+    assert b"object-position: 80% 30%" in offers
     mamba_cards = home.data.split(b'id="mamba-products"', 1)[1].split(b'data-carousel-direction="1"', 1)[0]
     assert b'data-product-card="' + str(product_id).encode() + b'"' in mamba_cards
-    assert b"object-fit:" not in mamba_cards
+    assert b"object-position: 25% 50%" in mamba_cards
 
 
 def test_product_image_crop_settings_reject_invalid_values():
@@ -2249,9 +2287,31 @@ def test_product_image_crop_schema_migration_is_additive_and_idempotent():
     inspector = inspect(engine)
     assert inspector.has_table("product_image_crop")
     assert {column["name"] for column in inspector.get_columns("product_image_crop")} == {
-        "image_id", "normal_settings", "shop_settings"
+        "image_id", "normal_settings", "shop_settings", "section_settings"
     }
     assert inspector.get_table_names() == ["product_image", "product_image_crop"]
+    engine.dispose()
+
+
+def test_product_image_crop_schema_adds_section_settings_to_existing_table():
+    from sqlalchemy import create_engine, inspect
+    from app.services.product_image_crops import ensure_product_image_crop_schema
+
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE product_image (id INTEGER PRIMARY KEY)")
+        connection.exec_driver_sql(
+            "CREATE TABLE product_image_crop ("
+            "image_id INTEGER PRIMARY KEY, "
+            "normal_settings VARCHAR(160) NOT NULL DEFAULT '', "
+            "shop_settings VARCHAR(160) NOT NULL DEFAULT '')"
+        )
+
+    assert ensure_product_image_crop_schema(engine)
+    assert ensure_product_image_crop_schema(engine)
+    assert {column["name"] for column in inspect(engine).get_columns("product_image_crop")} == {
+        "image_id", "normal_settings", "shop_settings", "section_settings"
+    }
     engine.dispose()
 
 

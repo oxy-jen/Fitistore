@@ -1834,6 +1834,7 @@ def product_form(product_id=None):
         if product and details_ready else []
     )
     from app.services.product_image_crops import (
+        PRODUCT_IMAGE_CROP_PROFILES,
         normalize_product_image_crop,
         product_image_crop_schema_ready,
         save_product_image_crop_settings,
@@ -1867,6 +1868,7 @@ def product_form(product_id=None):
             details_form=details_form,
             rich_description_preview=sanitize_product_html(description_source) if details_ready else "",
             image_crop_storage_ready=image_crop_storage_ready,
+            image_crop_profiles=PRODUCT_IMAGE_CROP_PROFILES,
         )
 
     from app.services.product_display_notes import get_product_display_note
@@ -1899,7 +1901,7 @@ def product_form(product_id=None):
         if product:
             try:
                 for image in product.images:
-                    for profile in ("normal", "shop"):
+                    for profile, _ in PRODUCT_IMAGE_CROP_PROFILES:
                         field_name = f"image_crop_{profile}_{image.id}"
                         if field_name in request.form:
                             if not image_crop_storage_ready:

@@ -57,7 +57,7 @@
 
   <section class="about-dash-panel about-dash-current" id="about-featured">
     <div class="about-dash-panel-heading"><div><span class="about-dash-kicker">From the current catalogue</span><h2>Explore current products</h2><p>Product images, prices, options, and stock are drawn from the live shop.</p></div><a href="{{ url_for('public.shop') }}">Browse all products <span aria-hidden="true">→</span></a></div>
-    {% if featured_products %}<div class="about-dash-current-grid">{% for product in featured_products %}{% include "partials/product_card.html" %}{% endfor %}</div>{% else %}<p class="about-dash-empty">There are no active products to show right now. Check back later or contact the shop with a question.</p>{% endif %}
+    {% if featured_products %}<div class="about-dash-current-grid">{% for product in featured_products %}{% with image_crop_profile='about' %}{% include "partials/product_card.html" %}{% endwith %}{% endfor %}</div>{% else %}<p class="about-dash-empty">There are no active products to show right now. Check back later or contact the shop with a question.</p>{% endif %}
   </section>
 
   <section class="about-dash-help-grid" id="about-help" aria-label="Product and order help">

@@ -65,8 +65,6 @@
       <div class="image-manager product-image-manager">
         <h2>Current images</h2>
         {% for image in product.images %}
-        {% set normal_crop = product_image_crop_settings(image, 'normal') %}
-        {% set shop_crop = product_image_crop_settings(image, 'shop') %}
         <article class="product-image-manager-item">
           <img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}">
           <div class="product-image-manager-copy">
@@ -80,29 +78,57 @@
             </div>
           </div>
           <details class="product-image-crop-editor" data-product-image-crop-editor>
-            <summary>Crop and preview card layouts</summary>
+            <summary>Crop and preview storefront cards</summary>
+            {% if not image.is_primary %}<p class="note small">This is a gallery image. Storefront cards display the primary product image, so these crops will appear there only after this image is made primary.</p>{% endif %}
             {% if image_crop_storage_ready %}
+            <label class="product-image-crop-section-select">Storefront section
+              <select data-crop-section-select aria-label="Choose the storefront card section to edit">
+                {% for profile, label in image_crop_profiles %}
+                <option value="{{ profile }}" {% if profile == 'shop' %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
             <div class="product-image-crop-profiles">
-              {% for profile, crop, label in [('normal', normal_crop, 'Normal product cards'), ('shop', shop_crop, 'Shop page cards')] %}
-              <fieldset class="product-image-crop-profile" data-crop-profile="{{ profile }}">
+              {% for profile, label in image_crop_profiles %}
+              {% set crop = product_image_crop_settings(image, profile) %}
+              <fieldset class="product-image-crop-profile" data-crop-profile="{{ profile }}" {% if profile != 'shop' %}hidden{% endif %}>
                 <legend>{{ label }}</legend>
-                <div class="product-image-crop-card-preview is-{{ profile }}" role="group" aria-label="{{ label }} preview">
-                  <div class="product-image-crop-preview" data-crop-preview>
-                    <img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" data-crop-preview-image>
-                    <div class="product-image-crop-frame" data-crop-frame aria-hidden="true">
-                      <button type="button" class="product-image-crop-handle is-top" data-crop-edge="top" tabindex="-1"></button>
-                      <button type="button" class="product-image-crop-handle is-right" data-crop-edge="right" tabindex="-1"></button>
-                      <button type="button" class="product-image-crop-handle is-bottom" data-crop-edge="bottom" tabindex="-1"></button>
-                      <button type="button" class="product-image-crop-handle is-left" data-crop-edge="left" tabindex="-1"></button>
-                    </div>
+                <div class="product-image-crop-preview-stage is-{{ profile }}" role="group" aria-label="{{ label }} card preview">
+                  {% if profile == 'shop' %}
+                  <div class="shop-page"><div class="shop-category-products" style="grid-template-columns:minmax(0,1fr);">
+                    {% with shop_listing_card=true, crop_preview_image=image, crop_profile_override=profile %}{% include "partials/product_card.html" %}{% endwith %}
+                  </div></div>
+                  {% elif profile == 'featured' %}
+                  <section class="deal-strip featured-showcase"><div class="product-marquee"><div class="marquee-track"><div class="marquee-group"><div class="marquee-item">
+                    {% with fresh_arrival_card=true, crop_preview_image=image, crop_profile_override=profile %}{% include "partials/product_card.html" %}{% endwith %}
+                  </div></div></div></div></section>
+                  {% elif profile == 'most_added' %}
+                  <div class="home-market"><section class="deal-strip top-added-showcase"><div class="most-added-carousel"><div class="most-added-viewport"><div class="most-added-track"><div class="marquee-item">
+                    {% with compact_product_card=true, most_added_home_card=true, crop_preview_image=image, crop_profile_override=profile %}{% include "partials/product_card.html" %}{% endwith %}
+                  </div></div></div></div></section></div>
+                  {% elif profile == 'mamba' %}
+                  <section class="mamba-browser"><div class="mamba-products-panel"><div class="mamba-product-grid"><div class="mamba-product">
+                    {% with home_product_card=true, crop_preview_image=image, crop_profile_override=profile %}{% include "partials/product_card.html" %}{% endwith %}
+                  </div></div></div></section>
+                  {% elif profile == 'related' %}
+                  <div class="product-page"><section class="product-related-section"><div class="product-related-grid">
+                    {% with compact_product_card=true, crop_preview_image=image, crop_profile_override=profile %}{% include "partials/product_card.html" %}{% endwith %}
+                  </div></section></div>
+                  {% elif profile == 'about' %}
+                  <div class="about-dash-current-grid">
+                    {% with image_crop_profile=profile, crop_preview_image=image, crop_profile_override=profile %}{% include "partials/product_card.html" %}{% endwith %}
                   </div>
-                  <div class="product-image-crop-card-copy" aria-hidden="true">
-                    <small>{{ product.category.name if product.category else 'Featured' }}</small>
-                    <strong>{{ product.name }}</strong>
-                    <span>{{ product.description|striptags|truncate(55, true) if product.description else 'Everyday essentials from FityStores.' }}</span>
-                    <b>{% if product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}Ask for price{% endif %}</b>
-                    <small>{{ product.display_stock_quantity }} in stock</small>
+                  {% elif profile == 'customer_dashboard' %}
+                  <div class="product-tile">
+                    {% with image_crop_profile=profile, crop_preview_image=image, crop_profile_override=profile %}{% include "partials/product_card.html" %}{% endwith %}
                   </div>
+                  {% elif profile == 'offers' %}
+                  <section class="product-section promo-showcase"><div class="offers-scroll-rail"><div class="offers-scroll-viewport"><div class="offers-scroll-content"><div class="offers-product-item">
+                    {% with crop_preview_image=image %}{% include "partials/offer_product_card.html" %}{% endwith %}
+                  </div></div></div></div></section>
+                  {% else %}
+                  {% with image_crop_profile=profile, crop_preview_image=image, crop_profile_override=profile %}{% include "partials/product_card.html" %}{% endwith %}
+                  {% endif %}
                 </div>
                 <label>Image fit
                   <select data-crop-fit>
@@ -130,7 +156,7 @@
               </fieldset>
               {% endfor %}
             </div>
-            <p class="note small">The image is previewed inside each card layout. Adjust crop, fit, zoom, and position together; save product to apply each profile only to its matching card layout. Original image files are never changed.</p>
+            <p class="note small">Choose the storefront section, then adjust the image inside that section's actual card layout. Each section saves independently; save the product to apply the selected image settings. Original image files and card layouts are never changed.</p>
             {% else %}
             <p class="notice" role="status">Image crop storage is not ready. Run <code>flask --app manage:app migrate-product-image-crops</code>, then reload this page.</p>
             {% endif %}
@@ -245,5 +271,5 @@
 <script defer src="{{ url_for('static', filename='js/admin-product-variants.js') }}?v=variant-studio-20261126"></script>
 <script defer src="{{ url_for('static', filename='js/admin-product-content.js') }}?v=rich-product-details-20261126"></script>
 <script defer src="{{ url_for('static', filename='js/admin-product-sections.js') }}?v=product-story-sections-20261126"></script>
-<script defer src="{{ url_for('static', filename='js/admin-product-image-crops.js') }}?v=product-image-crop-edges-v1"></script>
+<script defer src="{{ url_for('static', filename='js/admin-product-image-crops.js') }}?v=product-image-crop-sections-v2"></script>
 {% endblock %}
