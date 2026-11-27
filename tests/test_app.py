@@ -2157,8 +2157,14 @@ def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
         "variants_text": "",
         "active": "on",
         "featured": "on",
-        f"image_crop_normal_{image_id}": json.dumps({"fit": "cover", "zoom": 150, "x": 25, "y": 35}),
-        f"image_crop_shop_{image_id}": json.dumps({"fit": "contain", "zoom": 125, "x": 70, "y": 40}),
+        f"image_crop_normal_{image_id}": json.dumps({
+            "fit": "cover", "zoom": 150, "x": 25, "y": 35,
+            "top": 8, "right": 4, "bottom": 12, "left": 6,
+        }),
+        f"image_crop_shop_{image_id}": json.dumps({
+            "fit": "contain", "zoom": 125, "x": 70, "y": 40,
+            "top": 0, "right": 10, "bottom": 5, "left": 2,
+        }),
     }, follow_redirects=True)
     assert response.status_code == 200
     assert b"Product saved" in response.data
@@ -2166,12 +2172,22 @@ def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
     with app.app_context():
         from app.models import ProductImageCrop
         crop = ProductImageCrop.query.filter_by(image_id=image_id).one()
-        assert json.loads(crop.normal_settings) == {"fit": "cover", "zoom": 150, "x": 25, "y": 35}
-        assert json.loads(crop.shop_settings) == {"fit": "contain", "zoom": 125, "x": 70, "y": 40}
+        assert json.loads(crop.normal_settings) == {
+            "fit": "cover", "zoom": 150, "x": 25, "y": 35,
+            "top": 8, "right": 4, "bottom": 12, "left": 6,
+        }
+        assert json.loads(crop.shop_settings) == {
+            "fit": "contain", "zoom": 125, "x": 70, "y": 40,
+            "top": 0, "right": 10, "bottom": 5, "left": 2,
+        }
 
     admin_form = client.get(f"/admin/products/{product_id}/edit")
     assert admin_form.status_code == 200
     assert b"data-crop-preview" in admin_form.data
+    assert b'data-crop-value="top"' in admin_form.data
+    assert b'data-crop-value="right"' in admin_form.data
+    assert b'data-crop-value="bottom"' in admin_form.data
+    assert b'data-crop-value="left"' in admin_form.data
     assert b"admin-product-image-crops.js" in admin_form.data
     home = client.get("/")
     about = client.get("/about")
@@ -2181,9 +2197,10 @@ def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
     assert about.status_code == 200
     assert shop.status_code == 200
     assert shop_api.status_code == 200
-    assert b"object-fit: cover; object-position: 25% 35%; scale: 1.5; transform-origin: 25% 35%;" in about.data
-    assert b"object-fit: contain; object-position: 70% 40%; scale: 1.25; transform-origin: 70% 40%;" in shop.data
+    assert b"object-fit: cover; object-position: 25% 35%; scale: 1.5; transform-origin: 25% 35%; clip-path: inset(8% 4% 12% 6%);" in about.data
+    assert b"object-fit: contain; object-position: 70% 40%; scale: 1.25; transform-origin: 70% 40%; clip-path: inset(0% 10% 5% 2%);" in shop.data
     assert "object-position: 70% 40%" in shop_api.get_json()["html"]
+    assert "clip-path: inset(0% 10% 5% 2%)" in shop_api.get_json()["html"]
     offers = home.data.split(b'id="discounted-goods"', 1)[1].split(b"</section>", 1)[0]
     assert b"offers-product-card" in offers
     assert b"object-fit:" not in offers
@@ -2199,6 +2216,10 @@ def test_product_image_crop_settings_reject_invalid_values():
     )
 
     assert normalize_product_image_crop(DEFAULT_PRODUCT_IMAGE_CROP) == DEFAULT_PRODUCT_IMAGE_CROP
+    assert normalize_product_image_crop({"fit": "cover", "zoom": 100, "x": 50, "y": 50}) == {
+        **DEFAULT_PRODUCT_IMAGE_CROP,
+        "fit": "cover",
+    }
     for settings in (
         {"fit": "stretch", "zoom": 100, "x": 50, "y": 50},
         {"fit": [], "zoom": 100, "x": 50, "y": 50},
@@ -2206,6 +2227,8 @@ def test_product_image_crop_settings_reject_invalid_values():
         {"fit": "contain", "zoom": 100, "x": -1, "y": 50},
         {"fit": "contain", "zoom": 100, "x": 50, "y": True},
         {"fit": "contain", "zoom": 100, "x": 50},
+        {**DEFAULT_PRODUCT_IMAGE_CROP, "left": 50},
+        {**DEFAULT_PRODUCT_IMAGE_CROP, "top": 40, "bottom": 55},
     ):
         with pytest.raises(ValueError):
             normalize_product_image_crop(settings)

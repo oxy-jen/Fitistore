@@ -88,6 +88,12 @@
                 <legend>{{ label }}</legend>
                 <div class="product-image-crop-preview" data-crop-preview>
                   <img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" data-crop-preview-image>
+                  <div class="product-image-crop-frame" data-crop-frame aria-hidden="true">
+                    <button type="button" class="product-image-crop-handle is-top" data-crop-edge="top" tabindex="-1"></button>
+                    <button type="button" class="product-image-crop-handle is-right" data-crop-edge="right" tabindex="-1"></button>
+                    <button type="button" class="product-image-crop-handle is-bottom" data-crop-edge="bottom" tabindex="-1"></button>
+                    <button type="button" class="product-image-crop-handle is-left" data-crop-edge="left" tabindex="-1"></button>
+                  </div>
                 </div>
                 <label>Image fit
                   <select data-crop-fit>
@@ -104,6 +110,12 @@
                 <label>Vertical position <output data-crop-readout="y">{{ crop.y }}%</output>
                   <input type="range" min="0" max="100" step="1" value="{{ crop.y }}" data-crop-value="y" aria-label="{{ label }} vertical position">
                 </label>
+                <p class="product-image-crop-help">Drag a crop-frame edge or use the controls to trim the image.</p>
+                {% for edge, edge_label in [('top', 'Crop from top'), ('right', 'Crop from right'), ('bottom', 'Crop from bottom'), ('left', 'Crop from left')] %}
+                <label>{{ edge_label }} <output data-crop-readout="{{ edge }}">{{ crop[edge] }}%</output>
+                  <input type="range" min="0" max="45" step="1" value="{{ crop[edge] }}" data-crop-value="{{ edge }}" aria-label="{{ label }} {{ edge_label|lower }}">
+                </label>
+                {% endfor %}
                 <input type="hidden" name="image_crop_{{ profile }}_{{ image.id }}" value="{{ crop|tojson|forceescape }}" data-crop-settings>
                 <button class="btn" type="button" data-reset-crop>Reset this layout</button>
               </fieldset>
@@ -224,5 +236,5 @@
 <script defer src="{{ url_for('static', filename='js/admin-product-variants.js') }}?v=variant-studio-20261126"></script>
 <script defer src="{{ url_for('static', filename='js/admin-product-content.js') }}?v=rich-product-details-20261126"></script>
 <script defer src="{{ url_for('static', filename='js/admin-product-sections.js') }}?v=product-story-sections-20261126"></script>
-<script defer src="{{ url_for('static', filename='js/admin-product-image-crops.js') }}?v=product-image-crop-profiles-20261128"></script>
+<script defer src="{{ url_for('static', filename='js/admin-product-image-crops.js') }}?v=product-image-crop-edges-v1"></script>
 {% endblock %}

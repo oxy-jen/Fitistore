@@ -10,7 +10,16 @@ from app.extensions import db
 from app.models import ProductImageCrop
 
 
-DEFAULT_PRODUCT_IMAGE_CROP = {"fit": "contain", "zoom": 100, "x": 50, "y": 50}
+DEFAULT_PRODUCT_IMAGE_CROP = {
+    "fit": "contain",
+    "zoom": 100,
+    "x": 50,
+    "y": 50,
+    "top": 0,
+    "right": 0,
+    "bottom": 0,
+    "left": 0,
+}
 PRODUCT_IMAGE_CROP_POSTGRES_ADVISORY_LOCK = 724930126
 _CROP_PROFILES = {"normal", "shop"}
 _CROP_FITS = {"contain", "cover"}
@@ -23,16 +32,34 @@ def normalize_product_image_crop(value):
             value = json.loads(value)
         except (TypeError, ValueError):
             raise ValueError("Crop settings must be valid JSON.") from None
-    if not isinstance(value, dict) or set(value) != {"fit", "zoom", "x", "y"}:
-        raise ValueError("Crop settings must include fit, zoom, x, and y.")
+    if not isinstance(value, dict):
+        raise ValueError("Crop settings must be an object.")
+    legacy_keys = {"fit", "zoom", "x", "y"}
+    crop_keys = {"top", "right", "bottom", "left"}
+    if set(value) == legacy_keys:
+        value = {**value, **{key: 0 for key in crop_keys}}
+    elif set(value) != legacy_keys | crop_keys:
+        raise ValueError("Crop settings must include fit, zoom, position, and all four crop edges.")
     if not isinstance(value["fit"], str) or value["fit"] not in _CROP_FITS:
         raise ValueError("Choose contain or cover for image fit.")
     normalized: dict[str, str | int] = {"fit": value["fit"]}
-    for key, lower, upper in (("zoom", 100, 300), ("x", 0, 100), ("y", 0, 100)):
+    for key, lower, upper in (
+        ("zoom", 100, 300),
+        ("x", 0, 100),
+        ("y", 0, 100),
+        ("top", 0, 45),
+        ("right", 0, 45),
+        ("bottom", 0, 45),
+        ("left", 0, 45),
+    ):
         number = value[key]
         if isinstance(number, bool) or not isinstance(number, int) or not lower <= number <= upper:
             raise ValueError(f"{key.capitalize()} must be a whole number from {lower} to {upper}.")
         normalized[key] = number
+    if normalized["left"] + normalized["right"] > 90:
+        raise ValueError("Left and right crop edges must leave at least 10% of the image visible.")
+    if normalized["top"] + normalized["bottom"] > 90:
+        raise ValueError("Top and bottom crop edges must leave at least 10% of the image visible.")
     return normalized
 
 
