@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload, selectinload
 from xml.sax.saxutils import escape
 from app.extensions import db, csrf
-from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductContentSection, ProductDetails, ProductLike, ProductEnquiry, ProductSuggestion, ProductVariant, ProductVariantDetails, ReferralClick, RestockAlert, Review, UpcomingProduct, UpcomingProductVote
+from app.models import CartAddCount, Category, CategoryThumbnail, CustomerAccount, CustomerCart, CustomerConsentEvent, CustomerOrderLink, CustomerProfile, EmailCampaignRecipient, EmailMessage, LoyaltyTransaction, Order, OrderItem, Product, ProductContentSection, ProductDetails, ProductImage, ProductLike, ProductEnquiry, ProductSuggestion, ProductVariant, ProductVariantDetails, ReferralClick, RestockAlert, Review, UpcomingProduct, UpcomingProductVote
 from app.services.cart import validate_cart
 from app.services.orders import create_checkout_order
 from app.services.settings import current_settings
@@ -88,9 +88,13 @@ def _product_search_rank(value):
     )
 
 def product_list_options(query):
+    image_options = selectinload(Product.images)
+    from app.services.product_image_crops import product_image_crop_schema_ready
+    if product_image_crop_schema_ready():
+        image_options = image_options.joinedload(ProductImage.crop_settings)
     return query.options(
         joinedload(Product.category),
-        selectinload(Product.images),
+        image_options,
         selectinload(Product.variants).joinedload(ProductVariant.image),
     )
 
@@ -171,6 +175,7 @@ def save_payment_proof(file):
 @public_bp.app_context_processor
 def helpers():
     from app.services.formatting import money, split_options
+    from app.services.product_image_crops import product_image_crop_settings
     footer_candidates = product_list_options(Product.query.filter_by(active=True)).order_by(
         Product.featured.desc(), Product.updated_at.desc(), Product.id.desc()
     ).limit(60).all()
@@ -195,7 +200,7 @@ def helpers():
         if endpoint.startswith("public.") and not private_path and not excluded_endpoint and not request.path.startswith("/checkout"):
             from app.services.design_studio import active_designs
             storefront_designs = active_designs()
-    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_gallery_images": product_gallery_images, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "category_group_key": category_group_key, "footer_products": footer_products[:3], "footer_product_groups": footer_product_groups, "design_studio_designs": storefront_designs, "product_api_data": product_api_data, "current_year": datetime.now().year}
+    return {"settings": current_settings(), "money": money, "split_options": split_options, "product_display_image": product_display_image, "product_gallery_images": product_gallery_images, "product_image_url": product_image_url, "product_image_alt": product_image_alt, "product_image_crop_settings": product_image_crop_settings, "valid_product_image": valid_product_image, "product_whatsapp_link": product_whatsapp_link, "whatsapp_text_link": whatsapp_text_link, "build_general_message": build_general_message, "local_contact_number": LOCAL_CONTACT_NUMBER, "category_group_key": category_group_key, "footer_products": footer_products[:3], "footer_product_groups": footer_product_groups, "design_studio_designs": storefront_designs, "product_api_data": product_api_data, "current_year": datetime.now().year}
 
 def product_query(category_group_override=None, sort_override=None):
     q = request.args.get("q", "").strip()

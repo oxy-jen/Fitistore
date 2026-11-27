@@ -122,7 +122,7 @@ flask --app manage.py init-db
 
 The starter catalogue uses confirmed prices only: bonnet KSh 120, ankle socks KSh 40, and hair bands at KSh 10, KSh 50, and KSh 60. Shower caps, underwear/panties, vests, boxers, and shoes are created as inactive owner-completion drafts so their prices are not invented.
 
-Admin product management is available at `/admin/products`. Administrators can search/filter inventory, add products, upload one or more product images, preview selected images, choose a primary image, remove images, update stock, mark products sold out, hide products, or delete products with confirmation.
+Admin product management is available at `/admin/products`. Administrators can search/filter inventory, add products, upload one or more product images, preview selected images, choose a primary image, remove images, update stock, mark products sold out, hide products, or delete products with confirmation. Each saved image also has independent, non-destructive crop controls and live previews for standard product cards and Shop page cards. Offers, Mamba, and compact/related card layouts keep their existing image presentation.
 
 The shop page uses `/api/products` for paginated infinite scrolling. Search, category filters, and sorting are preserved while more products load.
 ## Cloudinary Product Images
@@ -146,6 +146,12 @@ gunicorn wsgi:app
 Do not use `flask --app manage init-db && gunicorn wsgi:app` in production. `init-db` is only for local SQLite setup. The `wsgi:app` web entry point initializes the Media Showcase feature at web-server startup. Flask CLI commands use `manage:app` and skip that web-only initializer. It creates only missing showcase tables and indexes under a PostgreSQL advisory lock, without seeding or resetting production data.
 
 The app needs two compatible columns on `product_image`: `storage_backend` and `cloudinary_public_id`. Existing filename records remain readable. New admin uploads and online image imports require Cloudinary to be configured; otherwise the admin receives a clear error and the product is not falsely saved with a missing image.
+
+Crop profiles are stored in the additive `product_image_crop` table; original image files and existing product-image records are not rewritten. The web entry point creates this table automatically under the same serialized startup initialization used for other optional storefront features. If setting it up explicitly from a CLI app, run the idempotent command:
+
+```bash
+python -m flask --app manage:app migrate-product-image-crops
+```
 
 Production PostgreSQL schema changes are not run automatically during Gunicorn startup. After backing up the Render database and deploying the code, apply the focused Cloudinary schema migration once. The migration is idempotent and safe to rerun:
 

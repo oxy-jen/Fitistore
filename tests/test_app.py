@@ -2125,6 +2125,111 @@ def test_admin_product_edit_save_updates_product(client, app):
         assert ProductDisplayNote.query.filter_by(product_id=product_id).one().note == "Choose your preferred size below."
 
 
+def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(client, app):
+    with app.app_context():
+        product = Product.query.filter_by(slug="plain-socks").first()
+        image = ProductImage(
+            product=product,
+            filename="sample-ankle-socks.svg",
+            alt_text="Socks",
+            is_primary=True,
+        )
+        db.session.add(image)
+        db.session.commit()
+        product_id = product.id
+        image_id = image.id
+        category_id = product.category_id
+
+    client.post("/admin/login", data={"username": "owner", "password": "secret123"})
+    response = client.post(f"/admin/products/{product_id}/edit", data={
+        "name": "Plain Socks",
+        "sku": "",
+        "category_id": str(category_id),
+        "description": "Soft socks",
+        "display_note": "",
+        "price": "150",
+        "previous_price": "180",
+        "unit_cost": "",
+        "stock_quantity": "4",
+        "low_stock_threshold": "2",
+        "size_options": "",
+        "color_options": "",
+        "variants_text": "",
+        "active": "on",
+        "featured": "on",
+        f"image_crop_normal_{image_id}": json.dumps({"fit": "cover", "zoom": 150, "x": 25, "y": 35}),
+        f"image_crop_shop_{image_id}": json.dumps({"fit": "contain", "zoom": 125, "x": 70, "y": 40}),
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Product saved" in response.data
+
+    with app.app_context():
+        from app.models import ProductImageCrop
+        crop = ProductImageCrop.query.filter_by(image_id=image_id).one()
+        assert json.loads(crop.normal_settings) == {"fit": "cover", "zoom": 150, "x": 25, "y": 35}
+        assert json.loads(crop.shop_settings) == {"fit": "contain", "zoom": 125, "x": 70, "y": 40}
+
+    admin_form = client.get(f"/admin/products/{product_id}/edit")
+    assert admin_form.status_code == 200
+    assert b"data-crop-preview" in admin_form.data
+    assert b"admin-product-image-crops.js" in admin_form.data
+    home = client.get("/")
+    about = client.get("/about")
+    shop = client.get("/shop")
+    shop_api = client.get("/api/products?page=1")
+    assert home.status_code == 200
+    assert about.status_code == 200
+    assert shop.status_code == 200
+    assert shop_api.status_code == 200
+    assert b"object-fit: cover; object-position: 25% 35%; scale: 1.5; transform-origin: 25% 35%;" in about.data
+    assert b"object-fit: contain; object-position: 70% 40%; scale: 1.25; transform-origin: 70% 40%;" in shop.data
+    assert "object-position: 70% 40%" in shop_api.get_json()["html"]
+    offers = home.data.split(b'id="discounted-goods"', 1)[1].split(b"</section>", 1)[0]
+    assert b"offers-product-card" in offers
+    assert b"object-fit:" not in offers
+    mamba_cards = home.data.split(b'id="mamba-products"', 1)[1].split(b'data-carousel-direction="1"', 1)[0]
+    assert b'data-product-card="' + str(product_id).encode() + b'"' in mamba_cards
+    assert b"object-fit:" not in mamba_cards
+
+
+def test_product_image_crop_settings_reject_invalid_values():
+    from app.services.product_image_crops import (
+        DEFAULT_PRODUCT_IMAGE_CROP,
+        normalize_product_image_crop,
+    )
+
+    assert normalize_product_image_crop(DEFAULT_PRODUCT_IMAGE_CROP) == DEFAULT_PRODUCT_IMAGE_CROP
+    for settings in (
+        {"fit": "stretch", "zoom": 100, "x": 50, "y": 50},
+        {"fit": [], "zoom": 100, "x": 50, "y": 50},
+        {"fit": "cover", "zoom": 301, "x": 50, "y": 50},
+        {"fit": "contain", "zoom": 100, "x": -1, "y": 50},
+        {"fit": "contain", "zoom": 100, "x": 50, "y": True},
+        {"fit": "contain", "zoom": 100, "x": 50},
+    ):
+        with pytest.raises(ValueError):
+            normalize_product_image_crop(settings)
+
+
+def test_product_image_crop_schema_migration_is_additive_and_idempotent():
+    from sqlalchemy import create_engine, inspect
+    from app.services.product_image_crops import ensure_product_image_crop_schema
+
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE product_image (id INTEGER PRIMARY KEY)")
+
+    assert ensure_product_image_crop_schema(engine)
+    assert ensure_product_image_crop_schema(engine)
+    inspector = inspect(engine)
+    assert inspector.has_table("product_image_crop")
+    assert {column["name"] for column in inspector.get_columns("product_image_crop")} == {
+        "image_id", "normal_settings", "shop_settings"
+    }
+    assert inspector.get_table_names() == ["product_image", "product_image_crop"]
+    engine.dispose()
+
+
 def test_admin_product_form_has_repeatable_variant_controls(client, app):
     client.post("/admin/login", data={"username": "owner", "password": "secret123"})
     response = client.get("/admin/products/new")

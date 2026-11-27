@@ -61,7 +61,63 @@
       <div id="online-image-urls"><div class="online-image-url-row"><label>Cloudinary image URL<input name="online_image_url" type="url" placeholder="https://res.cloudinary.com/..."></label><button type="button" class="btn" data-remove-online-image-url aria-label="Remove this image URL" hidden>Remove</button></div></div>
       <button type="button" class="btn" id="add-online-image-url">Add another image URL</button>
       <p class="note small">Use public Cloudinary URLs only when the image license permits it.</p>
-      {% if product and product.images %}<div class="image-manager"><h2>Current images</h2>{% for image in product.images %}<article><img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}"><div><strong>{{ 'Primary image' if image.is_primary else 'Gallery image' }}</strong><p>{{ image.alt_text }}</p><div class="inline"><button class="btn" type="submit" form="primary-image-{{ image.id }}" {% if image.is_primary %}disabled{% endif %}>Make primary</button><button class="btn" type="submit" form="move-image-up-{{ image.id }}" {% if loop.first %}disabled{% endif %} aria-label="Move image up">Move up</button><button class="btn" type="submit" form="move-image-down-{{ image.id }}" {% if loop.last %}disabled{% endif %} aria-label="Move image down">Move down</button><button class="btn danger" type="submit" form="delete-image-{{ image.id }}">Remove image</button></div></div></article>{% endfor %}</div>{% endif %}
+      {% if product and product.images %}
+      <div class="image-manager product-image-manager">
+        <h2>Current images</h2>
+        {% for image in product.images %}
+        {% set normal_crop = product_image_crop_settings(image, 'normal') %}
+        {% set shop_crop = product_image_crop_settings(image, 'shop') %}
+        <article class="product-image-manager-item">
+          <img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}">
+          <div class="product-image-manager-copy">
+            <strong>{{ 'Primary image' if image.is_primary else 'Gallery image' }}</strong>
+            <p>{{ image.alt_text }}</p>
+            <div class="inline">
+              <button class="btn" type="submit" form="primary-image-{{ image.id }}" {% if image.is_primary %}disabled{% endif %}>Make primary</button>
+              <button class="btn" type="submit" form="move-image-up-{{ image.id }}" {% if loop.first %}disabled{% endif %} aria-label="Move image up">Move up</button>
+              <button class="btn" type="submit" form="move-image-down-{{ image.id }}" {% if loop.last %}disabled{% endif %} aria-label="Move image down">Move down</button>
+              <button class="btn danger" type="submit" form="delete-image-{{ image.id }}">Remove image</button>
+            </div>
+          </div>
+          <details class="product-image-crop-editor" data-product-image-crop-editor>
+            <summary>Crop and preview card layouts</summary>
+            {% if image_crop_storage_ready %}
+            <div class="product-image-crop-profiles">
+              {% for profile, crop, label in [('normal', normal_crop, 'Normal product cards'), ('shop', shop_crop, 'Shop page cards')] %}
+              <fieldset class="product-image-crop-profile" data-crop-profile="{{ profile }}">
+                <legend>{{ label }}</legend>
+                <div class="product-image-crop-preview" data-crop-preview>
+                  <img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image) }}" data-crop-preview-image>
+                </div>
+                <label>Image fit
+                  <select data-crop-fit>
+                    <option value="contain" {% if crop.fit == 'contain' %}selected{% endif %}>Fit entire image</option>
+                    <option value="cover" {% if crop.fit == 'cover' %}selected{% endif %}>Fill card area</option>
+                  </select>
+                </label>
+                <label>Zoom <output data-crop-readout="zoom">{{ crop.zoom }}%</output>
+                  <input type="range" min="100" max="300" step="5" value="{{ crop.zoom }}" data-crop-value="zoom" aria-label="{{ label }} zoom">
+                </label>
+                <label>Horizontal position <output data-crop-readout="x">{{ crop.x }}%</output>
+                  <input type="range" min="0" max="100" step="1" value="{{ crop.x }}" data-crop-value="x" aria-label="{{ label }} horizontal position">
+                </label>
+                <label>Vertical position <output data-crop-readout="y">{{ crop.y }}%</output>
+                  <input type="range" min="0" max="100" step="1" value="{{ crop.y }}" data-crop-value="y" aria-label="{{ label }} vertical position">
+                </label>
+                <input type="hidden" name="image_crop_{{ profile }}_{{ image.id }}" value="{{ crop|tojson|forceescape }}" data-crop-settings>
+                <button class="btn" type="button" data-reset-crop>Reset this layout</button>
+              </fieldset>
+              {% endfor %}
+            </div>
+            <p class="note small">Previews update immediately. Save product to apply each profile only to its matching card layout; original image files are never changed.</p>
+            {% else %}
+            <p class="notice" role="status">Image crop storage is not ready. Run <code>flask --app manage:app migrate-product-image-crops</code>, then reload this page.</p>
+            {% endif %}
+          </details>
+        </article>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
   </details>
 
@@ -168,4 +224,5 @@
 <script defer src="{{ url_for('static', filename='js/admin-product-variants.js') }}?v=variant-studio-20261126"></script>
 <script defer src="{{ url_for('static', filename='js/admin-product-content.js') }}?v=rich-product-details-20261126"></script>
 <script defer src="{{ url_for('static', filename='js/admin-product-sections.js') }}?v=product-story-sections-20261126"></script>
+<script defer src="{{ url_for('static', filename='js/admin-product-image-crops.js') }}?v=product-image-crop-profiles-20261128"></script>
 {% endblock %}

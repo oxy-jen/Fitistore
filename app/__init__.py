@@ -170,12 +170,24 @@ def create_app(config_object=Config, *, initialize_media_showcases=False):
     app.extensions["upcoming_product_schema_ready"] = None
     app.extensions["product_like_schema_ready"] = None
     app.extensions["product_display_note_schema_ready"] = None
+    app.extensions["product_image_crop_schema_ready"] = None
     app.extensions["product_variant_discount_schema_ready"] = None
     app.extensions["design_studio_schema_ready"] = None
     if initialize_media_showcases and not app.testing:
         with app.app_context():
             ensure_product_variant_discount_schema()
             app.extensions["product_variant_discount_schema_ready"] = True
+            from .services.product_image_crops import ensure_product_image_crop_schema
+            try:
+                ensure_product_image_crop_schema()
+                app.extensions["product_image_crop_schema_ready"] = True
+                app.logger.info("Product image crop settings storage is ready.")
+            except Exception as exc:
+                app.extensions["product_image_crop_schema_ready"] = False
+                app.logger.error(
+                    "Automatic product image crop setup failed (%s). Crop controls will be unavailable; the next app startup will retry.",
+                    type(exc).__name__,
+                )
     if initialize_media_showcases and not app.testing and app.config.get("AUTO_INITIALIZE_MEDIA_SHOWCASES", True):
         from .services.media_showcases import ensure_media_showcase_schema
         with app.app_context():
@@ -1179,6 +1191,19 @@ def register_cli(app: Flask):
                 "the schema transaction was rolled back where supported."
             ) from None
         click.echo("Product details schema is ready. Existing product and order records were not changed.")
+
+    @app.cli.command("migrate-product-image-crops")
+    def migrate_product_image_crops():
+        """Create additive per-image crop settings without changing product images."""
+        from .services.product_image_crops import ensure_product_image_crop_schema
+        try:
+            ensure_product_image_crop_schema()
+        except Exception as exc:
+            raise click.ClickException(
+                f"Product image crop migration failed ({type(exc).__name__}); existing product images were not changed."
+            ) from None
+        app.extensions["product_image_crop_schema_ready"] = True
+        click.echo("Product image crop settings schema is ready. Existing product images were not changed.")
 
     @app.cli.command("migrate-category-thumbnails-schema")
     def migrate_category_thumbnails_schema():

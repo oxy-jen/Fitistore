@@ -350,6 +350,25 @@ class ProductImage(TimestampMixin, db.Model):
     sort_order = db.Column(db.Integer, default=0, nullable=False)
     is_primary = db.Column(db.Boolean, default=False, nullable=False)
     product = db.relationship("Product", back_populates="images")
+    crop_settings = db.relationship(
+        "ProductImageCrop",
+        back_populates="image",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class ProductImageCrop(db.Model):
+    """Independent, non-destructive crop profiles for standard and Shop cards."""
+    __tablename__ = "product_image_crop"
+    image_id = db.Column(
+        db.Integer,
+        db.ForeignKey("product_image.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    normal_settings = db.Column(db.String(160), nullable=False, default="")
+    shop_settings = db.Column(db.String(160), nullable=False, default="")
+    image = db.relationship("ProductImage", back_populates="crop_settings")
 
 class ProductVariant(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)

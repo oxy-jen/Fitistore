@@ -1833,6 +1833,12 @@ def product_form(product_id=None):
         .order_by(ProductContentSection.sort_order, ProductContentSection.id).all()
         if product and details_ready else []
     )
+    from app.services.product_image_crops import (
+        normalize_product_image_crop,
+        product_image_crop_schema_ready,
+        save_product_image_crop_settings,
+    )
+    image_crop_storage_ready = product_image_crop_schema_ready()
 
     def render_product_form(
         *, variant_form_rows=None, content_section_rows=None, details_form=None, display_note=""
@@ -1860,6 +1866,7 @@ def product_form(product_id=None):
             ),
             details_form=details_form,
             rich_description_preview=sanitize_product_html(description_source) if details_ready else "",
+            image_crop_storage_ready=image_crop_storage_ready,
         )
 
     from app.services.product_display_notes import get_product_display_note
@@ -1888,6 +1895,23 @@ def product_form(product_id=None):
                 "error",
             )
             return render_product_form(details_form=details_form, display_note=form_display_note)
+        crop_updates = []
+        if product:
+            try:
+                for image in product.images:
+                    for profile in ("normal", "shop"):
+                        field_name = f"image_crop_{profile}_{image.id}"
+                        if field_name in request.form:
+                            if not image_crop_storage_ready:
+                                raise RuntimeError("Product image crop storage is not ready.")
+                            crop_updates.append((
+                                image.id,
+                                profile,
+                                normalize_product_image_crop(request.form[field_name]),
+                            ))
+            except (RuntimeError, ValueError) as exc:
+                flash(str(exc), "error")
+                return render_product_form(details_form=details_form, display_note=form_display_note)
         if not product:
             product = Product(category_id=categories[0].id if categories else None)
         product.name = request.form["name"].strip()
@@ -1972,6 +1996,18 @@ def product_form(product_id=None):
                 details_form=details_form,
                 display_note=form_display_note,
             )
+        try:
+            for image_id, profile, settings in crop_updates:
+                save_product_image_crop_settings(image_id, profile, settings)
+        except (RuntimeError, SQLAlchemyError) as exc:
+            db.session.rollback()
+            current_app.logger.error(
+                "Could not save product image crop settings product_id=%s error_type=%s",
+                product.id,
+                type(exc).__name__,
+            )
+            flash("Product changes were not saved because the image crop settings could not be saved.", "error")
+            return render_product_form(details_form=details_form, display_note=form_display_note)
         if product.images and not any(image.is_primary for image in product.images):
             product.images[0].is_primary = True
         db.session.commit()
