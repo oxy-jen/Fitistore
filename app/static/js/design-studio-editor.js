@@ -263,10 +263,15 @@
       ? `<span class="ds-campaign-heading-highlight" data-studio-edit-field="highlight">${escapeMarkup(value.highlight)}</span>` : '';
     const arrow = ' →';
     const currentMarkup = new DOMParser().parseFromString(html.value || '', 'text/html');
+    const savedLottieTarget = currentMarkup.body.querySelector('[data-studio-lottie-target]')?.dataset.studioLottieTarget;
+    const lottieTargetAttribute = savedLottieTarget
+      && (savedLottieTarget === 'section' || /^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(savedLottieTarget))
+      ? ` data-studio-lottie-target="${escapeMarkup(savedLottieTarget)}"`
+      : '';
     const customCards = [...currentMarkup.querySelectorAll('[data-studio-card-key^="c-"]')]
       .map(card => card.outerHTML).join('');
     const savedLayout = studioLayoutBlock();
-    const campaignMarkup = `<section class="ds-campaign ds-campaign--${key}${cutoutClass}" data-template-key="${key}" data-template-brand="${attr('brand')}" data-template-kicker="${attr('kicker')}" data-template-badge="${attr('badge')}" data-template-headline="${attr('headline')}" data-template-highlight="${attr('highlight')}" data-template-copy="${attr('copy')}" data-template-cta="${attr('cta')}" data-template-url="${attr('url')}" data-template-background="${attr('background')}" data-template-accent="${attr('accent')}" data-template-platform="${attr('platform')}" data-template-cutouts="${value.cutouts ? 'true' : 'false'}"><div class="ds-campaign-copy"><p class="ds-campaign-brand" data-studio-edit-field="brand">${escapeMarkup(value.brand)}</p><p class="ds-campaign-kicker" data-studio-edit-field="kicker">${escapeMarkup(value.kicker)}</p>${badge ? badge.replace('<p class="ds-campaign-badge">', '<p class="ds-campaign-badge" data-studio-edit-field="badge">') : ''}<h2><span class="ds-campaign-heading-main" data-studio-edit-field="headline">${escapeMarkup(value.headline)}</span>${highlight}</h2><p class="ds-campaign-copyline" data-studio-edit-field="copy">${escapeMarkup(value.copy)}</p><a class="ds-campaign-cta" href="${attr('url')}"><span data-studio-edit-field="cta">${escapeMarkup(value.cta)}</span><span aria-hidden="true">${arrow}</span></a></div><div class="ds-campaign-products"><div class="ds-campaign-product-track" data-studio-product-canvas>%%FITYSTORES_OFFERS%%${customCards}</div></div></section>`;
+    const campaignMarkup = `<section class="ds-campaign ds-campaign--${key}${cutoutClass}"${lottieTargetAttribute} data-template-key="${key}" data-template-brand="${attr('brand')}" data-template-kicker="${attr('kicker')}" data-template-badge="${attr('badge')}" data-template-headline="${attr('headline')}" data-template-highlight="${attr('highlight')}" data-template-copy="${attr('copy')}" data-template-cta="${attr('cta')}" data-template-url="${attr('url')}" data-template-background="${attr('background')}" data-template-accent="${attr('accent')}" data-template-platform="${attr('platform')}" data-template-cutouts="${value.cutouts ? 'true' : 'false'}"><div class="ds-campaign-copy"><p class="ds-campaign-brand" data-studio-edit-field="brand">${escapeMarkup(value.brand)}</p><p class="ds-campaign-kicker" data-studio-edit-field="kicker">${escapeMarkup(value.kicker)}</p>${badge ? badge.replace('<p class="ds-campaign-badge">', '<p class="ds-campaign-badge" data-studio-edit-field="badge">') : ''}<h2><span class="ds-campaign-heading-main" data-studio-edit-field="headline">${escapeMarkup(value.headline)}</span>${highlight}</h2><p class="ds-campaign-copyline" data-studio-edit-field="copy">${escapeMarkup(value.copy)}</p><a class="ds-campaign-cta" href="${attr('url')}"><span data-studio-edit-field="cta">${escapeMarkup(value.cta)}</span><span aria-hidden="true">${arrow}</span></a></div><div class="ds-campaign-products"><div class="ds-campaign-product-track" data-studio-product-canvas>%%FITYSTORES_OFFERS%%${customCards}</div></div></section>`;
     html.value = ensureEditableMarkup(campaignMarkup);
     css.value = `${campaignCss(key, value)}${savedLayout ? `\n${savedLayout}` : ''}`;
   }
@@ -289,6 +294,7 @@
       item.setAttribute('aria-pressed', String(item === button));
     });
     html.value = ensureEditableMarkup(html.value);
+    syncLottieTargetOptions();
     ensureLottieTarget();
     schedulePreview();
   }));
@@ -317,9 +323,73 @@
   const productInputs = form.querySelector('[data-studio-product-inputs]');
   const addProductButton = form.querySelector('[data-studio-add-product]');
   const productStatus = form.querySelector('[data-studio-product-status]');
+  const lottieTargetSelect = form.querySelector('[data-studio-lottie-target]');
+  const lottieTargetStatus = form.querySelector('[data-studio-lottie-target-status]');
   const selectedProductIds = new Set();
   let unavailableSavedProductCount = 0;
   let selectionLoadFailed = false;
+  function lottieProductChoices() {
+    const choices = new Map();
+    selectedProductIds.forEach(id => {
+      const option = [...productPicker.options].find(item => item.value === id);
+      if (option) choices.set(`p-${id}`, option.dataset.name || option.textContent.trim());
+    });
+    const markup = new DOMParser().parseFromString(html.value || '', 'text/html');
+    markup.body.querySelectorAll('[data-studio-card-key^="c-"]').forEach(card => {
+      const key = card.dataset.studioCardKey;
+      const title = card.querySelector('.offers-product-card h3,h3,strong')?.textContent.trim();
+      if (key && title) choices.set(key, title);
+    });
+    return choices;
+  }
+  function syncLottieTargetOptions() {
+    const markup = new DOMParser().parseFromString(html.value || '', 'text/html');
+    const root = markup.body.querySelector('[data-studio-lottie-target]') || markup.body.firstElementChild;
+    const savedTarget = root?.dataset.studioLottieTarget || lottieTargetSelect.value || 'section';
+    const choices = lottieProductChoices();
+    lottieTargetSelect.replaceChildren(new Option('Section background', 'section'));
+    if (choices.size) {
+      const group = document.createElement('optgroup');
+      group.label = 'Premium product card background';
+      choices.forEach((name, key) => {
+        group.append(new Option(name.slice(0, 120), key));
+      });
+      lottieTargetSelect.append(group);
+    }
+    if (savedTarget === 'section' || choices.has(savedTarget)) {
+      lottieTargetSelect.value = savedTarget;
+      lottieTargetStatus.textContent = savedTarget === 'section'
+        ? 'The animation will preview automatically behind the selected section.'
+        : 'The animation will preview as a background on the selected premium product card.';
+      return;
+    }
+    lottieTargetSelect.value = 'section';
+    lottieTargetStatus.textContent = 'The selected product is no longer available; the animation is set to the section background.';
+    if (root) {
+      root.dataset.studioLottieTarget = 'section';
+      html.value = ensureEditableMarkup(markup.body.innerHTML);
+    }
+  }
+  function persistLottieTarget(target) {
+    const availableTargets = new Set([...lottieTargetSelect.options].map(option => option.value));
+    if (!availableTargets.has(target)) return false;
+    const markup = new DOMParser().parseFromString(html.value || '', 'text/html');
+    const root = markup.body.querySelector('[data-studio-lottie-target]') || markup.body.firstElementChild;
+    if (!root) return false;
+    root.dataset.studioLottieTarget = target;
+    markup.body.querySelectorAll('[data-studio-lottie]').forEach(container => container.remove());
+    html.value = ensureEditableMarkup(markup.body.innerHTML);
+    return true;
+  }
+  lottieTargetSelect.addEventListener('change', () => {
+    if (!persistLottieTarget(lottieTargetSelect.value)) {
+      syncLottieTargetOptions();
+      lottieTargetStatus.textContent = 'Choose a section or an available product card as the animation target.';
+      return;
+    }
+    syncLottieTargetOptions();
+    schedulePreview();
+  });
   function renderSelectedProducts(updatePreview = false) {
     selectedProducts.replaceChildren();
     productInputs.replaceChildren();
@@ -396,6 +466,7 @@
     productStatus.textContent = `${selectedProductIds.size} of 30 products selected.`
       + (selectionLoadFailed ? ' Saved product choices could not be read; select them again.' : '')
       + (unavailableSavedProductCount ? ` ${unavailableSavedProductCount} saved product(s) are no longer active.` : '');
+    syncLottieTargetOptions();
     if (updatePreview) schedulePreview();
   }
   try {
@@ -496,6 +567,14 @@
   window.addEventListener('message', event => {
     if (event.source !== preview.contentWindow || !event.data || event.data.type !== 'fity-studio') return;
     const data = event.data;
+    if (data.action === 'lottie-target-missing') {
+      previewStatus.textContent = 'The selected product card is unavailable; the animation is previewing as the section background.';
+      return;
+    }
+    if (data.action === 'lottie-render-error') {
+      previewStatus.textContent = 'The Lottie player could not render this animation. Check the JSON and local player availability.';
+      return;
+    }
     if (data.action === 'resize') {
       const height = Number(event.data.height);
       if (Number.isFinite(height)) preview.style.height = `${Math.max(80, Math.min(1200, Math.round(height)))}px`;
@@ -555,11 +634,11 @@
     field.addEventListener('change', schedulePreview);
   });
   html.addEventListener('change', () => {
-    const updated = ensureEditableMarkup(html.value);
-    if (updated !== html.value) {
-      html.value = updated;
-      schedulePreview();
-    }
+    const previous = html.value;
+    html.value = ensureEditableMarkup(html.value);
+    syncLottieTargetOptions();
+    ensureLottieTarget();
+    if (html.value !== previous) schedulePreview();
   });
   if (html.value) {
     const updated = ensureEditableMarkup(html.value);
@@ -642,6 +721,7 @@
       createCustomCardKey(), selectedCardImageUrl, name, currentPrice, previousPrice, destination
     );
     html.value = ensureEditableMarkup(html.value.replace(placeholder, `${placeholder}${markup}`));
+    syncLottieTargetOptions();
     html.dispatchEvent(new Event('input', {bubbles: true}));
     selectedCardImageUrl = '';
     cardImage.removeAttribute('src');
@@ -764,9 +844,11 @@
     }
   });
   function ensureLottieTarget() {
-    if (lottieJson.value.trim() && !html.value.includes('data-studio-lottie')) {
-      html.value += '\n<div data-studio-lottie aria-hidden="true"></div>';
+    if (lottieJson.value.trim() && !persistLottieTarget(lottieTargetSelect.value || 'section')) {
+      lottieTargetStatus.textContent = 'Add a section to the design before placing its animation.';
+      return false;
     }
+    return true;
   }
   function insertAtCursor(field, value) {
     const start = field.selectionStart;

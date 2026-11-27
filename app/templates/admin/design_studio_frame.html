@@ -24,6 +24,13 @@
     .studio-editor-active [data-studio-edit-id]:hover,.studio-editor-active [data-studio-edit-id][contenteditable="plaintext-only"]{outline:2px dashed #e52335;outline-offset:3px}
     .studio-editor-active [data-studio-card-key]{cursor:grab;touch-action:none}
     .studio-editor-active .studio-card-dragging{z-index:20;opacity:.76;cursor:grabbing;transition:none}
+    .studio-lottie-section-target,.studio-lottie-premium-target{position:relative;isolation:isolate}
+    .studio-lottie-premium-target{overflow:hidden}
+    .studio-lottie-section-background,.studio-lottie-premium-background{position:absolute;inset:0;z-index:0;width:100%;height:100%;overflow:hidden;pointer-events:none}
+    .studio-lottie-section-background{opacity:.42}
+    .studio-lottie-premium-background{opacity:.34;mix-blend-mode:screen}
+    .studio-lottie-section-background svg,.studio-lottie-premium-background svg{display:block;width:100%;height:100%}
+    .studio-lottie-section-target>*:not(.studio-lottie-section-background),.studio-lottie-premium-target>*:not(.studio-lottie-premium-background){position:relative;z-index:1}
     @keyframes studio-fade{from{opacity:0}to{opacity:1}}
     @keyframes studio-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
     @keyframes studio-scale{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
@@ -355,16 +362,49 @@
     {% if lottie_animation %}
     const lottieData = JSON.parse(document.getElementById('fity-lottie-data').textContent);
     const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (window.lottie) {
-      document.querySelectorAll('[data-studio-lottie]').forEach(container => {
-        window.lottie.loadAnimation({
-          container,
-          renderer: 'svg',
-          loop: !reduceMotion,
-          autoplay: !reduceMotion,
-          animationData: lottieData
-        });
-      });
+    const designRoot = document.querySelector('.studio-content [data-studio-lottie-target]')
+      || document.querySelector('.studio-content')?.firstElementChild;
+    const requestedTarget = designRoot?.dataset.studioLottieTarget || 'section';
+    const isProductTarget = /^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(requestedTarget);
+    const productTarget = isProductTarget
+      ? [...document.querySelectorAll('.studio-content [data-studio-card-key]')]
+        .find(card => card.dataset.studioCardKey === requestedTarget)
+      : null;
+    let targetElement = requestedTarget === 'section' ? designRoot : productTarget;
+    const premiumTarget = Boolean(productTarget);
+    if (!targetElement && designRoot) {
+      console.warn('FityStores Design Studio Lottie target is missing; using the section background.');
+      parent.postMessage({type:'fity-studio', action:'lottie-target-missing'}, '*');
+      targetElement = designRoot;
+    }
+    if (targetElement) {
+      targetElement.classList.add(premiumTarget ? 'studio-lottie-premium-target' : 'studio-lottie-section-target');
+      const layer = document.createElement('div');
+      layer.className = premiumTarget ? 'studio-lottie-premium-background' : 'studio-lottie-section-background';
+      layer.dataset.studioLottie = '';
+      layer.setAttribute('aria-hidden', 'true');
+      targetElement.prepend(layer);
+      if (window.lottie) {
+        try {
+          window.lottie.loadAnimation({
+            container: layer,
+            renderer: 'svg',
+            loop: !reduceMotion,
+            autoplay: !reduceMotion,
+            rendererSettings: {preserveAspectRatio:'xMidYMid slice'},
+            animationData: lottieData
+          });
+        } catch (error) {
+          console.error('FityStores Design Studio could not render the Lottie background.', error);
+          parent.postMessage({type:'fity-studio', action:'lottie-render-error'}, '*');
+        }
+      } else {
+        console.error('FityStores Design Studio Lottie player is unavailable.');
+        parent.postMessage({type:'fity-studio', action:'lottie-render-error'}, '*');
+      }
+    } else {
+      console.error('FityStores Design Studio cannot place the Lottie background because the design has no section.');
+      parent.postMessage({type:'fity-studio', action:'lottie-render-error'}, '*');
     }
     {% endif %}
     const reportHeight = () => {

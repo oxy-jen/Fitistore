@@ -164,6 +164,8 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
     assert editor.status_code == 200
     assert b'data-template="offers"' in editor.data
     assert b'data-studio-product-picker' in editor.data
+    assert b'data-studio-lottie-target' in editor.data
+    assert b'premium product card below' in editor.data
     assert b'data-discount-percent="16"' in editor.data
     for template_key in (
         "deal-of-day", "black-friday-feature", "smartphones", "beauty", "home",
@@ -375,10 +377,11 @@ def test_lottie_json_is_bounded_and_rejects_external_assets():
 
 def test_visual_editor_metadata_survives_markup_sanitization():
     markup = (
-        '<section data-studio-product-canvas data-template-key="deal-of-day">'
+        '<section data-studio-product-canvas data-template-key="deal-of-day" data-studio-lottie-target="p-12">'
         '<p data-studio-edit-id="e12" data-studio-edit-field="headline">Today only</p>'
         '<article data-studio-card-key="c-uploaded-card">Product</article>'
         '<article data-studio-card-key="p-12">Invalid custom key</article>'
+        '<div data-studio-lottie-target="javascript:alert(1)"></div>'
         '</section>'
     )
 
@@ -386,6 +389,8 @@ def test_visual_editor_metadata_survives_markup_sanitization():
 
     assert 'data-studio-product-canvas=""' in sanitized
     assert 'data-template-key="deal-of-day"' in sanitized
+    assert 'data-studio-lottie-target="p-12"' in sanitized
+    assert 'data-studio-lottie-target="javascript:alert(1)"' not in sanitized
     assert 'data-studio-edit-id="e12"' in sanitized
     assert 'data-studio-edit-field="headline"' in sanitized
     assert 'data-studio-card-key="c-uploaded-card"' in sanitized
@@ -459,18 +464,23 @@ def test_published_lottie_uses_the_local_player_and_self_contained_data(app, cli
     }
     with app.app_context():
         ensure_design_studio_schema()
+        product = Product.query.filter_by(slug="plain-socks").one()
         design = _design(
-            html='<section><div data-studio-lottie aria-hidden="true"></div></section>',
+            html=f'<section data-studio-lottie-target="p-{product.id}">%%FITYSTORES_PRODUCTS%%</section>',
+            product_ids=json.dumps([product.id]),
             lottie_json=json.dumps(animation),
         )
         db.session.add(design)
         db.session.commit()
+        product_id = product.id
         design_id = design.id
     response = client.get(f"/design-studio/render/{design_id}")
     assert response.status_code == 200
     assert b"/static/vendor/lottie.min.js" in response.data
     assert b'id="fity-lottie-data"' in response.data
     assert b"lottie.loadAnimation" in response.data
+    assert f'data-studio-card-key="p-{product_id}"'.encode() in response.data
+    assert b"studio-lottie-premium-background" in response.data
     assert "http://example.test/static/" in response.headers["Content-Security-Policy"]
 
 

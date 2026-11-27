@@ -269,7 +269,7 @@ VOID_TAGS = {"br", "hr", "img", "source"}
 SAFE_ATTRS = {
     "alt", "aria-hidden", "aria-label", "class", "controls", "data-product-id",
     "data-studio-card-key", "data-studio-edit-field", "data-studio-edit-id",
-    "data-studio-product-canvas",
+    "data-studio-product-canvas", "data-studio-lottie-target",
     "data-studio-action", "data-studio-lottie", "data-template-key",
     "data-template-brand", "data-template-kicker", "data-template-badge",
     "data-template-headline", "data-template-highlight", "data-template-copy",
@@ -328,6 +328,10 @@ class _DesignMarkupSanitizer(HTMLParser):
             if name == "data-studio-edit-field" and value not in {
                 "brand", "kicker", "badge", "headline", "highlight", "copy", "cta",
             }:
+                continue
+            if name == "data-studio-lottie-target" and value != "section" and not re.fullmatch(
+                r"(?:p-\d+|c-[a-z0-9-]{1,70})", value
+            ):
                 continue
             if name == "data-studio-action" and value not in {"add-to-cart", "open-product", "navigate"}:
                 continue
