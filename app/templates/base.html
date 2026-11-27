@@ -36,6 +36,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='images/pwa/apple-touch-icon.png') }}">
   <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=otp-feedback-20261127-v1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/cookie-notice.css') }}?v=cookie-notice-20261127-v1">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}?v=product-gallery-purchase-dock-20261126-v2">
 {% if request.endpoint in ['customer.login', 'customer.verify_code'] %}<link rel="stylesheet" href="{{ url_for('static', filename='css/verification-code-loader.css') }}?v=otp-code-ui-20261127-v1">{% endif %}
 {% if request.endpoint == 'public.shop' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/shop-page.css') }}?v=per-category-inline-sort-20261125">{% endif %}
@@ -55,6 +56,7 @@
   <script defer src="{{ url_for('static', filename='js/cart.js') }}?v=cart-quick-add-20261126"></script>
   <script defer src="{{ url_for('static', filename='js/nav-overflow.js') }}?v=responsive-nav-overflow-20261125"></script>
   <script defer src="{{ url_for('static', filename='js/app.js') }}?v=home-banner-carousel-20261125"></script>
+  <script defer src="{{ url_for('static', filename='js/cookie-notice.js') }}?v=cookie-notice-20261127-v1"></script>
   <script defer src="{{ url_for('static', filename='js/pwa-install.js') }}?v=pwa-install-v1"></script>
   {% if request.endpoint in ['customer.login', 'customer.verify_code'] %}<script defer src="{{ url_for('static', filename='js/verification-code-loader.js') }}?v=otp-code-ui-20261127-v1"></script>{% endif %}
   {% if request.endpoint and request.endpoint.startswith('design_studio.') %}<script defer src="{{ url_for('static', filename='js/design-studio-editor.js') }}?v=20261127-card-part-selection-v6"></script>{% endif %}
@@ -182,6 +184,9 @@
     <small class="footer-copyright">© {{ current_year }} {{ settings.shop_name }}. All rights reserved.</small>
   </section>
 </footer>
+{% if request.cookies.get('fity_cookie_notice_acknowledged') != '1' %}
+{% include "partials/cookie_notice.html" %}
+{% endif %}
 <dialog class="pwa-install-dialog" data-pwa-dialog aria-labelledby="pwa-install-title">
   <form method="dialog"><button class="pwa-dialog-close" aria-label="Close installation help">Close</button></form>
   <h2 id="pwa-install-title">Install FityStores</h2>

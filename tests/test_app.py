@@ -2932,6 +2932,23 @@ def test_public_policy_pages_and_sitemap_xml(client):
     assert "http://example.test/privacy" in locations
 
 
+def test_cookie_notice_is_linked_and_acknowledgement_persists(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert b'data-cookie-notice' in response.data
+    assert b'data-cookie-notice-accept' in response.data
+    assert b'href="/privacy"' in response.data
+    assert b"essential cookies" in response.data
+
+    policy_response = client.get("/privacy")
+    assert b"remember that you dismissed the cookie notice" in policy_response.data
+
+    client.set_cookie("fity_cookie_notice_acknowledged", "1", domain="example.test")
+    dismissed_response = client.get("/")
+    assert dismissed_response.status_code == 200
+    assert b'data-cookie-notice' not in dismissed_response.data
+
+
 def test_seo_metadata_uses_clean_production_canonical(client):
     response = client.get("/")
     assert response.status_code == 200
@@ -3042,7 +3059,7 @@ def test_checkout_and_policy_pages_show_current_store_terms(client, app):
     assert b"does not by itself reserve stock" not in terms.data
 
     privacy = client.get("/privacy")
-    assert b"Last updated: 26 November 2026" in privacy.data
+    assert b"Last updated: 27 November 2026" in privacy.data
     assert b"does not subscribe you to marketing" in privacy.data
     assert b"withdraw consent" in privacy.data
 

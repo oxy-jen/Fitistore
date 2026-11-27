@@ -1,0 +1,19 @@
+/* From Uiverse.io by dldrs - https://uiverse.io/dldrs/mean-warthog-78
+MIT License, Copyright (c) dldrs (dldrs), dldrs (dldrs) */
+.fity-cookie-notice{position:fixed;right:1rem;bottom:1rem;z-index:1000;box-sizing:border-box;width:min(400px,calc(100vw - 2rem));margin:0;padding:0 .8rem;border:1px solid #f1dadd;border-left:4px solid #e52335;border-radius:12px;background:#fff;box-shadow:0 8px 26px rgba(29,20,21,.18);color:#333}
+.fity-cookie-notice__wrapper{display:flex;align-items:center;gap:.8rem;width:100%;padding:.85rem 0}
+.fity-cookie-notice__icon{display:flex;flex:0 0 48px;align-items:center;justify-content:center;width:48px;height:48px;border-radius:50%;background:#e52335;color:#fff}
+.fity-cookie-notice__icon svg{display:block;width:24px;height:24px}
+.fity-cookie-notice__content{flex:1;min-width:0}
+.fity-cookie-notice__heading{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.fity-cookie-notice__heading h2{margin:0;padding:.1rem 0;color:#252525;font-size:1rem;font-weight:700;line-height:1.35}
+.fity-cookie-notice__close{display:flex;flex:0 0 30px;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:0;border-radius:50%;background:transparent;color:#777;cursor:pointer;transition:background-color .2s ease,color .2s ease}
+.fity-cookie-notice__close:hover,.fity-cookie-notice__close:focus-visible{background:#f8e8ea;color:#a91b28}
+.fity-cookie-notice__close svg{display:block;fill:currentColor}
+.fity-cookie-notice__close:focus-visible,.fity-cookie-notice__accept:focus-visible,.fity-cookie-notice__text a:focus-visible{outline:2px solid #a91b28;outline-offset:3px}
+.fity-cookie-notice__text{margin:.35rem 0 .55rem;color:#626262;font-size:.82rem;line-height:1.5}
+.fity-cookie-notice__text a{color:#b51e2c;font-weight:600;text-decoration:underline;text-underline-offset:2px}
+.fity-cookie-notice__accept{margin:.1rem 0 .05rem;padding:.45rem .9rem;border:1px solid #f8e0e3;border-radius:999px;background:#fff0f2;color:#b51e2c;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;transition:background-color .2s ease,border-color .2s ease,color .2s ease}
+.fity-cookie-notice__accept:hover,.fity-cookie-notice__accept:active{border-color:#e52335;background:#e52335;color:#fff}
+@media(max-width:480px){.fity-cookie-notice{right:.5rem;bottom:.5rem;width:calc(100vw - 1rem);padding:0 .65rem}.fity-cookie-notice__wrapper{gap:.65rem}.fity-cookie-notice__icon{flex-basis:40px;width:40px;height:40px}.fity-cookie-notice__icon svg{width:20px;height:20px}}
+@media(prefers-reduced-motion:reduce){.fity-cookie-notice__close,.fity-cookie-notice__accept{transition:none}}

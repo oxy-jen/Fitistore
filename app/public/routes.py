@@ -2080,7 +2080,8 @@ def render_policy_page(slug):
                     "The store may still send necessary account, verification, security, order, payment-status, and service messages. These are not promotional messages and may be needed to provide the account or service you requested.",
                 ]),
                 ("Cookies, sessions, and device storage", [
-                    "The website uses session and security mechanisms needed for sign-in, form protection, and shopping functions. Cart and recently viewed product information may be stored in your browser or account to support shopping. You can clear browser storage, but some site features may then need to be set up again.",
+                    "FityStores uses first-party cookies to maintain sessions, support sign-in and security protections, and remember that you dismissed the cookie notice. These cookies support core account and shopping features; blocking or clearing them may prevent some features from working.",
+                    "Cart and recently viewed product information may be stored in your browser or account to support shopping. You can clear browser storage, but some site features may then need to be set up again.",
                     "This notice does not state that advertising or analytics trackers are used. If a feature or provider changes how information is collected, this notice should be updated.",
                 ]),
                 ("Who information may be shared with", [
@@ -2112,7 +2113,7 @@ def render_policy_page(slug):
         },
     }
     policy = policies[slug]
-    policy["updated_on"] = updated_on
+    policy["updated_on"] = "27 November 2026" if slug == "privacy" else updated_on
     return render_template(
         "policy.html",
         title=policy["title"],
