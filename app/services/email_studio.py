@@ -2,7 +2,7 @@
 import re
 from urllib.parse import urlsplit
 
-from flask import render_template
+from flask import current_app
 
 
 EMAIL_CATEGORIES = {
@@ -303,8 +303,8 @@ def render_studio_message(category, subject, headline, message, context, *, bloc
                 raise EmailContentError("The selected button destination is unavailable for this recipient.")
         resolved_blocks.append(item)
     template_name = "emails/promotion_message.html" if category in EMAIL_PROMOTIONAL_LAYOUT_CATEGORIES else "emails/studio_message.html"
-    html = render_template(
-        template_name, category=category, subject=subject, headline=headline,
+    html = current_app.jinja_env.get_template(template_name).render(
+        category=category, subject=subject, headline=headline,
         message=message, blocks=resolved_blocks, products=products, order_lines=order_lines, order_summary=order_summary, cart_summary=cart_summary, shop_url=shop_url, logo_url=logo_url,
         primary_url=primary_url, primary_label=primary_label,
         order_date=context.get("order_date", ""), order_reference=context.get("order_reference", ""),

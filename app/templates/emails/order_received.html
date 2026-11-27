@@ -1,4 +1,4 @@
-{% from "emails/_brand_components.html" import email_header, email_footer %}
+{% from "emails/_brand_components.html" import email_header, email_footer, email_button, email_reference_card %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -41,7 +41,7 @@
             <div style="font-size:24px;line-height:1.25;font-weight:bold;color:#172033"><span style="display:inline-block;background:#0B8F52;color:#FFFFFF;width:28px;height:28px;text-align:center;border-radius:50%;font-size:20px;vertical-align:middle">&#10003;</span>&nbsp; Order received</div>
             <p style="margin:13px 0 6px;font-size:16px;line-height:24px;color:#283248">Thank you for shopping with FITY, {{ customer_name }}.</p>
             <p style="margin:0 0 15px;font-size:14px;line-height:21px;color:#46516a">Your order request is in. We’ll keep you updated as it moves through review and fulfilment.</p>
-            <span style="display:inline-block;background:#ed1b36;border-radius:22px;padding:9px 16px;color:#FFFFFF;font-size:14px;font-weight:bold">Order #{{ order.reference }}</span>
+            {{ email_reference_card("Order reference", order.reference, "Select this reference to copy it for your records.") }}
             <a href="{{ support_url }}" style="display:inline-block;margin-left:10px;color:#d91e35;font-size:13px;font-weight:bold">{{ support_label }}</a>
           </td>
         </tr></table></td></tr>
@@ -70,7 +70,7 @@
           <div style="clear:both;height:1px;line-height:1px;font-size:1px">&nbsp;</div>
 
           <table role="presentation" class="details-table" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#F4F6F8;border-radius:10px;margin:12px 0 20px"><tr>
-            <td class="detail-panel" width="33%" valign="top" style="padding:16px 12px;border-right:1px solid #E5E7EB"><strong style="font-size:13px;color:#172033">Order Details</strong><div style="font-size:12px;line-height:20px;color:#475569;padding-top:9px">Order: {{ order.reference }}<br>Date: {{ created_at.strftime('%d %b %Y, %I:%M %p') if created_at else 'Not available' }}<br>Payment method: {{ payment_method }}<br>Payment status: <strong style="color:{{ '#07834A' if paid else '#B45309' }}">{{ payment_status }}</strong><br>Order status: {{ order.status }}<div style="margin-top:7px;line-height:17px">{{ payment_guidance }}</div></div></td>
+            <td class="detail-panel" width="33%" valign="top" style="padding:16px 12px;border-right:1px solid #E5E7EB"><strong style="font-size:13px;color:#172033">Order Details</strong><div style="font-size:12px;line-height:20px;color:#475569;padding-top:9px">Date: {{ created_at.strftime('%d %b %Y, %I:%M %p') if created_at else 'Not available' }}<br>Payment method: {{ payment_method }}<br>Payment status: <strong style="color:{{ '#07834A' if paid else '#B45309' }}">{{ payment_status }}</strong><br>Order status: {{ order.status }}<div style="margin-top:7px;line-height:17px">{{ payment_guidance }}</div></div></td>
             <td class="detail-panel" width="34%" valign="top" style="padding:16px 12px;border-right:1px solid #E5E7EB"><strong style="font-size:13px;color:#172033">{{ delivery_heading }}</strong><div style="font-size:12px;line-height:20px;color:#475569;padding-top:9px">Method: {{ fulfillment }}<br>{% if fulfillment.lower() == 'collection' %}Collection instructions:{% elif delivery_details != 'The store will confirm the delivery details with you.' %}Delivery location:{% else %}Delivery arrangements:{% endif %} {{ delivery_details }}<div style="margin-top:7px;line-height:17px">{{ fulfillment_guidance }}</div></div></td>
             <td class="detail-panel" width="33%" valign="top" style="padding:16px 12px"><strong style="font-size:13px;color:#172033">Customer Information</strong><div style="font-size:12px;line-height:20px;color:#475569;padding-top:9px">Name: {{ customer_name }}<br>Email: {{ customer_email }}<br>Phone: {{ customer_phone }}</div></td>
           </tr></table>
@@ -99,7 +99,8 @@
             {% if not loop.last %}<tr><td width="40" align="center" style="padding:0"><div style="width:2px;height:16px;background:{{ '#0B8F52' if stage['state'] == 'done' else '#DCE3EA' }};margin:0 auto"></div></td><td></td></tr>{% endif %}
             {% endfor %}
           </table>
-          <p style="text-align:center;margin:24px 0 8px"><a href="{{ tracking_url }}" style="display:inline-block;background:#ED1B2F;color:#FFFFFF;text-decoration:none;font-size:15px;font-weight:bold;padding:14px 24px;border-radius:8px">View Order Status</a></p>
+          {{ email_button(tracking_url, "View order status") }}
+          {{ email_button(support_url, support_label, true) }}
           <p style="text-align:center;margin:8px 0 0;font-size:11px;line-height:17px;color:#64748B">The order status page has the latest update for your order.</p>
         </td></tr>
         {{ email_footer(site_url, support_url, '', 'Thank you for choosing FityStores. We appreciate your order.') }}

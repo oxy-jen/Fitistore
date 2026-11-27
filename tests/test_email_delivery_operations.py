@@ -413,7 +413,7 @@ def test_new_verification_code_dispatches_promptly_through_outbox(app, app_conte
 
     row = customer_routes._start_email_code(account, "verify_code")
 
-    assert row.status == "sent"
+    assert row.status == "sent", row.failure_reason
     assert len(sent) == 1
     assert row.purpose == "transactional"
     assert row.account_id == account.id

@@ -5422,6 +5422,40 @@ def test_checkout_requires_verified_account_and_links_order_to_it(client, app_co
     assert email.provider_message_id == "test-provider-message-id"
 
 
+def test_branded_auth_email_renders_manual_copy_code_and_security_details(app_context):
+    import app.services.customer_mail as customer_mail
+
+    html_body, text_body = customer_mail.render_branded_email(
+        "Your FityStores sign-in code",
+        ["Enter this code on FityStores to continue. Never share it with anyone."],
+        kind="verify_code",
+        security_code="048291",
+    )
+
+    assert html_body.count('class="email-code-digit"') == 6
+    for digit in "048291":
+        assert f">{digit}</td>" in html_body
+    assert "Select the code above to copy it manually" in html_body
+    assert "This code expires 10 minutes after it was requested." in html_body
+    assert "FityStores will never ask you to email or share this code." in html_body
+    assert '<svg xmlns="http://www.w3.org/2000/svg"' in html_body
+    assert "<script" not in html_body.lower()
+    assert "onclick=" not in html_body.lower()
+    assert "<button" not in html_body.lower()
+    assert "Your one-time code (select and copy manually):\n048291" in text_body
+
+    for kind, expiry in (
+        ("verify_email", "24 hours"),
+        ("reset_password", "30 minutes"),
+        ("marketing_confirm", "24 hours"),
+    ):
+        expiring_html, _ = customer_mail.render_branded_email(
+            "Account update", ["Use the link below."], kind=kind
+        )
+        assert f"expires {expiry} after it was requested." in expiring_html
+        assert ("Preference reminder" if kind == "marketing_confirm" else "Security reminder") in expiring_html
+
+
 def test_order_received_email_renders_real_cart_and_secure_tracking_link(app, app_context):
     import app.services.customer_mail as customer_mail
     account = CustomerAccount(email="order-email@example.com", display_name="Email Buyer", email_verified_at=datetime.utcnow())
@@ -5440,6 +5474,8 @@ def test_order_received_email_renders_real_cart_and_secure_tracking_link(app, ap
     app.config.update(CLOUDINARY_CLOUD_NAME="fity-test", PUBLIC_BASE_URL="https://fitystore.top")
     html_body, text_body = customer_mail._render_order_received_email(order, account)
     assert "FITY-EMAIL-CART-1" in html_body
+    assert "Select this reference to copy it for your records." in html_body
+    assert "View order status" in html_body
     assert "https://res.cloudinary.com/fity-test/image/upload/catalog/socks" in html_body
     assert "Image unavailable" in html_body
     assert "Black · Size 8" in html_body

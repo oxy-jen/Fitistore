@@ -324,7 +324,10 @@ def _start_email_code(account, purpose):
     now = datetime.utcnow()
     heading = "Verify your FityStores account" if purpose == "verify_code" else "Your FityStores sign-in code"
     subject = "Your FityStores verification code" if purpose == "verify_code" else "Your FityStores sign-in code"
-    code_copy = "Enter this code within 10 minutes; tap and hold it to copy. Never share it, even with FityStores."
+    code_copy = (
+        "Enter this code on FityStores within 10 minutes. Select and copy the characters manually. "
+        "Never share it with anyone."
+    )
     try:
         # Challenge replacement and the delivery claim serialize on this row.
         # A prior challenge cannot be dispatched after this transaction wins.

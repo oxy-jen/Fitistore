@@ -14,7 +14,7 @@ from email.utils import formataddr, parseaddr, parsedate_to_datetime
 from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from flask import current_app, render_template, url_for
+from flask import current_app, url_for
 from sqlalchemy import and_, func, or_, select, update
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -1454,6 +1454,13 @@ def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str
                     break
         if security_code:
             paragraphs = [paragraph for paragraph in paragraphs if security_code not in paragraph]
+    expiration_notice = {
+        "verify_code": "This code expires 10 minutes after it was requested.",
+        "login_code": "This code expires 10 minutes after it was requested.",
+        "verify_email": "This verification link expires 24 hours after it was requested.",
+        "reset_password": "This password-reset link expires 30 minutes after it was requested.",
+        "marketing_confirm": "This preference-confirmation link expires 24 hours after it was requested.",
+    }.get(kind, "")
     preview_text = (paragraphs[0] if paragraphs else heading).strip()[:180]
     site_url = _email_public_base_url()
     logo_url = site_url + "/static/images/mainLogo-160.png"
@@ -1469,19 +1476,23 @@ def render_branded_email(heading: str, paragraphs: list[str], *, button_url: str
         "verify_code": "",
         "login_code": "",
     }
-    html_body = render_template(
-        "emails/base_branded.html", heading=heading, paragraphs=paragraphs,
+    html_body = current_app.jinja_env.get_template("emails/base_branded.html").render(
+        heading=heading, paragraphs=paragraphs,
         preheader=preview_text, button_url=button_url, button_text=button_text,
         unsubscribe_url=unsubscribe_url, site_url=site_url, logo_url=logo_url,
         contact_url=contact_url, footer_note=footer_notes.get(kind, ""),
-        security_code=security_code, accent_color=accent_color,
+        security_code=security_code, kind=kind, expiration_notice=expiration_notice,
+        accent_color=accent_color,
         hero_background=hero_background,
         hero_text_color="#252525", order_reference=order_reference,
         order_progress=order_progress or (),
     )
     lines = [heading, ""]
     if security_code:
-        lines.extend(["Your one-time code (tap and hold to copy):", security_code, ""])
+        lines.extend(["Your one-time code (select and copy manually):", security_code, ""])
+    if expiration_notice:
+        lines.append(expiration_notice)
+        lines.append("")
     lines.extend(paragraphs)
     if button_url:
         lines.extend(["", f"{button_text}: {button_url}"])
@@ -1678,7 +1689,7 @@ def _render_order_received_email(order, account):
         "logo_url": base_url + "/static/images/mainLogo-160.png",
         "site_url": base_url,
     }
-    html_body = render_template("emails/order_received.html", **context)
+    html_body = current_app.jinja_env.get_template("emails/order_received.html").render(**context)
     text_lines = [
         "Order Received!", f"Thank you for shopping with FITY, {customer_name}.",
         f"Order reference: {order.reference}", "", "YOUR ORDER",

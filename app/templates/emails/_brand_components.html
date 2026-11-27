@@ -1,22 +1,109 @@
 {% macro email_header(site_url, logo_url) -%}
-<tr><td style="background:#f7f8fc;border-bottom:2px solid #ed1b36;padding:14px 22px;font-family:Arial,Helvetica,sans-serif">
+<tr><td class="email-header-pad" bgcolor="#171923" style="padding:18px 22px;border-bottom:4px solid #ed1b36;background-color:#171923;font-family:'Manrope',Arial,Helvetica,sans-serif">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr>
-    <td valign="middle"><a href="{{ site_url|e }}" style="color:#121722;text-decoration:none"><img src="{{ logo_url|e }}" width="46" height="46" alt="FITY logo" style="display:inline-block;width:46px;height:46px;vertical-align:middle;border:0"><span style="display:inline-block;vertical-align:middle;padding-left:8px"><strong style="display:block;font-size:22px;line-height:1.05">BEI FITS</strong><span style="font-size:11px;font-weight:bold;font-style:italic;color:#46516a">Bei Fity, Fits Poa</span></span></a></td>
-    <td align="right" valign="middle" style="font-size:11px;letter-spacing:.5px;color:#475569">FASHION&nbsp; | &nbsp;COMFORT&nbsp; | &nbsp;EVERYDAY ESSENTIALS</td>
+    <td width="48" valign="middle" style="width:48px">
+      <a href="{{ site_url|e }}" style="text-decoration:none">
+        <img src="{{ logo_url|e }}" width="42" height="42" alt="FityStores" style="display:block;width:42px;height:42px;border:0;border-radius:8px">
+      </a>
+    </td>
+    <td valign="middle" style="padding-left:10px">
+      <a href="{{ site_url|e }}" style="color:#ffffff;text-decoration:none">
+        <strong style="display:block;font-size:19px;line-height:22px;letter-spacing:.4px">FITYSTORES</strong>
+        <span style="display:block;padding-top:2px;color:#e3e5eb;font-size:11px;line-height:16px">Bei Fity, Fits Poa.</span>
+      </a>
+    </td>
+    <td align="right" valign="middle" style="color:#d8dbe2;font-size:10px;line-height:15px;letter-spacing:.7px">FASHION<br>COMFORT<br>EVERYDAY ESSENTIALS</td>
   </tr></table>
 </td></tr>
 {%- endmacro %}
 
+{% macro email_button(url, label, secondary=false) -%}
+<table role="presentation" align="center" cellspacing="0" cellpadding="0" border="0" style="margin:22px auto 6px">
+  <tr><td align="center" {% if secondary %}bgcolor="#ffffff" style="border:1px solid #d91e35;border-radius:7px;background-color:#ffffff"{% else %}bgcolor="#d91e35" style="border:1px solid #d91e35;border-radius:7px;background-color:#d91e35"{% endif %}>
+    <a href="{{ url|e }}" style="{% if secondary %}display:inline-block;padding:12px 20px;color:#b51c30;{% else %}display:inline-block;padding:13px 22px;color:#ffffff;{% endif %}font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:14px;font-weight:bold;line-height:18px;text-decoration:none">{{ label|e }}</a>
+  </td></tr>
+</table>
+{%- endmacro %}
+
+{% macro email_info_card(title, body, tone='info') -%}
+{% if tone == 'warning' %}
+  {% set border_color = '#c56b13' %}{% set background_color = '#fff6e8' %}{% set title_color = '#8a4b0d' %}
+{% elif tone == 'success' %}
+  {% set border_color = '#16834a' %}{% set background_color = '#edf8f1' %}{% set title_color = '#11663b' %}
+{% else %}
+  {% set border_color = '#435a78' %}{% set background_color = '#f1f5fa' %}{% set title_color = '#344762' %}
+{% endif %}
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:16px 0 0;border-collapse:separate">
+  <tr>
+    <td width="4" bgcolor="{{ border_color }}" style="width:4px;background-color:{{ border_color }};font-size:1px;line-height:1px">&nbsp;</td>
+    <td bgcolor="{{ background_color }}" style="padding:12px 14px;background-color:{{ background_color }};font-family:'Manrope',Arial,Helvetica,sans-serif">
+      <strong style="display:block;color:{{ title_color }};font-size:13px;line-height:18px">{{ title|e }}</strong>
+      <span style="display:block;padding-top:3px;color:#374151;font-size:13px;line-height:20px">{{ body|e }}</span>
+    </td>
+  </tr>
+</table>
+{%- endmacro %}
+
+{% macro email_copy_icon() -%}
+<!--[if !mso]><!--><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b51c30" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><!--<![endif]--><!--[if mso]><span style="color:#b51c30;font-size:16px;font-weight:bold" aria-hidden="true">▢</span><![endif]-->
+{%- endmacro %}
+
+{% macro email_code_card(code, expiration_notice='') -%}
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:20px 0 0">
+  <tr><td align="center" style="padding:18px 10px 12px;border:1px solid #e6e9ef;background-color:#f8fafc">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center">
+      <tr>
+        <td width="34" valign="middle" style="width:34px;padding-right:7px">
+          <!--[if !mso]><!--><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#16834a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg><!--<![endif]--><!--[if mso]><span style="color:#16834a;font-size:24px;font-weight:bold">&#10003;</span><![endif]-->
+        </td>
+        <td valign="middle" style="color:#344762;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;letter-spacing:.7px;text-transform:uppercase">Secure verification code</td>
+      </tr>
+    </table>
+    <table role="presentation" align="center" cellspacing="0" cellpadding="0" border="0" style="margin:14px auto 0">
+      <tr>
+        {% for character in code %}
+        <td class="email-code-digit" width="38" align="center" valign="middle" bgcolor="#ffffff" style="width:38px;height:52px;padding:0 1px;border:1px solid #d7dee8;background-color:#ffffff;color:#171923;font-family:Consolas,'Courier New',monospace;font-size:24px;font-weight:bold;line-height:50px;user-select:all">{{ character|e }}</td>
+        {% endfor %}
+      </tr>
+    </table>
+    <table role="presentation" align="center" cellspacing="0" cellpadding="0" border="0" style="margin:12px auto 0">
+      <tr>
+        <td valign="middle" style="padding:7px 10px;border:1px solid #d7dee8;background-color:#ffffff;color:#344762;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:12px;line-height:16px">
+          <span style="display:inline-block;padding-right:5px;vertical-align:middle">{{ email_copy_icon() }}</span>
+          <strong>Select the code above to copy it manually</strong>
+        </td>
+      </tr>
+    </table>
+    {% if expiration_notice %}<p style="margin:12px 0 0;color:#8a4b0d;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:12px;line-height:18px">{{ expiration_notice|e }}</p>{% endif %}
+  </td></tr>
+</table>
+{%- endmacro %}
+
+{% macro email_reference_card(label, reference, helper='Select the reference text to copy it manually.') -%}
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:16px 0 0">
+  <tr><td bgcolor="#f1f5fa" style="padding:12px 14px;border:1px solid #e0e6ef;background-color:#f1f5fa;font-family:'Manrope',Arial,Helvetica,sans-serif">
+    <span style="display:block;color:#596579;font-size:11px;font-weight:bold;letter-spacing:.6px;text-transform:uppercase">{{ label|e }}</span>
+    <strong style="display:block;padding-top:4px;color:#171923;font-family:Consolas,'Courier New',monospace;font-size:17px;line-height:23px;user-select:all">{{ reference|e }}</strong>
+    <span style="display:block;padding-top:3px;color:#596579;font-size:11px;line-height:16px">{{ email_copy_icon() }}&nbsp;{{ helper|e }}</span>
+  </td></tr>
+</table>
+{%- endmacro %}
+
 {% macro email_footer(site_url, contact_url, unsubscribe_url='', note='') -%}
-<tr><td style="padding:10px 12px 12px;background:#fff">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f8fc;border:1px solid #fff;border-radius:18px;box-shadow:5px 6px 13px #d9dce6,-5px -5px 13px #fff">
-    <tr><td align="center" style="padding:18px 16px;color:#39445c;font-family:Arial,Helvetica,sans-serif">
-      <strong style="font-size:18px;color:#171d29;letter-spacing:.5px">BEI FITS</strong>
-      <div style="font-size:12px;color:#536078;padding-top:3px">Bei Fity, Fits Poa</div>
-      {% if note %}<div style="font-size:13px;line-height:19px;padding-top:10px">{{ note|e }}</div>{% endif %}
-      <div style="font-size:12px;line-height:18px;padding-top:10px"><a href="{{ contact_url|e }}" style="color:#d91e35;font-weight:bold;text-decoration:underline">Contact FityStores</a></div>
+<tr><td bgcolor="#f4f6fa" style="padding:20px 18px 8px;background-color:#f4f6fa">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+    {% if note %}<tr><td align="center" style="padding:0 8px 12px;color:#46516a;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:13px;line-height:19px">{{ note|e }}</td></tr>{% endif %}
+    <tr><td align="center" style="padding:0 6px 9px;color:#171923;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;letter-spacing:.5px">FITYSTORES&nbsp; | &nbsp;BEI FITS</td></tr>
+    <tr><td align="center" style="padding:0 6px 11px;color:#536078;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:12px;line-height:18px">
+      <a href="{{ contact_url|e }}" style="color:#b51c30;font-weight:bold;text-decoration:underline">Contact support</a>
+      &nbsp;|&nbsp; <a href="https://www.facebook.com/oxy.jen.975729" style="color:#344762;text-decoration:underline">Facebook</a>
+      &nbsp;|&nbsp; <a href="https://www.instagram.com/fitystore.top/" style="color:#344762;text-decoration:underline">Instagram</a>
+      &nbsp;|&nbsp; <a href="https://www.tiktok.com/@official_fitystore" style="color:#344762;text-decoration:underline">TikTok</a>
+    </td></tr>
+    <tr><td align="center" style="padding:0 6px 10px;color:#667085;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:11px;line-height:17px">
+      <a href="{{ site_url|e }}" style="color:#46516a;text-decoration:underline">{{ site_url|e }}</a>
+      {% if unsubscribe_url %}<br><a href="{{ unsubscribe_url|e }}" style="color:#46516a;text-decoration:underline">Unsubscribe from promotional emails</a>{% endif %}
     </td></tr>
   </table>
 </td></tr>
-<tr><td align="center" style="background:#f0f2f8;padding:11px 12px;font:11px/17px Arial,Helvetica,sans-serif;color:#64708a">FityStores&nbsp; | &nbsp;<a href="{{ site_url|e }}" style="color:#46516a;text-decoration:underline">{{ site_url|e }}</a>{% if unsubscribe_url %}<br><a href="{{ unsubscribe_url|e }}" style="color:#46516a;text-decoration:underline">Unsubscribe from promotional emails</a>{% endif %}</td></tr>
 {%- endmacro %}
