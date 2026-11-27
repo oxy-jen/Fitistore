@@ -24,6 +24,10 @@
     .studio-editor-active [data-studio-edit-id]:hover,.studio-editor-active [data-studio-edit-id][contenteditable="plaintext-only"]{outline:2px dashed #e52335;outline-offset:3px}
     .studio-editor-active [data-studio-card-key]{cursor:grab;touch-action:none}
     .studio-editor-active .studio-card-dragging{z-index:20;opacity:.76;cursor:grabbing;transition:none}
+    .studio-editor-active .studio-card-parts-separated [data-studio-card-part]{outline:1px dashed rgba(229,35,53,.55);cursor:move;touch-action:none}
+    .studio-editor-active .studio-card-parts-separated [data-studio-card-part]:hover{outline:2px solid #e52335;outline-offset:2px}
+    .studio-editor-active .studio-card-parts-separated [data-studio-card-part="pedestal"],.studio-editor-active .studio-card-parts-separated [data-studio-card-part="pedestal"] *{pointer-events:auto!important}
+    .studio-editor-active .studio-card-parts-separated .studio-product-image{overflow:visible}
     .studio-lottie-section-target,.studio-lottie-premium-target{position:relative;isolation:isolate}
     .studio-lottie-premium-target{overflow:hidden}
     .studio-lottie-section-background,.studio-lottie-premium-background{position:absolute;inset:0;z-index:0;width:100%;height:100%;overflow:hidden;pointer-events:none}
@@ -79,16 +83,27 @@
       }
       return {x: 0, y: 0};
     }
+    function syncCardPartModes() {
+      document.querySelectorAll('.studio-content [data-studio-card-key]').forEach(card => {
+        const separated = getComputedStyle(card).getPropertyValue('--studio-card-parts-separated').trim() === '1';
+        card.classList.toggle('studio-card-parts-separated', separated);
+      });
+    }
     document.addEventListener('pointerdown', event => {
       if (!visualEditorEnabled || event.button !== 0 || !(event.target instanceof Element)) return;
       const card = event.target.closest('[data-studio-card-key]');
       if (!card || event.target.closest('[data-studio-edit-id]')) return;
       const rail = card.closest(cardRailSelector);
       if (!rail) return;
-      const rect = card.getBoundingClientRect();
-      const offset = cardTransformOffset(card);
+      const part = card.classList.contains('studio-card-parts-separated')
+        ? event.target.closest('[data-studio-card-part]')
+        : null;
+      const target = part && card.contains(part) ? part : card;
+      const rect = target.getBoundingClientRect();
+      const offset = cardTransformOffset(target);
       activeCardDrag = {
-        card, rail, pointerId: event.pointerId, mode: cardMovementMode,
+        card, target, part: part && target === part ? part.dataset.studioCardPart : '',
+        rail, pointerId: event.pointerId, mode: part && target === part ? 'part' : cardMovementMode,
         startX: event.clientX, startY: event.clientY,
         startLeft: rect.left, startTop: rect.top,
         width: rect.width, height: rect.height,
@@ -103,18 +118,30 @@
       const deltaY = event.clientY - activeCardDrag.startY;
       if (!activeCardDrag.moved && Math.hypot(deltaX, deltaY) < 5) return;
       activeCardDrag.moved = true;
-      activeCardDrag.card.classList.add('studio-card-dragging');
-      activeCardDrag.card.style.translate = `${deltaX}px ${deltaY}px`;
+      activeCardDrag.target.classList.add('studio-card-dragging');
+      activeCardDrag.target.style.translate = `${deltaX}px ${deltaY}px`;
       event.preventDefault();
     });
     function finishCardDrag(event) {
       if (!activeCardDrag || activeCardDrag.pointerId !== event.pointerId) return;
       const drag = activeCardDrag;
       activeCardDrag = null;
-      if (drag.card.hasPointerCapture(event.pointerId)) drag.card.releasePointerCapture(event.pointerId);
-      drag.card.classList.remove('studio-card-dragging');
-      drag.card.style.translate = '';
+      if (drag.target.hasPointerCapture(event.pointerId)) drag.target.releasePointerCapture(event.pointerId);
+      drag.target.classList.remove('studio-card-dragging');
+      drag.target.style.translate = '';
       if (!drag.moved) return;
+      if (drag.mode === 'part' && drag.width > 0 && drag.height > 0) {
+        const deltaX = event.clientX - drag.startX;
+        const deltaY = event.clientY - drag.startY;
+        const x = Math.max(-300, Math.min(300, drag.offsetX / drag.width * 100 + deltaX / drag.width * 100));
+        const y = Math.max(-300, Math.min(300, drag.offsetY / drag.height * 100 + deltaY / drag.height * 100));
+        drag.target.style.transform = `translate(${x.toFixed(2)}%, ${y.toFixed(2)}%)`;
+        parent.postMessage({
+          type: 'fity-studio', action: 'card-part-position',
+          key: drag.card.dataset.studioCardKey, part: drag.part, x, y
+        }, '*');
+        return;
+      }
       if (drag.mode === 'free' && drag.width > 0 && drag.height > 0) {
         const deltaX = event.clientX - drag.startX;
         const deltaY = event.clientY - drag.startY;
@@ -423,6 +450,7 @@
         cardMovementMode = event.data.cardMode === 'free' ? 'free' : 'reorder';
         document.body.classList.add('studio-editor-active');
         document.documentElement.classList.toggle('studio-card-free-position-mode', cardMovementMode === 'free');
+        syncCardPartModes();
       }
     });
     new ResizeObserver(reportHeight).observe(document.querySelector('.studio-content'));

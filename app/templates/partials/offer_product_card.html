@@ -7,12 +7,12 @@
     <h3><a href="{{ offer_url }}">{{ product.name }}</a></h3>
   </div>
   <div class="offers-product-image">
-    <span class="offers-product-pedestal" aria-hidden="true">
+    <span class="offers-product-pedestal" data-studio-card-part="pedestal" aria-hidden="true">
       <span class="offers-product-pedestal-base"></span>
       <span class="offers-product-pedestal-top"></span>
     </span>
     <a class="offers-product-image-link" href="{{ offer_url }}" aria-label="View {{ product.name }} offer">
-      <img src="{{ product_image_url(offer_image) }}" alt="{{ product_image_alt(offer_image, product.name) }}" loading="lazy" width="540" height="540">
+      <img data-studio-card-part="image" src="{{ product_image_url(offer_image) }}" alt="{{ product_image_alt(offer_image, product.name) }}" loading="lazy" width="540" height="540">
     </a>
     <a class="home-card-quick-add" href="{{ offer_url }}" aria-label="View offer details for {{ product.name }}" title="View offer details for {{ product.name }}"><span aria-hidden="true">+</span></a>
   </div>

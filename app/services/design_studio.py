@@ -268,7 +268,7 @@ SAFE_TAGS = {
 VOID_TAGS = {"br", "hr", "img", "source"}
 SAFE_ATTRS = {
     "alt", "aria-hidden", "aria-label", "class", "controls", "data-product-id",
-    "data-studio-card-key", "data-studio-edit-field", "data-studio-edit-id",
+    "data-studio-card-key", "data-studio-card-part", "data-studio-edit-field", "data-studio-edit-id",
     "data-studio-product-canvas", "data-studio-lottie-target",
     "data-studio-action", "data-studio-lottie", "data-template-key",
     "data-template-brand", "data-template-kicker", "data-template-badge",
@@ -322,6 +322,8 @@ class _DesignMarkupSanitizer(HTMLParser):
             if name == "data-product-id" and not value.isdigit():
                 continue
             if name == "data-studio-card-key" and not re.fullmatch(r"c-[a-z0-9-]{1,70}", value):
+                continue
+            if name == "data-studio-card-part" and value not in {"image", "pedestal"}:
                 continue
             if name == "data-studio-edit-id" and not re.fullmatch(r"e\d{1,5}", value):
                 continue

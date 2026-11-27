@@ -7,7 +7,10 @@ from werkzeug.security import generate_password_hash
 
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, Category, CustomerAccount, DesignStudioRole, Product, ProductVariant, ShopSettings, StorefrontDesign, StorefrontDesignAudit, StorefrontDesignRevision
+from app.models import (
+    AdminUser, Category, CustomerAccount, DesignStudioRole, Product, ProductImage,
+    ProductVariant, ShopSettings, StorefrontDesign, StorefrontDesignAudit, StorefrontDesignRevision,
+)
 from app.services.design_studio import (
     DESIGN_TABLES, ensure_design_studio_schema, role_for, sanitize_design_html, save_revision, validate_design_payload,
 )
@@ -166,6 +169,8 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
     assert b'data-studio-product-picker' in editor.data
     assert b'data-studio-lottie-target' in editor.data
     assert b'catalogue product below to add it to this design' in editor.data
+    assert b'data-studio-parts-card' in editor.data
+    assert b'Separate image and pedestal' in editor.data
     assert b'data-discount-percent="16"' in editor.data
     for template_key in (
         "deal-of-day", "black-friday-feature", "smartphones", "beauty", "home",
@@ -379,7 +384,11 @@ def test_visual_editor_metadata_survives_markup_sanitization():
     markup = (
         '<section data-studio-product-canvas data-template-key="deal-of-day" data-studio-lottie-target="p-12">'
         '<p data-studio-edit-id="e12" data-studio-edit-field="headline">Today only</p>'
-        '<article data-studio-card-key="c-uploaded-card">Product</article>'
+        '<article data-studio-card-key="c-uploaded-card">'
+        '<img src="/static/product.png" data-studio-card-part="image">'
+        '<span data-studio-card-part="pedestal">Base</span>'
+        '<span data-studio-card-part="script">Invalid part</span>'
+        '</article>'
         '<article data-studio-card-key="p-12">Invalid custom key</article>'
         '<div data-studio-lottie-target="javascript:alert(1)"></div>'
         '</section>'
@@ -394,6 +403,9 @@ def test_visual_editor_metadata_survives_markup_sanitization():
     assert 'data-studio-edit-id="e12"' in sanitized
     assert 'data-studio-edit-field="headline"' in sanitized
     assert 'data-studio-card-key="c-uploaded-card"' in sanitized
+    assert 'data-studio-card-part="image"' in sanitized
+    assert 'data-studio-card-part="pedestal"' in sanitized
+    assert 'data-studio-card-part="script"' not in sanitized
     assert 'data-studio-card-key="p-12"' not in sanitized
 
 
@@ -465,6 +477,9 @@ def test_published_lottie_uses_the_local_player_and_self_contained_data(app, cli
     with app.app_context():
         ensure_design_studio_schema()
         product = Product.query.filter_by(slug="plain-socks").one()
+        product.images.append(ProductImage(
+            filename="sample-ankle-socks.svg", alt_text="Plain socks", is_primary=True,
+        ))
         design = _design(
             html=f'<section data-studio-lottie-target="p-{product.id}">%%FITYSTORES_PRODUCTS%%</section>',
             product_ids=json.dumps([product.id]),
@@ -480,6 +495,8 @@ def test_published_lottie_uses_the_local_player_and_self_contained_data(app, cli
     assert b'id="fity-lottie-data"' in response.data
     assert b"lottie.loadAnimation" in response.data
     assert f'data-studio-card-key="p-{product_id}"'.encode() in response.data
+    assert b'data-studio-card-part="image"' in response.data
+    assert b'data-studio-card-part="pedestal"' in response.data
     assert b"studio-lottie-premium-background" in response.data
     assert "http://example.test/static/" in response.headers["Content-Security-Policy"]
 

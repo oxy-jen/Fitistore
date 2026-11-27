@@ -4,6 +4,9 @@
   const html = form.querySelector('[data-studio-html]');
   const css = form.querySelector('[data-studio-css]');
   const templateKey = form.querySelector('[name="template_key"]');
+  const partsCardSelect = form.querySelector('[data-studio-parts-card]');
+  const partsToggle = form.querySelector('[data-studio-parts-toggle]');
+  const partsStatus = form.querySelector('[data-studio-parts-status]');
   const defaultTemplate = JSON.parse(form.querySelector('[data-studio-default-template]').textContent);
   const productGridStyles = `
 .studio-product-grid{display:contents}
@@ -101,6 +104,10 @@
       .reduce((current, element) => Math.max(current, Number(element.dataset.studioEditId.slice(1)) || 0), 0);
     parsed.body.querySelectorAll('.offers-product-item,.studio-product-card').forEach(card => {
       if (!card.dataset.studioCardKey) card.dataset.studioCardKey = createCustomCardKey();
+      const image = card.querySelector('.offers-product-image img,.studio-product-image img');
+      const pedestal = card.querySelector('.offers-product-pedestal,.studio-product-pedestal');
+      if (image) image.dataset.studioCardPart = 'image';
+      if (pedestal) pedestal.dataset.studioCardPart = 'pedestal';
     });
     parsed.body.querySelectorAll('h1,h2,h3,h4,p,a,button,strong,em,b,small,span,li,figcaption').forEach(element => {
       if (element.dataset.studioEditId || element.closest('[aria-hidden="true"]')) return;
@@ -125,17 +132,20 @@
   function readStudioLayout(value = css.value) {
     const block = studioLayoutBlock(value);
     const rules = new Map();
-    const rulePattern = /\[data-studio-card-key="([a-z0-9-]+)"\]\s*\{([^}]*)\}/gi;
+    const rulePattern = /\[data-studio-card-key="([a-z0-9-]+)"\](?:\s*\[data-studio-card-part="(image|pedestal)"\])?\s*\{([^}]*)\}/gi;
     let match;
     while ((match = rulePattern.exec(block))) {
-      const key = match[1];
-      if (!/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key)) continue;
+      const cardKey = match[1];
+      const part = match[2];
+      if (!/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(cardKey)) continue;
+      const key = part ? `${cardKey}:${part}` : cardKey;
       const properties = {};
-      match[2].split(';').forEach(declaration => {
+      match[3].split(';').forEach(declaration => {
         const [name, ...parts] = declaration.split(':');
         const property = name.trim().toLowerCase();
         const content = parts.join(':').trim();
-        if (property === 'order' && /^-?\d{1,5}$/.test(content)) properties.order = content;
+        if (!part && property === 'order' && /^-?\d{1,5}$/.test(content)) properties.order = content;
+        if (!part && property === '--studio-card-parts-separated' && content === '1') properties.partsSeparated = true;
         if (property === 'transform' && /^translate\(\s*-?(?:\d+(?:\.\d+)?|\.\d+)%\s*,\s*-?(?:\d+(?:\.\d+)?|\.\d+)%\s*\)$/.test(content)) {
           properties.transform = content;
         }
@@ -148,8 +158,25 @@
     const block = studioLayoutBlock();
     const baseCss = css.value.replace(block, '').trimEnd();
     const entries = [...rules.entries()]
-      .filter(([key, properties]) => /^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key) && Object.keys(properties).length)
-      .map(([key, properties]) => `[data-studio-card-key="${key}"]{${Object.entries(properties).map(([name, value]) => `${name}:${value}`).join(';')}}`);
+      .map(([key, properties]) => {
+        const match = /^((?:p-\d+|c-[a-z0-9-]{1,70}))(?::(image|pedestal))?$/.exec(key);
+        if (!match || !Object.keys(properties).length) return '';
+        const [, cardKey, part] = match;
+        const declarations = Object.entries(properties).map(([name, value]) => {
+          if (name === 'partsSeparated' && !part) return value ? '--studio-card-parts-separated:1' : '';
+          if (name === 'order' && !part && /^-?\d{1,5}$/.test(value)) return `order:${value}`;
+          if (name === 'transform'
+              && /^translate\(\s*-?(?:\d+(?:\.\d+)?|\.\d+)%\s*,\s*-?(?:\d+(?:\.\d+)?|\.\d+)%\s*\)$/.test(value)) {
+            return `transform:${value}`;
+          }
+          return '';
+        }).filter(Boolean);
+        if (!declarations.length) return '';
+        const selector = `[data-studio-card-key="${cardKey}"]`
+          + (part ? ` [data-studio-card-part="${part}"]` : '');
+        return `${selector}{${declarations.join(';')}}`;
+      })
+      .filter(Boolean);
     const nextBlock = entries.length ? `${layoutStart}\n${entries.join('\n')}\n${layoutEnd}` : '';
     const nextCss = [baseCss, nextBlock].filter(Boolean).join('\n');
     if (nextCss.length > 20000) {
@@ -163,13 +190,15 @@
   function updateStudioLayout(updates) {
     const rules = readStudioLayout();
     updates.forEach(([key, properties]) => {
-      if (!/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key)) return;
-      const next = {...(rules.get(key) || {})};
+      const match = /^((?:p-\d+|c-[a-z0-9-]{1,70}))(?::(image|pedestal))?$/.exec(key);
+      if (!match) return;
+      const ruleKey = match[2] ? `${match[1]}:${match[2]}` : match[1];
+      const next = {...(rules.get(ruleKey) || {})};
       Object.entries(properties).forEach(([name, value]) => {
         if (value === null) delete next[name];
         else next[name] = value;
       });
-      rules.set(key, next);
+      rules.set(ruleKey, next);
     });
     return writeStudioLayout(rules);
   }
@@ -295,6 +324,7 @@
     });
     html.value = ensureEditableMarkup(html.value);
     syncLottieTargetOptions();
+    syncCardPartsOptions();
     ensureLottieTarget();
     schedulePreview();
   }));
@@ -328,6 +358,49 @@
   const selectedProductIds = new Set();
   let unavailableSavedProductCount = 0;
   let selectionLoadFailed = false;
+  function studioCardChoices() {
+    const choices = new Map();
+    selectedProductIds.forEach(id => {
+      const option = [...productPicker.options].find(item => item.value === id);
+      if (option) choices.set(`p-${id}`, option.dataset.name || option.textContent.trim());
+    });
+    const markup = new DOMParser().parseFromString(html.value || '', 'text/html');
+    markup.body.querySelectorAll('[data-studio-card-key^="c-"]').forEach(card => {
+      const key = card.dataset.studioCardKey;
+      const title = card.querySelector('.offers-product-card h3,h3,strong')?.textContent.trim();
+      if (key && title) choices.set(key, title);
+    });
+    return choices;
+  }
+  function syncCardPartsOptions() {
+    const selectedKey = partsCardSelect.value;
+    const choices = studioCardChoices();
+    partsCardSelect.replaceChildren(new Option('Choose a product card', ''));
+    choices.forEach((name, key) => {
+      partsCardSelect.append(new Option(name.slice(0, 120), key));
+    });
+    if (choices.has(selectedKey)) partsCardSelect.value = selectedKey;
+    partsToggle.disabled = !partsCardSelect.value;
+    if (!partsCardSelect.value) {
+      partsStatus.textContent = 'Choose a product card to separate its image and rounded pedestal. Merge them again, then choose Free position in product area to move the whole card.';
+      return;
+    }
+    const separated = readStudioLayout().get(partsCardSelect.value)?.partsSeparated === true;
+    partsToggle.textContent = separated ? 'Merge image and pedestal' : 'Separate image and pedestal';
+    partsStatus.textContent = separated
+      ? 'Drag the image or rounded pedestal independently in the preview. Merge them, then choose Free position in product area to move the whole card.'
+      : 'The image and rounded pedestal move together. Separate them to adjust their alignment.';
+  }
+  partsCardSelect.addEventListener('change', syncCardPartsOptions);
+  partsToggle.addEventListener('click', () => {
+    const key = partsCardSelect.value;
+    if (!/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key)) return;
+    const separated = readStudioLayout().get(key)?.partsSeparated === true;
+    if (updateStudioLayout([[key, {partsSeparated: !separated}]])) {
+      syncCardPartsOptions();
+      schedulePreview();
+    }
+  });
   function lottieProductChoices() {
     const choices = new Map();
     [...productPicker.options].slice(1).forEach(option => {
@@ -479,6 +552,7 @@
       + (selectionLoadFailed ? ' Saved product choices could not be read; select them again.' : '')
       + (unavailableSavedProductCount ? ` ${unavailableSavedProductCount} saved product(s) are no longer active.` : '');
     syncLottieTargetOptions();
+    syncCardPartsOptions();
     if (updatePreview) schedulePreview();
   }
   try {
@@ -629,6 +703,17 @@
           || !Number.isFinite(x) || !Number.isFinite(y)
           || Math.abs(x) > 500 || Math.abs(y) > 500) return;
       updateStudioLayout([[key, {transform: `translate(${x.toFixed(2)}%, ${y.toFixed(2)}%)`}]]);
+      return;
+    }
+    if (data.action === 'card-part-position') {
+      const key = String(data.key || '');
+      const part = data.part === 'image' || data.part === 'pedestal' ? data.part : '';
+      const x = Number(data.x);
+      const y = Number(data.y);
+      if (!/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key) || !part
+          || !Number.isFinite(x) || !Number.isFinite(y)
+          || Math.abs(x) > 300 || Math.abs(y) > 300) return;
+      updateStudioLayout([[`${key}:${part}`, {transform: `translate(${x.toFixed(2)}%, ${y.toFixed(2)}%)`}]]);
     }
   });
   if (previewSize && preview) {
@@ -649,6 +734,7 @@
     const previous = html.value;
     html.value = ensureEditableMarkup(html.value);
     syncLottieTargetOptions();
+    syncCardPartsOptions();
     ensureLottieTarget();
     if (html.value !== previous) schedulePreview();
   });
@@ -699,9 +785,9 @@
     const safeDestination = escapeMarkup(destination);
     const discountPercent = previousPrice ? Math.floor(((previousPrice - currentPrice) / previousPrice) * 100) : 0;
     if (templateKey.value === 'offers' || campaignKeys.has(templateKey.value)) {
-      return `<div class="offers-product-item" data-studio-card-key="${cardKey}"><article class="offers-product-card"><div class="offers-product-copy"><p class="offers-product-category">Featured</p><h3><a href="${safeDestination}">${safeName}</a></h3></div><div class="offers-product-image"><span class="offers-product-pedestal" aria-hidden="true"><span class="offers-product-pedestal-base"></span><span class="offers-product-pedestal-top"></span></span><a class="offers-product-image-link" href="${safeDestination}" aria-label="View ${safeName}"><img src="${safeUrl}" alt="${safeName}" loading="lazy" width="540" height="540"></a></div><div class="offers-price-group"><span class="offers-current-price">${currencyAmount(currentPrice)}</span>${previousPrice ? `<s class="offers-original-price">${currencyAmount(previousPrice)}</s><span class="offers-discount-note">${discountPercent}% off</span>` : '<span class="offers-discount-note">Available now</span>'}</div></article></div>`;
+      return `<div class="offers-product-item" data-studio-card-key="${cardKey}"><article class="offers-product-card"><div class="offers-product-copy"><p class="offers-product-category">Featured</p><h3><a href="${safeDestination}">${safeName}</a></h3></div><div class="offers-product-image"><span class="offers-product-pedestal" data-studio-card-part="pedestal" aria-hidden="true"><span class="offers-product-pedestal-base"></span><span class="offers-product-pedestal-top"></span></span><a class="offers-product-image-link" href="${safeDestination}" aria-label="View ${safeName}"><img data-studio-card-part="image" src="${safeUrl}" alt="${safeName}" loading="lazy" width="540" height="540"></a></div><div class="offers-price-group"><span class="offers-current-price">${currencyAmount(currentPrice)}</span>${previousPrice ? `<s class="offers-original-price">${currencyAmount(previousPrice)}</s><span class="offers-discount-note">${discountPercent}% off</span>` : '<span class="offers-discount-note">Available now</span>'}</div></article></div>`;
     }
-    return `<article class="studio-product-card" data-studio-card-key="${cardKey}"><a href="${safeDestination}" aria-label="View ${safeName}"><span class="studio-product-image"><img src="${safeUrl}" alt="${safeName}" loading="lazy" width="540" height="540"><span class="studio-product-pedestal" aria-hidden="true"><span class="studio-product-pedestal-base"></span><span class="studio-product-pedestal-top"></span></span></span><strong>${safeName}</strong></a><div class="studio-product-price"><strong class="studio-product-current-price">${currencyAmount(currentPrice)}</strong>${previousPrice ? `<s class="studio-product-previous-price">${currencyAmount(previousPrice)}</s><span class="studio-product-discount">${discountPercent}% OFF</span>` : ''}</div></article>`;
+    return `<article class="studio-product-card" data-studio-card-key="${cardKey}"><a href="${safeDestination}" aria-label="View ${safeName}"><span class="studio-product-image"><img data-studio-card-part="image" src="${safeUrl}" alt="${safeName}" loading="lazy" width="540" height="540"><span class="studio-product-pedestal" data-studio-card-part="pedestal" aria-hidden="true"><span class="studio-product-pedestal-base"></span><span class="studio-product-pedestal-top"></span></span></span><strong>${safeName}</strong></a><div class="studio-product-price"><strong class="studio-product-current-price">${currencyAmount(currentPrice)}</strong>${previousPrice ? `<s class="studio-product-previous-price">${currencyAmount(previousPrice)}</s><span class="studio-product-discount">${discountPercent}% OFF</span>` : ''}</div></article>`;
   }
   cardLink.addEventListener('change', () => {
     const option = cardLink.selectedOptions[0];
@@ -734,6 +820,7 @@
     );
     html.value = ensureEditableMarkup(html.value.replace(placeholder, `${placeholder}${markup}`));
     syncLottieTargetOptions();
+    syncCardPartsOptions();
     html.dispatchEvent(new Event('input', {bubbles: true}));
     selectedCardImageUrl = '';
     cardImage.removeAttribute('src');
