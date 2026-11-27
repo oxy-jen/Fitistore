@@ -60,6 +60,9 @@
 .ds-panel-title h3{margin:0}
 .ds-panel-title span{color:#777;font-size:.8rem}
 .ds-preview-panel iframe{display:block;width:100%;height:400px;max-width:100%;margin:16px auto 8px;border:1px solid #e4e4e8;border-radius:12px;background:#fff;transition:height .2s,max-width .2s}
+.ds-preview-edit-tools{display:grid;grid-template-columns:minmax(160px,.55fr) minmax(0,1.45fr);align-items:center;gap:12px;margin:12px 0}
+.ds-preview-edit-tools label{margin:0}
+.ds-preview-edit-tools small{color:#65656b}
 .ds-preview-status{margin:8px 0;color:#28633b;font-size:.88rem}
 .ds-preview-empty{display:grid;min-height:150px;place-items:center;margin:15px 0;border:1px dashed #bbb;border-radius:12px;color:#666;text-align:center}
 .ds-upload-result{margin-top:8px;color:#28633b}
@@ -101,4 +104,4 @@
 .ds-audit-list time,.ds-audit-list span{color:#666}
 .ds-empty{padding:28px;text-align:center}
 @media(max-width:900px){.ds-editor-grid{grid-template-columns:1fr}.ds-design-card{grid-template-columns:1fr}.ds-actions{justify-content:flex-start}}
-@media(max-width:600px){.ds-editor-header,.ds-overview-head{align-items:flex-start;flex-direction:column}.ds-inline{grid-template-columns:1fr}.ds-role-row{align-items:flex-start;flex-direction:column}.ds-audit-list>div{grid-template-columns:1fr;gap:3px}.ds-panel,.ds-overview{padding:16px}.ds-actions form,.ds-actions button{max-width:100%}}
+@media(max-width:600px){.ds-editor-header,.ds-overview-head{align-items:flex-start;flex-direction:column}.ds-inline,.ds-preview-edit-tools{grid-template-columns:1fr}.ds-role-row{align-items:flex-start;flex-direction:column}.ds-audit-list>div{grid-template-columns:1fr;gap:3px}.ds-panel,.ds-overview{padding:16px}.ds-actions form,.ds-actions button{max-width:100%}}

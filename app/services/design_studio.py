@@ -49,16 +49,19 @@ DEFAULT_OFFERS_TEMPLATE = {
         '<h2>Discounted<br><span>goods</span></h2>'
         '<p>Selected styles and everyday essentials, now for less.</p>'
         '<a href="/shop">Browse offers <span aria-hidden="true">→</span></a></div>'
+        '<div class="studio-product-canvas" data-studio-product-canvas>'
         '%%FITYSTORES_OFFERS%%'
+        '</div>'
         '</div></div><div class="offers-scroll-dots" aria-hidden="true">'
         '<span class="home-scroll-dot" aria-current="true"></span></div></div></section>'
     ),
     "css": """
-.studio-offers{box-sizing:border-box;min-height:400px;overflow:hidden;padding:clamp(.8rem,2.2vw,1.5rem);border:1px solid rgba(255,255,255,.13);border-radius:12px;background:radial-gradient(ellipse at 82% 48%,rgba(81,46,135,.32),transparent 44%),linear-gradient(112deg,#09080d 0%,#100d18 58%,#21162f 100%);color:#fff}
+.studio-offers{box-sizing:border-box;position:relative;min-height:400px;overflow:hidden;padding:clamp(.8rem,2.2vw,1.5rem);border:1px solid rgba(255,255,255,.13);border-radius:12px;background:radial-gradient(ellipse at 82% 48%,rgba(81,46,135,.32),transparent 44%),linear-gradient(112deg,#09080d 0%,#100d18 58%,#21162f 100%);color:#fff}
 .studio-offers,.studio-offers *,.studio-offers *::before,.studio-offers *::after{box-sizing:border-box}
 .studio-offers .offers-scroll-rail{display:grid;min-width:0;gap:.55rem}
 .studio-offers .offers-scroll-viewport{min-width:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
 .studio-offers .offers-scroll-content{display:flex;width:max-content;min-width:100%;align-items:stretch;gap:clamp(.4rem,.8vw,.65rem);padding:.35rem .4rem .8rem}
+.studio-offers .studio-product-canvas{display:flex;flex:0 0 max-content;align-items:stretch;gap:clamp(.4rem,.8vw,.65rem)}
 .studio-offers .offers-intro-panel{display:flex;flex:0 0 clamp(290px,34vw,410px);flex-direction:column;align-items:flex-start;justify-content:center;min-height:300px;padding:clamp(.45rem,2vw,1.75rem);scroll-snap-align:start}
 .studio-offers .offers-intro-panel .eyebrow{margin:0 0 .65rem;color:#ff8751;font-size:.78rem;font-weight:800;letter-spacing:.12em;line-height:1.2;text-transform:uppercase}
 .studio-offers .offers-intro-panel h2{margin:0;color:#fff;font-size:clamp(2.4rem,4vw,3.8rem);font-weight:850;letter-spacing:-.055em;line-height:.96}
@@ -265,6 +268,8 @@ SAFE_TAGS = {
 VOID_TAGS = {"br", "hr", "img", "source"}
 SAFE_ATTRS = {
     "alt", "aria-hidden", "aria-label", "class", "controls", "data-product-id",
+    "data-studio-card-key", "data-studio-edit-field", "data-studio-edit-id",
+    "data-studio-product-canvas",
     "data-studio-action", "data-studio-lottie", "data-template-key",
     "data-template-brand", "data-template-kicker", "data-template-badge",
     "data-template-headline", "data-template-highlight", "data-template-copy",
@@ -315,6 +320,14 @@ class _DesignMarkupSanitizer(HTMLParser):
                 if not value:
                     continue
             if name == "data-product-id" and not value.isdigit():
+                continue
+            if name == "data-studio-card-key" and not re.fullmatch(r"c-[a-z0-9-]{1,70}", value):
+                continue
+            if name == "data-studio-edit-id" and not re.fullmatch(r"e\d{1,5}", value):
+                continue
+            if name == "data-studio-edit-field" and value not in {
+                "brand", "kicker", "badge", "headline", "highlight", "copy", "cta",
+            }:
                 continue
             if name == "data-studio-action" and value not in {"add-to-cart", "open-product", "navigate"}:
                 continue

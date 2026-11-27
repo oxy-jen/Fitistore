@@ -1,5 +1,5 @@
 {% for product in products %}
-<div class="offers-product-item">
+<div class="offers-product-item" data-studio-card-key="p-{{ product.id }}">
   {% include "partials/offer_product_card.html" %}
 </div>
 {% endfor %}

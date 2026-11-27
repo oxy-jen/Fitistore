@@ -13,12 +13,17 @@
     {{ design_html|safe }}
   </main>
   <style>
+    :where(.studio-product-rail,.studio-product-canvas,.ds-campaign-product-track,.offers-scroll-content) [data-studio-card-key]{order:9999}
     {{ design.css|safe }}
     html,body{margin:0;padding:0;width:100%;font-family:system-ui,sans-serif}
     .studio-content{box-sizing:border-box}
     [data-motion="fade"] .studio-content{animation:studio-fade var(--studio-motion-duration) ease both}
     [data-motion="rise"] .studio-content{animation:studio-rise var(--studio-motion-duration) ease both}
     [data-motion="scale"] .studio-content{animation:studio-scale var(--studio-motion-duration) ease both}
+    .studio-editor-active [data-studio-edit-id]{cursor:text}
+    .studio-editor-active [data-studio-edit-id]:hover,.studio-editor-active [data-studio-edit-id][contenteditable="plaintext-only"]{outline:2px dashed #e52335;outline-offset:3px}
+    .studio-editor-active [data-studio-card-key]{cursor:grab;touch-action:none}
+    .studio-editor-active .studio-card-dragging{z-index:20;opacity:.76;cursor:grabbing;transition:none}
     @keyframes studio-fade{from{opacity:0}to{opacity:1}}
     @keyframes studio-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
     @keyframes studio-scale{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
@@ -41,9 +46,132 @@
         parent.postMessage({type:'fity-studio', action:'resize', height}, '*');
       }
     });
+    let visualEditorEnabled = false;
+    let cardMovementMode = 'reorder';
+    let activeCardDrag = null;
+    const cardRailSelector = '[data-studio-product-canvas],.ds-campaign-product-track,.offers-scroll-content';
+    function cardsInVisualOrder(rail) {
+      return [...rail.querySelectorAll('[data-studio-card-key]')].sort((first, second) => {
+        const orderDifference = Number(getComputedStyle(first).order) - Number(getComputedStyle(second).order);
+        if (orderDifference) return orderDifference;
+        const relation = first.compareDocumentPosition(second);
+        return relation & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+      });
+    }
+    function cardTransformOffset(card) {
+      const transform = getComputedStyle(card).transform;
+      const matrix2d = transform.match(/^matrix\(([^)]+)\)$/);
+      if (matrix2d) {
+        const values = matrix2d[1].split(',').map(Number);
+        return {x: values[4] || 0, y: values[5] || 0};
+      }
+      const matrix3d = transform.match(/^matrix3d\(([^)]+)\)$/);
+      if (matrix3d) {
+        const values = matrix3d[1].split(',').map(Number);
+        return {x: values[12] || 0, y: values[13] || 0};
+      }
+      return {x: 0, y: 0};
+    }
+    document.addEventListener('pointerdown', event => {
+      if (!visualEditorEnabled || event.button !== 0 || !(event.target instanceof Element)) return;
+      const card = event.target.closest('[data-studio-card-key]');
+      if (!card || event.target.closest('[data-studio-edit-id]')) return;
+      const rail = card.closest(cardRailSelector);
+      if (!rail) return;
+      const rect = card.getBoundingClientRect();
+      const offset = cardTransformOffset(card);
+      activeCardDrag = {
+        card, rail, pointerId: event.pointerId, mode: cardMovementMode,
+        startX: event.clientX, startY: event.clientY,
+        startLeft: rect.left, startTop: rect.top,
+        width: rect.width, height: rect.height,
+        offsetX: offset.x, offsetY: offset.y, moved: false
+      };
+      card.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    document.addEventListener('pointermove', event => {
+      if (!activeCardDrag || activeCardDrag.pointerId !== event.pointerId) return;
+      const deltaX = event.clientX - activeCardDrag.startX;
+      const deltaY = event.clientY - activeCardDrag.startY;
+      if (!activeCardDrag.moved && Math.hypot(deltaX, deltaY) < 5) return;
+      activeCardDrag.moved = true;
+      activeCardDrag.card.classList.add('studio-card-dragging');
+      activeCardDrag.card.style.translate = `${deltaX}px ${deltaY}px`;
+      event.preventDefault();
+    });
+    function finishCardDrag(event) {
+      if (!activeCardDrag || activeCardDrag.pointerId !== event.pointerId) return;
+      const drag = activeCardDrag;
+      activeCardDrag = null;
+      if (drag.card.hasPointerCapture(event.pointerId)) drag.card.releasePointerCapture(event.pointerId);
+      drag.card.classList.remove('studio-card-dragging');
+      drag.card.style.translate = '';
+      if (!drag.moved) return;
+      if (drag.mode === 'free' && drag.width > 0 && drag.height > 0) {
+        const deltaX = event.clientX - drag.startX;
+        const deltaY = event.clientY - drag.startY;
+        const productCanvas = drag.card.closest('.studio-product-canvas');
+        const boundsElement = productCanvas || drag.card.closest('.studio-product-rail,.ds-campaign-products,.offers-scroll-viewport');
+        const productBounds = boundsElement ? boundsElement.getBoundingClientRect() : null;
+        const viewport = productCanvas && productCanvas.closest('.offers-scroll-viewport');
+        const viewportBounds = viewport ? viewport.getBoundingClientRect() : null;
+        const bounds = productBounds && viewportBounds
+          ? {
+            left: Math.max(productBounds.left, viewportBounds.left),
+            right: Math.min(productBounds.right, viewportBounds.right),
+            top: Math.max(productBounds.top, viewportBounds.top),
+            bottom: Math.min(productBounds.bottom, viewportBounds.bottom)
+          }
+          : productBounds;
+        const nextLeft = bounds
+          ? Math.max(bounds.left, Math.min(bounds.right - drag.width, drag.startLeft + deltaX))
+          : drag.startLeft + deltaX;
+        const nextTop = bounds
+          ? Math.max(bounds.top, Math.min(bounds.bottom - drag.height, drag.startTop + deltaY))
+          : drag.startTop + deltaY;
+        const x = Math.max(-500, Math.min(500, ((drag.offsetX + nextLeft - drag.startLeft) / drag.width) * 100));
+        const y = Math.max(-500, Math.min(500, ((drag.offsetY + nextTop - drag.startTop) / drag.height) * 100));
+        drag.card.style.transform = `translate(${x.toFixed(2)}%, ${y.toFixed(2)}%)`;
+        parent.postMessage({
+          type: 'fity-studio', action: 'card-position',
+          key: drag.card.dataset.studioCardKey, x, y
+        }, '*');
+        return;
+      }
+      const orderedCards = cardsInVisualOrder(drag.rail).filter(card => card !== drag.card);
+      const insertAt = orderedCards.findIndex(card =>
+        event.clientX < card.getBoundingClientRect().left + card.getBoundingClientRect().width / 2
+      );
+      if (insertAt < 0) orderedCards.push(drag.card);
+      else orderedCards.splice(insertAt, 0, drag.card);
+      orderedCards.forEach((card, index) => {
+        card.style.order = String(index + 1);
+      });
+      parent.postMessage({
+        type: 'fity-studio', action: 'card-order',
+        keys: orderedCards.map(card => card.dataset.studioCardKey)
+      }, '*');
+    }
+    document.addEventListener('pointerup', finishCardDrag);
+    document.addEventListener('pointercancel', finishCardDrag);
     document.addEventListener('click', event => {
+      if (!(event.target instanceof Element)) return;
+      if (visualEditorEnabled) {
+        const editable = event.target.closest('[data-studio-edit-id]');
+        if (editable) {
+          event.preventDefault();
+          editable.contentEditable = 'plaintext-only';
+          editable.focus({preventScroll: true});
+          return;
+        }
+      }
       const link = event.target.closest('a[href]');
       if (link) {
+        if (visualEditorEnabled) {
+          event.preventDefault();
+          return;
+        }
         const path = link.getAttribute('href');
         const product = studioProducts.find(item => item.url === path);
         if (product) {
@@ -71,6 +199,16 @@
         event.preventDefault();
         studioApi.openProduct(Number(button.dataset.productId));
       }
+    });
+    document.addEventListener('focusout', event => {
+      if (!visualEditorEnabled || !(event.target instanceof HTMLElement)
+          || !event.target.matches('[data-studio-edit-id][contenteditable]')) return;
+      const element = event.target;
+      element.removeAttribute('contenteditable');
+      parent.postMessage({
+        type: 'fity-studio', action: 'text-edit',
+        id: element.dataset.studioEditId, html: element.innerHTML
+      }, '*');
     });
 
     const userCode = JSON.parse(document.getElementById('studio-user-code').textContent || '""');
@@ -237,8 +375,15 @@
       parent.postMessage({type:'fity-studio', action:'resize', height}, '*');
     };
     addEventListener('message', event => {
-      if (event.source === parent && event.data?.type === 'fity-studio-command'
-          && event.data.action === 'measure') reportHeight();
+      if (event.source !== parent || !event.data || event.data.type !== 'fity-studio-command') return;
+      if (event.data.action === 'measure') {
+        reportHeight();
+      } else if (event.data.action === 'enable-visual-editor') {
+        visualEditorEnabled = true;
+        cardMovementMode = event.data.cardMode === 'free' ? 'free' : 'reorder';
+        document.body.classList.add('studio-editor-active');
+        document.documentElement.classList.toggle('studio-card-free-position-mode', cardMovementMode === 'free');
+      }
     });
     new ResizeObserver(reportHeight).observe(document.querySelector('.studio-content'));
     addEventListener('load', reportHeight);

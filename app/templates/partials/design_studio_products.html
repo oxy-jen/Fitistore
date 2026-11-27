@@ -2,7 +2,7 @@
 {% for product in products %}
   {% set image = product_display_image(product) %}
   {% set discounted_variants = product.active_variants|selectattr('has_discount')|list %}
-  <article class="studio-product-card">
+  <article class="studio-product-card" data-studio-card-key="p-{{ product.id }}">
     <a href="/product/{{ product.slug }}" aria-label="View {{ product.name }}">
       <span class="studio-product-image">
         {% if image %}<img src="{{ product_image_url(image) }}" alt="{{ product_image_alt(image, product.name) }}" loading="lazy">{% endif %}

@@ -25,16 +25,16 @@
   const templates = {
     offers: {html: defaultTemplate.html, css: defaultTemplate.css},
     editorial: {
-      html: '<section class="ds-promo"><div class="ds-promo-copy"><p class="ds-kicker">FityStores finds</p><h2>Everyday essentials, better together</h2><p>Fresh picks for your everyday style.</p><a class="ds-cta" href="/shop">Explore the collection</a></div><div class="studio-product-rail">%%FITYSTORES_PRODUCTS%%</div></section>',
-      css: '.ds-promo{box-sizing:border-box;display:grid;grid-template-columns:minmax(190px,.8fr) minmax(0,2fr);align-items:center;gap:20px;width:100%;height:400px;min-height:400px;max-height:400px;overflow:hidden;padding:clamp(16px,3vw,34px);border-radius:24px;background:linear-gradient(120deg,#fff1f4,#f8e7d2);color:#252525}.ds-promo-copy{min-width:0}.ds-kicker{color:#e52335;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-promo h2{max-width:15ch;font-size:clamp(1.7rem,3vw,3rem);line-height:1.04}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}@media(max-width:720px){.ds-promo{grid-template-columns:minmax(115px,.72fr) minmax(0,1.5fr);gap:10px;height:351px;min-height:351px;max-height:351px;padding:12px}.ds-promo h2{font-size:clamp(1.25rem,5vw,2rem)}.ds-promo-copy>p:not(.ds-kicker){font-size:.8rem}.ds-promo .ds-cta{padding:8px 10px;font-size:.75rem}}' + productGridStyles
+      html: '<section class="ds-promo"><div class="ds-promo-copy"><p class="ds-kicker">FityStores finds</p><h2>Everyday essentials, better together</h2><p>Fresh picks for your everyday style.</p><a class="ds-cta" href="/shop">Explore the collection</a></div><div class="studio-product-rail" data-studio-product-canvas>%%FITYSTORES_PRODUCTS%%</div></section>',
+      css: '.ds-promo{box-sizing:border-box;position:relative;display:grid;grid-template-columns:minmax(190px,.8fr) minmax(0,2fr);align-items:center;gap:20px;width:100%;height:400px;min-height:400px;max-height:400px;overflow:hidden;padding:clamp(16px,3vw,34px);border-radius:24px;background:linear-gradient(120deg,#fff1f4,#f8e7d2);color:#252525}.ds-promo-copy{min-width:0}.ds-kicker{color:#e52335;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-promo h2{max-width:15ch;font-size:clamp(1.7rem,3vw,3rem);line-height:1.04}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}@media(max-width:720px){.ds-promo{grid-template-columns:minmax(115px,.72fr) minmax(0,1.5fr);gap:10px;height:351px;min-height:351px;max-height:351px;padding:12px}.ds-promo h2{font-size:clamp(1.25rem,5vw,2rem)}.ds-promo-copy>p:not(.ds-kicker){font-size:.8rem}.ds-promo .ds-cta{padding:8px 10px;font-size:.75rem}}' + productGridStyles
     },
     'product-grid': {
-      html: '<section class="ds-products"><div class="ds-products-copy"><p class="ds-kicker">Shop the edit</p><h2>Everyday favourites</h2><p>Current picks, straight from the FityStores catalogue.</p></div><div class="studio-product-rail">%%FITYSTORES_PRODUCTS%%</div></section>',
-      css: '.ds-products{box-sizing:border-box;display:grid;grid-template-columns:minmax(190px,.8fr) minmax(0,2fr);align-items:center;gap:20px;width:100%;height:400px;min-height:400px;max-height:400px;overflow:hidden;padding:clamp(16px,3vw,34px);background:#fff8f4;border-radius:20px;color:#252525}.ds-products-copy{min-width:0}.ds-products h2{font-size:clamp(1.7rem,3vw,3rem)}@media(max-width:720px){.ds-products{grid-template-columns:minmax(115px,.72fr) minmax(0,1.5fr);gap:10px;height:351px;min-height:351px;max-height:351px;padding:12px}.ds-products h2{font-size:clamp(1.25rem,5vw,2rem)}.ds-products-copy>p:not(.ds-kicker){font-size:.8rem}}' + productGridStyles
+      html: '<section class="ds-products"><div class="ds-products-copy"><p class="ds-kicker">Shop the edit</p><h2>Everyday favourites</h2><p>Current picks, straight from the FityStores catalogue.</p></div><div class="studio-product-rail" data-studio-product-canvas>%%FITYSTORES_PRODUCTS%%</div></section>',
+      css: '.ds-products{box-sizing:border-box;position:relative;display:grid;grid-template-columns:minmax(190px,.8fr) minmax(0,2fr);align-items:center;gap:20px;width:100%;height:400px;min-height:400px;max-height:400px;overflow:hidden;padding:clamp(16px,3vw,34px);background:#fff8f4;border-radius:20px;color:#252525}.ds-products-copy{min-width:0}.ds-products h2{font-size:clamp(1.7rem,3vw,3rem)}@media(max-width:720px){.ds-products{grid-template-columns:minmax(115px,.72fr) minmax(0,1.5fr);gap:10px;height:351px;min-height:351px;max-height:351px;padding:12px}.ds-products h2{font-size:clamp(1.25rem,5vw,2rem)}.ds-products-copy>p:not(.ds-kicker){font-size:.8rem}}' + productGridStyles
     },
     seasonal: {
-      html: '<section class="ds-season"><div class="ds-season-copy"><p class="ds-kicker">Your next everyday favourite</p><h2>Small details. Big feel-good energy.</h2><p>Discover comfort-first finds picked for the season.</p><a class="ds-cta" href="/shop">Shop the edit</a><span class="ds-season-mark" aria-hidden="true">F</span></div><div class="studio-product-rail">%%FITYSTORES_PRODUCTS%%</div></section>',
-      css: '.ds-season{box-sizing:border-box;display:grid;grid-template-columns:minmax(190px,.8fr) minmax(0,2fr);align-items:center;gap:20px;width:100%;height:400px;min-height:400px;max-height:400px;overflow:hidden;padding:clamp(16px,3vw,34px);border-radius:24px;background:#252525;color:white}.ds-season-copy{position:relative;min-width:0}.ds-season h2{font-size:clamp(1.7rem,3vw,3rem);line-height:1.05}.ds-kicker{color:#ffb5bd;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}.ds-season-mark{position:absolute;right:0;bottom:-.25em;color:#e52335;font-size:clamp(3rem,7vw,6rem);font-weight:900;opacity:.5;pointer-events:none}@media(max-width:720px){.ds-season{grid-template-columns:minmax(115px,.72fr) minmax(0,1.5fr);gap:10px;height:351px;min-height:351px;max-height:351px;padding:12px}.ds-season h2{font-size:clamp(1.25rem,5vw,2rem)}.ds-season-copy>p:not(.ds-kicker){font-size:.8rem}.ds-season .ds-cta{padding:8px 10px;font-size:.75rem}}' + productGridStyles
+      html: '<section class="ds-season"><div class="ds-season-copy"><p class="ds-kicker">Your next everyday favourite</p><h2>Small details. Big feel-good energy.</h2><p>Discover comfort-first finds picked for the season.</p><a class="ds-cta" href="/shop">Shop the edit</a><span class="ds-season-mark" aria-hidden="true">F</span></div><div class="studio-product-rail" data-studio-product-canvas>%%FITYSTORES_PRODUCTS%%</div></section>',
+      css: '.ds-season{box-sizing:border-box;position:relative;display:grid;grid-template-columns:minmax(190px,.8fr) minmax(0,2fr);align-items:center;gap:20px;width:100%;height:400px;min-height:400px;max-height:400px;overflow:hidden;padding:clamp(16px,3vw,34px);border-radius:24px;background:#252525;color:white}.ds-season-copy{position:relative;min-width:0}.ds-season h2{font-size:clamp(1.7rem,3vw,3rem);line-height:1.05}.ds-kicker{color:#ffb5bd;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}.ds-season-mark{position:absolute;right:0;bottom:-.25em;color:#e52335;font-size:clamp(3rem,7vw,6rem);font-weight:900;opacity:.5;pointer-events:none}@media(max-width:720px){.ds-season{grid-template-columns:minmax(115px,.72fr) minmax(0,1.5fr);gap:10px;height:351px;min-height:351px;max-height:351px;padding:12px}.ds-season h2{font-size:clamp(1.25rem,5vw,2rem)}.ds-season-copy>p:not(.ds-kicker){font-size:.8rem}.ds-season .ds-cta{padding:8px 10px;font-size:.75rem}}' + productGridStyles
     }
   };
   const campaignTemplates = {
@@ -88,6 +88,91 @@
   const escapeMarkup = value => String(value).replace(/[&<>"']/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   })[character]);
+  const layoutStart = '/* fity-studio-card-layout:start */';
+  const layoutEnd = '/* fity-studio-card-layout:end */';
+  let customCardSequence = 0;
+  function createCustomCardKey() {
+    const random = globalThis.crypto?.randomUUID?.().replace(/[^a-z0-9-]/gi, '').toLowerCase() || '';
+    return `c-${random || `${Date.now().toString(36)}-${(++customCardSequence).toString(36)}`}`;
+  }
+  function ensureEditableMarkup(markup) {
+    const parsed = new DOMParser().parseFromString(markup || '', 'text/html');
+    let nextEditId = [...parsed.body.querySelectorAll('[data-studio-edit-id]')]
+      .reduce((current, element) => Math.max(current, Number(element.dataset.studioEditId.slice(1)) || 0), 0);
+    parsed.body.querySelectorAll('.offers-product-item,.studio-product-card').forEach(card => {
+      if (!card.dataset.studioCardKey) card.dataset.studioCardKey = createCustomCardKey();
+    });
+    parsed.body.querySelectorAll('h1,h2,h3,h4,p,a,button,strong,em,b,small,span,li,figcaption').forEach(element => {
+      if (element.dataset.studioEditId || element.closest('[aria-hidden="true"]')) return;
+      const hasEditableText = [...element.childNodes].some(node =>
+        node.nodeType === Node.TEXT_NODE
+        && node.nodeValue.trim()
+        && !node.nodeValue.includes('%%FITYSTORES_')
+      );
+      if (hasEditableText) {
+        nextEditId += 1;
+        element.dataset.studioEditId = `e${nextEditId}`;
+      }
+    });
+    const result = parsed.body.innerHTML;
+    return result.length <= 20000 ? result : markup;
+  }
+  function studioLayoutBlock(value = css.value) {
+    const start = value.indexOf(layoutStart);
+    const end = value.indexOf(layoutEnd, start + layoutStart.length);
+    return start < 0 || end < 0 ? '' : value.slice(start, end + layoutEnd.length);
+  }
+  function readStudioLayout(value = css.value) {
+    const block = studioLayoutBlock(value);
+    const rules = new Map();
+    const rulePattern = /\[data-studio-card-key="([a-z0-9-]+)"\]\s*\{([^}]*)\}/gi;
+    let match;
+    while ((match = rulePattern.exec(block))) {
+      const key = match[1];
+      if (!/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key)) continue;
+      const properties = {};
+      match[2].split(';').forEach(declaration => {
+        const [name, ...parts] = declaration.split(':');
+        const property = name.trim().toLowerCase();
+        const content = parts.join(':').trim();
+        if (property === 'order' && /^-?\d{1,5}$/.test(content)) properties.order = content;
+        if (property === 'transform' && /^translate\(\s*-?(?:\d+(?:\.\d+)?|\.\d+)%\s*,\s*-?(?:\d+(?:\.\d+)?|\.\d+)%\s*\)$/.test(content)) {
+          properties.transform = content;
+        }
+      });
+      if (Object.keys(properties).length) rules.set(key, properties);
+    }
+    return rules;
+  }
+  function writeStudioLayout(rules) {
+    const block = studioLayoutBlock();
+    const baseCss = css.value.replace(block, '').trimEnd();
+    const entries = [...rules.entries()]
+      .filter(([key, properties]) => /^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key) && Object.keys(properties).length)
+      .map(([key, properties]) => `[data-studio-card-key="${key}"]{${Object.entries(properties).map(([name, value]) => `${name}:${value}`).join(';')}}`);
+    const nextBlock = entries.length ? `${layoutStart}\n${entries.join('\n')}\n${layoutEnd}` : '';
+    const nextCss = [baseCss, nextBlock].filter(Boolean).join('\n');
+    if (nextCss.length > 20000) {
+      previewStatus.textContent = 'The card layout cannot be saved because the style limit has been reached.';
+      return false;
+    }
+    css.value = nextCss;
+    previewStatus.textContent = 'Card layout updated in the preview. Save the draft to keep these changes.';
+    return true;
+  }
+  function updateStudioLayout(updates) {
+    const rules = readStudioLayout();
+    updates.forEach(([key, properties]) => {
+      if (!/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key)) return;
+      const next = {...(rules.get(key) || {})};
+      Object.entries(properties).forEach(([name, value]) => {
+        if (value === null) delete next[name];
+        else next[name] = value;
+      });
+      rules.set(key, next);
+    });
+    return writeStudioLayout(rules);
+  }
   const colorValue = (value, fallback) => /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
   const campaignValues = defaults => ({
     brand: campaignFields.brand.value.trim().slice(0, 60) || defaults.brand,
@@ -175,15 +260,21 @@
     const cutoutClass = value.cutouts ? ' ds-campaign--cutouts' : '';
     const badge = value.badge ? `<p class="ds-campaign-badge">${escapeMarkup(value.badge)}</p>` : '';
     const highlight = value.highlight
-      ? `<span class="ds-campaign-heading-highlight">${escapeMarkup(value.highlight)}</span>` : '';
+      ? `<span class="ds-campaign-heading-highlight" data-studio-edit-field="highlight">${escapeMarkup(value.highlight)}</span>` : '';
     const arrow = ' →';
-    html.value = `<section class="ds-campaign ds-campaign--${key}${cutoutClass}" data-template-key="${key}" data-template-brand="${attr('brand')}" data-template-kicker="${attr('kicker')}" data-template-badge="${attr('badge')}" data-template-headline="${attr('headline')}" data-template-highlight="${attr('highlight')}" data-template-copy="${attr('copy')}" data-template-cta="${attr('cta')}" data-template-url="${attr('url')}" data-template-background="${attr('background')}" data-template-accent="${attr('accent')}" data-template-platform="${attr('platform')}" data-template-cutouts="${value.cutouts ? 'true' : 'false'}"><div class="ds-campaign-copy"><p class="ds-campaign-brand">${escapeMarkup(value.brand)}</p><p class="ds-campaign-kicker">${escapeMarkup(value.kicker)}</p>${badge}<h2><span class="ds-campaign-heading-main">${escapeMarkup(value.headline)}</span>${highlight}</h2><p class="ds-campaign-copyline">${escapeMarkup(value.copy)}</p><a class="ds-campaign-cta" href="${attr('url')}">${escapeMarkup(value.cta)}${arrow}</a></div><div class="ds-campaign-products"><div class="ds-campaign-product-track">%%FITYSTORES_OFFERS%%</div></div></section>`;
-    css.value = campaignCss(key, value);
+    const currentMarkup = new DOMParser().parseFromString(html.value || '', 'text/html');
+    const customCards = [...currentMarkup.querySelectorAll('[data-studio-card-key^="c-"]')]
+      .map(card => card.outerHTML).join('');
+    const savedLayout = studioLayoutBlock();
+    const campaignMarkup = `<section class="ds-campaign ds-campaign--${key}${cutoutClass}" data-template-key="${key}" data-template-brand="${attr('brand')}" data-template-kicker="${attr('kicker')}" data-template-badge="${attr('badge')}" data-template-headline="${attr('headline')}" data-template-highlight="${attr('highlight')}" data-template-copy="${attr('copy')}" data-template-cta="${attr('cta')}" data-template-url="${attr('url')}" data-template-background="${attr('background')}" data-template-accent="${attr('accent')}" data-template-platform="${attr('platform')}" data-template-cutouts="${value.cutouts ? 'true' : 'false'}"><div class="ds-campaign-copy"><p class="ds-campaign-brand" data-studio-edit-field="brand">${escapeMarkup(value.brand)}</p><p class="ds-campaign-kicker" data-studio-edit-field="kicker">${escapeMarkup(value.kicker)}</p>${badge ? badge.replace('<p class="ds-campaign-badge">', '<p class="ds-campaign-badge" data-studio-edit-field="badge">') : ''}<h2><span class="ds-campaign-heading-main" data-studio-edit-field="headline">${escapeMarkup(value.headline)}</span>${highlight}</h2><p class="ds-campaign-copyline" data-studio-edit-field="copy">${escapeMarkup(value.copy)}</p><a class="ds-campaign-cta" href="${attr('url')}"><span data-studio-edit-field="cta">${escapeMarkup(value.cta)}</span><span aria-hidden="true">${arrow}</span></a></div><div class="ds-campaign-products"><div class="ds-campaign-product-track" data-studio-product-canvas>%%FITYSTORES_OFFERS%%${customCards}</div></div></section>`;
+    html.value = ensureEditableMarkup(campaignMarkup);
+    css.value = `${campaignCss(key, value)}${savedLayout ? `\n${savedLayout}` : ''}`;
   }
   form.querySelectorAll('[data-template]').forEach(button => button.addEventListener('click', () => {
     const key = button.dataset.template;
     const template = templates[key];
     if (!template && !campaignKeys.has(key)) return;
+    html.value = ensureEditableMarkup(html.value);
     templateKey.value = key;
     if (campaignKeys.has(key)) {
       applyCampaignFields(campaignTemplates[key]);
@@ -197,6 +288,7 @@
     form.querySelectorAll('[data-template]').forEach(item => {
       item.setAttribute('aria-pressed', String(item === button));
     });
+    html.value = ensureEditableMarkup(html.value);
     ensureLottieTarget();
     schedulePreview();
   }));
@@ -207,6 +299,7 @@
     campaignSettings.hidden = false;
     readCampaignFields();
   }
+  html.value = ensureEditableMarkup(html.value);
   Object.entries(campaignFields).forEach(([name, field]) => {
     field.addEventListener('input', () => {
       const key = templateKey.value;
@@ -381,18 +474,70 @@
   preview.addEventListener('load', () => {
     if (!previewBusy) {
       preview.contentWindow.postMessage({type: 'fity-studio-command', action: 'measure'}, '*');
+      setPreviewEditorMode();
       return;
     }
     previewBusy = false;
     previewStatus.textContent = 'Live preview updated.';
+    setPreviewEditorMode();
     if (previewQueued) submitPreview();
   });
   preview.contentWindow.postMessage({type: 'fity-studio-command', action: 'measure'}, '*');
+  const cardMode = form.querySelector('[data-studio-card-mode]');
+  function setPreviewEditorMode() {
+    if (!preview.contentWindow) return;
+    preview.contentWindow.postMessage({
+      type: 'fity-studio-command',
+      action: 'enable-visual-editor',
+      cardMode: cardMode.value
+    }, '*');
+  }
+  cardMode.addEventListener('change', setPreviewEditorMode);
   window.addEventListener('message', event => {
     if (event.source !== preview.contentWindow || !event.data || event.data.type !== 'fity-studio') return;
-    if (event.data.action === 'resize') {
+    const data = event.data;
+    if (data.action === 'resize') {
       const height = Number(event.data.height);
       if (Number.isFinite(height)) preview.style.height = `${Math.max(80, Math.min(1200, Math.round(height)))}px`;
+      return;
+    }
+    if (data.action === 'text-edit') {
+      const id = String(data.id || '');
+      if (!/^e\d{1,5}$/.test(id) || typeof data.html !== 'string' || data.html.length > 5000) return;
+      const parsed = new DOMParser().parseFromString(html.value, 'text/html');
+      const source = parsed.body.querySelector(`[data-studio-edit-id="${id}"]`);
+      if (!source) return;
+      source.innerHTML = data.html;
+      const fieldName = source.dataset.studioEditField;
+      if (fieldName && campaignFields[fieldName]) {
+        const value = source.textContent.trim().replace(/\s+/g, ' ')
+          .slice(0, {brand: 60, kicker: 70, badge: 40, headline: 60, highlight: 40, copy: 180, cta: 30}[fieldName]);
+        const campaignRoot = source.closest('[data-template-key]');
+        if (campaignRoot && campaignKeys.has(campaignRoot.dataset.templateKey)) {
+          source.textContent = value;
+          campaignRoot.setAttribute(`data-template-${fieldName}`, value);
+          campaignFields[fieldName].value = value;
+        }
+      }
+      html.value = ensureEditableMarkup(parsed.body.innerHTML);
+      previewStatus.textContent = 'Text updated in the preview. Save the draft to keep this change.';
+      return;
+    }
+    if (data.action === 'card-order' && Array.isArray(data.keys) && data.keys.length <= 60) {
+      const keys = data.keys.map(String);
+      if (new Set(keys).size !== keys.length
+          || keys.some(key => !/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key))) return;
+      updateStudioLayout(keys.map((key, index) => [key, {order: String(index + 1)}]));
+      return;
+    }
+    if (data.action === 'card-position') {
+      const key = String(data.key || '');
+      const x = Number(data.x);
+      const y = Number(data.y);
+      if (!/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key)
+          || !Number.isFinite(x) || !Number.isFinite(y)
+          || Math.abs(x) > 500 || Math.abs(y) > 500) return;
+      updateStudioLayout([[key, {transform: `translate(${x.toFixed(2)}%, ${y.toFixed(2)}%)`}]]);
     }
   });
   if (previewSize && preview) {
@@ -409,6 +554,18 @@
     field.addEventListener('input', schedulePreview);
     field.addEventListener('change', schedulePreview);
   });
+  html.addEventListener('change', () => {
+    const updated = ensureEditableMarkup(html.value);
+    if (updated !== html.value) {
+      html.value = updated;
+      schedulePreview();
+    }
+  });
+  if (html.value) {
+    const updated = ensureEditableMarkup(html.value);
+    html.value = updated;
+    schedulePreview();
+  }
   const fileInput = form.querySelector('[data-studio-upload]');
   const uploadButton = form.querySelector('[data-studio-upload-button]');
   const loadLibraryButton = form.querySelector('[data-studio-load-library]');
@@ -445,15 +602,15 @@
     const currency = cardBuilder.dataset.currency || '';
     return `${currency} ${Number(whole).toLocaleString('en')}${fraction === '00' ? '' : `.${fraction}`}`.trim();
   }
-  function customProductCardMarkup(url, name, currentPrice, previousPrice, destination) {
+  function customProductCardMarkup(cardKey, url, name, currentPrice, previousPrice, destination) {
     const safeUrl = escapeMarkup(url);
     const safeName = escapeMarkup(name);
     const safeDestination = escapeMarkup(destination);
     const discountPercent = previousPrice ? Math.floor(((previousPrice - currentPrice) / previousPrice) * 100) : 0;
     if (templateKey.value === 'offers' || campaignKeys.has(templateKey.value)) {
-      return `<div class="offers-product-item"><article class="offers-product-card"><div class="offers-product-copy"><p class="offers-product-category">Featured</p><h3><a href="${safeDestination}">${safeName}</a></h3></div><div class="offers-product-image"><span class="offers-product-pedestal" aria-hidden="true"><span class="offers-product-pedestal-base"></span><span class="offers-product-pedestal-top"></span></span><a class="offers-product-image-link" href="${safeDestination}" aria-label="View ${safeName}"><img src="${safeUrl}" alt="${safeName}" loading="lazy" width="540" height="540"></a></div><div class="offers-price-group"><span class="offers-current-price">${currencyAmount(currentPrice)}</span>${previousPrice ? `<s class="offers-original-price">${currencyAmount(previousPrice)}</s><span class="offers-discount-note">${discountPercent}% off</span>` : '<span class="offers-discount-note">Available now</span>'}</div></article></div>`;
+      return `<div class="offers-product-item" data-studio-card-key="${cardKey}"><article class="offers-product-card"><div class="offers-product-copy"><p class="offers-product-category">Featured</p><h3><a href="${safeDestination}">${safeName}</a></h3></div><div class="offers-product-image"><span class="offers-product-pedestal" aria-hidden="true"><span class="offers-product-pedestal-base"></span><span class="offers-product-pedestal-top"></span></span><a class="offers-product-image-link" href="${safeDestination}" aria-label="View ${safeName}"><img src="${safeUrl}" alt="${safeName}" loading="lazy" width="540" height="540"></a></div><div class="offers-price-group"><span class="offers-current-price">${currencyAmount(currentPrice)}</span>${previousPrice ? `<s class="offers-original-price">${currencyAmount(previousPrice)}</s><span class="offers-discount-note">${discountPercent}% off</span>` : '<span class="offers-discount-note">Available now</span>'}</div></article></div>`;
     }
-    return `<article class="studio-product-card"><a href="${safeDestination}" aria-label="View ${safeName}"><span class="studio-product-image"><img src="${safeUrl}" alt="${safeName}" loading="lazy" width="540" height="540"><span class="studio-product-pedestal" aria-hidden="true"><span class="studio-product-pedestal-base"></span><span class="studio-product-pedestal-top"></span></span></span><strong>${safeName}</strong></a><div class="studio-product-price"><strong class="studio-product-current-price">${currencyAmount(currentPrice)}</strong>${previousPrice ? `<s class="studio-product-previous-price">${currencyAmount(previousPrice)}</s><span class="studio-product-discount">${discountPercent}% OFF</span>` : ''}</div></article>`;
+    return `<article class="studio-product-card" data-studio-card-key="${cardKey}"><a href="${safeDestination}" aria-label="View ${safeName}"><span class="studio-product-image"><img src="${safeUrl}" alt="${safeName}" loading="lazy" width="540" height="540"><span class="studio-product-pedestal" aria-hidden="true"><span class="studio-product-pedestal-base"></span><span class="studio-product-pedestal-top"></span></span></span><strong>${safeName}</strong></a><div class="studio-product-price"><strong class="studio-product-current-price">${currencyAmount(currentPrice)}</strong>${previousPrice ? `<s class="studio-product-previous-price">${currencyAmount(previousPrice)}</s><span class="studio-product-discount">${discountPercent}% OFF</span>` : ''}</div></article>`;
   }
   cardLink.addEventListener('change', () => {
     const option = cardLink.selectedOptions[0];
@@ -482,9 +639,9 @@
       return;
     }
     const markup = customProductCardMarkup(
-      selectedCardImageUrl, name, currentPrice, previousPrice, destination
+      createCustomCardKey(), selectedCardImageUrl, name, currentPrice, previousPrice, destination
     );
-    html.value = html.value.replace(placeholder, `${placeholder}${markup}`);
+    html.value = ensureEditableMarkup(html.value.replace(placeholder, `${placeholder}${markup}`));
     html.dispatchEvent(new Event('input', {bubbles: true}));
     selectedCardImageUrl = '';
     cardImage.removeAttribute('src');

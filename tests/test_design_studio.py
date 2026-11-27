@@ -373,6 +373,25 @@ def test_lottie_json_is_bounded_and_rejects_external_assets():
         validate_design_payload({"name": "Large animation", "lottie_json": " " * 300_001})
 
 
+def test_visual_editor_metadata_survives_markup_sanitization():
+    markup = (
+        '<section data-studio-product-canvas data-template-key="deal-of-day">'
+        '<p data-studio-edit-id="e12" data-studio-edit-field="headline">Today only</p>'
+        '<article data-studio-card-key="c-uploaded-card">Product</article>'
+        '<article data-studio-card-key="p-12">Invalid custom key</article>'
+        '</section>'
+    )
+
+    sanitized = sanitize_design_html(markup)
+
+    assert 'data-studio-product-canvas=""' in sanitized
+    assert 'data-template-key="deal-of-day"' in sanitized
+    assert 'data-studio-edit-id="e12"' in sanitized
+    assert 'data-studio-edit-field="headline"' in sanitized
+    assert 'data-studio-card-key="c-uploaded-card"' in sanitized
+    assert 'data-studio-card-key="p-12"' not in sanitized
+
+
 def test_public_placements_obey_schedule_and_private_page_exclusions(app, client):
     with app.app_context():
         ensure_design_studio_schema()
