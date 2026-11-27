@@ -5485,24 +5485,28 @@ def test_checkout_requires_verified_account_and_links_order_to_it(client, app_co
 def test_branded_auth_email_renders_manual_copy_code_and_security_details(app_context):
     import app.services.customer_mail as customer_mail
 
-    html_body, text_body = customer_mail.render_branded_email(
-        "Your FityStores sign-in code",
-        ["Enter this code on FityStores to continue. Never share it with anyone."],
-        kind="verify_code",
-        security_code="048291",
-    )
+    for kind in ("verify_code", "login_code"):
+        html_body, text_body = customer_mail.render_branded_email(
+            "Your FityStores sign-in code",
+            ["Enter this code on FityStores to continue. Never share it with anyone."],
+            kind=kind,
+            security_code="048291",
+        )
 
-    assert html_body.count('class="email-code-digit"') == 6
-    for digit in "048291":
-        assert f">{digit}</td>" in html_body
-    assert "Select the code above to copy it manually" in html_body
-    assert "This code expires 10 minutes after it was requested." in html_body
-    assert "FityStores will never ask you to email or share this code." in html_body
-    assert '<svg xmlns="http://www.w3.org/2000/svg"' in html_body
-    assert "<script" not in html_body.lower()
-    assert "onclick=" not in html_body.lower()
-    assert "<button" not in html_body.lower()
-    assert "Your one-time code (select and copy manually):\n048291" in text_body
+        assert html_body.count('class="email-code-digit"') == 6
+        for digit in "048291":
+            assert f">{digit}</td>" in html_body
+        assert "Code Requested" in html_body
+        assert "Select code to copy" in html_body
+        assert "Select the six digits above and copy them using your email app." in html_body
+        assert 'bgcolor="#0876ad"' in html_body
+        assert "This code expires 10 minutes after it was requested." in html_body
+        assert "FityStores will never ask you to email or share this code." in html_body
+        assert '<svg xmlns="http://www.w3.org/2000/svg"' in html_body
+        assert "<script" not in html_body.lower()
+        assert "onclick=" not in html_body.lower()
+        assert "<button" not in html_body.lower()
+        assert "Your one-time code (select and copy manually):\n048291" in text_body
 
     for kind, expiry in (
         ("verify_email", "24 hours"),

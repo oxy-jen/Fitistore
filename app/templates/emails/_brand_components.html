@@ -44,8 +44,8 @@
 </table>
 {%- endmacro %}
 
-{% macro email_copy_icon() -%}
-<!--[if !mso]><!--><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b51c30" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><!--<![endif]--><!--[if mso]><span style="color:#b51c30;font-size:16px;font-weight:bold" aria-hidden="true">▢</span><![endif]-->
+{% macro email_copy_icon(color='#b51c30') -%}
+<!--[if !mso]><!--><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{ color }}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="14" height="14" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><!--<![endif]--><!--[if mso]><span style="color:{{ color }};font-size:16px;font-weight:bold" aria-hidden="true">▢</span><![endif]-->
 {%- endmacro %}
 
 {% macro email_code_card(code, expiration_notice='') -%}
@@ -56,7 +56,7 @@
         <td width="34" valign="middle" style="width:34px;padding-right:7px">
           <!--[if !mso]><!--><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#16834a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg><!--<![endif]--><!--[if mso]><span style="color:#16834a;font-size:24px;font-weight:bold">&#10003;</span><![endif]-->
         </td>
-        <td valign="middle" style="color:#344762;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;letter-spacing:.7px;text-transform:uppercase">Secure verification code</td>
+        <td valign="middle" style="color:#344762;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;letter-spacing:.7px;text-transform:uppercase">Code Requested</td>
       </tr>
     </table>
     <table role="presentation" align="center" cellspacing="0" cellpadding="0" border="0" style="margin:14px auto 0">
@@ -68,12 +68,13 @@
     </table>
     <table role="presentation" align="center" cellspacing="0" cellpadding="0" border="0" style="margin:12px auto 0">
       <tr>
-        <td valign="middle" style="padding:7px 10px;border:1px solid #d7dee8;background-color:#ffffff;color:#344762;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:12px;line-height:16px">
-          <span style="display:inline-block;padding-right:5px;vertical-align:middle">{{ email_copy_icon() }}</span>
-          <strong>Select the code above to copy it manually</strong>
+        <td align="center" valign="middle" bgcolor="#0876ad" style="padding:10px 18px;border:1px solid #0876ad;border-radius:5px;background-color:#0876ad;color:#ffffff;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:13px;line-height:18px">
+          <span style="display:inline-block;padding-right:6px;vertical-align:middle">{{ email_copy_icon("#ffffff") }}</span>
+          <strong>Select code to copy</strong>
         </td>
       </tr>
     </table>
+    <p style="margin:7px 0 0;color:#596579;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:11px;line-height:16px">Select the six digits above and copy them using your email app.</p>
     {% if expiration_notice %}<p style="margin:12px 0 0;color:#8a4b0d;font-family:'Manrope',Arial,Helvetica,sans-serif;font-size:12px;line-height:18px">{{ expiration_notice|e }}</p>{% endif %}
   </td></tr>
 </table>
