@@ -72,9 +72,12 @@ DEFAULT_OFFERS_TEMPLATE = {
 .studio-offers .offers-product-card h3{display:-webkit-box;overflow:hidden;margin:0;color:#fff;font-size:.97rem;font-weight:750;line-height:1.25;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 .studio-offers .offers-product-card h3 a{color:inherit;text-decoration:none}
 .studio-offers .offers-product-image{position:relative;display:grid;width:100%;min-height:140px;place-items:center}
-.studio-offers .offers-product-image-link{position:relative;z-index:1;display:grid;width:100%;height:100%;place-items:center}
+.studio-offers .offers-product-image-link{position:relative;z-index:2;display:grid;width:100%;height:100%;place-items:end center;padding-bottom:10px}
 .studio-offers .offers-product-image::before{position:absolute;width:min(78%,170px);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,rgba(102,62,163,.63) 0%,rgba(90,51,147,.3) 53%,transparent 76%);content:""}
-.studio-offers .offers-product-image img{position:relative;z-index:1;display:block;width:100%;height:154px;object-fit:contain}
+.studio-offers .offers-product-pedestal{position:absolute;z-index:1;right:10%;bottom:3px;left:10%;height:27px;pointer-events:none;filter:drop-shadow(0 7px 8px rgba(18,8,39,.32))}
+.studio-offers .offers-product-pedestal-base{position:absolute;top:8px;right:3%;bottom:0;left:3%;border-radius:0 0 48% 48%/0 0 34% 34%;background:linear-gradient(180deg,var(--ds-platform,#c8a9ff) 0%,#a879ec 58%,#8050c8 100%);box-shadow:inset 0 -2px 3px rgba(67,33,125,.32)}
+.studio-offers .offers-product-pedestal-top{position:absolute;z-index:1;top:0;right:0;left:0;height:13px;border:1px solid rgba(255,255,255,.92);border-radius:50%;background:linear-gradient(180deg,#fff 0%,#f5f0ff 62%,#ddd0f8 100%);box-shadow:inset 0 2px 2px rgba(255,255,255,.95),0 1px 2px rgba(31,16,54,.3)}
+.studio-offers .offers-product-image img{position:relative;z-index:3;display:block;width:100%;height:154px;object-fit:contain;filter:drop-shadow(0 5px 4px rgba(0,0,0,.2))}
 .studio-offers .home-quick-add-card{position:relative}
 .studio-offers .home-quick-add-card .home-card-quick-add{position:absolute;z-index:3;top:.55rem;right:.55rem;display:grid;width:44px;height:44px;place-items:center;margin:0;padding:0 0 .1rem;border:0;border-radius:50%;background:#252525;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.28);font-size:30px;font-weight:400;line-height:1;text-decoration:none}
 .studio-offers .offers-price-group{display:grid;justify-items:center;gap:.3rem}

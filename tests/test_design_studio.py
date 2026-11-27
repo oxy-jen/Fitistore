@@ -167,7 +167,11 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
     assert initial_preview.status_code == 200
     assert b"Discounted" in initial_preview.data
     assert b"Plain Socks" in initial_preview.data
+    assert b"offers-product-pedestal-base" in initial_preview.data
     assert b"%%FITYSTORES_OFFERS%%" not in initial_preview.data
+    homepage = client.get("/")
+    assert homepage.status_code == 200
+    assert b"offers-product-pedestal-base" in homepage.data
     with app.app_context():
         assert StorefrontDesign.query.count() == 0
 
@@ -193,6 +197,35 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
     assert b"Plain Socks" not in updated_preview.data
     with app.app_context():
         assert StorefrontDesign.query.count() == 0
+
+
+def test_product_grid_template_preview_includes_layered_product_pedestals(app, client):
+    with app.app_context():
+        ensure_design_studio_schema()
+        owner_id = AdminUser.query.filter_by(username="owner").one().id
+        product_id = Product.query.filter_by(slug="plain-socks").one().id
+    _sign_in(client, owner_id)
+
+    response = client.post("/admin/design-studio/preview", data={
+        "name": "Pedestal product grid",
+        "title": "Product picks",
+        "description": "",
+        "placement": "storefront_section",
+        "html": "<section>%%FITYSTORES_PRODUCTS%%</section>",
+        "css": ".studio-product-grid{display:grid}",
+        "javascript": "",
+        "lottie_json": "",
+        "product_ids": [str(product_id)],
+        "template_key": "product-grid",
+        "motion_preset": "none",
+        "motion_config": '{"duration":600}',
+        "starts_at": "",
+        "expires_at": "",
+    })
+
+    assert response.status_code == 200
+    assert b"studio-product-pedestal-base" in response.data
+    assert b"studio-product-pedestal-top" in response.data
 
 
 def test_design_code_validation_sanitizes_markup_and_rejects_unsafe_operations(app):

@@ -5,19 +5,31 @@
   const css = form.querySelector('[data-studio-css]');
   const templateKey = form.querySelector('[name="template_key"]');
   const defaultTemplate = JSON.parse(form.querySelector('[data-studio-default-template]').textContent);
+  const productGridStyles = `
+.studio-product-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:16px}
+.studio-product-card{padding:14px;border:1px solid #eadfe0;border-radius:16px;background:#fff;color:#252525}
+.studio-product-card a{display:grid;gap:10px;color:inherit;text-decoration:none}
+.studio-product-image{position:relative;display:grid;min-height:180px;place-items:center;overflow:hidden;border-radius:12px;background:radial-gradient(circle,rgba(113,77,164,.18),transparent 72%)}
+.studio-product-image img{position:relative;z-index:2;width:100%;height:160px;padding-bottom:12px;object-fit:contain;filter:drop-shadow(0 4px 4px rgba(0,0,0,.16))}
+.studio-product-pedestal{position:absolute;z-index:1;right:9%;bottom:10px;left:9%;height:28px;filter:drop-shadow(0 5px 6px rgba(35,21,55,.2))}
+.studio-product-pedestal-base{position:absolute;top:8px;right:3%;bottom:0;left:3%;border-radius:0 0 48% 48%/0 0 34% 34%;background:linear-gradient(180deg,#c8a9ff 0%,#a879ec 58%,#8050c8 100%)}
+.studio-product-pedestal-top{position:absolute;top:0;right:0;left:0;height:13px;border-radius:50%;background:linear-gradient(180deg,#fff 0%,#f5f0ff 62%,#ddd0f8 100%);box-shadow:inset 0 2px 2px rgba(255,255,255,.95),0 1px 2px rgba(31,16,54,.24)}
+.studio-product-card p{font-weight:700}
+.studio-product-card button{padding:10px 14px;border:0;border-radius:999px;background:#e52335;color:#fff}
+`;
   const templates = {
     offers: {html: defaultTemplate.html, css: defaultTemplate.css},
     editorial: {
-      html: '<section class="ds-promo"><p class="ds-kicker">FityStores finds</p><h2>Everyday essentials, better together</h2><p>Fresh picks for your everyday style.</p><a class="ds-cta" href="/shop">Explore the collection</a></section>',
-      css: '.ds-promo{padding:clamp(24px,6vw,64px);border-radius:24px;background:linear-gradient(120deg,#fff1f4,#f8e7d2);color:#252525}.ds-kicker{color:#e52335;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-promo h2{max-width:15ch;font-size:clamp(2rem,6vw,4rem);line-height:1.04}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}'
+      html: '<section class="ds-promo"><p class="ds-kicker">FityStores finds</p><h2>Everyday essentials, better together</h2><p>Fresh picks for your everyday style.</p><a class="ds-cta" href="/shop">Explore the collection</a>%%FITYSTORES_PRODUCTS%%</section>',
+      css: '.ds-promo{padding:clamp(24px,6vw,64px);border-radius:24px;background:linear-gradient(120deg,#fff1f4,#f8e7d2);color:#252525}.ds-kicker{color:#e52335;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-promo h2{max-width:15ch;font-size:clamp(2rem,6vw,4rem);line-height:1.04}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}' + productGridStyles
     },
     'product-grid': {
       html: '<section class="ds-products"><p class="ds-kicker">Shop the edit</p><h2>Everyday favourites</h2><p>Current picks, straight from the FityStores catalogue.</p>%%FITYSTORES_PRODUCTS%%</section>',
-      css: '.ds-products{padding:clamp(20px,4vw,48px);background:#fff8f4;border-radius:20px;color:#252525}.ds-products h2{font-size:clamp(1.7rem,4vw,3rem)}.studio-product-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:16px}.studio-product-card{padding:14px;border:1px solid #eadfe0;border-radius:16px;background:white}.studio-product-card img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:12px}.studio-product-card a{display:grid;gap:10px;color:inherit;text-decoration:none}.studio-product-card p{font-weight:700}.studio-product-card button{padding:10px 14px;border:0;border-radius:999px;background:#e52335;color:white}'
+      css: '.ds-products{padding:clamp(20px,4vw,48px);background:#fff8f4;border-radius:20px;color:#252525}.ds-products h2{font-size:clamp(1.7rem,4vw,3rem)}' + productGridStyles
     },
     seasonal: {
-      html: '<section class="ds-season"><div><p class="ds-kicker">Your next everyday favourite</p><h2>Small details. Big feel-good energy.</h2><p>Discover comfort-first finds picked for the season.</p><a class="ds-cta" href="/shop">Shop the edit</a></div><span class="ds-season-mark" aria-hidden="true">F</span></section>',
-      css: '.ds-season{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:clamp(24px,6vw,64px);border-radius:24px;background:#252525;color:white}.ds-season>div{max-width:620px}.ds-season h2{font-size:clamp(2rem,5vw,3.8rem);line-height:1.05}.ds-kicker{color:#ffb5bd;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}.ds-season-mark{font-size:clamp(5rem,15vw,12rem);color:#e52335;font-weight:900}'
+      html: '<section class="ds-season"><div><p class="ds-kicker">Your next everyday favourite</p><h2>Small details. Big feel-good energy.</h2><p>Discover comfort-first finds picked for the season.</p><a class="ds-cta" href="/shop">Shop the edit</a></div><span class="ds-season-mark" aria-hidden="true">F</span>%%FITYSTORES_PRODUCTS%%</section>',
+      css: '.ds-season{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:20px;padding:clamp(24px,6vw,64px);border-radius:24px;background:#252525;color:white}.ds-season>div{max-width:620px}.ds-season .studio-product-grid{grid-column:1/-1}.ds-season h2{font-size:clamp(2rem,5vw,3.8rem);line-height:1.05}.ds-kicker{color:#ffb5bd;text-transform:uppercase;letter-spacing:.12em;font-weight:700}.ds-cta{display:inline-block;padding:12px 20px;border-radius:999px;background:#e52335;color:white;text-decoration:none}.ds-season-mark{font-size:clamp(5rem,15vw,12rem);color:#e52335;font-weight:900}' + productGridStyles
     }
   };
   const campaignTemplates = {
@@ -107,9 +119,11 @@
 .ds-campaign .offers-product-card h3 a{color:inherit;text-decoration:none}
 .ds-campaign .offers-product-image{position:relative;display:grid;width:100%;min-height:118px;place-items:center}
 .ds-campaign .offers-product-image::before{position:absolute;z-index:0;top:7%;left:50%;width:min(82%,160px);aspect-ratio:1;transform:translateX(-50%);border-radius:50%;background:radial-gradient(circle,var(--ds-campaign-accent) 0%,rgba(255,255,255,.18) 57%,transparent 77%);content:""}
-.ds-campaign .offers-product-image::after{position:absolute;z-index:0;right:9%;bottom:3px;left:9%;height:17px;border-radius:50%/80%;background:linear-gradient(180deg,#fff 0%,var(--ds-campaign-platform) 100%);box-shadow:0 8px 15px rgba(0,0,0,.32);content:""}
-.ds-campaign .offers-product-image-link{position:relative;z-index:1;display:grid;width:100%;height:100%;place-items:center}
-.ds-campaign .offers-product-image img{position:relative;z-index:1;display:block;width:100%;height:clamp(118px,15vw,190px);object-fit:contain;filter:drop-shadow(0 5px 4px rgba(0,0,0,.24))}
+.ds-campaign .offers-product-pedestal{position:absolute;z-index:1;right:9%;bottom:3px;left:9%;height:27px;pointer-events:none;filter:drop-shadow(0 7px 8px rgba(18,8,39,.32))}
+.ds-campaign .offers-product-pedestal-base{position:absolute;top:8px;right:3%;bottom:0;left:3%;border-radius:0 0 48% 48%/0 0 34% 34%;background:linear-gradient(180deg,var(--ds-campaign-platform) 0%,#a879ec 58%,#8050c8 100%);box-shadow:inset 0 -2px 3px rgba(67,33,125,.32)}
+.ds-campaign .offers-product-pedestal-top{position:absolute;z-index:1;top:0;right:0;left:0;height:13px;border:1px solid rgba(255,255,255,.92);border-radius:50%;background:linear-gradient(180deg,#fff 0%,#f5f0ff 62%,#ddd0f8 100%);box-shadow:inset 0 2px 2px rgba(255,255,255,.95),0 1px 2px rgba(31,16,54,.3)}
+.ds-campaign .offers-product-image-link{position:relative;z-index:2;display:grid;width:100%;height:100%;place-items:end center;padding-bottom:10px}
+.ds-campaign .offers-product-image img{position:relative;z-index:3;display:block;width:100%;height:clamp(118px,15vw,190px);object-fit:contain;filter:drop-shadow(0 5px 4px rgba(0,0,0,.24))}
 .ds-campaign .home-quick-add-card .home-card-quick-add{position:absolute;z-index:3;top:38%;right:.1rem;display:grid;width:30px;height:30px;place-items:center;border:0;border-radius:50%;background:#fff;color:#21172b;box-shadow:0 2px 8px rgba(0,0,0,.22);font-size:21px;line-height:1;text-decoration:none}
 .ds-campaign .offers-price-group{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.14rem .34rem}
 .ds-campaign .offers-current-price{display:inline-flex;min-height:27px;align-items:center;justify-content:center;padding:.3rem .6rem;border-radius:999px;background:#fff;color:#17121e;font-size:clamp(.62rem,.95vw,.82rem);font-weight:900;line-height:1;text-decoration:none;white-space:nowrap}
