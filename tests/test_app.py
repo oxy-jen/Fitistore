@@ -2184,6 +2184,8 @@ def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
     admin_form = client.get(f"/admin/products/{product_id}/edit")
     assert admin_form.status_code == 200
     assert b"data-crop-preview" in admin_form.data
+    assert b"product-image-crop-card-preview is-normal" in admin_form.data
+    assert b"product-image-crop-card-preview is-shop" in admin_form.data
     assert b'data-crop-value="top"' in admin_form.data
     assert b'data-crop-value="right"' in admin_form.data
     assert b'data-crop-value="bottom"' in admin_form.data
