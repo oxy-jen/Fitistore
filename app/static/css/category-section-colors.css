@@ -208,15 +208,45 @@
   padding-bottom: .75rem;
 }
 
-.home-market > .featured-showcase .fresh-arrival-product-card > .product-image {
-  height: 124px;
-  max-height: 124px;
-}
-
 .home-market > .featured-showcase .fresh-arrival-product-card {
+  display: flex;
+  height: 300px;
+  flex-direction: column;
   border: 1px solid rgba(255, 255, 255, .82);
   border-radius: 8px;
   overflow: hidden;
+}
+
+.home-market > .featured-showcase .fresh-arrival-product-card > .product-image {
+  height: 60%;
+  max-height: none;
+  flex: 0 0 60%;
+}
+
+.home-market > .featured-showcase .fresh-arrival-product-card > .product-body {
+  min-height: 0;
+  flex: 1 1 40%;
+  gap: .1rem;
+  overflow: hidden;
+  padding: .32rem .5rem .4rem;
+}
+
+.home-market > .featured-showcase .fresh-arrival-product-card .product-body h3,
+.home-market > .featured-showcase .fresh-arrival-product-card .shop-card-description {
+  -webkit-line-clamp: 1;
+}
+
+.home-market > .featured-showcase .fresh-arrival-product-card .product-body h3 {
+  margin: 0;
+  font-size: .84rem;
+  line-height: 1.2;
+}
+
+.home-market > .featured-showcase .fresh-arrival-product-card .shop-card-description {
+  max-height: 1.25em;
+  margin: 0;
+  font-size: .72rem;
+  line-height: 1.25;
 }
 
 .home-market .home-quick-add-card {
@@ -393,9 +423,14 @@
     font-size: .76rem;
   }
 
+  .home-market > .featured-showcase .fresh-arrival-product-card {
+    height: 280px;
+  }
+
   .home-market > .featured-showcase .fresh-arrival-product-card > .product-image {
-    height: 108px;
-    max-height: 108px;
+    height: 60%;
+    max-height: none;
+    flex-basis: 60%;
   }
 
   .home-market > .top-added-showcase .most-added-product-card > .product-image {

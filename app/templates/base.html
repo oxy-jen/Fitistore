@@ -41,7 +41,7 @@
 {% if request.endpoint == 'public.shop' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/shop-page.css') }}?v=per-category-inline-sort-20261125">{% endif %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/media-showcases.css') }}?v=media-showcase-lazy-video-v3">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/pwa.css') }}?v=pwa-install-v1">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/category-section-colors.css') }}?v=home-quick-add-product-pedestal-20261127">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/category-section-colors.css') }}?v=featured-card-image-60-v1">
   {% if request.endpoint and request.endpoint.startswith('design_studio.') %}<link rel="stylesheet" href="{{ url_for('static', filename='css/design-studio.css') }}?v=20261127-live-catalogue-v3">{% endif %}
   {% if design_studio_designs and (design_studio_designs.storefront_banner or design_studio_designs.storefront_section) %}<link rel="stylesheet" href="{{ url_for('static', filename='css/design-studio-storefront.css') }}?v=20261126">{% endif %}
   {% if request.endpoint == 'admin.email_center' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/admin-email.css') }}?v=admin-email-responsive-20261119">{% endif %}
