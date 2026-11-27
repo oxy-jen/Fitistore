@@ -14,7 +14,10 @@
 .studio-product-pedestal{position:absolute;z-index:1;right:9%;bottom:10px;left:9%;height:28px;filter:drop-shadow(0 5px 6px rgba(35,21,55,.2))}
 .studio-product-pedestal-base{position:absolute;top:8px;right:3%;bottom:0;left:3%;border-radius:0 0 48% 48%/0 0 34% 34%;background:linear-gradient(180deg,#c8a9ff 0%,#a879ec 58%,#8050c8 100%)}
 .studio-product-pedestal-top{position:absolute;top:0;right:0;left:0;height:13px;border-radius:50%;background:linear-gradient(180deg,#fff 0%,#f5f0ff 62%,#ddd0f8 100%);box-shadow:inset 0 2px 2px rgba(255,255,255,.95),0 1px 2px rgba(31,16,54,.24)}
-.studio-product-card p{font-weight:700}
+.studio-product-price{display:flex;flex-wrap:wrap;align-items:center;gap:5px 8px}
+.studio-product-current-price{color:#252525;font-size:1rem;font-weight:850}
+.studio-product-previous-price{color:#777;font-size:.86rem}
+.studio-product-discount{padding:4px 8px;border-radius:999px;background:#fff0e8;color:#c5441a;font-size:.72rem;font-weight:850}
 .studio-product-card button{padding:10px 14px;border:0;border-radius:999px;background:#e52335;color:#fff}
 `;
   const templates = {
@@ -214,13 +217,118 @@
       schedulePreview();
     });
   });
-  const productSelect = form.querySelector('[data-studio-products]');
-  try {
-    const selectedIds = JSON.parse(productSelect.dataset.selectedProducts || '[]').map(String);
-    [...productSelect.options].forEach(option => { option.selected = selectedIds.includes(option.value); });
-  } catch {
-    [...productSelect.options].forEach(option => { option.selected = false; });
+  const productPicker = form.querySelector('[data-studio-product-picker]');
+  const selectedProducts = form.querySelector('[data-studio-selected-products]');
+  const productInputs = form.querySelector('[data-studio-product-inputs]');
+  const addProductButton = form.querySelector('[data-studio-add-product]');
+  const productStatus = form.querySelector('[data-studio-product-status]');
+  const selectedProductIds = new Set();
+  let unavailableSavedProductCount = 0;
+  let selectionLoadFailed = false;
+  function renderSelectedProducts(updatePreview = false) {
+    selectedProducts.replaceChildren();
+    productInputs.replaceChildren();
+    const selected = [...selectedProductIds]
+      .map(id => [...productPicker.options].find(option => option.value === id))
+      .filter(Boolean)
+      .slice(0, 30);
+    selectedProductIds.clear();
+    selected.forEach(option => {
+      const id = option.value;
+      selectedProductIds.add(id);
+      const card = document.createElement('article');
+      card.className = 'ds-selected-product';
+      const imageUrl = option.dataset.image || '';
+      if (imageUrl.startsWith('/static/') || imageUrl.startsWith('https://res.cloudinary.com/')) {
+        const image = document.createElement('img');
+        image.className = 'ds-selected-product-image';
+        image.src = imageUrl;
+        image.alt = '';
+        image.loading = 'lazy';
+        card.append(image);
+      } else {
+        const placeholder = document.createElement('span');
+        placeholder.className = 'ds-selected-product-image ds-selected-product-placeholder';
+        placeholder.setAttribute('aria-hidden', 'true');
+        placeholder.textContent = 'F';
+        card.append(placeholder);
+      }
+      const copy = document.createElement('div');
+      copy.className = 'ds-selected-product-copy';
+      const name = document.createElement('strong');
+      name.textContent = option.dataset.name || option.textContent.trim();
+      copy.append(name);
+      const prices = document.createElement('div');
+      prices.className = 'ds-selected-product-prices';
+      const currentPrice = document.createElement('span');
+      currentPrice.className = 'ds-selected-current-price';
+      currentPrice.textContent = option.dataset.currentPrice || 'See current price';
+      prices.append(currentPrice);
+      if (option.dataset.previousPrice) {
+        const previousPrice = document.createElement('s');
+        previousPrice.textContent = option.dataset.previousPrice;
+        prices.append(previousPrice);
+      }
+      if (option.dataset.discountPercent && Number(option.dataset.discountPercent) > 0) {
+        const discount = document.createElement('span');
+        discount.className = 'ds-product-discount-badge';
+        discount.textContent = `${option.dataset.discountPercent}% OFF`;
+        prices.append(discount);
+      }
+      copy.append(prices);
+      card.append(copy);
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.className = 'ds-selected-product-remove';
+      removeButton.dataset.removeProduct = id;
+      removeButton.setAttribute('aria-label', `Remove ${name.textContent} from this design`);
+      removeButton.title = 'Remove product';
+      removeButton.textContent = '×';
+      card.append(removeButton);
+      selectedProducts.append(card);
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'product_ids';
+      input.value = id;
+      productInputs.append(input);
+      option.disabled = true;
+    });
+    [...productPicker.options].slice(1).forEach(option => {
+      option.disabled = selectedProductIds.has(option.value);
+    });
+    productPicker.value = '';
+    addProductButton.disabled = selectedProductIds.size >= 30 || !productPicker.value;
+    productStatus.textContent = `${selectedProductIds.size} of 30 products selected.`
+      + (selectionLoadFailed ? ' Saved product choices could not be read; select them again.' : '')
+      + (unavailableSavedProductCount ? ` ${unavailableSavedProductCount} saved product(s) are no longer active.` : '');
+    if (updatePreview) schedulePreview();
   }
+  try {
+    const selectedIds = JSON.parse(form.querySelector('[data-studio-products]').dataset.selectedProducts || '[]');
+    if (!Array.isArray(selectedIds)) throw new Error('Invalid saved product list');
+    const activeProductIds = new Set([...productPicker.options].slice(1).map(option => option.value));
+    selectedIds.map(String).slice(0, 30).forEach(id => {
+      if (activeProductIds.has(id)) selectedProductIds.add(id);
+      else unavailableSavedProductCount += 1;
+    });
+  } catch {
+    selectionLoadFailed = true;
+  }
+  renderSelectedProducts();
+  productPicker.addEventListener('change', () => {
+    addProductButton.disabled = !productPicker.value || selectedProductIds.size >= 30;
+  });
+  addProductButton.addEventListener('click', () => {
+    if (!productPicker.value || selectedProductIds.size >= 30) return;
+    selectedProductIds.add(productPicker.value);
+    renderSelectedProducts(true);
+  });
+  selectedProducts.addEventListener('click', event => {
+    const button = event.target.closest('[data-remove-product]');
+    if (!button || !selectedProductIds.has(button.dataset.removeProduct)) return;
+    selectedProductIds.delete(button.dataset.removeProduct);
+    renderSelectedProducts(true);
+  });
   const motionDuration = form.querySelector('[data-motion-duration]');
   const motionConfig = form.querySelector('[data-motion-config]');
   try {
@@ -295,7 +403,7 @@
       }, 250);
     });
   }
-  form.querySelectorAll('[data-studio-html], [data-studio-css], [data-studio-js], [data-studio-lottie-json], [name="product_ids"], [name="motion_preset"]').forEach(field => {
+  form.querySelectorAll('[data-studio-html], [data-studio-css], [data-studio-js], [data-studio-lottie-json], [name="motion_preset"]').forEach(field => {
     field.addEventListener('input', schedulePreview);
     field.addEventListener('change', schedulePreview);
   });

@@ -9,11 +9,12 @@ from urllib.parse import urlsplit
 
 from flask import Blueprint, Response, abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
+from sqlalchemy.orm import selectinload
 
 from app.extensions import db
 from app.models import AdminUser, DesignStudioRole, Product, StorefrontDesign, StorefrontDesignAudit, StorefrontDesignRevision
 from app.services.design_studio import (
-    DEFAULT_OFFERS_TEMPLATE, ROLE_NAMES, audit, parse_lottie_animation, product_api_data, role_for,
+    DEFAULT_OFFERS_TEMPLATE, MAX_PRODUCTS, ROLE_NAMES, audit, parse_lottie_animation, product_api_data, role_for,
     save_revision, schema_ready, snapshot_design, validate_design_payload,
 )
 from app.services.product_discounts import current_discounted_products
@@ -66,9 +67,18 @@ def _apply_payload(design, payload, admin, *, new=False):
 
 def _editor_defaults():
     defaults = dict(DEFAULT_OFFERS_TEMPLATE)
-    defaults["product_ids"] = [product.id for product in current_discounted_products()]
+    defaults["product_ids"] = [
+        product.id for product in current_discounted_products(limit=MAX_PRODUCTS)
+    ]
     defaults["motion_config"] = json.dumps(defaults["motion_config"], separators=(",", ":"), sort_keys=True)
     return defaults
+
+
+def _active_catalogue_products():
+    return Product.query.filter_by(active=True).options(
+        selectinload(Product.images),
+        selectinload(Product.variants),
+    ).order_by(Product.name).all()
 
 
 def _payload_from_form(*, allow_empty_name=False):
@@ -116,10 +126,9 @@ def index():
 @login_required
 def new():
     _role_or_403(*EDIT_ROLES)
-    products = Product.query.filter_by(active=True).order_by(Product.name).all()
     return render_template(
         "admin/design_studio.html", unavailable=False, editor=True, design=None,
-        products=products, role=role_for(_current_admin_or_403()), designs=[],
+        products=_active_catalogue_products(), role=role_for(_current_admin_or_403()), designs=[],
         users=[], audit_events=[], revisions={}, default_template=_editor_defaults(),
     )
 
@@ -131,7 +140,7 @@ def edit(design_id):
     design = _design_or_404(design_id)
     return render_template(
         "admin/design_studio.html", unavailable=False, editor=True, design=design,
-        products=Product.query.filter_by(active=True).order_by(Product.name).all(),
+        products=_active_catalogue_products(),
         role=role_for(_current_admin_or_403()), designs=[], users=[],
         audit_events=[], revisions={}, default_template=_editor_defaults(),
     )

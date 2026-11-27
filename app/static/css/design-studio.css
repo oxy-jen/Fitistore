@@ -14,7 +14,22 @@
 .ds-panel p,.ds-panel small{color:#65656b}
 .ds-panel label{display:grid;gap:6px;margin:12px 0;font-weight:650}
 .ds-panel input:not([type=file]),.ds-panel select,.ds-panel textarea,.ds-import textarea{box-sizing:border-box;width:100%;padding:10px 12px;border:1px solid #d6d6dc;border-radius:10px;background:#fff;color:#252525;font:inherit}
-.ds-panel select[multiple]{min-height:150px}
+.ds-product-picker-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:9px}
+.ds-product-picker-row label{min-width:0;margin:12px 0}
+.ds-product-picker-row button{min-height:42px}
+.ds-selected-products{display:grid;gap:8px;margin:12px 0}
+.ds-selected-product{display:grid;grid-template-columns:52px minmax(0,1fr) 36px;align-items:center;gap:10px;min-width:0;padding:8px;border:1px solid #e8e2e8;border-radius:12px;background:#fff}
+.ds-selected-product-image{display:grid;width:52px;height:52px;place-items:center;object-fit:contain;border-radius:9px;background:#f4effa}
+.ds-selected-product-placeholder{color:#8e6ab8;font-size:1.2rem;font-weight:850}
+.ds-selected-product-copy{display:grid;min-width:0;gap:5px}
+.ds-selected-product-copy>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ds-selected-product-prices{display:flex;flex-wrap:wrap;align-items:center;gap:5px 8px;font-size:.82rem}
+.ds-selected-current-price{color:#252525;font-weight:800}
+.ds-selected-product-prices s{color:#777}
+.ds-product-discount-badge{padding:3px 7px;border-radius:999px;background:#fff0e8;color:#c5441a;font-size:.7rem;font-weight:850}
+.ds-selected-product-remove{display:grid;width:34px;height:34px;place-items:center;padding:0;border:1px solid #e5d7d7;border-radius:50%;background:#fff;color:#8f2f35;font-size:1.35rem;line-height:1;cursor:pointer}
+.ds-selected-product-remove:hover,.ds-selected-product-remove:focus-visible{border-color:#e52335;background:#fff3f4;outline:2px solid #f8c3ca}
+.ds-product-picker-status{margin:8px 0;color:#65656b;font-size:.82rem}
 .ds-panel textarea{resize:vertical;line-height:1.55}
 .ds-panel textarea[spellcheck=false]{font-family:Consolas,"Cascadia Code",monospace;font-size:.88rem}
 .ds-template-list{display:grid;gap:8px}

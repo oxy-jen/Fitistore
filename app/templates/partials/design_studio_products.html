@@ -1,6 +1,7 @@
 <div class="studio-product-grid">
 {% for product in products %}
   {% set image = product_display_image(product) %}
+  {% set discounted_variants = product.active_variants|selectattr('has_discount')|list %}
   <article class="studio-product-card">
     <a href="/product/{{ product.slug }}" aria-label="View {{ product.name }}">
       <span class="studio-product-image">
@@ -9,7 +10,23 @@
       </span>
       <strong>{{ product.name }}</strong>
     </a>
-    <p>{% if product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}See current price{% endif %}</p>
+    <div class="studio-product-price">
+      {% if discounted_variants %}
+        {% set sale_prices = discounted_variants|map(attribute='effective_price_cents')|list %}
+        {% set previous_prices = discounted_variants|map(attribute='previous_price_cents')|list %}
+        <strong class="studio-product-current-price">{% if sale_prices|min == sale_prices|max %}{{ money(sale_prices|min, settings.currency) }}{% else %}{{ money(sale_prices|min, settings.currency) }} – {{ money(sale_prices|max, settings.currency) }}{% endif %}</strong>
+        <s class="studio-product-previous-price">{% if previous_prices|min == previous_prices|max %}{{ money(previous_prices|min, settings.currency) }}{% else %}{{ money(previous_prices|min, settings.currency) }} – {{ money(previous_prices|max, settings.currency) }}{% endif %}</s>
+        <span class="studio-product-discount">{{ discounted_variants|map(attribute='discount_percent')|max }}% OFF</span>
+      {% elif product.has_discount and not product.active_variants %}
+        <strong class="studio-product-current-price">{{ money(product.price_cents, settings.currency) }}</strong>
+        <s class="studio-product-previous-price">{{ money(product.previous_price_cents, settings.currency) }}</s>
+        <span class="studio-product-discount">{{ ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) }}% OFF</span>
+      {% elif product.active_variants and product.min_variant_price_cents is not none %}
+        <strong class="studio-product-current-price">From {{ money(product.min_variant_price_cents, settings.currency) }}</strong>
+      {% else %}
+        <strong class="studio-product-current-price">{% if product.price_cents is not none %}{{ money(product.price_cents, settings.currency) }}{% else %}See current price{% endif %}</strong>
+      {% endif %}
+    </div>
     {% if product.active_variants %}<button type="button" data-studio-action="open-product" data-product-id="{{ product.id }}">Choose options</button>{% elif product.available_quantity > 0 %}<button type="button" data-studio-action="add-to-cart" data-product-id="{{ product.id }}">Add to cart</button>{% else %}<button type="button" disabled>Out of stock</button>{% endif %}
   </article>
 {% endfor %}

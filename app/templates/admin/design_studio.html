@@ -58,10 +58,46 @@
           <label class="ds-check-label"><input type="checkbox" data-template-cutouts checked> Cutout display for transparent product images</label>
           <small>Only images with real transparency appear as cutouts. Upload transparent PNG/WebP product images in the product catalog; this option keeps the image clear and adds a matching glow and pedestal.</small>
         </section>
-      <section class="ds-panel"><h3>Live catalogue</h3><p>Current discounted products are selected by default. Choose the products to display; names, images, current prices, sale prices, and links stay synchronized with the catalogue.</p>
-          <label>Link active products <select name="product_ids" multiple size="7" data-studio-products>{% for product in products %}<option value="{{ product.id }}">{{ product.name }}{% if product.price_cents is not none %} — {{ money(product.price_cents, settings.currency) }}{% endif %}</option>{% endfor %}</select></label>
-          <small>Select up to 30. The campaign templates display up to five products for Deal of the Day and three prominent products for the category layouts.</small>
-        </section>
+      <section class="ds-panel"><h3>Live catalogue</h3><p>Active sale products are selected by default. Prices, images, links, and discount labels stay synchronized with the catalogue.</p>
+        <div class="ds-product-picker" data-studio-products>
+          <div class="ds-product-picker-row">
+            <label>Add an active product
+              <select data-studio-product-picker>
+                <option value="">Choose a product to add</option>
+                {% for product in products %}
+                  {% set discounted_variants = product.active_variants|selectattr('has_discount')|list %}
+                  {% if discounted_variants %}
+                    {% set sale_prices = discounted_variants|map(attribute='effective_price_cents')|list %}
+                    {% set previous_prices = discounted_variants|map(attribute='previous_price_cents')|list %}
+                    {% set current_display = (money(sale_prices|min, settings.currency) if sale_prices|min == sale_prices|max else money(sale_prices|min, settings.currency) ~ ' – ' ~ money(sale_prices|max, settings.currency)) %}
+                    {% set previous_display = (money(previous_prices|min, settings.currency) if previous_prices|min == previous_prices|max else money(previous_prices|min, settings.currency) ~ ' – ' ~ money(previous_prices|max, settings.currency)) %}
+                    {% set discount_percent = discounted_variants|map(attribute='discount_percent')|max %}
+                  {% elif product.has_discount and not product.active_variants %}
+                    {% set current_display = money(product.price_cents, settings.currency) %}
+                    {% set previous_display = money(product.previous_price_cents, settings.currency) %}
+                    {% set discount_percent = ((product.previous_price_cents - product.price_cents) * 100 // product.previous_price_cents) %}
+                  {% elif product.active_variants and product.min_variant_price_cents is not none %}
+                    {% set current_display = 'From ' ~ money(product.min_variant_price_cents, settings.currency) %}
+                    {% set previous_display = '' %}
+                    {% set discount_percent = 0 %}
+                  {% else %}
+                    {% set current_display = money(product.price_cents, settings.currency) if product.price_cents is not none else 'See current price' %}
+                    {% set previous_display = '' %}
+                    {% set discount_percent = 0 %}
+                  {% endif %}
+                  {% set product_image = product_display_image(product) %}
+                  <option value="{{ product.id }}" data-name="{{ product.name }}" data-image="{{ product_image_url(product_image) if product_image else '' }}" data-current-price="{{ current_display }}" data-previous-price="{{ previous_display }}" data-discount-percent="{{ discount_percent }}">{{ product.name }} — {{ current_display }}{% if discount_percent %} · {{ discount_percent }}% OFF{% endif %}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button type="button" class="btn" data-studio-add-product>Add product</button>
+          </div>
+          <div class="ds-selected-products" data-studio-selected-products aria-live="polite"></div>
+          <div data-studio-product-inputs></div>
+          <p class="ds-product-picker-status" data-studio-product-status role="status" aria-live="polite"></p>
+        </div>
+        <small>Remove a product with × or add any active catalogue item. Select up to 30; sale prices and percentages use the higher original price and lower current price.</small>
+      </section>
       <section class="ds-panel"><h3>Motion Studio</h3><div class="ds-inline"><label>Preset <select name="motion_preset"><option value="none" {% if editor_defaults.motion_preset == 'none' %}selected{% endif %}>None</option><option value="fade" {% if editor_defaults.motion_preset == 'fade' %}selected{% endif %}>Fade in</option><option value="rise" {% if editor_defaults.motion_preset == 'rise' %}selected{% endif %}>Rise in</option><option value="scale" {% if editor_defaults.motion_preset == 'scale' %}selected{% endif %}>Soft scale</option></select></label><label>Duration <input type="number" min="100" max="3000" step="100" value="600" data-motion-duration><small>100–3000 ms</small></label></div><input type="hidden" name="motion_config" value="{{ editor_defaults.motion_config }}" data-motion-config>        <label>Self-contained Lottie JSON <input type="file" accept=".json,application/json" data-studio-lottie-upload></label><textarea name="lottie_json" rows="5" maxlength="300000" spellcheck="false" data-studio-lottie-json>{{ editor_defaults.lottie_json }}</textarea><small>Upload a vector animation or embedded-image Lottie file (up to 300 KB). Add <code>&lt;div data-studio-lottie aria-hidden="true"&gt;&lt;/div&gt;</code> where it should appear. External assets are blocked.</small><p>Built-in motion presets and Lottie respect reduced-motion preferences. Custom JavaScript runs in a separate worker with a hard execution timeout.</p></section>
         <section class="ds-panel"><h3>Asset Manager</h3><p>Use the shared Cloudinary/local media library; image, GIF, and video uploads follow existing media validation. Storefront frames allow local and Cloudinary-hosted media only.</p><input type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime" data-studio-upload><button type="button" class="btn" data-studio-upload-button>Upload asset</button><button type="button" class="btn" data-studio-load-library>Load existing assets</button><div class="ds-upload-result" data-studio-upload-result aria-live="polite"></div><div class="ds-asset-library" data-studio-library></div><p><a href="{{ url_for('admin.media_showcase_library') }}" target="_blank" rel="noopener">Open full media library</a></p></section>
       </div>

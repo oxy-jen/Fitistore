@@ -443,7 +443,8 @@ def validate_design_payload(data):
     javascript = data.get("javascript", "")
     if len(html) > MAX_HTML or len(css) > MAX_CSS or len(javascript) > MAX_JS:
         raise ValueError("Design code exceeds the editor size limits.")
-    if re.search(r"@import|expression\s*\(|-moz-binding|behavior\s*:|</\s*style", css, re.I):
+    safety_css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    if re.search(r"@import|expression\s*\(|-moz-binding|(?<![\w-])behavior\s*:|</\s*style", safety_css, re.I):
         raise ValueError("CSS imports and executable CSS are not allowed.")
     for raw_url in re.findall(r"url\(\s*(['\"]?)(.*?)\1\s*\)", css, re.I):
         if not _safe_url(raw_url[1], image=True):

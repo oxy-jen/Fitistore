@@ -7,7 +7,7 @@ from werkzeug.security import generate_password_hash
 
 from app import create_app
 from app.extensions import db
-from app.models import AdminUser, Category, CustomerAccount, DesignStudioRole, Product, ShopSettings, StorefrontDesign, StorefrontDesignAudit, StorefrontDesignRevision
+from app.models import AdminUser, Category, CustomerAccount, DesignStudioRole, Product, ProductVariant, ShopSettings, StorefrontDesign, StorefrontDesignAudit, StorefrontDesignRevision
 from app.services.design_studio import (
     DESIGN_TABLES, ensure_design_studio_schema, role_for, sanitize_design_html, save_revision, validate_design_payload,
 )
@@ -148,6 +148,14 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
         owner_id = AdminUser.query.filter_by(username="owner").one().id
         product = Product.query.filter_by(slug="plain-socks").one()
         product.previous_price_cents = 18000
+        db.session.add(ProductVariant(
+            product=product,
+            size="Regular",
+            price_cents=15000,
+            previous_price_cents=18000,
+            stock_quantity=4,
+            active=True,
+        ))
         db.session.commit()
         product_id = product.id
     _sign_in(client, owner_id)
@@ -155,6 +163,8 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
     editor = client.get("/admin/design-studio/new")
     assert editor.status_code == 200
     assert b'data-template="offers"' in editor.data
+    assert b'data-studio-product-picker' in editor.data
+    assert b'data-discount-percent="16"' in editor.data
     for template_key in (
         "deal-of-day", "black-friday-feature", "smartphones", "beauty", "home",
     ):
@@ -168,6 +178,8 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
     assert b"Discounted" in initial_preview.data
     assert b"Plain Socks" in initial_preview.data
     assert b"offers-product-pedestal-base" in initial_preview.data
+    assert b"16% off" in initial_preview.data
+    assert b"offers-original-price" in initial_preview.data
     assert b"%%FITYSTORES_OFFERS%%" not in initial_preview.data
     homepage = client.get("/")
     assert homepage.status_code == 200
@@ -181,7 +193,7 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
         "description": "",
         "placement": "storefront_section",
         "html": '<section><script>bad()</script><h2>Unsaved campaign</h2></section>',
-        "css": ".draft{color:#222}",
+        "css": ".draft{scroll-behavior:auto!important}",
         "javascript": "",
         "lottie_json": "",
         "product_ids": [str(product_id)],
@@ -193,6 +205,7 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
     })
     assert updated_preview.status_code == 200
     assert b"<h2>Unsaved campaign</h2>" in updated_preview.data
+    assert b"scroll-behavior:auto!important" in updated_preview.data
     assert b"bad()" not in updated_preview.data
     assert b"Plain Socks" not in updated_preview.data
     with app.app_context():
@@ -203,7 +216,10 @@ def test_product_grid_template_preview_includes_layered_product_pedestals(app, c
     with app.app_context():
         ensure_design_studio_schema()
         owner_id = AdminUser.query.filter_by(username="owner").one().id
-        product_id = Product.query.filter_by(slug="plain-socks").one().id
+        product = Product.query.filter_by(slug="plain-socks").one()
+        product.previous_price_cents = 18000
+        db.session.commit()
+        product_id = product.id
     _sign_in(client, owner_id)
 
     response = client.post("/admin/design-studio/preview", data={
@@ -226,6 +242,55 @@ def test_product_grid_template_preview_includes_layered_product_pedestals(app, c
     assert response.status_code == 200
     assert b"studio-product-pedestal-base" in response.data
     assert b"studio-product-pedestal-top" in response.data
+    assert b"studio-product-discount" in response.data
+    assert b"16% OFF" in response.data
+
+
+def test_editor_prefills_all_active_discounted_catalogue_products(app, client):
+    with app.app_context():
+        ensure_design_studio_schema()
+        owner_id = AdminUser.query.filter_by(username="owner").one().id
+        category = Product.query.filter_by(slug="plain-socks").one().category
+        products = [
+            Product(
+                name=f"Sale item {index}",
+                slug=f"sale-item-{index}",
+                category=category,
+                price_cents=1000,
+                previous_price_cents=2000,
+                stock_quantity=5,
+                active=True,
+            )
+            for index in range(10)
+        ]
+        variant_sale = Product(
+            name="Variant sale",
+            slug="variant-sale",
+            category=category,
+            price_cents=10000,
+            stock_quantity=5,
+            active=True,
+        )
+        variant_sale.variants.append(ProductVariant(
+            size="Small",
+            price_cents=8000,
+            previous_price_cents=10000,
+            stock_quantity=5,
+            active=True,
+        ))
+        products.append(variant_sale)
+        db.session.add_all(products)
+        db.session.commit()
+        product_ids = {product.id for product in products}
+    _sign_in(client, owner_id)
+
+    editor = client.get("/admin/design-studio/new")
+    assert editor.status_code == 200
+    selected_json = editor.data.split(b'dataset.selectedProducts="', 1)[1].split(b'"', 1)[0]
+    assert set(json.loads(selected_json.decode())) == product_ids
+    assert editor.data.count(b'data-discount-percent="50"') == 10
+    assert b'data-discount-percent="20"' in editor.data
+    assert b'data-current-price="KSh 80"' in editor.data
 
 
 def test_design_code_validation_sanitizes_markup_and_rejects_unsafe_operations(app):
@@ -244,6 +309,14 @@ def test_design_code_validation_sanitizes_markup_and_rejects_unsafe_operations(a
             validate_design_payload({"name": "Unsafe", "javascript": "fetch('/api')"})
         with pytest.raises(ValueError, match="Network APIs"):
             validate_design_payload({"name": "Unsafe", "javascript": "setTimeout(() => {}, 1)"})
+        with pytest.raises(ValueError, match="CSS imports and executable CSS"):
+            validate_design_payload({"name": "Unsafe CSS", "css": ".legacy{behavior:url(#default#VML)}"})
+        with pytest.raises(ValueError, match="CSS imports and executable CSS"):
+            validate_design_payload({"name": "Obfuscated CSS", "css": ".legacy{behavior/**/:url(#default#VML)}"})
+        assert "scroll-behavior:auto!important" in validate_design_payload({
+            "name": "Accessible motion",
+            "css": ".campaign *{scroll-behavior:auto!important}",
+        })["css"]
         assert validate_design_payload({"name": "Worker loop", "javascript": "while (true) {}"})["javascript"] == "while (true) {}"
         assert sanitize_design_html('<iframe src="https://evil.test"></iframe><p>ok</p>') == "<p>ok</p>"
 
