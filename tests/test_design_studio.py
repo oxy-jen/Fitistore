@@ -469,12 +469,17 @@ def test_sandbox_headers_and_live_product_api_validation(app, client):
     assert client.post("/api/design-studio/validate-product", json={"product_id": 999999, "quantity": 1}).status_code == 404
 
 
-def test_published_lottie_uses_the_local_player_and_self_contained_data(app, client):
+def test_published_lottie_uses_the_local_player_and_self_contained_data(app, client, tmp_path):
     animation = {
         "v": "5.12.2", "fr": 30, "ip": 0, "op": 60,
         "w": 320, "h": 180, "layers": [{"ty": 4, "ind": 1, "shapes": []}],
     }
     with app.app_context():
+        app.config["UPLOAD_FOLDER"] = str(tmp_path)
+        (tmp_path / "sample-ankle-socks.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#eee"/></svg>',
+            encoding="utf-8",
+        )
         ensure_design_studio_schema()
         product = Product.query.filter_by(slug="plain-socks").one()
         product.images.append(ProductImage(
