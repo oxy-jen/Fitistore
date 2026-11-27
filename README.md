@@ -171,6 +171,36 @@ ALTER TABLE product_image
 
 Do not run `init-db` against production PostgreSQL. It is reserved for local SQLite setup.
 
+### Customer support chat
+
+The storefront support launcher stores guest access in an HTTP-only browser
+cookie and links conversations to customer accounts when signed in.
+Staff use the admin-only inbox at `/admin/support/`; replies and conversation
+history are persisted in the application database. The first customer message
+gets a personalized FityStores handoff reply and queues an alert to
+`orders@fitystore.top` by default (`SUPPORT_EMAIL` can override it). The alert
+links directly to that chat using `PUBLIC_BASE_URL`. When mail delivery is
+configured and the sender is verified, the outbox attempts immediate delivery;
+otherwise it keeps the notification queued for the transactional workflow.
+Configure the `PUBLIC_BASE_URL` and mail settings for the intended environment.
+
+The support tables are additive and are not created automatically at web-server
+startup. Back up the production database, deploy the code, then run this command
+once from the application directory:
+
+```bash
+python -m flask --app manage:app migrate-support-chat-schema \
+  --confirmation "APPLY SUPPORT CHAT MIGRATION" \
+  --backup-confirmation "I HAVE A VERIFIED RESTORABLE BACKUP"
+```
+
+The migration rejects Render SQLite databases and requires the configured
+PostgreSQL database. The live Render start command must use one Gunicorn `gthread` worker with a
+bounded thread pool for Socket.IO WebSockets. Inbox and message history fall
+back to database-backed polling if WebSockets are unavailable; live typing and
+presence updates require WebSockets. Confirm the current Render command and
+worker count before enabling the live chat.
+
 To migrate legacy local image files that are still present on the machine running the command, run this explicit one-off command after the schema migration:
 
 ```bash

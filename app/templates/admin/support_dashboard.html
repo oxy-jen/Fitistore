@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-head admin-support-heading">
+  <div>
+    <p class="eyebrow">Customer care</p>
+    <h1>Support inbox</h1>
+    <p>Claim a waiting conversation to reply. Presence is based on this dashboard’s live heartbeat.</p>
+  </div>
+  <label class="support-agent-status">
+    Your availability
+    <select data-support-agent-status aria-label="Set your support availability">
+      <option value="available">Available</option>
+      <option value="busy">Busy</option>
+      <option value="away" selected>Away</option>
+    </select>
+  </label>
+</section>
+<p class="fity-support-error support-admin-notice" data-support-admin-notice role="status" hidden></p>
+<div class="support-admin-layout" data-support-admin data-support-admin-name="{{ current_user.username }}">
+  <aside class="support-admin-list" aria-label="Open conversations">
+    <div class="support-admin-list-heading"><h2>Open chats</h2><button class="btn" type="button" data-support-admin-refresh>Refresh</button></div>
+    <div data-support-admin-conversations aria-live="polite"></div>
+  </aside>
+  <section class="support-admin-conversation" aria-label="Selected conversation" aria-live="polite">
+    <div class="support-admin-empty" data-support-admin-empty>
+      <svg aria-hidden="true"><use href="#icon-headset"></use></svg>
+      <h2>Select a conversation</h2>
+      <p>Waiting chats will appear here as soon as they are saved.</p>
+    </div>
+    <div class="support-admin-active" data-support-admin-active hidden>
+      <header class="support-admin-chat-header">
+        <div><p class="eyebrow" data-support-admin-topic></p><h2 data-support-admin-title>Customer conversation</h2><small data-support-admin-status></small></div>
+        <div class="support-admin-actions">
+          <button class="btn primary" type="button" data-support-admin-claim hidden>Claim chat</button>
+          <button class="btn" type="button" data-support-admin-close hidden>Close chat</button>
+        </div>
+      </header>
+      <div class="support-admin-messages" data-support-admin-messages aria-live="polite" aria-relevant="additions"></div>
+      <p class="fity-support-typing" data-support-admin-typing hidden>Customer is typing…</p>
+      <form class="support-admin-compose" data-support-admin-compose hidden>
+        <label class="visually-hidden" for="support-admin-message">Write a reply</label>
+        <textarea id="support-admin-message" maxlength="2000" rows="2" placeholder="Write a reply…" required></textarea>
+        <button class="btn primary" type="submit">Send reply</button>
+      </form>
+    </div>
+  </section>
+</div>
+{% endblock %}

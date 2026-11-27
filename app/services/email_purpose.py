@@ -13,7 +13,7 @@ TRANSACTIONAL_EMAIL_KINDS = frozenset({
     "order_received", "order_update", "payment_confirmed", "payment_failed",
     "order_status", "order_processing", "ready_for_collection", "order_dispatched",
     "order_cancellation", "order_completed", "refund_confirmation",
-    "restock_notification", "review_request", "marketing_confirm",
+    "restock_notification", "review_request", "marketing_confirm", "support_request",
     # Email Studio only emits these for unchanged, code-defined order notices.
     "studio_order_confirmation", "studio_thank_you", "studio_order_status",
 })
@@ -33,7 +33,7 @@ ORDER_LIFECYCLE_EMAIL_KINDS = frozenset({
 TRANSACTIONAL_QUEUE_EMAIL_KINDS = (
     ACCOUNT_SECURITY_EMAIL_KINDS
     | ORDER_LIFECYCLE_EMAIL_KINDS
-    | frozenset({"restock_notification", "review_request", "marketing_confirm"})
+    | frozenset({"restock_notification", "review_request", "marketing_confirm", "support_request"})
 )
 
 if not TRANSACTIONAL_QUEUE_EMAIL_KINDS <= TRANSACTIONAL_EMAIL_KINDS:

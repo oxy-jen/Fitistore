@@ -56,6 +56,7 @@ class Config:
     MAIL_USE_SSL = os.environ.get("MAIL_USE_SSL", "0").lower() in {"1", "true", "yes"}
     MAIL_FROM_VERIFIED = os.environ.get("MAIL_FROM_VERIFIED", "0").lower() in {"1", "true", "yes"}
     MAIL_TEST_ADDRESS = os.environ.get("MAIL_TEST_ADDRESS", "")
+    SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "orders@fitystore.top").strip() or "orders@fitystore.top"
     EMAIL_MARKETING_QUEUE_ENABLED = os.environ.get("EMAIL_MARKETING_QUEUE_ENABLED", "false").strip().lower() == "true"
     EMAIL_MARKETING_PREPARATION_ENABLED = os.environ.get("EMAIL_MARKETING_PREPARATION_ENABLED", "false").strip().lower() == "true"
     EMAIL_MARKETING_AUTO_SCHEDULE_GENERATED_ENABLED = os.environ.get("EMAIL_MARKETING_AUTO_SCHEDULE_GENERATED_ENABLED", "false").strip().lower() == "true"

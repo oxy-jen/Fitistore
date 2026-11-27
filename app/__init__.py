@@ -10,7 +10,7 @@ from flask import Flask
 from werkzeug.security import generate_password_hash
 
 from config import Config
-from .extensions import db, login_manager, csrf
+from .extensions import db, login_manager, csrf, socketio
 from .models import AdminUser, CartAddCount, Category, CategoryThumbnail, CustomerProfile, MediaShowcase, MambaCollection, MambaCollectionItem, Order, OrderItem, Product, ProductDisplayNote, ProductImage, ReferralClick, ShopSettings, UpcomingProduct
 from .services.product_images import ImageStorageError, legacy_local_image_path, upload_image_bytes
 
@@ -153,16 +153,21 @@ def create_app(config_object=Config, *, initialize_media_showcases=False):
     db.init_app(app)
     login_manager.init_app(app)
     csrf.init_app(app)
+    socketio.init_app(app, async_mode="threading")
 
     from .public.routes import public_bp
     from .admin.routes import admin_bp
     from .admin.design_studio import design_public_bp, design_studio_bp
     from .customer.routes import customer_bp
+    from .support.routes import support_admin_bp, support_bp
+    from .support import socket_events as _support_socket_events
     app.register_blueprint(customer_bp)
     app.register_blueprint(public_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(design_studio_bp, url_prefix="/admin/design-studio")
     app.register_blueprint(design_public_bp)
+    app.register_blueprint(support_bp)
+    app.register_blueprint(support_admin_bp)
 
     register_cli(app)
     register_errors(app)
@@ -485,6 +490,105 @@ def register_cli(app: Flask):
                 f"Design Studio schema migration failed: {exc}. No existing showcase tables were changed."
             ) from None
         click.echo("Design Studio schema is ready. Existing designs and roles were preserved.")
+
+    @app.cli.command("migrate-support-chat-schema")
+    @click.option("--confirmation", default="", help="Type APPLY SUPPORT CHAT MIGRATION.")
+    @click.option("--backup-confirmation", default="", help="Type I HAVE A VERIFIED RESTORABLE BACKUP.")
+    def migrate_support_chat_schema(confirmation, backup_confirmation):
+        """Create the additive support chat tables after explicit confirmation."""
+        from sqlalchemy import inspect, text
+        from sqlalchemy.exc import SQLAlchemyError
+        from .models import SupportAgentPresence, SupportConversation, SupportMessage
+
+        if (confirmation != "APPLY SUPPORT CHAT MIGRATION"
+                or backup_confirmation != "I HAVE A VERIFIED RESTORABLE BACKUP"):
+            raise click.ClickException(
+                "Exact migration and verified-backup confirmations are required; no schema changes were made."
+            )
+        dialect = database_dialect_name()
+        if dialect not in {"sqlite", "postgresql", "postgres"}:
+            raise click.ClickException(
+                f"Unsupported database dialect for support chat migration: {dialect}."
+            )
+        if os.environ.get("RENDER", "").lower() == "true" and dialect not in {"postgresql", "postgres"}:
+            raise click.ClickException(
+                "Render support chat migration requires the configured PostgreSQL DATABASE_URL; "
+                "no schema changes were made."
+            )
+
+        required_base_tables = {"admin_user", "customer_account"}
+        required_columns = {
+            "support_conversation": {
+                "id", "public_id", "account_id", "guest_token_hash", "topic", "status",
+                "assigned_admin_id", "notification_status", "created_at", "updated_at",
+                "last_message_at",
+            },
+            "support_message": {
+                "id", "conversation_id", "sender_type", "sender_account_id",
+                "sender_admin_id", "sender_name", "client_message_id", "body", "created_at",
+            },
+            "support_agent_presence": {"admin_id", "status", "heartbeat_at"},
+        }
+        try:
+            with db.engine.begin() as connection:
+                existing = set(inspect(connection).get_table_names())
+                missing = required_base_tables - existing
+                if missing:
+                    raise click.ClickException(
+                        "Base account/admin table(s) are missing: " + ", ".join(sorted(missing))
+                    )
+                if dialect in {"postgresql", "postgres"}:
+                    locked = connection.execute(
+                        text("SELECT pg_try_advisory_xact_lock(724930120)")
+                    ).scalar_one()
+                    if not locked:
+                        raise click.ClickException(
+                            "Another support chat migration is running; no schema changes were made."
+                        )
+                    migration_path = (
+                        Path(__file__).resolve().parent.parent
+                        / "migrations"
+                        / "20261127_support_chat_postgresql.sql"
+                    )
+                    statements = [
+                        statement.strip()
+                        for statement in migration_path.read_text(encoding="utf-8").split(";")
+                        if statement.strip()
+                    ]
+                    for statement in statements:
+                        connection.execute(text(statement))
+                else:
+                    for model in (
+                        SupportConversation,
+                        SupportMessage,
+                        SupportAgentPresence,
+                    ):
+                        model.__table__.create(bind=connection, checkfirst=True)
+
+                inspector = inspect(connection)
+                table_names = set(inspector.get_table_names())
+                incomplete = []
+                for table_name, expected in required_columns.items():
+                    if table_name not in table_names:
+                        incomplete.append(table_name + " (table missing)")
+                        continue
+                    actual = {column["name"] for column in inspector.get_columns(table_name)}
+                    absent = expected - actual
+                    if absent:
+                        incomplete.append(table_name + " (missing " + ", ".join(sorted(absent)) + ")")
+                if incomplete:
+                    raise click.ClickException(
+                        "Support chat schema is incomplete: " + "; ".join(incomplete)
+                    )
+        except click.ClickException:
+            raise
+        except (SQLAlchemyError, OSError) as exc:
+            app.logger.exception("Support chat schema migration failed.")
+            raise click.ClickException(
+                f"Support chat migration failed ({type(exc).__name__}); "
+                "the schema transaction was rolled back where supported."
+            ) from None
+        click.echo("Support chat schema is ready. Existing customer and order records were not changed.")
 
 
     @app.cli.command("run-marketing-automation")

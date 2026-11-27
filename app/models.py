@@ -874,6 +874,126 @@ class AuthRateLimit(db.Model):
     attempts = db.Column(db.Integer, default=0, nullable=False)
 
 
+class SupportConversation(TimestampMixin, db.Model):
+    __tablename__ = "support_conversation"
+    id = db.Column(db.Integer, primary_key=True)
+    public_id = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    account_id = db.Column(
+        db.Integer, db.ForeignKey("customer_account.id", ondelete="CASCADE"), index=True
+    )
+    guest_token_hash = db.Column(db.String(64), index=True)
+    topic = db.Column(db.String(24), nullable=False, default="general")
+    status = db.Column(db.String(20), nullable=False, default="waiting", index=True)
+    assigned_admin_id = db.Column(
+        db.Integer, db.ForeignKey("admin_user.id", ondelete="SET NULL"), index=True
+    )
+    notification_status = db.Column(
+        db.String(20), nullable=False, default="not_configured"
+    )
+    last_message_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    account = db.relationship("CustomerAccount")
+    assigned_admin = db.relationship("AdminUser")
+    messages = db.relationship(
+        "SupportMessage",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="SupportMessage.id",
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "account_id IS NOT NULL OR guest_token_hash IS NOT NULL",
+            name="ck_support_conversation_has_owner",
+        ),
+        CheckConstraint(
+            "topic IN ('general', 'orders', 'payments', 'delivery', 'returns', 'products')",
+            name="ck_support_conversation_topic",
+        ),
+        CheckConstraint(
+            "status IN ('waiting', 'assigned', 'closed')",
+            name="ck_support_conversation_status",
+        ),
+        CheckConstraint(
+            "notification_status IN ('not_configured', 'queued', 'failed')",
+            name="ck_support_conversation_notification_status",
+        ),
+        Index("ix_support_conversation_queue", "status", "created_at"),
+        Index("ix_support_conversation_account_status", "account_id", "status"),
+        Index(
+            "uq_support_open_conversation_account",
+            "account_id",
+            unique=True,
+            postgresql_where=text("account_id IS NOT NULL AND status <> 'closed'"),
+            sqlite_where=text("account_id IS NOT NULL AND status <> 'closed'"),
+        ),
+        Index(
+            "uq_support_open_conversation_guest",
+            "guest_token_hash",
+            unique=True,
+            postgresql_where=text("guest_token_hash IS NOT NULL AND status <> 'closed'"),
+            sqlite_where=text("guest_token_hash IS NOT NULL AND status <> 'closed'"),
+        ),
+    )
+
+
+class SupportMessage(db.Model):
+    __tablename__ = "support_message"
+    id = db.Column(db.Integer, primary_key=True)
+    conversation_id = db.Column(
+        db.Integer,
+        db.ForeignKey("support_conversation.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sender_type = db.Column(db.String(12), nullable=False)
+    sender_account_id = db.Column(
+        db.Integer, db.ForeignKey("customer_account.id", ondelete="SET NULL")
+    )
+    sender_admin_id = db.Column(
+        db.Integer, db.ForeignKey("admin_user.id", ondelete="SET NULL")
+    )
+    sender_name = db.Column(db.String(100), nullable=False)
+    client_message_id = db.Column(db.String(36), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    conversation = db.relationship("SupportConversation", back_populates="messages")
+    sender_account = db.relationship("CustomerAccount")
+    sender_admin = db.relationship("AdminUser")
+    __table_args__ = (
+        CheckConstraint(
+            "sender_type IN ('customer', 'agent')",
+            name="ck_support_message_sender_type",
+        ),
+        CheckConstraint(
+            "length(trim(body)) BETWEEN 1 AND 2000",
+            name="ck_support_message_body_length",
+        ),
+        UniqueConstraint(
+            "conversation_id",
+            "client_message_id",
+            name="uq_support_message_client_id",
+        ),
+        Index("ix_support_message_conversation_id", "conversation_id", "id"),
+    )
+
+
+class SupportAgentPresence(db.Model):
+    __tablename__ = "support_agent_presence"
+    admin_id = db.Column(
+        db.Integer,
+        db.ForeignKey("admin_user.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    status = db.Column(db.String(16), nullable=False, default="away")
+    heartbeat_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    admin = db.relationship("AdminUser")
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('available', 'busy', 'away')",
+            name="ck_support_agent_presence_status",
+        ),
+        Index("ix_support_agent_presence_heartbeat", "heartbeat_at"),
+    )
+
+
 class EmailMessage(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     recipient = db.Column(db.String(254), nullable=False, index=True)
