@@ -152,10 +152,10 @@
         <section class="ds-panel ds-preview-panel"><div class="ds-panel-title"><h3>Responsive preview</h3><select data-preview-size aria-label="Preview width"><option value="100%">Desktop</option><option value="768px">Tablet</option><option value="390px">Mobile</option></select></div>
         <div class="ds-preview-edit-tools">
           <label>Card movement <select data-studio-card-mode aria-label="Product card movement"><option value="reorder">Reorder in rail</option><option value="free">Free position in product area</option></select></label>
-          <label>Product parts <select data-studio-parts-card aria-label="Choose a product card for grouping" disabled><option value="">Choose a product card</option></select></label>
+          <label>Product parts <select data-studio-parts-card aria-label="Choose a product card for grouping"><option value="">Choose a product card</option></select></label>
           <button type="button" class="btn" data-studio-parts-toggle disabled>Separate image and pedestal</button>
-          <small data-studio-parts-status role="status" aria-live="polite">Choose a product card to separate its image and rounded pedestal. Merge them again, then choose Free position in product area to move the whole card.</small>
-          <small>Click text in the preview to edit it. Drag a card to reorder it or position it. Section height stays fixed.</small>
+          <small data-studio-parts-status role="status" aria-live="polite">Click a product card in the preview or choose it here, then separate its image and rounded pedestal. Merge them again before moving the whole card. Section height stays fixed.</small>
+          <small>Click a card to select it; drag a card to reorder or position it. Click text in the preview to edit it.</small>
         </div>
         <iframe title="Isolated design preview" name="studioPreviewFrame" sandbox="allow-scripts" src="{{ url_for('design_studio.preview_frame', design_id=design.id) if design else url_for('design_studio.preview') }}" data-studio-preview></iframe>
         <p class="ds-preview-status" data-studio-preview-status role="status" aria-live="polite">Live preview updates automatically. Save only when you are ready.</p>

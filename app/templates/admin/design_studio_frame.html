@@ -23,6 +23,7 @@
     .studio-editor-active [data-studio-edit-id]{cursor:text}
     .studio-editor-active [data-studio-edit-id]:hover,.studio-editor-active [data-studio-edit-id][contenteditable="plaintext-only"]{outline:2px dashed #e52335;outline-offset:3px}
     .studio-editor-active [data-studio-card-key]{cursor:grab;touch-action:none}
+    .studio-editor-active [data-studio-card-key].studio-card-selected{outline:2px solid #e52335;outline-offset:3px}
     .studio-editor-active .studio-card-dragging{z-index:20;opacity:.76;cursor:grabbing;transition:none}
     .studio-editor-active .studio-card-parts-separated [data-studio-card-part]{outline:1px dashed rgba(229,35,53,.55);cursor:move;touch-action:none}
     .studio-editor-active .studio-card-parts-separated [data-studio-card-part]:hover{outline:2px solid #e52335;outline-offset:2px}
@@ -129,7 +130,13 @@
       if (drag.target.hasPointerCapture(event.pointerId)) drag.target.releasePointerCapture(event.pointerId);
       drag.target.classList.remove('studio-card-dragging');
       drag.target.style.translate = '';
-      if (!drag.moved) return;
+      if (!drag.moved) {
+        parent.postMessage({
+          type: 'fity-studio', action: 'card-selected',
+          key: drag.card.dataset.studioCardKey
+        }, '*');
+        return;
+      }
       if (drag.mode === 'part' && drag.width > 0 && drag.height > 0) {
         const deltaX = event.clientX - drag.startX;
         const deltaY = event.clientY - drag.startY;
@@ -451,6 +458,12 @@
         document.body.classList.add('studio-editor-active');
         document.documentElement.classList.toggle('studio-card-free-position-mode', cardMovementMode === 'free');
         syncCardPartModes();
+      } else if (event.data.action === 'select-card') {
+        const key = String(event.data.key || '');
+        if (key && !/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key)) return;
+        document.querySelectorAll('.studio-content [data-studio-card-key]').forEach(card => {
+          card.classList.toggle('studio-card-selected', Boolean(key) && card.dataset.studioCardKey === key);
+        });
       }
     });
     new ResizeObserver(reportHeight).observe(document.querySelector('.studio-content'));

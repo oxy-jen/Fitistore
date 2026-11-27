@@ -170,6 +170,8 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
     assert b'data-studio-lottie-target' in editor.data
     assert b'catalogue product below to add it to this design' in editor.data
     assert b'data-studio-parts-card' in editor.data
+    assert b'data-studio-parts-card aria-label="Choose a product card for grouping">' in editor.data
+    assert b'Click a product card in the preview' in editor.data
     assert b'Separate image and pedestal' in editor.data
     assert b'data-discount-percent="16"' in editor.data
     for template_key in (
@@ -185,6 +187,8 @@ def test_new_design_uses_live_offers_and_previews_unsaved_edits(app, client):
     assert b"Discounted" in initial_preview.data
     assert b"Plain Socks" in initial_preview.data
     assert b"offers-product-pedestal-base" in initial_preview.data
+    assert b"action: 'card-selected'" in initial_preview.data
+    assert b"action === 'select-card'" in initial_preview.data
     assert b"16% off" in initial_preview.data
     assert b"offers-original-price" in initial_preview.data
     assert b"%%FITYSTORES_OFFERS%%" not in initial_preview.data

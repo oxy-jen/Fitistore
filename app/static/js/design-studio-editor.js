@@ -372,13 +372,13 @@
     });
     return choices;
   }
-  function syncCardPartsOptions() {
-    const selectedKey = partsCardSelect.value;
+  function syncCardPartsOptions(selectedKey = partsCardSelect.value) {
     const choices = studioCardChoices();
     partsCardSelect.replaceChildren(new Option('Choose a product card', ''));
     choices.forEach((name, key) => {
       partsCardSelect.append(new Option(name.slice(0, 120), key));
     });
+    partsCardSelect.disabled = choices.size === 0;
     if (choices.has(selectedKey)) partsCardSelect.value = selectedKey;
     partsToggle.disabled = !partsCardSelect.value;
     if (!partsCardSelect.value) {
@@ -391,7 +391,17 @@
       ? 'Drag the image or rounded pedestal independently in the preview. Merge them, then choose Free position in product area to move the whole card.'
       : 'The image and rounded pedestal move together. Separate them to adjust their alignment.';
   }
-  partsCardSelect.addEventListener('change', syncCardPartsOptions);
+  function selectStudioCard(key) {
+    if (key && !/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key)) return;
+    syncCardPartsOptions(key);
+    if (key && partsCardSelect.value !== key) return;
+    preview.contentWindow?.postMessage({
+      type: 'fity-studio-command',
+      action: 'select-card',
+      key
+    }, '*');
+  }
+  partsCardSelect.addEventListener('change', () => selectStudioCard(partsCardSelect.value));
   partsToggle.addEventListener('click', () => {
     const key = partsCardSelect.value;
     if (!/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(key)) return;
@@ -648,6 +658,14 @@
       action: 'enable-visual-editor',
       cardMode: cardMode.value
     }, '*');
+    const selectedKey = partsCardSelect.value;
+    if (/^(?:p-\d+|c-[a-z0-9-]{1,70})$/.test(selectedKey)) {
+      preview.contentWindow.postMessage({
+        type: 'fity-studio-command',
+        action: 'select-card',
+        key: selectedKey
+      }, '*');
+    }
   }
   cardMode.addEventListener('change', setPreviewEditorMode);
   window.addEventListener('message', event => {
@@ -664,6 +682,10 @@
     if (data.action === 'resize') {
       const height = Number(event.data.height);
       if (Number.isFinite(height)) preview.style.height = `${Math.max(80, Math.min(1200, Math.round(height)))}px`;
+      return;
+    }
+    if (data.action === 'card-selected') {
+      selectStudioCard(String(data.key || ''));
       return;
     }
     if (data.action === 'text-edit') {

@@ -57,7 +57,7 @@
   <script defer src="{{ url_for('static', filename='js/app.js') }}?v=home-banner-carousel-20261125"></script>
   <script defer src="{{ url_for('static', filename='js/pwa-install.js') }}?v=pwa-install-v1"></script>
   {% if request.endpoint in ['customer.login', 'customer.verify_code'] %}<script defer src="{{ url_for('static', filename='js/verification-code-loader.js') }}?v=verification-loader-v1"></script>{% endif %}
-  {% if request.endpoint and request.endpoint.startswith('design_studio.') %}<script defer src="{{ url_for('static', filename='js/design-studio-editor.js') }}?v=20261127-live-catalogue-v5"></script>{% endif %}
+  {% if request.endpoint and request.endpoint.startswith('design_studio.') %}<script defer src="{{ url_for('static', filename='js/design-studio-editor.js') }}?v=20261127-card-part-selection-v6"></script>{% endif %}
   {% if design_studio_designs and (design_studio_designs.storefront_banner or design_studio_designs.storefront_section) %}<script defer src="{{ url_for('static', filename='js/design-studio-storefront.js') }}?v=20261126"></script>{% endif %}
 </head>
 <body{% if request.endpoint == 'public.upcoming' %} class="upcoming-page-body"{% endif %}>
