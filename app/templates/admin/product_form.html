@@ -137,7 +137,7 @@
                   </select>
                 </label>
                 <label>Zoom <output data-crop-readout="zoom">{{ crop.zoom }}%</output>
-                  <input type="range" min="100" max="300" step="5" value="{{ crop.zoom }}" data-crop-value="zoom" aria-label="{{ label }} zoom">
+                  <input type="range" min="100" max="500" step="5" value="{{ crop.zoom }}" data-crop-value="zoom" aria-label="{{ label }} zoom">
                 </label>
                 <label>Horizontal position <output data-crop-readout="x">{{ crop.x }}%</output>
                   <input type="range" min="0" max="100" step="1" value="{{ crop.x }}" data-crop-value="x" aria-label="{{ label }} horizontal position">
@@ -145,14 +145,24 @@
                 <label>Vertical position <output data-crop-readout="y">{{ crop.y }}%</output>
                   <input type="range" min="0" max="100" step="1" value="{{ crop.y }}" data-crop-value="y" aria-label="{{ label }} vertical position">
                 </label>
-                <p class="product-image-crop-help">Drag a crop-frame edge or use the controls to trim the image.</p>
+                <label>Move image left or right <output data-crop-readout="pan_x">{{ crop.pan_x }}%</output>
+                  <input type="range" min="-200" max="200" step="1" value="{{ crop.pan_x }}" data-crop-value="pan_x" aria-label="{{ label }} move image left or right">
+                </label>
+                <label>Move image up or down <output data-crop-readout="pan_y">{{ crop.pan_y }}%</output>
+                  <input type="range" min="-200" max="200" step="1" value="{{ crop.pan_y }}" data-crop-value="pan_y" aria-label="{{ label }} move image up or down">
+                </label>
+                <p class="product-image-crop-help">Each preview keeps its card layout: the image stays in that section's image area and the details do not move. Fill the image area, then drag or zoom to position the product.</p>
                 {% for edge, edge_label in [('top', 'Crop from top'), ('right', 'Crop from right'), ('bottom', 'Crop from bottom'), ('left', 'Crop from left')] %}
                 <label>{{ edge_label }} <output data-crop-readout="{{ edge }}">{{ crop[edge] }}%</output>
                   <input type="range" min="0" max="45" step="1" value="{{ crop[edge] }}" data-crop-value="{{ edge }}" aria-label="{{ label }} {{ edge_label|lower }}">
                 </label>
                 {% endfor %}
                 <input type="hidden" name="image_crop_{{ profile }}_{{ image.id }}" value="{{ crop|tojson|forceescape }}" data-crop-settings>
-                <button class="btn" type="button" data-reset-crop>Reset this layout</button>
+                <div class="product-image-crop-actions">
+                  <button class="btn" type="button" data-fill-image-area>Fill image area</button>
+                  <button class="btn" type="button" data-center-image>Center image</button>
+                  <button class="btn" type="button" data-reset-crop>Reset this layout</button>
+                </div>
               </fieldset>
               {% endfor %}
             </div>
@@ -271,5 +281,5 @@
 <script defer src="{{ url_for('static', filename='js/admin-product-variants.js') }}?v=variant-studio-20261126"></script>
 <script defer src="{{ url_for('static', filename='js/admin-product-content.js') }}?v=rich-product-details-20261126"></script>
 <script defer src="{{ url_for('static', filename='js/admin-product-sections.js') }}?v=product-story-sections-20261126"></script>
-<script defer src="{{ url_for('static', filename='js/admin-product-image-crops.js') }}?v=product-image-crop-sections-v2"></script>
+<script defer src="{{ url_for('static', filename='js/admin-product-image-crops.js') }}?v=product-image-crop-pan-v4"></script>
 {% endblock %}

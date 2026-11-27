@@ -19,6 +19,8 @@ DEFAULT_PRODUCT_IMAGE_CROP = {
     "right": 0,
     "bottom": 0,
     "left": 0,
+    "pan_x": 0,
+    "pan_y": 0,
 }
 PRODUCT_IMAGE_CROP_POSTGRES_ADVISORY_LOCK = 724930126
 PRODUCT_IMAGE_CROP_PROFILES = (
@@ -48,21 +50,30 @@ def normalize_product_image_crop(value):
         raise ValueError("Crop settings must be an object.")
     legacy_keys = {"fit", "zoom", "x", "y"}
     crop_keys = {"top", "right", "bottom", "left"}
+    pan_keys = {"pan_x", "pan_y"}
     if set(value) == legacy_keys:
+        value = {**value, **{key: 0 for key in crop_keys | pan_keys}}
+    elif set(value) == legacy_keys | crop_keys:
+        value = {**value, **{key: 0 for key in pan_keys}}
+    elif set(value) == legacy_keys | pan_keys:
         value = {**value, **{key: 0 for key in crop_keys}}
-    elif set(value) != legacy_keys | crop_keys:
-        raise ValueError("Crop settings must include fit, zoom, position, and all four crop edges.")
+    elif set(value) != legacy_keys | crop_keys | pan_keys:
+        raise ValueError(
+            "Crop settings must include fit, zoom, position, crop edges, and image pan."
+        )
     if not isinstance(value["fit"], str) or value["fit"] not in _CROP_FITS:
         raise ValueError("Choose contain or cover for image fit.")
     normalized: dict[str, str | int] = {"fit": value["fit"]}
     for key, lower, upper in (
-        ("zoom", 100, 300),
+        ("zoom", 100, 500),
         ("x", 0, 100),
         ("y", 0, 100),
         ("top", 0, 45),
         ("right", 0, 45),
         ("bottom", 0, 45),
         ("left", 0, 45),
+        ("pan_x", -200, 200),
+        ("pan_y", -200, 200),
     ):
         number = value[key]
         if isinstance(number, bool) or not isinstance(number, int) or not lower <= number <= upper:

@@ -2164,6 +2164,7 @@ def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
         f"image_crop_shop_{image_id}": json.dumps({
             "fit": "contain", "zoom": 125, "x": 70, "y": 40,
             "top": 0, "right": 10, "bottom": 5, "left": 2,
+            "pan_x": 24, "pan_y": -18,
         }),
         f"image_crop_featured_{image_id}": json.dumps({
             "fit": "cover", "zoom": 140, "x": 35, "y": 65,
@@ -2195,23 +2196,28 @@ def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
         assert json.loads(crop.normal_settings) == {
             "fit": "cover", "zoom": 150, "x": 25, "y": 35,
             "top": 8, "right": 4, "bottom": 12, "left": 6,
+            "pan_x": 0, "pan_y": 0,
         }
         assert json.loads(crop.shop_settings) == {
             "fit": "contain", "zoom": 125, "x": 70, "y": 40,
             "top": 0, "right": 10, "bottom": 5, "left": 2,
+            "pan_x": 24, "pan_y": -18,
         }
         section_settings = json.loads(crop.section_settings)
         assert section_settings["featured"] == {
             "fit": "cover", "zoom": 140, "x": 35, "y": 65,
             "top": 4, "right": 2, "bottom": 6, "left": 3,
+            "pan_x": 0, "pan_y": 0,
         }
         assert section_settings["mamba"] == {
             "fit": "cover", "zoom": 165, "x": 25, "y": 50,
             "top": 5, "right": 4, "bottom": 3, "left": 2,
+            "pan_x": 0, "pan_y": 0,
         }
         assert section_settings["offers"] == {
             "fit": "cover", "zoom": 120, "x": 80, "y": 30,
             "top": 2, "right": 3, "bottom": 4, "left": 5,
+            "pan_x": 0, "pan_y": 0,
         }
 
     admin_form = client.get(f"/admin/products/{product_id}/edit")
@@ -2228,6 +2234,11 @@ def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
     assert b'data-crop-value="right"' in admin_form.data
     assert b'data-crop-value="bottom"' in admin_form.data
     assert b'data-crop-value="left"' in admin_form.data
+    assert b'data-crop-value="pan_x"' in admin_form.data
+    assert b'data-crop-value="pan_y"' in admin_form.data
+    assert b'data-fill-image-area' in admin_form.data
+    assert b'data-center-image' in admin_form.data
+    assert b'max="500"' in admin_form.data
     assert b"admin-product-image-crops.js" in admin_form.data
     home = client.get("/")
     about = client.get("/about")
@@ -2237,8 +2248,9 @@ def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
     assert about.status_code == 200
     assert shop.status_code == 200
     assert shop_api.status_code == 200
-    assert b"object-fit: cover; object-position: 25% 35%; scale: 1.5; transform-origin: 25% 35%; clip-path: inset(8% 4% 12% 6%);" in about.data
-    assert b"object-fit: contain; object-position: 70% 40%; scale: 1.25; transform-origin: 70% 40%; clip-path: inset(0% 10% 5% 2%);" in shop.data
+    assert b"object-fit: cover; object-position: 25% 35%; translate: 0% 0%; scale: 1.5; transform-origin: 25% 35%; clip-path: inset(8% 4% 12% 6%);" in about.data
+    assert b"object-fit: contain; object-position: 70% 40%; translate: 24% -18%; scale: 1.25; transform-origin: 70% 40%; clip-path: inset(0% 10% 5% 2%);" in shop.data
+    assert "translate: 24% -18%" in shop_api.get_json()["html"]
     assert "object-position: 70% 40%" in shop_api.get_json()["html"]
     assert "clip-path: inset(0% 10% 5% 2%)" in shop_api.get_json()["html"]
     offers = home.data.split(b'id="discounted-goods"', 1)[1].split(b"</section>", 1)[0]
@@ -2260,10 +2272,39 @@ def test_product_image_crop_settings_reject_invalid_values():
         **DEFAULT_PRODUCT_IMAGE_CROP,
         "fit": "cover",
     }
+    assert normalize_product_image_crop({
+        "fit": "cover",
+        "zoom": 100,
+        "x": 50,
+        "y": 50,
+        "pan_x": 25,
+        "pan_y": -25,
+    }) == {
+        **DEFAULT_PRODUCT_IMAGE_CROP,
+        "fit": "cover",
+        "pan_x": 25,
+        "pan_y": -25,
+    }
+    assert normalize_product_image_crop({
+        **DEFAULT_PRODUCT_IMAGE_CROP,
+        "fit": "cover",
+        "zoom": 500,
+        "pan_x": -200,
+        "pan_y": 200,
+    }) == {
+        **DEFAULT_PRODUCT_IMAGE_CROP,
+        "fit": "cover",
+        "zoom": 500,
+        "pan_x": -200,
+        "pan_y": 200,
+    }
     for settings in (
         {"fit": "stretch", "zoom": 100, "x": 50, "y": 50},
         {"fit": [], "zoom": 100, "x": 50, "y": 50},
-        {"fit": "cover", "zoom": 301, "x": 50, "y": 50},
+        {"fit": "cover", "zoom": 501, "x": 50, "y": 50},
+        {**DEFAULT_PRODUCT_IMAGE_CROP, "zoom": 501},
+        {**DEFAULT_PRODUCT_IMAGE_CROP, "pan_x": -201},
+        {**DEFAULT_PRODUCT_IMAGE_CROP, "pan_y": 201},
         {"fit": "contain", "zoom": 100, "x": -1, "y": 50},
         {"fit": "contain", "zoom": 100, "x": 50, "y": True},
         {"fit": "contain", "zoom": 100, "x": 50},
