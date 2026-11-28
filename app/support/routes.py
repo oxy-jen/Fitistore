@@ -16,6 +16,7 @@ from flask import (
     abort,
     current_app,
     jsonify,
+    redirect,
     render_template,
     request,
     send_file,
@@ -844,7 +845,8 @@ def _require_support_admin():
 @support_admin_bp.get("/")
 @login_required
 def dashboard():
-    _require_support_admin()
+    if not current_admin():
+        return redirect(url_for("admin.login", next=request.full_path))
     return render_template("admin/support_dashboard.html", title="Support inbox")
 
 

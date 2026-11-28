@@ -2125,12 +2125,19 @@ def test_admin_product_edit_save_updates_product(client, app):
         assert ProductDisplayNote.query.filter_by(product_id=product_id).one().note == "Choose your preferred size below."
 
 
-def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(client, app):
+def test_product_image_crop_profiles_save_and_only_apply_to_their_card_contexts(
+    client, app, tmp_path, monkeypatch
+):
+    upload_dir = tmp_path / "uploads"
+    upload_dir.mkdir()
+    (upload_dir / "ankle-socks.png").write_bytes(b"temporary test image")
+    monkeypatch.setitem(app.config, "UPLOAD_FOLDER", str(upload_dir))
+
     with app.app_context():
         product = Product.query.filter_by(slug="plain-socks").first()
         image = ProductImage(
             product=product,
-            filename="sample-ankle-socks.svg",
+            filename="ankle-socks.png",
             alt_text="Socks",
             is_primary=True,
         )

@@ -611,6 +611,70 @@ def test_admin_email_deep_link_can_load_closed_conversation(support_app):
     ).status_code == 403
 
 
+def test_support_email_link_survives_admin_login(support_app):
+    customer = support_app.test_client()
+    _sign_in_customer(customer, support_app)
+    created = _start_chat(
+        customer,
+        topic="orders",
+        first_name="Amina",
+        last_name="Wanjiku",
+        body="I need help with my order.",
+    )
+    conversation_id = created.json["conversation"]["id"]
+    target = f"/admin/support/?conversation={conversation_id}"
+
+    admin = customer
+    login_redirect = admin.get(target)
+    assert login_redirect.status_code == 302
+    login_url = login_redirect.headers["Location"]
+    login_page = admin.get(login_url)
+    assert login_page.status_code == 200
+    assert (
+        f'name="next" value="{target}"'.encode()
+        in login_page.data
+    )
+
+    signed_in = admin.post(
+        login_url,
+        data={
+            "username": "support-owner",
+            "password": "test-password",
+            "next": target,
+        },
+    )
+    assert signed_in.status_code == 302
+    assert signed_in.headers["Location"] == target
+    dashboard = admin.get(target)
+    assert dashboard.status_code == 200
+    assert b"data-support-admin" in dashboard.data
+    detail = admin.get(
+        f"/admin/support/api/conversations/{conversation_id}"
+    )
+    assert detail.status_code == 200
+    assert detail.json["conversation"]["customer_name"] == "Amina Wanjiku"
+    messages = admin.get(
+        f"/admin/support/api/conversations/{conversation_id}/messages?after=0"
+    )
+    assert messages.status_code == 200
+    assert any(
+        item["sender_type"] == "customer"
+        and item["body"] == "I need help with my order."
+        for item in messages.json["messages"]
+    )
+
+    unsafe_login = support_app.test_client().post(
+        "/admin/login",
+        data={
+            "username": "support-owner",
+            "password": "test-password",
+            "next": "https://example.invalid/",
+        },
+    )
+    assert unsafe_login.status_code == 302
+    assert unsafe_login.headers["Location"] == "/admin/"
+
+
 def test_support_launcher_is_present_on_storefront_only(support_client):
     storefront = support_client.get("/")
     assert storefront.status_code == 200

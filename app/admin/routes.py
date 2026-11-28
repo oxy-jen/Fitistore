@@ -1087,7 +1087,11 @@ def permanently_delete_customer_account(account_id):
 
 @admin_bp.before_request
 def require_admin_identity():
-    if current_user.is_authenticated and not isinstance(current_user._get_current_object(), AdminUser):
+    if (
+        request.endpoint != "admin.login"
+        and current_user.is_authenticated
+        and not isinstance(current_user._get_current_object(), AdminUser)
+    ):
         from flask import abort
         abort(403)
 
@@ -1560,8 +1564,18 @@ def cloudinary_public_id_from_input(value):
     return value
 @admin_bp.route("/login", methods=["GET", "POST"])
 def login():
-    if current_user.is_authenticated:
-        return redirect(url_for("admin.dashboard"))
+    next_url = (request.values.get("next") or "").strip()
+    parsed_next = urlparse(next_url)
+    if (
+        not next_url
+        or parsed_next.scheme
+        or parsed_next.netloc
+        or not parsed_next.path.startswith("/admin/")
+        or "\\" in parsed_next.path
+    ):
+        next_url = ""
+    if isinstance(current_user._get_current_object(), AdminUser):
+        return redirect(next_url or url_for("admin.dashboard"))
     if request.method == "POST":
         user = AdminUser.query.filter_by(username=request.form.get("username", "").strip()).first()
         if user and user.failed_logins >= 8:
@@ -1570,13 +1584,13 @@ def login():
             user.failed_logins = 0
             db.session.commit()
             login_user(user)
-            return redirect(url_for("admin.dashboard"))
+            return redirect(next_url or url_for("admin.dashboard"))
         else:
             if user:
                 user.failed_logins += 1
                 db.session.commit()
             flash("Invalid username or password.", "error")
-    return render_template("admin/login.html", title="Admin login")
+    return render_template("admin/login.html", title="Admin login", next_url=next_url)
 
 @admin_bp.post("/logout")
 @login_required
