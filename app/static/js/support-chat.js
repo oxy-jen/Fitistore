@@ -426,17 +426,17 @@
       const data = await request('/support/presence');
       updateAvailability(Boolean(data.available));
     } catch {
-      availability.textContent = 'Support status is temporarily unavailable';
+      availability.textContent = 'Status unavailable';
     }
   }
 
   function updateAvailability(available) {
     agentAvailable = available;
     availability.textContent = socketUnavailable
-      ? 'Live updates unavailable; checking periodically'
+      ? 'Chat will refresh automatically'
       : available
-        ? 'An agent is available'
-        : 'We’ll reply as soon as an agent is available';
+        ? 'Agent available'
+        : 'We’re here to help';
     if (!conversation || conversation.status !== 'assigned') {
       presenceIndicator.classList.toggle('is-available', available);
     }
@@ -540,6 +540,7 @@
       pendingInitialMessage = { draftKey, id: newMessageId() };
     }
     submitButton.disabled = true;
+    closeButton.disabled = true;
     prechatTyping.hidden = false;
     prechatError.hidden = true;
     try {
@@ -578,6 +579,7 @@
     } finally {
       prechatTyping.hidden = true;
       submitButton.disabled = false;
+      closeButton.disabled = false;
     }
   }
 
@@ -605,12 +607,13 @@
 
   function ensureConversationRestored() {
     if (!isAuthenticated || conversation || conversationRestoreComplete) {
-      return Promise.resolve();
+      return Promise.resolve(true);
     }
     if (!conversationRestorePromise) {
       conversationRestorePromise = restoreConversation()
         .then((restored) => {
           if (restored) conversationRestoreComplete = true;
+          return restored;
         })
         .finally(() => {
           conversationRestorePromise = null;
@@ -627,6 +630,7 @@
     }
     const messageId = pendingMessage.id;
     sendingMessage = true;
+    closeButton.disabled = true;
     form.querySelector('button[type="submit"]').disabled = true;
     quickReplies.querySelectorAll('button').forEach((button) => { button.disabled = true; });
     botTyping.hidden = false;
@@ -667,6 +671,7 @@
       if (!textarea.value.trim()) textarea.value = body;
     } finally {
       sendingMessage = false;
+      closeButton.disabled = false;
       botTyping.hidden = true;
       textarea.disabled = conversation?.status === 'closed';
       form.querySelector('button[type="submit"]').disabled = conversation?.status === 'closed';
@@ -710,6 +715,68 @@
       cursor = Math.max(cursor, data.customer_message.id, data.bot_message.id);
     } catch (requestError) {
       showError(requestError.message);
+    }
+  }
+
+  function resetConversationView() {
+    if (typingTimer) window.clearTimeout(typingTimer);
+    if (customerTyping && socket?.connected && conversation) {
+      socket.emit('typing', {
+        conversation_id: conversation.id,
+        typing: false,
+        csrf_token: csrfToken,
+      });
+    }
+    conversation = null;
+    conversationRestoreComplete = true;
+    selectedTopic = null;
+    cursor = 0;
+    pendingMessage = null;
+    pendingInitialMessage = null;
+    customerTyping = false;
+    renderedIds.clear();
+    optimisticMessages.clear();
+    messages.replaceChildren();
+    quickReplies.replaceChildren();
+    prechatForm.reset();
+    fileInput.value = '';
+    attachmentPreview.hidden = true;
+    attachmentName.textContent = '';
+    loader.hidden = true;
+    restartButton.hidden = true;
+    thread.hidden = true;
+    prechat.hidden = true;
+    topics.hidden = !isAuthenticated;
+    signInGate.hidden = isAuthenticated;
+    downloadTranscript.disabled = true;
+    clearError();
+    updateMessagePolling();
+  }
+
+  async function leaveConversation() {
+    if (closeButton.disabled) return;
+    closeButton.disabled = true;
+    clearError();
+    try {
+      if (isAuthenticated) {
+        const restored = await ensureConversationRestored();
+        if (!restored) {
+          throw new Error('We could not confirm your active chat. Please try again.');
+        }
+      }
+      if (conversation && conversation.status !== 'closed') {
+        const data = await request(
+          `/support/conversations/${encodeURIComponent(conversation.id)}/leave`,
+          { method: 'POST' },
+        );
+        updateConversation(data.conversation);
+      }
+      resetConversationView();
+      setOpen(false);
+    } catch (requestError) {
+      showError(requestError.message);
+    } finally {
+      closeButton.disabled = false;
     }
   }
 
@@ -791,7 +858,7 @@
   }
 
   launcher.addEventListener('click', () => setOpen(panel.hidden));
-  closeButton.addEventListener('click', () => setOpen(false));
+  root.querySelector('[data-support-minimize]').addEventListener('click', () => setOpen(false));
   settingsToggle.addEventListener('click', () => {
     settingsMenu.hidden = !settingsMenu.hidden;
     settingsToggle.setAttribute('aria-expanded', String(!settingsMenu.hidden));
@@ -860,24 +927,8 @@
     }, 1400);
   });
 
-  restartButton.addEventListener('click', () => {
-    conversation = null;
-    cursor = 0;
-    pendingMessage = null;
-    renderedIds.clear();
-    optimisticMessages.clear();
-    messages.replaceChildren();
-    quickReplies.replaceChildren();
-    clearError();
-    loader.hidden = true;
-    restartButton.hidden = true;
-    thread.hidden = true;
-    prechat.hidden = true;
-    topics.hidden = !isAuthenticated;
-    signInGate.hidden = isAuthenticated;
-    selectedTopic = null;
-    updateMessagePolling();
-  });
+  closeButton.addEventListener('click', leaveConversation);
+  restartButton.addEventListener('click', resetConversationView);
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !panel.hidden) {

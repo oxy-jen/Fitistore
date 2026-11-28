@@ -799,6 +799,41 @@ def customer_resolve_conversation(public_id: str):
     ), 200 if not customer_created else 201
 
 
+@support_bp.post("/conversations/<public_id>/leave")
+def customer_leave_conversation(public_id: str):
+    customer = current_customer()
+    if not customer:
+        return jsonify({"error": "Sign in with your FityStores account to use chat."}), 401
+    conversation = _find_owned_conversation(public_id)
+    if conversation.status != "closed":
+        conversation.status = "closed"
+        conversation.updated_at = datetime.utcnow()
+        try:
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            logger.exception(
+                "support_conversation_leave_failed conversation_id=%s",
+                conversation.id,
+            )
+            return jsonify({"error": "Your support chat could not be closed. Please try again."}), 503
+
+        payload = conversation_payload(conversation)
+        socketio.emit(
+            "closed",
+            {"conversation": payload},
+            to=conversation_room(conversation),
+            namespace="/support",
+        )
+        socketio.emit(
+            "queue_update",
+            {"conversation_id": conversation.public_id, "status": "closed"},
+            to="support-agents",
+            namespace="/support",
+        )
+    return jsonify({"conversation": conversation_payload(conversation)})
+
+
 def _require_support_admin():
     admin = current_admin()
     if not admin:

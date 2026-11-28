@@ -91,6 +91,7 @@ def test_chat_is_unavailable_to_guests_and_requires_verified_account(support_app
 
     assert guest.get("/support/conversations").status_code == 401
     assert guest.post("/support/conversations", json={"topic": "orders"}).status_code == 401
+    assert guest.post("/support/conversations/not-a-real-chat/leave").status_code == 401
 
 
 def test_customer_chat_collects_names_and_first_message_only_for_chat(support_app):
@@ -318,6 +319,35 @@ def test_customer_can_finish_self_service_without_agent(support_app):
     admin = support_app.test_client()
     _sign_in(admin, "1")
     assert admin.get("/admin/support/api/conversations").json["conversations"] == []
+
+
+def test_customer_can_leave_agent_chat_and_start_a_fresh_conversation(support_app):
+    customer = support_app.test_client()
+    _sign_in_customer(customer, support_app)
+    started = _start_chat(customer, body="I need help with an order.")
+    first_id = started.json["conversation"]["id"]
+    other_customer = support_app.test_client()
+    _sign_in_customer(other_customer, support_app, email="other-customer@example.test")
+    assert other_customer.post(
+        f"/support/conversations/{first_id}/leave"
+    ).status_code == 404
+
+    assert customer.post(f"/support/conversations/{first_id}/escalate").status_code == 201
+
+    admin = support_app.test_client()
+    _sign_in(admin, "1")
+    assert admin.post(f"/admin/support/api/conversations/{first_id}/claim").status_code == 200
+
+    left = customer.post(f"/support/conversations/{first_id}/leave")
+
+    assert left.status_code == 200
+    assert left.json["conversation"]["status"] == "closed"
+    assert customer.get(f"/support/conversations/{first_id}/messages").status_code == 200
+
+    next_chat = _start_chat(customer, body="I have another question.")
+
+    assert next_chat.status_code == 201
+    assert next_chat.json["conversation"]["id"] != first_id
 
 
 def test_customer_attachments_are_private_and_available_to_claimed_agent(support_app):
@@ -586,6 +616,8 @@ def test_support_launcher_is_present_on_storefront_only(support_client):
     assert storefront.status_code == 200
     assert b"data-support-widget" in storefront.data
     assert b"data-support-launcher" in storefront.data
+    assert b"data-support-minimize" in storefront.data
+    assert b'data-support-close aria-label="Leave and close support chat"' in storefront.data
     assert b'<span class="fity-support-label">Chat</span>' in storefront.data
     assert b'data-support-signin' in storefront.data
     assert b"data-support-settings-toggle" in storefront.data

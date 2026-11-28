@@ -5,15 +5,28 @@
   display: none !important;
 }
 
+.fity-support .visually-hidden,
+.support-admin-layout .visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 .fity-support {
   --support-launcher-bottom: max(20px, env(safe-area-inset-bottom));
   --support-launcher-size: 58px;
   --support-panel-gap: 13px;
   --support-red: #e52335;
-  --support-ink: #171717;
-  --support-muted: #707070;
-  --support-line: #e8e8e8;
-  --support-soft: #f7f7f7;
+  --support-ink: #f4f4f5;
+  --support-muted: #a7a9ad;
+  --support-line: #3d3f43;
+  --support-soft: #303236;
   position: relative;
   z-index: 1300;
   font-family: inherit;
@@ -55,6 +68,7 @@
 
 .fity-support-launcher:focus-visible,
 .fity-support-close:focus-visible,
+.fity-support-minimize:focus-visible,
 .fity-support-topic-grid button:focus-visible,
 .fity-support-compose button:focus-visible {
   outline: 3px solid #111;
@@ -99,15 +113,17 @@
   left: var(--support-panel-left, auto);
   bottom: calc(var(--support-launcher-bottom) + var(--support-launcher-size) + var(--support-panel-gap));
   display: flex;
-  width: min(390px, calc(100vw - 28px));
-  max-height: min(620px, calc(100dvh - var(--support-launcher-bottom) - var(--support-launcher-size) - var(--support-panel-gap) - 16px));
+  width: min(400px, calc(100vw - 28px));
+  height: min(590px, calc(100dvh - var(--support-launcher-bottom) - var(--support-launcher-size) - var(--support-panel-gap) - 16px));
+  max-height: min(590px, calc(100dvh - var(--support-launcher-bottom) - var(--support-launcher-size) - var(--support-panel-gap) - 16px));
   min-height: min(390px, calc(100dvh - var(--support-launcher-bottom) - var(--support-launcher-size) - var(--support-panel-gap) - 16px));
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, .08);
+  box-sizing: border-box;
+  border: 1px solid #3b3d41;
   border-radius: 18px;
   color: var(--support-ink);
-  background: #fff;
+  background: #252629;
   box-shadow: 0 18px 55px rgba(0, 0, 0, .24);
   animation: fity-support-appear .22s ease-out both;
 }
@@ -116,6 +132,7 @@
   inset: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
     max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
   width: auto;
+  height: auto;
   max-height: none;
   min-height: 0;
   border-radius: 16px;
@@ -129,17 +146,20 @@
 .fity-support-header {
   position: relative;
   display: flex;
-  min-height: 76px;
+  min-height: 64px;
+  flex: 0 0 64px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 13px 16px;
+  padding: 10px 13px;
   color: #fff;
-  background: linear-gradient(120deg, #191919 0%, #272727 72%, #a70e1d 100%);
+  background: #252629;
+  border-bottom: 1px solid #3b3d41;
 }
 
 .fity-support-brand {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
   gap: 11px;
@@ -206,10 +226,10 @@
   right: 12px;
   width: min(320px, calc(100vw - 42px));
   overflow: hidden;
-  border: 1px solid #dedede;
+  border: 1px solid #45474c;
   border-radius: 12px;
-  color: #242424;
-  background: #fff;
+  color: #f2f2f3;
+  background: #2b2d31;
   box-shadow: 0 12px 32px rgba(0, 0, 0, .22);
 }
 
@@ -243,7 +263,7 @@
 }
 
 .fity-support-account-row a {
-  color: #a71927;
+  color: #ff8c98;
   font-size: .72rem;
   font-weight: 800;
   text-decoration: none;
@@ -259,9 +279,9 @@
   gap: 12px;
   padding: 10px 13px;
   border: 0;
-  border-bottom: 1px solid var(--support-line);
-  color: #292929;
-  background: #fff;
+  border-bottom: 1px solid #424449;
+  color: #ececee;
+  background: #2b2d31;
   font: inherit;
   font-size: .78rem;
   font-weight: 700;
@@ -273,11 +293,11 @@
 }
 
 .fity-support-menu-action:hover:not(:disabled) {
-  background: #faf4f4;
+  background: #383a3f;
 }
 
 .fity-support-menu-action:disabled {
-  color: #999;
+  color: #92949a;
   cursor: not-allowed;
 }
 
@@ -321,7 +341,7 @@
 .fity-support-settings-status {
   margin: 0;
   padding: 8px 13px 10px;
-  color: #666;
+  color: #b7b9bd;
   font-size: .7rem;
   line-height: 1.4;
 }
@@ -332,17 +352,24 @@
 
 .fity-support-brand > div {
   display: grid;
+  min-width: 0;
   gap: 3px;
 }
 
 .fity-support-brand strong {
+  overflow: hidden;
   font-size: .96rem;
   letter-spacing: -.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fity-support-brand small {
+  overflow: hidden;
   color: #e8e8e8;
   font-size: .74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fity-support-mark {
@@ -351,9 +378,9 @@
   height: 40px;
   flex: 0 0 40px;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, .26);
+  border: 1px solid rgba(255, 255, 255, .18);
   border-radius: 50%;
-  background: rgba(255, 255, 255, .1);
+  background: linear-gradient(135deg, #442c75, #346dc5 58%, #22c5b7);
 }
 
 .fity-support-mark svg {
@@ -368,15 +395,15 @@
 
 .fity-support-close {
   display: grid;
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   place-items: center;
   padding: 0;
   border: 0;
   border-radius: 50%;
   color: #fff;
-  background: rgba(255, 255, 255, .12);
+  background: transparent;
   cursor: pointer;
   font-size: 1.55rem;
   line-height: 1;
@@ -386,20 +413,58 @@
   background: rgba(255, 255, 255, .22);
 }
 
+.fity-support-close:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.fity-support-minimize {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: transparent;
+  cursor: pointer;
+}
+
+.fity-support-minimize:hover {
+  background: rgba(255, 255, 255, .16);
+}
+
+.fity-support-minimize svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
 .fity-support-topics {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding: 21px 18px 17px;
+  padding: 17px 16px 15px;
+  background: #252629;
 }
 
 .fity-support-signin,
 .fity-support-prechat {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding: 20px 18px 18px;
+  padding: 17px 16px 15px;
+  background: #252629;
 }
 
 .fity-support-signin > p:not(.fity-support-greeting) {
   margin: 0 0 15px;
-  color: #555;
+  color: #c4c5c8;
   font-size: .86rem;
   line-height: 1.5;
 }
@@ -430,20 +495,20 @@
 
 .fity-support-signin-note {
   margin: 12px 0 0 !important;
-  color: var(--support-muted) !important;
+  color: #a7a9ad !important;
   font-size: .72rem !important;
 }
 
 .fity-support-intro {
   margin: 0 0 14px;
-  color: #3a3a3a;
+  color: #f0f0f1;
   font-size: .97rem;
   font-weight: 750;
 }
 
 .fity-support-greeting {
   margin: 0 0 8px;
-  color: #232323;
+  color: #f4f4f5;
   font-size: 1.02rem;
   font-weight: 800;
   line-height: 1.4;
@@ -459,7 +524,7 @@
   margin: 0 0 14px;
   padding: 4px 0;
   border: 0;
-  color: #a71927;
+  color: #ff8c98;
   background: transparent;
   cursor: pointer;
   font: inherit;
@@ -480,10 +545,10 @@
 
 .fity-support-suggestion {
   padding: 7px 10px;
-  border: 1px solid #e8c7cb;
+  border: 1px solid #4a3d42;
   border-radius: 999px;
-  color: #6d2028;
-  background: #fff8f8;
+  color: #f0c4ca;
+  background: #30282b;
   cursor: pointer;
   font: inherit;
   font-size: .71rem;
@@ -494,7 +559,7 @@
 .fity-support-suggestion:hover,
 .fity-support-suggestion:focus-visible {
   border-color: var(--support-red);
-  background: #fff0f2;
+  background: #3b2b30;
 }
 
 .fity-support-name-fields {
@@ -507,7 +572,7 @@
 .fity-support-message-label {
   display: grid;
   gap: 5px;
-  color: #363636;
+  color: #d7d8da;
   font-size: .73rem;
   font-weight: 750;
 }
@@ -517,10 +582,10 @@
   width: 100%;
   min-width: 0;
   padding: 9px 10px;
-  border: 1px solid #dcdcdc;
+  border: 1px solid #4a4c51;
   border-radius: 8px;
   color: var(--support-ink);
-  background: #fff;
+  background: #202124;
   font: inherit;
   font-size: .8rem;
 }
@@ -560,7 +625,7 @@
   align-items: center;
   gap: 8px;
   margin: 0;
-  color: #666;
+  color: #c2c3c6;
   font-size: .75rem;
 }
 
@@ -574,10 +639,10 @@
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid var(--support-line);
+  border: 1px solid #414348;
   border-radius: 11px;
-  color: #242424;
-  background: #fff;
+  color: #f0f0f1;
+  background: #2d2f33;
   cursor: pointer;
   font: inherit;
   font-size: .82rem;
@@ -589,7 +654,7 @@
 .fity-support-topic-grid button:hover {
   transform: translateY(-1px);
   border-color: var(--support-red);
-  background: #fff8f8;
+  background: #37393e;
 }
 
 .fity-support-topic-grid svg {
@@ -607,17 +672,21 @@
 .fity-support-footnote {
   display: block;
   margin-top: 14px;
-  color: var(--support-muted);
+  color: #a7a9ad;
   font-size: .72rem;
   line-height: 1.5;
 }
 
 .fity-support-thread {
   display: flex;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   min-height: 0;
   flex: 1;
   flex-direction: column;
   padding: 0 14px 13px;
+  background: #28292c;
 }
 
 .fity-support-thread-meta {
@@ -626,14 +695,14 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px solid var(--support-line);
-  color: #3c3c3c;
+  border-bottom: 1px solid #414348;
+  color: #e7e7e9;
   font-size: .72rem;
   font-weight: 750;
 }
 
 .fity-support-thread-meta span:last-child {
-  color: #777;
+  color: #a9aaae;
   font-weight: 600;
   text-align: right;
 }
@@ -651,10 +720,10 @@
 
 .fity-support-quick-reply {
   padding: 7px 10px;
-  border: 1px solid #e8c7cb;
+  border: 1px solid #514046;
   border-radius: 999px;
-  color: #6d2028;
-  background: #fff8f8;
+  color: #f2c4cb;
+  background: #30282b;
   cursor: pointer;
   font: inherit;
   font-size: .71rem;
@@ -665,7 +734,7 @@
 .fity-support-quick-reply:hover,
 .fity-support-quick-reply:focus-visible {
   border-color: var(--support-red);
-  background: #fff0f2;
+  background: #3b2b30;
 }
 
 .fity-support-quick-reply:disabled {
@@ -675,7 +744,8 @@
 
 .fity-support-messages {
   display: flex;
-  min-height: 120px;
+  min-width: 0;
+  min-height: 0;
   flex: 1;
   flex-direction: column;
   gap: 9px;
@@ -685,23 +755,24 @@
 }
 
 .fity-support-message {
+  min-width: 0;
   max-width: 86%;
   align-self: flex-start;
   padding: 9px 11px;
-  border: 1px solid #ececec;
+  border: 1px solid #414348;
   border-radius: 13px 13px 13px 4px;
-  color: #282828;
-  background: var(--support-soft);
+  color: #f0f0f1;
+  background: #303236;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
 .fity-support-message.is-customer {
   align-self: flex-end;
-  border-color: #f3c9ce;
+  border-color: #394765;
   border-radius: 13px 13px 4px 13px;
   color: #fff;
-  background: var(--support-red);
+  background: #303d5c;
 }
 
 .fity-support-message.is-pending {
@@ -737,7 +808,8 @@
   display: block;
   margin-top: 5px;
   font-size: .62rem;
-  opacity: .72;
+  color: #b6b8bd;
+  opacity: .9;
 }
 
 .fity-support-loader {
@@ -745,7 +817,7 @@
   align-items: center;
   gap: 9px;
   padding: 11px 4px 2px;
-  color: #606060;
+  color: #c2c3c6;
   font-size: .74rem;
 }
 
@@ -811,28 +883,29 @@
 .fity-support-typing {
   min-height: 18px;
   margin: 0 0 5px 2px;
-  color: var(--support-muted);
+  color: #aeb0b4;
   font-size: .7rem;
   font-style: italic;
 }
 
 .fity-support-error {
   margin: 5px 0;
-  color: #a50d1b;
+  color: #ff9aa4;
   font-size: .76rem;
 }
 
 .fity-support-compose {
-  display: flex;
+  display: grid;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  align-items: flex-end;
-  gap: 8px;
+  grid-template-columns: 35px minmax(0, 1fr) 36px;
+  align-items: end;
+  gap: 7px;
   padding: 7px;
-  border: 1px solid #dedede;
+  border: 1px solid #424449;
   border-radius: 12px;
-  background: #fff;
+  background: #202124;
 }
 
 .fity-support-attach {
@@ -840,16 +913,18 @@
   width: 35px;
   height: 36px;
   flex: 0 0 35px;
+  grid-column: 1;
+  grid-row: 1;
   place-items: center;
   border-radius: 9px;
-  color: #696969;
+  color: #c0c1c4;
   cursor: pointer;
 }
 
 .fity-support-attach:hover,
 .fity-support-attach:focus-within {
   color: var(--support-red);
-  background: #fff3f4;
+  background: #38282c;
 }
 
 .fity-support-attach svg {
@@ -868,12 +943,15 @@
 }
 
 .fity-support-compose textarea {
-  width: auto;
+  display: block;
+  width: 100%;
+  max-width: none;
   min-width: 0;
-  flex: 1 1 0;
   min-height: 38px;
   max-height: 95px;
   box-sizing: border-box;
+  grid-column: 2;
+  grid-row: 1;
   resize: vertical;
   border: 0;
   outline: 0;
@@ -919,6 +997,8 @@
   width: 36px;
   height: 36px;
   flex: 0 0 36px;
+  grid-column: 3;
+  grid-row: 1;
   place-items: center;
   border: 0;
   border-radius: 9px;
@@ -946,7 +1026,7 @@
   margin-top: 9px;
   padding: 5px 0;
   border: 0;
-  color: #a71927;
+  color: #ff8c98;
   background: transparent;
   cursor: pointer;
   font: inherit;
@@ -1278,7 +1358,9 @@
   }
 
   .fity-support-panel {
-    right: 12px;
+    right: var(--support-panel-right, 12px);
+    left: var(--support-panel-left, auto);
+    width: min(400px, calc(100vw - 24px));
   }
 
   .fity-support-name-fields {
