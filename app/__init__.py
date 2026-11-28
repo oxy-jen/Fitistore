@@ -521,7 +521,8 @@ def register_cli(app: Flask):
             "support_conversation": {
                 "id", "public_id", "account_id", "guest_token_hash", "topic", "status",
                 "assigned_admin_id", "notification_status", "created_at", "updated_at",
-                "last_message_at",
+                "last_message_at", "customer_first_name", "customer_last_name",
+                "escalation_requested_at",
             },
             "support_message": {
                 "id", "conversation_id", "sender_type", "sender_account_id",
@@ -569,6 +570,41 @@ def register_cli(app: Flask):
                 table_names = set(inspector.get_table_names())
                 incomplete = []
                 for table_name, expected in required_columns.items():
+                    if table_name == "support_conversation" and table_name in table_names:
+                        name_migration = (
+                            Path(__file__).resolve().parent.parent
+                            / "migrations"
+                            / "20261128_support_chat_customer_names.sql"
+                        )
+                        if dialect in {"postgresql", "postgres"}:
+                            statements = [
+                                statement.strip()
+                                for statement in name_migration.read_text(encoding="utf-8").split(";")
+                                if statement.strip()
+                            ]
+                            for statement in statements:
+                                connection.execute(text(statement))
+                        else:
+                            actual_columns = {
+                                column["name"] for column in inspector.get_columns(table_name)
+                            }
+                            for column_name in (
+                                "customer_first_name",
+                                "customer_last_name",
+                                "escalation_requested_at",
+                            ):
+                                if column_name not in actual_columns:
+                                    if column_name == "escalation_requested_at":
+                                        connection.execute(text(
+                                            "ALTER TABLE support_conversation "
+                                            "ADD COLUMN escalation_requested_at DATETIME"
+                                        ))
+                                    else:
+                                        connection.execute(text(
+                                            "ALTER TABLE support_conversation ADD COLUMN "
+                                            f"{column_name} VARCHAR(80) NOT NULL DEFAULT ''"
+                                        ))
+                        inspector = inspect(connection)
                     if table_name not in table_names:
                         incomplete.append(table_name + " (table missing)")
                         continue

@@ -45,7 +45,7 @@ class Config:
     RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
     BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")
     BREVO_WEBHOOK_TOKEN = os.environ.get("BREVO_WEBHOOK_TOKEN", "")
-    MAIL_FROM_ADDRESS = os.environ.get("MAIL_FROM_ADDRESS", "")
+    MAIL_FROM_ADDRESS = os.environ.get("MAIL_FROM_ADDRESS", "").strip() or "orders@fitystore.top"
     MAIL_FROM_NAME = os.environ.get("MAIL_FROM_NAME", "FityStores")
     MAIL_REPLY_TO = os.environ.get("MAIL_REPLY_TO", "")
     MAIL_SERVER = os.environ.get("MAIL_SERVER", "")
@@ -56,7 +56,7 @@ class Config:
     MAIL_USE_SSL = os.environ.get("MAIL_USE_SSL", "0").lower() in {"1", "true", "yes"}
     MAIL_FROM_VERIFIED = os.environ.get("MAIL_FROM_VERIFIED", "0").lower() in {"1", "true", "yes"}
     MAIL_TEST_ADDRESS = os.environ.get("MAIL_TEST_ADDRESS", "")
-    SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "orders@fitystore.top").strip() or "orders@fitystore.top"
+    SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "oxygenvessels@gmail.com").strip() or "oxygenvessels@gmail.com"
     EMAIL_MARKETING_QUEUE_ENABLED = os.environ.get("EMAIL_MARKETING_QUEUE_ENABLED", "false").strip().lower() == "true"
     EMAIL_MARKETING_PREPARATION_ENABLED = os.environ.get("EMAIL_MARKETING_PREPARATION_ENABLED", "false").strip().lower() == "true"
     EMAIL_MARKETING_AUTO_SCHEDULE_GENERATED_ENABLED = os.environ.get("EMAIL_MARKETING_AUTO_SCHEDULE_GENERATED_ENABLED", "false").strip().lower() == "true"

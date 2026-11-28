@@ -890,6 +890,9 @@ class SupportConversation(TimestampMixin, db.Model):
     notification_status = db.Column(
         db.String(20), nullable=False, default="not_configured"
     )
+    customer_first_name = db.Column(db.String(80), nullable=False, default="")
+    customer_last_name = db.Column(db.String(80), nullable=False, default="")
+    escalation_requested_at = db.Column(db.DateTime, nullable=True)
     last_message_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     account = db.relationship("CustomerAccount")
     assigned_admin = db.relationship("AdminUser")

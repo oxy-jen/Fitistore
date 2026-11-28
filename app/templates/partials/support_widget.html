@@ -1,6 +1,6 @@
 <!-- From Uiverse.io by vinodjangid07 - https://uiverse.io/vinodjangid07/nervous-gecko-43
 MIT License, Copyright (c) vinodjangid07 (Vinod Jangid) -->
-<div class="fity-support" data-support-widget data-support-customer-name="{% if current_user.is_authenticated and not current_user.is_admin %}{{ current_user.display_name }}{% endif %}">
+<div class="fity-support" data-support-widget data-support-authenticated="{{ 'true' if current_user.is_authenticated and not current_user.is_admin else 'false' }}">
   <button class="fity-support-launcher" type="button" data-support-launcher aria-expanded="false" aria-controls="fity-support-panel" aria-label="Open FityStores support chat">
     <svg aria-hidden="true" viewBox="0 0 1000 1000"><path d="M881.1 720.5H434.7L173.3 941V720.5h-54.4C58.8 720.5 10 671.1 10 610.2v-441C10 108.4 58.8 59 118.9 59h762.2C941.2 59 990 108.4 990 169.3v441c0 60.8-48.8 110.2-108.9 110.2ZM935.6 169.3c0-30.4-24.4-55.2-54.5-55.2H118.9c-30.1 0-54.5 24.7-54.5 55.2v441c0 30.4 24.4 55.1 54.5 55.1h108.8v110.3l163.3-110.2H881c30.1 0 54.5-24.7 54.5-55.1v-441Zm-217.8 275.5c-30.1 0-54.4-24.7-54.4-55.1 0-30.4 24.3-55.2 54.4-55.2 30.1 0 54.5 24.7 54.5 55.2 0 30.5-24.4 55.1-54.5 55.1Zm-217.8 0c-30.1 0-54.4-24.7-54.4-55.1 0-30.4 24.3-55.2 54.4-55.2 30.1 0 54.4 24.7 54.4 55.2 0 30.5-24.3 55.1-54.4 55.1Zm-217.8 0c-30.1 0-54.5-24.7-54.5-55.1 0-30.4 24.4-55.2 54.5-55.2 30.1 0 54.4 24.7 54.4 55.2 0 30.5-24.3 55.1-54.4 55.1Z"/></svg>
     <span class="fity-support-label">Chat</span>
@@ -16,22 +16,44 @@ MIT License, Copyright (c) vinodjangid07 (Vinod Jangid) -->
       <button class="fity-support-close" type="button" data-support-close aria-label="Close support chat">×</button>
     </header>
 
-    <!-- Uiverse expandable support navigation -->
-    <div class="fity-support-topics" data-support-topics>
-      <p class="fity-support-greeting" data-support-greeting>Hi there, welcome to FityStores! How can we help you today?</p>
-      <p class="fity-support-intro">Choose a topic to get started:</p>
+    <div class="fity-support-signin" data-support-signin {% if current_user.is_authenticated and not current_user.is_admin %}hidden{% endif %}>
+      <p class="fity-support-greeting">Welcome to FityStores Support</p>
+      <p>Sign in or create your account with your email to start a chat. We’ll send you a verification code.</p>
+      <a class="fity-support-signin-link" href="{{ url_for('customer.login', next='/?support_chat=1') }}">Continue with email</a>
+      {% if google_client_id %}<p class="fity-support-signin-note">Google sign-in is also available on the sign-in page.</p>{% endif %}
+    </div>
+
+    <div class="fity-support-topics" data-support-topics {% if not (current_user.is_authenticated and not current_user.is_admin) %}hidden{% endif %}>
+      <p class="fity-support-greeting">Hi, welcome to FityStores Support!</p>
+      <p class="fity-support-intro">What can we help you with?</p>
       <div class="fity-support-topic-grid">
         <button type="button" data-support-topic="orders"><svg aria-hidden="true"><use href="#icon-truck"></use></svg><span>Orders</span></button>
         <button type="button" data-support-topic="payments"><svg aria-hidden="true"><use href="#icon-shield"></use></svg><span>Payments</span></button>
         <button type="button" data-support-topic="delivery"><svg aria-hidden="true"><use href="#icon-truck"></use></svg><span>Delivery</span></button>
         <button type="button" data-support-topic="products"><svg aria-hidden="true"><use href="#icon-shop"></use></svg><span>Products</span></button>
         <button type="button" data-support-topic="returns"><svg aria-hidden="true"><use href="#icon-refresh"></use></svg><span>Returns</span></button>
-        <button type="button" data-support-topic="general"><svg aria-hidden="true"><use href="#icon-message"></use></svg><span>Something else</span></button>
+        <button type="button" data-support-topic="general"><svg aria-hidden="true"><use href="#icon-message"></use></svg><span>Other help</span></button>
       </div>
-      <small class="fity-support-privacy">Your chat history is tied to this browser.</small>
+      <small class="fity-support-privacy">Your chat is private and linked to your account.</small>
     </div>
 
-    <!-- Uiverse support conversation card -->
+    <div class="fity-support-prechat" data-support-prechat hidden>
+      <button class="fity-support-back" type="button" data-support-back>‹ Choose another topic</button>
+      <p class="fity-support-greeting" data-support-topic-prompt></p>
+      <div class="fity-support-suggestions" data-support-suggestions aria-label="Suggested questions"></div>
+      <form class="fity-support-first-message" data-support-first-form>
+        <div class="fity-support-name-fields">
+          <label>First name<input type="text" name="first_name" autocomplete="given-name" maxlength="80" required></label>
+          <label>Last name<input type="text" name="last_name" autocomplete="family-name" maxlength="80" required></label>
+        </div>
+        <label class="fity-support-message-label" for="fity-support-first-message">Your first message</label>
+        <textarea id="fity-support-first-message" name="body" maxlength="2000" rows="3" placeholder="How can we help?" required></textarea>
+        <p class="fity-support-error" data-support-prechat-error role="alert" hidden></p>
+        <p class="fity-support-prechat-typing" data-support-prechat-typing role="status" hidden><span class="fity-support-dots" aria-hidden="true"><i></i><i></i><i></i></span> FityStores is typing…</p>
+        <button class="fity-support-start" type="submit">Start chat</button>
+      </form>
+    </div>
+
     <div class="fity-support-thread" data-support-thread hidden>
       <div class="fity-support-thread-meta">
         <span data-support-topic-label>General help</span>
@@ -42,6 +64,8 @@ MIT License, Copyright (c) vinodjangid07 (Vinod Jangid) -->
         <span data-support-loader-message>Connecting you with support…</span>
       </div>
       <div class="fity-support-messages" data-support-messages aria-live="polite" aria-relevant="additions"></div>
+      <div class="fity-support-quick-replies" data-support-quick-replies aria-label="Suggested replies"></div>
+      <p class="fity-support-typing" data-support-bot-typing hidden>FityStores assistant is typing…</p>
       <p class="fity-support-typing" data-support-typing hidden>An agent is typing…</p>
       <p class="fity-support-error" data-support-error role="alert" hidden></p>
       <form class="fity-support-compose" data-support-compose>
@@ -49,8 +73,8 @@ MIT License, Copyright (c) vinodjangid07 (Vinod Jangid) -->
         <textarea id="fity-support-message" name="body" maxlength="2000" rows="2" placeholder="Write a message…" required></textarea>
         <button type="submit" aria-label="Send message"><svg aria-hidden="true"><use href="#icon-arrow"></use></svg></button>
       </form>
-      <small class="fity-support-footnote">We’ll reply here when an agent is available.</small>
-      <button class="fity-support-restart" type="button" data-support-restart hidden>Choose a topic</button>
+      <small class="fity-support-footnote">Your support conversation and replies stay here in your account.</small>
+      <button class="fity-support-restart" type="button" data-support-restart hidden>Start another chat</button>
     </div>
   </section>
 </div>

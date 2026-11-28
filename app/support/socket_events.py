@@ -11,12 +11,11 @@ from app.extensions import db, socketio
 from app.models import SupportAgentPresence, SupportConversation
 from app.services.support_chat import (
     PRESENCE_FRESHNESS,
-    SUPPORT_GUEST_COOKIE,
     allow_support_action,
     conversation_payload,
     conversation_room,
     current_admin,
-    guest_token_digest,
+    current_customer,
     owns_conversation,
 )
 
@@ -74,10 +73,10 @@ def typing(payload):
         identity = f"agent:{admin.id}"
         sender_type = "agent"
     else:
-        if not owns_conversation(conversation):
+        customer = current_customer()
+        if not customer or not owns_conversation(conversation):
             return {"ok": False}
-        digest = guest_token_digest(request.cookies.get(SUPPORT_GUEST_COOKIE))
-        identity = f"guest:{digest or conversation.account_id}"
+        identity = f"customer:{customer.id}"
         sender_type = "customer"
     if not allow_support_action(
         "support_typing",

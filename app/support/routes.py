@@ -13,13 +13,12 @@ from flask import (
     abort,
     current_app,
     jsonify,
-    make_response,
     render_template,
     request,
     url_for,
 )
 from flask_login import current_user, login_required
-from sqlalchemy import or_, update
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.extensions import db, socketio
@@ -30,20 +29,20 @@ from app.models import (
     SupportConversation,
     SupportMessage,
 )
-from app.services.customer_mail import queue_email
+from app.services.customer_mail import deliver_email, queue_email
 from app.services.support_chat import (
     PRESENCE_FRESHNESS,
-    SUPPORT_GUEST_COOKIE,
     SUPPORT_TOPICS,
     allow_support_action,
     conversation_payload,
     conversation_room,
     current_admin,
     current_customer,
-    guest_token_digest,
     message_payload,
     owns_conversation,
     presence_is_fresh,
+    support_bot_opening,
+    support_bot_reply,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,31 +57,35 @@ def prevent_support_api_caching(response):
     return response
 
 
-def _support_identity(guest_digest: str | None) -> str:
+def _support_identity() -> str:
     customer = current_customer()
-    if customer:
-        return f"customer:{customer.id}"
-    return f"guest:{guest_digest or 'missing'}"
+    return f"customer:{customer.id}" if customer else "customer:missing"
 
 
-def _new_or_existing_conversation(topic: str, guest_digest: str | None):
-    customer = current_customer()
-    identity_filter = (
-        SupportConversation.account_id == customer.id
-        if customer
-        else SupportConversation.guest_token_hash == guest_digest
-    )
+def _new_or_existing_conversation(
+    topic: str,
+    customer,
+    first_name: str,
+    last_name: str,
+):
+    identity_filter = SupportConversation.account_id == customer.id
     existing = SupportConversation.query.filter(
         identity_filter,
         SupportConversation.status != "closed",
     ).order_by(SupportConversation.created_at.desc()).first()
     if existing:
+        existing.topic = topic
+        existing.customer_first_name = first_name
+        existing.customer_last_name = last_name
+        existing.updated_at = datetime.utcnow()
+        db.session.commit()
         return existing, False
 
     conversation = SupportConversation(
         public_id=token_urlsafe(18),
-        account_id=customer.id if customer else None,
-        guest_token_hash=guest_digest,
+        account_id=customer.id,
+        customer_first_name=first_name,
+        customer_last_name=last_name,
         topic=topic,
         status="waiting",
         last_message_at=datetime.utcnow(),
@@ -98,8 +101,26 @@ def _new_or_existing_conversation(topic: str, guest_digest: str | None):
             SupportConversation.status != "closed",
         ).order_by(SupportConversation.created_at.desc()).first()
         if raced:
+            raced.topic = topic
+            raced.customer_first_name = first_name
+            raced.customer_last_name = last_name
+            db.session.commit()
             return raced, False
         raise
+
+
+def _valid_message_id(value: str) -> bool:
+    if not _MESSAGE_ID_PATTERN.fullmatch(value):
+        return False
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _clean_chat_name(value) -> str:
+    return " ".join(str(value or "").split())[:80]
 
 
 def _queue_support_notice(conversation: SupportConversation, first_message: SupportMessage) -> None:
@@ -123,30 +144,51 @@ def _queue_support_notice(conversation: SupportConversation, first_message: Supp
         + url_for("support_admin.dashboard", conversation=conversation.public_id)
     )
     message_preview = first_message.body[:500]
+    customer_name = (
+        f"{conversation.customer_first_name} {conversation.customer_last_name}".strip()
+    )
+    customer_email = conversation.account.email if conversation.account else ""
     safe_preview = escape_html(message_preview)
     safe_url = escape_html(support_url, quote=True)
+    safe_name = escape_html(customer_name)
+    safe_email = escape_html(customer_email)
     try:
-        queue_email(
+        notice = queue_email(
             recipient,
             f"New FityStores support message: {SUPPORT_TOPICS[conversation.topic]}",
             "support_request",
             f"support_request:{conversation.public_id}",
             html_body=(
                 "<p>A customer has sent a message to FityStores support.</p>"
+                f"<p>Customer: {safe_name} ({safe_email})</p>"
                 f"<p>Topic: {SUPPORT_TOPICS[conversation.topic]}</p>"
                 f"<p>Message: {safe_preview}</p>"
                 f'<p><a href="{safe_url}">Open this conversation in the FityStores support inbox</a></p>'
             ),
             text_body=(
                 "A customer has sent a message to FityStores support.\n"
+                f"Customer: {customer_name} ({customer_email})\n"
                 f"Topic: {SUPPORT_TOPICS[conversation.topic]}\n"
                 f"Message: {message_preview}\n"
                 f"Open this conversation in the FityStores support inbox: {support_url}"
             ),
-            commit=True,
+            commit=False,
         )
         conversation.notification_status = "queued"
         db.session.commit()
+        if notice.status == "queued":
+            app = current_app._get_current_object()
+            try:
+                socketio.start_background_task(
+                    _dispatch_support_notice,
+                    app,
+                    notice.id,
+                )
+            except Exception:
+                logger.exception(
+                    "support_notice_background_dispatch_start_failed conversation_id=%s",
+                    conversation.id,
+                )
     except (SQLAlchemyError, ValueError):
         db.session.rollback()
         logger.exception("support_notice_enqueue_failed conversation_id=%s", conversation.id)
@@ -156,6 +198,19 @@ def _queue_support_notice(conversation: SupportConversation, first_message: Supp
             .values(notification_status="failed", updated_at=datetime.utcnow())
         )
         db.session.commit()
+
+
+def _dispatch_support_notice(app, message_id: int) -> None:
+    with app.app_context():
+        try:
+            notice = db.session.get(EmailMessage, message_id)
+            if notice and notice.status == "queued":
+                deliver_email(notice)
+        except Exception:
+            db.session.rollback()
+            logger.exception("support_notice_background_dispatch_failed message_id=%s", message_id)
+        finally:
+            db.session.remove()
 
 
 def _find_owned_conversation(public_id: str) -> SupportConversation:
@@ -225,42 +280,22 @@ def _store_message(
         raise
 
 
-def _ensure_handoff_message(
+def _store_bot_message(
     conversation: SupportConversation,
-    customer_name: str,
+    body: str,
+    triggering_message_id: str,
 ) -> tuple[SupportMessage, bool]:
     namespace = uuid5(NAMESPACE_URL, str(current_app.secret_key))
-    client_message_id = str(uuid5(namespace, f"support-handoff:{conversation.public_id}"))
-    existing = SupportMessage.query.filter_by(
-        conversation_id=conversation.id,
-        client_message_id=client_message_id,
-        sender_type="agent",
-        sender_admin_id=None,
-        sender_name="FityStores",
-    ).first()
-    if existing:
-        return existing, False
-
-    available_agents = SupportAgentPresence.query.filter(
-        SupportAgentPresence.status == "available",
-        SupportAgentPresence.heartbeat_at >= datetime.utcnow() - PRESENCE_FRESHNESS,
-    ).count()
-    first_name = customer_name.strip().split(maxsplit=1)[0] if customer_name.strip() else "there"
-    if available_agents:
-        body = (
-            f"Thanks, {first_name}. I’m connecting you to an available customer care agent now."
-        )
-    else:
-        body = (
-            f"Thanks, {first_name}. I’ve notified our customer care team. "
-            "They’ll reply here as soon as an agent is available."
-        )
+    bot_message_id = str(uuid5(
+        namespace,
+        f"support-bot:{conversation.public_id}:{triggering_message_id}",
+    ))
     return _store_message(
         conversation,
         body,
-        client_message_id,
+        bot_message_id,
         sender_type="agent",
-        sender_name="FityStores",
+        sender_name="FityStores Assistant",
     )
 
 
@@ -277,22 +312,14 @@ def customer_presence():
 @support_bp.get("/conversations")
 def customer_conversations():
     customer = current_customer()
-    guest_digest = guest_token_digest(request.cookies.get(SUPPORT_GUEST_COOKIE))
+    if not customer:
+        return jsonify({"error": "Sign in with your FityStores account to use chat."}), 401
     query = SupportConversation.query.filter(SupportConversation.status != "closed")
-    if customer:
-        ownership_filters = [SupportConversation.account_id == customer.id]
-        if guest_digest:
-            ownership_filters.append(SupportConversation.guest_token_hash == guest_digest)
-        query = query.filter(
-            or_(*ownership_filters)
-        )
-    elif guest_digest:
-        query = query.filter(
-            SupportConversation.account_id.is_(None),
-            SupportConversation.guest_token_hash == guest_digest,
-        )
-    else:
-        return jsonify({"conversations": []})
+    query = query.filter(
+        SupportConversation.account_id == customer.id,
+        SupportConversation.customer_first_name != "",
+        SupportConversation.customer_last_name != "",
+    )
     conversations = query.order_by(SupportConversation.last_message_at.desc()).limit(10).all()
     return jsonify({"conversations": [conversation_payload(item) for item in conversations]})
 
@@ -302,55 +329,75 @@ def create_conversation():
     if current_admin():
         abort(403)
     customer = current_customer()
-    if current_user.is_authenticated and not customer:
-        abort(403)
+    if not customer:
+        return jsonify({"error": "Sign in with your FityStores account to use chat."}), 401
     payload = request.get_json(silent=True) or {}
     topic = str(payload.get("topic") or "general").strip().lower()
     if topic not in SUPPORT_TOPICS:
         return jsonify({"error": "Choose a valid support topic."}), 400
-
-    raw_guest_token = None
-    guest_digest = None
-    if not customer:
-        raw_guest_token = request.cookies.get(SUPPORT_GUEST_COOKIE)
-        if not raw_guest_token or not guest_token_digest(raw_guest_token):
-            raw_guest_token = token_urlsafe(32)
-        guest_digest = guest_token_digest(raw_guest_token)
+    first_name = _clean_chat_name(payload.get("first_name"))
+    last_name = _clean_chat_name(payload.get("last_name"))
+    body = str(payload.get("body") or "").strip()
+    client_message_id = str(payload.get("client_message_id") or "").strip()
+    if not first_name or not last_name:
+        return jsonify({"error": "Enter your first and last name for this chat."}), 400
+    if not body or len(body) > 2000:
+        return jsonify({"error": "Your first message must contain 1–2000 characters."}), 400
+    if not _valid_message_id(client_message_id):
+        return jsonify({"error": "Invalid message identifier."}), 400
     if not allow_support_action(
         "support_conversation",
-        _support_identity(guest_digest),
+        _support_identity(),
         limit=5,
         window_minutes=15,
     ):
         return jsonify({"error": "Please wait before starting another support chat."}), 429
 
     try:
-        conversation, created = _new_or_existing_conversation(topic, guest_digest)
+        conversation, created = _new_or_existing_conversation(
+            topic, customer, first_name, last_name
+        )
     except SQLAlchemyError:
         db.session.rollback()
         logger.exception("support_conversation_create_failed")
         return jsonify({"error": "Support chat is temporarily unavailable. Please try again."}), 503
 
-    response = make_response(
-        jsonify(
-            {
-                "conversation": conversation_payload(conversation),
-                "created": created,
-            }
-        ),
-        201 if created else 200,
-    )
-    if raw_guest_token:
-        response.set_cookie(
-            SUPPORT_GUEST_COOKIE,
-            raw_guest_token,
-            max_age=60 * 60 * 24 * 90,
-            secure=bool(current_app.config.get("SESSION_COOKIE_SECURE", True)),
-            httponly=True,
-            samesite="Lax",
-            path="/",
+    try:
+        message, message_created = _store_message(
+            conversation,
+            body,
+            client_message_id,
+            sender_type="customer",
+            sender_name=f"{first_name} {last_name}"[:100],
+            sender_account_id=customer.id,
         )
-    return response
+        if not message:
+            return jsonify({"error": "Message identifier was already used."}), 409
+        opening = support_bot_opening(topic, first_name, body)
+        bot_message, bot_created = _store_bot_message(
+            conversation,
+            opening["body"],
+            client_message_id,
+        )
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("support_initial_message_create_failed conversation_id=%s", conversation.id)
+        return jsonify({"error": "Your message could not be saved. Please try again."}), 503
+
+    if message_created:
+        _emit_message(conversation, message)
+    if bot_created:
+        _emit_message(conversation, bot_message)
+    _queue_support_notice(conversation, message)
+    return jsonify(
+        {
+            "conversation": conversation_payload(conversation),
+            "message": message_payload(message),
+            "bot_message": message_payload(bot_message),
+            "quick_replies": opening["quick_replies"],
+            "created": created,
+        }
+    ), 201 if message_created else 200
 
 
 @support_bp.get("/conversations/<public_id>/messages")
@@ -374,6 +421,8 @@ def customer_messages(public_id: str):
 
 @support_bp.post("/conversations/<public_id>/messages")
 def customer_send_message(public_id: str):
+    if not current_customer():
+        return jsonify({"error": "Sign in with your FityStores account to use chat."}), 401
     conversation = _find_owned_conversation(public_id)
     if conversation.status == "closed":
         return jsonify({"error": "This conversation is closed. Start a new chat for more help."}), 409
@@ -382,19 +431,15 @@ def customer_send_message(public_id: str):
     client_message_id = str(payload.get("client_message_id") or "").strip()
     if not body or len(body) > 2000:
         return jsonify({"error": "Messages must contain 1–2000 characters."}), 400
-    if not _MESSAGE_ID_PATTERN.fullmatch(client_message_id):
-        return jsonify({"error": "Invalid message identifier."}), 400
-    try:
-        UUID(client_message_id)
-    except ValueError:
+    if not _valid_message_id(client_message_id):
         return jsonify({"error": "Invalid message identifier."}), 400
     customer = current_customer()
-    sender_name = (customer.display_name.strip() or "Customer") if customer else "Customer"
-    identity = (
-        f"customer:{current_customer().id}"
-        if current_customer()
-        else f"guest:{conversation.guest_token_hash}"
+    sender_name = (
+        f"{conversation.customer_first_name} {conversation.customer_last_name}".strip()
     )
+    if not sender_name:
+        return jsonify({"error": "Add your chat name before sending a message."}), 409
+    identity = f"customer:{customer.id}"
     existing = SupportMessage.query.filter_by(
         conversation_id=conversation.id,
         client_message_id=client_message_id,
@@ -425,25 +470,170 @@ def customer_send_message(public_id: str):
 
     if created:
         _emit_message(conversation, message)
-    try:
-        handoff_message, handoff_created = _ensure_handoff_message(
-            conversation,
-            customer.display_name if customer else "",
-        )
-    except SQLAlchemyError:
-        db.session.rollback()
-        logger.exception("support_handoff_message_create_failed conversation_id=%s", conversation.id)
-        return jsonify({"error": "Your message was saved, but support could not acknowledge it. Please retry."}), 503
-    if handoff_created:
-        _emit_message(conversation, handoff_message)
-    _queue_support_notice(conversation, message)
+    bot_message = None
+    quick_replies = []
+    if conversation.status == "waiting" and not conversation.escalation_requested_at:
+        try:
+            answer, quick_replies = support_bot_reply(conversation.topic, body)
+            bot_message, bot_created = _store_bot_message(
+                conversation,
+                answer,
+                client_message_id,
+            )
+        except SQLAlchemyError:
+            db.session.rollback()
+            logger.exception("support_bot_reply_create_failed conversation_id=%s", conversation.id)
+            return jsonify(
+                {
+                    "error": "Your message was saved, but the FityStores assistant could not reply."
+                }
+            ), 503
+        if bot_created:
+            _emit_message(conversation, bot_message)
     return jsonify(
         {
             "message": message_payload(message),
-            "handoff_message": message_payload(handoff_message),
-            "handoff_created": handoff_created,
+            "bot_message": message_payload(bot_message) if bot_message else None,
+            "quick_replies": quick_replies,
         }
     ), 201 if created else 200
+
+
+@support_bp.post("/conversations/<public_id>/escalate")
+def customer_request_agent(public_id: str):
+    customer = current_customer()
+    if not customer:
+        return jsonify({"error": "Sign in with your FityStores account to use chat."}), 401
+    conversation = _find_owned_conversation(public_id)
+    if conversation.status == "closed":
+        return jsonify({"error": "This conversation is closed."}), 409
+    if conversation.status == "assigned":
+        return jsonify(
+            {
+                "conversation": conversation_payload(conversation),
+                "customer_message": None,
+                "bot_message": None,
+            }
+        ), 200
+
+    if not allow_support_action(
+        "support_escalation",
+        f"customer:{customer.id}",
+        limit=5,
+        window_minutes=15,
+    ):
+        return jsonify({"error": "Please wait before requesting customer care again."}), 429
+
+    request_id = str(uuid5(
+        uuid5(NAMESPACE_URL, str(current_app.secret_key)),
+        f"support-escalation-request:{conversation.public_id}",
+    ))
+    try:
+        conversation.escalation_requested_at = (
+            conversation.escalation_requested_at or datetime.utcnow()
+        )
+        db.session.commit()
+        customer_message, customer_created = _store_message(
+            conversation,
+            "Please connect me with customer care.",
+            request_id,
+            sender_type="customer",
+            sender_name=(
+                f"{conversation.customer_first_name} {conversation.customer_last_name}".strip()
+            ),
+            sender_account_id=customer.id,
+        )
+        bot_message, bot_created = _store_bot_message(
+            conversation,
+            (
+                "I’ve notified customer care. Thanks for your patience while we find an "
+                "available agent; we’ll update this chat as soon as someone joins."
+            ),
+            request_id,
+        )
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("support_escalation_request_failed conversation_id=%s", conversation.id)
+        return jsonify({"error": "Customer care could not be contacted. Please try again."}), 503
+    if customer_created:
+        _emit_message(conversation, customer_message)
+    if bot_created:
+        _emit_message(conversation, bot_message)
+    socketio.emit(
+        "queue_update",
+        {"conversation_id": conversation.public_id, "status": conversation.status},
+        to="support-agents",
+        namespace="/support",
+    )
+    return jsonify(
+        {
+            "conversation": conversation_payload(conversation),
+            "customer_message": message_payload(customer_message),
+            "bot_message": message_payload(bot_message),
+        }
+    ), 200 if not customer_created else 201
+
+
+@support_bp.post("/conversations/<public_id>/resolve")
+def customer_resolve_conversation(public_id: str):
+    customer = current_customer()
+    if not customer:
+        return jsonify({"error": "Sign in with your FityStores account to use chat."}), 401
+    conversation = _find_owned_conversation(public_id)
+    if conversation.status != "waiting" or conversation.escalation_requested_at:
+        return jsonify({"error": "This conversation can no longer be resolved by the assistant."}), 409
+    if not allow_support_action(
+        "support_resolution",
+        f"customer:{customer.id}",
+        limit=10,
+        window_minutes=15,
+    ):
+        return jsonify({"error": "Please wait before resolving another support chat."}), 429
+
+    resolution_id = str(uuid5(
+        uuid5(NAMESPACE_URL, str(current_app.secret_key)),
+        f"support-resolved:{conversation.public_id}",
+    ))
+    try:
+        customer_message, customer_created = _store_message(
+            conversation,
+            "That answered my question.",
+            resolution_id,
+            sender_type="customer",
+            sender_name=(
+                f"{conversation.customer_first_name} {conversation.customer_last_name}".strip()
+            ),
+            sender_account_id=customer.id,
+        )
+        bot_message, bot_created = _store_bot_message(
+            conversation,
+            "Glad I could help. You can start another chat any time you need us.",
+            resolution_id,
+        )
+        conversation.status = "closed"
+        conversation.updated_at = datetime.utcnow()
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception("support_conversation_resolve_failed conversation_id=%s", conversation.id)
+        return jsonify({"error": "Your support chat could not be closed. Please try again."}), 503
+    if customer_created:
+        _emit_message(conversation, customer_message)
+    if bot_created:
+        _emit_message(conversation, bot_message)
+    socketio.emit(
+        "closed",
+        {"conversation": conversation_payload(conversation)},
+        to=conversation_room(conversation),
+        namespace="/support",
+    )
+    return jsonify(
+        {
+            "conversation": conversation_payload(conversation),
+            "customer_message": message_payload(customer_message),
+            "bot_message": message_payload(bot_message),
+        }
+    ), 200 if not customer_created else 201
 
 
 def _require_support_admin():
@@ -465,7 +655,7 @@ def dashboard():
 def admin_conversations():
     _require_support_admin()
     conversations = SupportConversation.query.filter(
-        SupportConversation.status != "closed"
+        SupportConversation.status != "closed",
     ).order_by(
         SupportConversation.status.asc(),
         SupportConversation.last_message_at.desc(),
@@ -474,7 +664,8 @@ def admin_conversations():
     for conversation in conversations:
         item = conversation_payload(conversation)
         item["customer_name"] = (
-            conversation.account.display_name if conversation.account else "Guest customer"
+            f"{conversation.customer_first_name} {conversation.customer_last_name}".strip()
+            or (conversation.account.display_name if conversation.account else "Customer")
         )
         item["customer_email"] = conversation.account.email if conversation.account else None
         item["notification_status"] = conversation.notification_status
@@ -517,6 +708,8 @@ def admin_messages(public_id: str):
 def claim_conversation(public_id: str):
     admin = _require_support_admin()
     conversation = SupportConversation.query.filter_by(public_id=public_id).first_or_404()
+    if not conversation.escalation_requested_at:
+        return jsonify({"error": "The customer has not requested a support agent."}), 409
     if conversation.status == "assigned" and conversation.assigned_admin_id == admin.id:
         return jsonify({"conversation": conversation_payload(conversation)})
     if conversation.status != "waiting":
@@ -528,6 +721,7 @@ def claim_conversation(public_id: str):
             SupportConversation.id == conversation.id,
             SupportConversation.status == "waiting",
             SupportConversation.assigned_admin_id.is_(None),
+            SupportConversation.escalation_requested_at.is_not(None),
         )
         .values(
             status="assigned",
@@ -560,6 +754,8 @@ def claim_conversation(public_id: str):
 def admin_send_message(public_id: str):
     admin = _require_support_admin()
     conversation = SupportConversation.query.filter_by(public_id=public_id).first_or_404()
+    if not conversation.escalation_requested_at:
+        return jsonify({"error": "The customer has not requested a support agent."}), 409
     if conversation.status == "closed":
         return jsonify({"error": "This conversation is closed."}), 409
     if conversation.assigned_admin_id != admin.id:
@@ -615,6 +811,8 @@ def admin_send_message(public_id: str):
 def close_conversation(public_id: str):
     admin = _require_support_admin()
     conversation = SupportConversation.query.filter_by(public_id=public_id).first_or_404()
+    if not conversation.escalation_requested_at:
+        return jsonify({"error": "The customer has not requested a support agent."}), 409
     if conversation.assigned_admin_id not in {None, admin.id}:
         return jsonify({"error": "Only the assigned agent can close this conversation."}), 403
     conversation.status = "closed"

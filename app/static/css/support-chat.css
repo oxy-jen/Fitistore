@@ -196,6 +196,49 @@
   padding: 21px 18px 17px;
 }
 
+.fity-support-signin,
+.fity-support-prechat {
+  overflow-y: auto;
+  padding: 20px 18px 18px;
+}
+
+.fity-support-signin > p:not(.fity-support-greeting) {
+  margin: 0 0 15px;
+  color: #555;
+  font-size: .86rem;
+  line-height: 1.5;
+}
+
+.fity-support-signin-link,
+.fity-support-start {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 16px;
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  background: var(--support-red);
+  cursor: pointer;
+  font: inherit;
+  font-size: .84rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.fity-support-signin-link:hover,
+.fity-support-start:hover {
+  color: #fff;
+  background: #bd1d30;
+}
+
+.fity-support-signin-note {
+  margin: 12px 0 0 !important;
+  color: var(--support-muted) !important;
+  font-size: .72rem !important;
+}
+
 .fity-support-intro {
   margin: 0 0 14px;
   color: #3a3a3a;
@@ -215,6 +258,119 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 9px;
+}
+
+.fity-support-back {
+  margin: 0 0 14px;
+  padding: 4px 0;
+  border: 0;
+  color: #a71927;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: .75rem;
+  font-weight: 750;
+}
+
+.fity-support-back:hover {
+  text-decoration: underline;
+}
+
+.fity-support-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 13px 0 16px;
+}
+
+.fity-support-suggestion {
+  padding: 7px 10px;
+  border: 1px solid #e8c7cb;
+  border-radius: 999px;
+  color: #6d2028;
+  background: #fff8f8;
+  cursor: pointer;
+  font: inherit;
+  font-size: .71rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.fity-support-suggestion:hover,
+.fity-support-suggestion:focus-visible {
+  border-color: var(--support-red);
+  background: #fff0f2;
+}
+
+.fity-support-name-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.fity-support-name-fields label,
+.fity-support-message-label {
+  display: grid;
+  gap: 5px;
+  color: #363636;
+  font-size: .73rem;
+  font-weight: 750;
+}
+
+.fity-support-name-fields input,
+.fity-support-first-message textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #dcdcdc;
+  border-radius: 8px;
+  color: var(--support-ink);
+  background: #fff;
+  font: inherit;
+  font-size: .8rem;
+}
+
+.fity-support-first-message {
+  display: grid;
+  gap: 11px;
+}
+
+.fity-support-message-label {
+  margin-bottom: -6px;
+}
+
+.fity-support-first-message textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.fity-support-name-fields input:focus,
+.fity-support-first-message textarea:focus {
+  border-color: var(--support-red);
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(229, 35, 53, .1);
+}
+
+.fity-support-start {
+  justify-self: end;
+}
+
+.fity-support-start:disabled {
+  opacity: .6;
+  cursor: wait;
+}
+
+.fity-support-prechat-typing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #666;
+  font-size: .75rem;
+}
+
+.fity-support-prechat-typing[hidden] {
+  display: none;
 }
 
 .fity-support-topic-grid button {
@@ -287,6 +443,41 @@
   text-align: right;
 }
 
+.fity-support-quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 0 2px 8px;
+}
+
+.fity-support-quick-replies:empty {
+  display: none;
+}
+
+.fity-support-quick-reply {
+  padding: 7px 10px;
+  border: 1px solid #e8c7cb;
+  border-radius: 999px;
+  color: #6d2028;
+  background: #fff8f8;
+  cursor: pointer;
+  font: inherit;
+  font-size: .71rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.fity-support-quick-reply:hover,
+.fity-support-quick-reply:focus-visible {
+  border-color: var(--support-red);
+  background: #fff0f2;
+}
+
+.fity-support-quick-reply:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+
 .fity-support-messages {
   display: flex;
   min-height: 120px;
@@ -316,6 +507,10 @@
   border-radius: 13px 13px 4px 13px;
   color: #fff;
   background: var(--support-red);
+}
+
+.fity-support-message.is-pending {
+  opacity: .78;
 }
 
 .fity-support-message strong {
@@ -715,6 +910,10 @@
 
   .fity-support-panel {
     right: 12px;
+  }
+
+  .fity-support-name-fields {
+    grid-template-columns: 1fr;
   }
 
   .fity-support-launcher {

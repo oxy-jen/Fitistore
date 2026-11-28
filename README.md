@@ -173,16 +173,24 @@ Do not run `init-db` against production PostgreSQL. It is reserved for local SQL
 
 ### Customer support chat
 
-The storefront support launcher stores guest access in an HTTP-only browser
-cookie and links conversations to customer accounts when signed in.
+Only signed-in customers can open a support conversation; names are collected
+for the chat without changing the account profile.
 Staff use the admin-only inbox at `/admin/support/`; replies and conversation
-history are persisted in the application database. The first customer message
-gets a personalized FityStores handoff reply and queues an alert to
-`orders@fitystore.top` by default (`SUPPORT_EMAIL` can override it). The alert
-links directly to that chat using `PUBLIC_BASE_URL`. When mail delivery is
-configured and the sender is verified, the outbox attempts immediate delivery;
-otherwise it keeps the notification queued for the transactional workflow.
-Configure the `PUBLIC_BASE_URL` and mail settings for the intended environment.
+history are persisted in the application database. A fast, scripted FityStores
+assistant guides customers through common order, payment, delivery, return,
+and product questions. Customer care is notified after the first message;
+customers can request an agent only if the self-service flow does not resolve
+their question.
+Visitors can create or access an account using the existing email verification
+flow (Google sign-in remains available). Category-specific suggested questions
+help customers describe their request. Names are saved on the support
+conversation, not copied into the customer's profile. The initial customer
+message is saved immediately while the admin alert is dispatched in the
+background, so mail-provider latency does not hold up the chat. The alert goes
+to `oxygenvessels@gmail.com` by default (`SUPPORT_EMAIL` can override it) and
+links directly to the chat using `PUBLIC_BASE_URL`. Set
+`MAIL_FROM_ADDRESS=orders@fitystore.top` and verify that sender with the
+configured provider; failed or deferred alerts remain in the outbox for retries.
 
 The support tables are additive and are not created automatically at web-server
 startup. Back up the production database, deploy the code, then run this command
@@ -193,6 +201,10 @@ python -m flask --app manage:app migrate-support-chat-schema \
   --confirmation "APPLY SUPPORT CHAT MIGRATION" \
   --backup-confirmation "I HAVE A VERIFIED RESTORABLE BACKUP"
 ```
+
+Re-run the same command after deploying later support-chat schema additions;
+it adds any missing chat-name or agent-escalation columns without replacing
+existing conversations.
 
 The migration rejects Render SQLite databases and requires the configured
 PostgreSQL database. The live Render start command must use one Gunicorn `gthread` worker with a

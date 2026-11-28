@@ -106,12 +106,14 @@
     topic.textContent = topicNames[conversation.topic] || 'General help';
     title.textContent = conversation.customer_name || conversation.customer_email || 'Customer conversation';
     const assignedToMe = conversation.assigned === adminName;
-    const isWaiting = conversation.status === 'waiting';
+    const isWaiting = conversation.status === 'waiting' && conversation.escalation_requested;
     status.textContent = conversation.status === 'assigned'
       ? `Assigned to ${conversation.assigned || 'an agent'}`
       : conversation.status === 'closed'
         ? 'Closed'
-        : 'Waiting for an agent';
+        : conversation.escalation_requested
+          ? 'Waiting for an agent'
+          : 'Customer is using self-service';
     claimButton.hidden = !isWaiting;
     closeButton.hidden = !assignedToMe;
     compose.hidden = !assignedToMe || conversation.status === 'closed';
@@ -138,7 +140,12 @@
       excerpt.textContent = conversation.last_message?.body || 'No messages yet';
       const details = document.createElement('small');
       const topicName = topicNames[conversation.topic] || 'General help';
-      details.textContent = `${topicName} · ${conversation.status === 'assigned' ? `Assigned to ${conversation.assigned || 'an agent'}` : 'Waiting'}`;
+      const state = conversation.status === 'assigned'
+        ? `Assigned to ${conversation.assigned || 'an agent'}`
+        : conversation.escalation_requested
+          ? 'Waiting for an agent'
+          : 'Self-service';
+      details.textContent = `${topicName} · ${state}`;
       button.append(name, excerpt, details);
       button.addEventListener('click', () => selectConversation(conversation));
       list.append(button);

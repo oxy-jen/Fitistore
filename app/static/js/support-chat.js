@@ -17,10 +17,21 @@
   const loader = root.querySelector('[data-support-loader]');
   const error = root.querySelector('[data-support-error]');
   const typing = root.querySelector('[data-support-typing]');
+  const botTyping = root.querySelector('[data-support-bot-typing]');
   const availability = root.querySelector('[data-support-availability]');
-  const greeting = root.querySelector('[data-support-greeting]');
   const loaderMessage = root.querySelector('[data-support-loader-message]');
   const restartButton = root.querySelector('[data-support-restart]');
+  const quickReplies = root.querySelector('[data-support-quick-replies]');
+  const signInGate = root.querySelector('[data-support-signin]');
+  const prechat = root.querySelector('[data-support-prechat]');
+  const prechatForm = root.querySelector('[data-support-first-form]');
+  const prechatError = root.querySelector('[data-support-prechat-error]');
+  const prechatTyping = root.querySelector('[data-support-prechat-typing]');
+  const topicPrompt = root.querySelector('[data-support-topic-prompt]');
+  const suggestions = root.querySelector('[data-support-suggestions]');
+  const firstNameInput = prechatForm.elements.first_name;
+  const lastNameInput = prechatForm.elements.last_name;
+  const firstMessageInput = prechatForm.elements.body;
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
   const cookieNotice = document.querySelector('[data-cookie-notice]');
   const topicNames = {
@@ -31,20 +42,46 @@
     returns: 'Returns',
     products: 'Products',
   };
+  const topicPrompts = {
+    general: {
+      prompt: 'What would you like help with today?',
+      suggestions: ['I need help with an order.', 'I have a question about FityStores.'],
+    },
+    orders: {
+      prompt: 'What would you like to know about your order?',
+      suggestions: ['I already placed an order.', 'I need help placing an order.'],
+    },
+    payments: {
+      prompt: 'Is this about confirming a payment or choosing how to pay?',
+      suggestions: ['I need help confirming my payment.', 'What payment methods can I use?'],
+    },
+    delivery: {
+      prompt: 'Would you like delivery information or help with an order on its way?',
+      suggestions: ['When will my order be delivered?', 'I need help with an existing delivery.'],
+    },
+    returns: {
+      prompt: 'What can we help with for your return or refund?',
+      suggestions: ['I need help returning an item.', 'I have a question about a refund.'],
+    },
+    products: {
+      prompt: 'What would you like to know about a product?',
+      suggestions: ['Is this product available?', 'I have a question about a product.'],
+    },
+  };
 
+  const isAuthenticated = root.dataset.supportAuthenticated === 'true';
   let conversation = null;
+  let selectedTopic = null;
   let cursor = 0;
   let socket = null;
   let typingTimer = null;
   let customerTyping = false;
   let loading = false;
+  let sendingMessage = false;
   let pendingMessage = null;
-  let handoffShown = false;
-  let handoffAnimationTimer = null;
+  let pendingInitialMessage = null;
   const renderedIds = new Set();
-
-  const customerName = root.dataset.supportCustomerName?.trim();
-  greeting.textContent = `Hi ${customerName || 'there'}, welcome to FityStores! How can we help you today?`;
+  const optimisticMessages = new Map();
 
   function avoidCookieNoticeOverlap() {
     root.style.removeProperty('--support-launcher-bottom');
@@ -125,9 +162,24 @@
   }
 
   function appendMessage(message) {
-    if (!message || renderedIds.has(message.id)) return;
+    if (!message) return;
+    const optimistic = message.client_message_id
+      ? optimisticMessages.get(message.client_message_id)
+      : null;
+    if (optimistic) {
+      optimistic.replaceWith(createMessageElement(message));
+      optimisticMessages.delete(message.client_message_id);
+      renderedIds.add(message.id);
+      messages.scrollTop = messages.scrollHeight;
+      return;
+    }
+    if (renderedIds.has(message.id)) return;
     renderedIds.add(message.id);
-    if (message.sender_type === 'agent' && message.sender_name === 'FityStores') handoffShown = true;
+    messages.append(createMessageElement(message));
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function createMessageElement(message) {
     const article = document.createElement('article');
     article.className = `fity-support-message${message.sender_type === 'customer' ? ' is-customer' : ''}`;
     const sender = document.createElement('strong');
@@ -141,8 +193,28 @@
       ? ''
       : date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     article.append(sender, body, time);
+    return article;
+  }
+
+  function appendOptimisticMessage(body, clientMessageId) {
+    const article = createMessageElement({
+      id: `pending-${clientMessageId}`,
+      sender_type: 'customer',
+      sender_name: 'You',
+      body,
+      created_at: new Date().toISOString(),
+    });
+    article.classList.add('is-pending');
+    article.querySelector('time').textContent = 'Sending…';
+    optimisticMessages.set(clientMessageId, article);
     messages.append(article);
     messages.scrollTop = messages.scrollHeight;
+  }
+
+  function removeOptimisticMessage(clientMessageId) {
+    const article = optimisticMessages.get(clientMessageId);
+    if (article) article.remove();
+    optimisticMessages.delete(clientMessageId);
   }
 
   function updateConversation(next) {
@@ -152,28 +224,30 @@
       ? `Chatting with ${next.assigned || 'an agent'}`
       : next.status === 'closed'
         ? 'This conversation is closed'
-        : 'Waiting for an agent';
+        : next.escalation_requested
+          ? 'Connecting you with customer care…'
+          : 'FityStores virtual assistant';
     textarea.disabled = next.status === 'closed';
     form.querySelector('button[type="submit"]').disabled = next.status === 'closed';
     if (next.status === 'closed') {
-      showError('This conversation has been closed. Choose a topic to start a new one.');
+      loader.hidden = true;
+      quickReplies.replaceChildren();
+      showError('This chat is complete. Start another chat whenever you need us.');
       restartButton.hidden = false;
     }
-    if (next.status === 'assigned') hideHandoffAnimation();
-  }
-
-  function showHandoffAnimation() {
-    loaderMessage.textContent = 'Connecting you with customer care…';
-    loader.hidden = false;
-    clearTimeout(handoffAnimationTimer);
-    handoffAnimationTimer = window.setTimeout(() => {
-      if (conversation?.status !== 'assigned') loader.hidden = true;
-    }, 1800);
-  }
-
-  function hideHandoffAnimation() {
-    clearTimeout(handoffAnimationTimer);
-    loader.hidden = true;
+    if (next.status === 'assigned') {
+      loader.hidden = true;
+      quickReplies.replaceChildren();
+    } else if (next.escalation_requested) {
+      loaderMessage.textContent = (
+        'We’re finding an available customer care agent. Thanks for your patience; '
+        + 'we’ll update this chat as soon as someone joins.'
+      );
+      loader.hidden = false;
+      quickReplies.replaceChildren();
+    } else {
+      loader.hidden = true;
+    }
   }
 
   async function refreshMessages() {
@@ -186,7 +260,6 @@
       if (data.messages.length) cursor = Math.max(cursor, ...data.messages.map((message) => message.id));
     } catch (requestError) {
       showError(requestError.message);
-      restartButton.hidden = false;
     } finally {
       loading = false;
     }
@@ -225,7 +298,10 @@
     });
     socket.on('presence', (data) => updateAvailability(Boolean(data?.available)));
     socket.on('disconnect', () => {
-      if (conversation) assignment.textContent = 'Reconnecting…';
+      if (conversation) {
+        typing.hidden = true;
+        customerTyping = false;
+      }
     });
   }
 
@@ -242,6 +318,46 @@
     availability.textContent = available ? 'An agent is available' : 'We’ll reply as soon as an agent is available';
   }
 
+  function renderQuickReplies(replies) {
+    quickReplies.replaceChildren();
+    (replies || []).forEach((reply) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'fity-support-quick-reply';
+      button.textContent = reply.label;
+      button.addEventListener('click', () => {
+        if (sendingMessage || button.disabled) return;
+        if (reply.action === 'escalate') {
+          requestCustomerCare();
+        } else if (reply.action === 'resolve') {
+          resolveConversation();
+        } else if (reply.message) {
+          sendCustomerMessage(reply.message);
+        }
+      });
+      quickReplies.append(button);
+    });
+  }
+
+  function resumedQuickReplies(topic) {
+    const messagesByTopic = {
+      general: ['I need help with an order', 'I have a payment question', 'I have a delivery question'],
+      orders: ['I need an order confirmation', 'I need to track my order', 'I have a payment issue'],
+      payments: ['I have already paid', 'What payment methods can I use?'],
+      delivery: ['I have an existing delivery', 'What delivery options are available?'],
+      returns: ['I need help with a return', 'I have a question about a refund'],
+      products: ['Is this product available?', 'I have a product question'],
+    };
+    return [
+      ...(messagesByTopic[topic] || messagesByTopic.general).map((message) => ({
+        label: message,
+        message,
+        action: 'reply',
+      })),
+      { label: 'Connect me to customer care', action: 'escalate' },
+    ];
+  }
+
   function newMessageId() {
     if (window.crypto?.randomUUID) return window.crypto.randomUUID();
     const bytes = new Uint8Array(16);
@@ -254,32 +370,86 @@
 
   async function openConversation(topic) {
     clearError();
+    if (!isAuthenticated) return;
+    selectedTopic = topic;
     topics.hidden = true;
-    thread.hidden = false;
-    loader.hidden = false;
-    messages.replaceChildren();
-    renderedIds.clear();
-    cursor = 0;
-    handoffShown = false;
-    hideHandoffAnimation();
+    prechat.hidden = false;
+    thread.hidden = true;
+    signInGate.hidden = true;
+    prechatError.hidden = true;
+    prechatError.textContent = '';
+    topicPrompt.textContent = topicPrompts[topic]?.prompt || topicPrompts.general.prompt;
+    suggestions.replaceChildren();
+    (topicPrompts[topic]?.suggestions || topicPrompts.general.suggestions).forEach((suggestion) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'fity-support-suggestion';
+      button.textContent = suggestion;
+      button.addEventListener('click', () => {
+        firstMessageInput.value = suggestion;
+        firstMessageInput.focus();
+      });
+      suggestions.append(button);
+    });
+    firstNameInput.focus();
+  }
+
+  async function submitInitialMessage(event) {
+    event.preventDefault();
+    if (!isAuthenticated || !selectedTopic || !prechatForm.reportValidity()) return;
+    const body = firstMessageInput.value.trim();
+    const firstName = firstNameInput.value.trim();
+    const lastName = lastNameInput.value.trim();
+    if (!body || !firstName || !lastName) return;
+
+    const submitButton = prechatForm.querySelector('button[type="submit"]');
+    const draftKey = JSON.stringify([selectedTopic, firstName, lastName, body]);
+    if (!pendingInitialMessage || pendingInitialMessage.draftKey !== draftKey) {
+      pendingInitialMessage = { draftKey, id: newMessageId() };
+    }
+    submitButton.disabled = true;
+    prechatTyping.hidden = false;
+    prechatError.hidden = true;
     try {
       const data = await request('/support/conversations', {
         method: 'POST',
-        body: JSON.stringify({ topic }),
+        body: JSON.stringify({
+          topic: selectedTopic,
+          first_name: firstName,
+          last_name: lastName,
+          body,
+          client_message_id: pendingInitialMessage.id,
+        }),
       });
-      updateConversation(data.conversation);
+      conversation = data.conversation;
+      updateConversation(conversation);
       connectSocket();
       joinConversation();
-      await refreshMessages();
+      topics.hidden = true;
+      signInGate.hidden = true;
+      prechat.hidden = true;
+      thread.hidden = false;
+      messages.replaceChildren();
+      renderedIds.clear();
+      cursor = 0;
+      optimisticMessages.clear();
+      appendMessage(data.message);
+      appendMessage(data.bot_message);
+      cursor = Math.max(data.message.id, data.bot_message.id);
+      renderQuickReplies(data.quick_replies);
+      prechatForm.reset();
+      pendingInitialMessage = null;
     } catch (requestError) {
-      showError(requestError.message);
-      restartButton.hidden = false;
+      prechatError.textContent = requestError.message;
+      prechatError.hidden = false;
     } finally {
-      loader.hidden = true;
+      prechatTyping.hidden = true;
+      submitButton.disabled = false;
     }
   }
 
   async function restoreConversation() {
+    if (!isAuthenticated) return;
     try {
       const data = await request('/support/conversations');
       if (!data.conversations?.length) return;
@@ -287,47 +457,99 @@
       topics.hidden = true;
       thread.hidden = false;
       updateConversation(conversation);
-      loader.hidden = false;
       connectSocket();
       joinConversation();
       await refreshMessages();
+      if (!conversation.escalation_requested && conversation.status !== 'closed') {
+        renderQuickReplies(resumedQuickReplies(conversation.topic));
+      }
     } catch {
       availability.textContent = 'Saved chat history could not be checked. Please try again.';
-    } finally {
-      loader.hidden = true;
     }
   }
 
-  async function sendMessage(event) {
-    event.preventDefault();
-    const body = textarea.value.trim();
-    if (!conversation || !body || conversation.status === 'closed') return;
-    const showHandoff = !handoffShown && conversation.status !== 'assigned';
+  async function sendCustomerMessage(body) {
+    if (sendingMessage || !conversation || !body || conversation.status === 'closed') return;
     if (!pendingMessage || pendingMessage.body !== body) {
       pendingMessage = { body, id: newMessageId() };
     }
-    textarea.disabled = true;
+    const messageId = pendingMessage.id;
+    sendingMessage = true;
     form.querySelector('button[type="submit"]').disabled = true;
+    quickReplies.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+    botTyping.hidden = false;
     clearError();
+    appendOptimisticMessage(body, messageId);
     try {
       const data = await request(`/support/conversations/${encodeURIComponent(conversation.id)}/messages`, {
         method: 'POST',
-        body: JSON.stringify({ body, client_message_id: pendingMessage.id }),
+        body: JSON.stringify({ body, client_message_id: messageId }),
       });
       appendMessage(data.message);
-      if (data.handoff_message) appendMessage(data.handoff_message);
-      textarea.value = '';
+      appendMessage(data.bot_message);
+      if (data.bot_message) renderQuickReplies(data.quick_replies);
+      if (textarea.value.trim() === body) textarea.value = '';
       pendingMessage = null;
-      if (showHandoff && data.handoff_message) showHandoffAnimation();
+      if (data.message.id) cursor = Math.max(cursor, data.message.id);
+      if (data.bot_message?.id) cursor = Math.max(cursor, data.bot_message.id);
+      clearTimeout(typingTimer);
+      customerTyping = false;
       if (socket?.connected) socket.emit('typing', { conversation_id: conversation.id, typing: false, csrf_token: csrfToken });
     } catch (requestError) {
+      removeOptimisticMessage(messageId);
       showError(requestError.message);
-      restartButton.hidden = false;
+      if (!textarea.value.trim()) textarea.value = body;
     } finally {
+      sendingMessage = false;
+      botTyping.hidden = true;
       textarea.disabled = conversation?.status === 'closed';
       form.querySelector('button[type="submit"]').disabled = conversation?.status === 'closed';
-      textarea.focus();
+      quickReplies.querySelectorAll('button').forEach((button) => { button.disabled = false; });
     }
+  }
+
+  async function requestCustomerCare() {
+    if (!conversation || conversation.status === 'closed') return;
+    clearError();
+    loaderMessage.textContent = 'Contacting customer care…';
+    loader.hidden = false;
+    quickReplies.replaceChildren();
+    try {
+      const data = await request(
+        `/support/conversations/${encodeURIComponent(conversation.id)}/escalate`,
+        { method: 'POST' },
+      );
+      updateConversation(data.conversation);
+      appendMessage(data.customer_message);
+      appendMessage(data.bot_message);
+      cursor = Math.max(cursor, data.customer_message?.id || 0, data.bot_message?.id || 0);
+    } catch (requestError) {
+      loader.hidden = true;
+      showError(requestError.message);
+      renderQuickReplies(resumedQuickReplies(conversation.topic));
+    }
+  }
+
+  async function resolveConversation() {
+    if (!conversation || conversation.status === 'closed') return;
+    clearError();
+    try {
+      const data = await request(
+        `/support/conversations/${encodeURIComponent(conversation.id)}/resolve`,
+        { method: 'POST' },
+      );
+      appendMessage(data.customer_message);
+      appendMessage(data.bot_message);
+      updateConversation(data.conversation);
+      cursor = Math.max(cursor, data.customer_message.id, data.bot_message.id);
+    } catch (requestError) {
+      showError(requestError.message);
+    }
+  }
+
+  function sendMessage(event) {
+    event.preventDefault();
+    sendCustomerMessage(textarea.value.trim());
   }
 
   launcher.addEventListener('click', () => setOpen(panel.hidden));
@@ -335,6 +557,14 @@
   root.querySelectorAll('[data-support-topic]').forEach((button) => {
     button.addEventListener('click', () => openConversation(button.dataset.supportTopic));
   });
+  root.querySelector('[data-support-back]').addEventListener('click', () => {
+    prechat.hidden = true;
+    topics.hidden = false;
+    prechatError.hidden = true;
+    selectedTopic = null;
+    pendingInitialMessage = null;
+  });
+  prechatForm.addEventListener('submit', submitInitialMessage);
   form.addEventListener('submit', sendMessage);
 
   textarea.addEventListener('input', () => {
@@ -353,15 +583,19 @@
   restartButton.addEventListener('click', () => {
     conversation = null;
     cursor = 0;
-    handoffShown = false;
     pendingMessage = null;
     renderedIds.clear();
+    optimisticMessages.clear();
     messages.replaceChildren();
+    quickReplies.replaceChildren();
     clearError();
-    hideHandoffAnimation();
+    loader.hidden = true;
     restartButton.hidden = true;
     thread.hidden = true;
-    topics.hidden = false;
+    prechat.hidden = true;
+    topics.hidden = !isAuthenticated;
+    signInGate.hidden = isAuthenticated;
+    selectedTopic = null;
   });
 
   document.addEventListener('keydown', (event) => {
@@ -370,11 +604,15 @@
 
   window.setInterval(() => {
     if (conversation && !panel.hidden) refreshMessages();
-  }, 5000);
+  }, 2500);
   window.setInterval(() => {
     if (!panel.hidden) refreshPresence();
   }, 30000);
   avoidCookieNoticeOverlap();
   refreshPresence();
   restoreConversation();
+  if (new URLSearchParams(window.location.search).get('support_chat') === '1') {
+    setOpen(true);
+    if (isAuthenticated) topics.hidden = false;
+  }
 })();

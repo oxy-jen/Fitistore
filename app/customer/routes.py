@@ -173,6 +173,8 @@ def customer_required(view):
 def _safe_customer_next(value):
     parsed = urlsplit((value or "").strip())
     allowed_path = parsed.path in {"/account", "/account/", "/referrals", "/checkout"}
+    allowed_support_return = parsed.path == "/" and parsed.query == "support_chat=1"
+    allowed_path = allowed_path or allowed_support_return
     if parsed.scheme or parsed.netloc or not allowed_path or parsed.path.startswith("//") or "\\" in parsed.path:
         return url_for("customer.dashboard")
     return parsed.path + (("?" + parsed.query) if parsed.query else "")
