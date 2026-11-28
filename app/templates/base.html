@@ -39,7 +39,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/cookie-notice.css') }}?v=cookie-notice-20261127-v1">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}?v=product-gallery-purchase-dock-20261126-v2">
   {% if request.endpoint == 'support_admin.dashboard' or (not (current_user.is_authenticated and current_user.is_admin) and not request.path.startswith('/admin')) %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/support-chat.css') }}?v=support-chat-20261128-v6">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/support-chat.css') }}?v=support-chat-20261128-v7">
   <script defer src="https://cdn.socket.io/4.8.1/socket.io.min.js" integrity="sha384-mkQ3/7FUtcGyoppY6bz/PORYoGqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+" crossorigin="anonymous"></script>
   {% endif %}
   {% if request.endpoint == 'customer.login' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/customer-login.css') }}?v=email-first-login-20261127-v1">{% endif %}

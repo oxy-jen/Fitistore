@@ -824,6 +824,9 @@
 
 .fity-support-compose {
   display: flex;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   align-items: flex-end;
   gap: 8px;
   padding: 7px;
@@ -865,9 +868,12 @@
 }
 
 .fity-support-compose textarea {
-  width: 100%;
+  width: auto;
+  min-width: 0;
+  flex: 1 1 0;
   min-height: 38px;
   max-height: 95px;
+  box-sizing: border-box;
   resize: vertical;
   border: 0;
   outline: 0;
