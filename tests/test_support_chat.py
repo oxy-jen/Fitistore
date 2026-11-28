@@ -550,6 +550,37 @@ def test_admin_conversation_list_query_count_stays_bounded(support_app):
     assert len(statements) <= 12
 
 
+def test_admin_email_deep_link_can_load_closed_conversation(support_app):
+    customer = support_app.test_client()
+    _sign_in_customer(customer, support_app)
+    created = _start_chat(
+        customer,
+        topic="orders",
+        first_name="Amina",
+        last_name="Wanjiku",
+        body="I need help with my order.",
+    )
+    assert created.status_code == 201
+    conversation_id = created.json["conversation"]["id"]
+    assert customer.post(
+        f"/support/conversations/{conversation_id}/resolve"
+    ).status_code == 201
+
+    admin = support_app.test_client()
+    _sign_in(admin, "1")
+    response = admin.get(f"/admin/support/api/conversations/{conversation_id}")
+
+    assert response.status_code == 200
+    conversation = response.json["conversation"]
+    assert conversation["id"] == conversation_id
+    assert conversation["status"] == "closed"
+    assert conversation["customer_name"] == "Amina Wanjiku"
+    assert conversation["last_message"]["sender_name"] == "FityStores Assistant"
+    assert customer.get(
+        f"/admin/support/api/conversations/{conversation_id}"
+    ).status_code == 403
+
+
 def test_support_launcher_is_present_on_storefront_only(support_client):
     storefront = support_client.get("/")
     assert storefront.status_code == 200
@@ -565,6 +596,7 @@ def test_support_launcher_is_present_on_storefront_only(support_client):
     assert b"Continue with email" in storefront.data
     assert b"support-chat.js" in storefront.data
     assert b"support-admin.js" not in storefront.data
+    assert b"cdn.socket.io" not in storefront.data
 
     login = support_client.get("/account/login?next=%2F%3Fsupport_chat%3D1")
     assert login.status_code == 200

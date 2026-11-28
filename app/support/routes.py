@@ -877,6 +877,37 @@ def admin_conversations():
     return jsonify({"conversations": result})
 
 
+@support_admin_bp.get("/api/conversations/<public_id>")
+@login_required
+def admin_conversation_detail(public_id: str):
+    _require_support_admin()
+    conversation = SupportConversation.query.options(
+        selectinload(SupportConversation.account),
+        selectinload(SupportConversation.assigned_admin),
+    ).filter_by(public_id=public_id).first_or_404()
+    last_message = SupportMessage.query.filter_by(
+        conversation_id=conversation.id
+    ).options(
+        selectinload(SupportMessage.attachment),
+    ).order_by(
+        SupportMessage.id.desc()
+    ).first()
+    email = EmailMessage.query.filter_by(
+        idempotency_key=f"support_request:{conversation.public_id}"
+    ).first()
+    item = conversation_payload(conversation)
+    item["customer_name"] = (
+        f"{conversation.customer_first_name} {conversation.customer_last_name}".strip()
+        or (conversation.account.display_name if conversation.account else "Customer")
+    )
+    item["customer_email"] = conversation.account.email if conversation.account else None
+    item["notification_status"] = (
+        email.status if email else conversation.notification_status
+    )
+    item["last_message"] = message_payload(last_message) if last_message else None
+    return jsonify({"conversation": item})
+
+
 @support_admin_bp.get("/api/conversations/<public_id>/messages")
 @login_required
 def admin_messages(public_id: str):

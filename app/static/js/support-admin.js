@@ -54,6 +54,8 @@
   let selected = null;
   let cursor = 0;
   let socket = null;
+  let socketClientLoading = false;
+  let socketRetryAt = 0;
   let messageTimer = null;
   let listRefreshTimer = null;
   let typingTimer = null;
@@ -349,16 +351,6 @@
       if (selected) {
         const updated = conversations.find((item) => item.id === selected.id);
         if (updated) updateSelected(updated);
-        else {
-          selected = null;
-          active.hidden = true;
-          empty.hidden = false;
-          detailsPanel.hidden = true;
-          root.classList.remove('has-details', 'is-chat-open');
-          detailsToggle.setAttribute('aria-expanded', 'false');
-          moreMenu.hidden = true;
-          updateMessagePolling();
-        }
       }
       renderConversationList();
     } catch (requestError) {
@@ -444,6 +436,34 @@
       showNotice('Support chat is reconnecting. The inbox will keep refreshing.');
       updateMessagePolling();
     });
+  }
+
+  function ensureSocketClient() {
+    if (window.io) {
+      connectSocket();
+      return;
+    }
+    if (socketClientLoading || Date.now() < socketRetryAt) return;
+    socketClientLoading = true;
+    const script = document.createElement('script');
+    script.src = 'https://cdn.socket.io/4.8.1/socket.io.min.js';
+    script.integrity = 'sha384-mkQ3/7FUtcGyoppY6bz/PORYgOqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+';
+    script.crossOrigin = 'anonymous';
+    script.onload = () => {
+      socketClientLoading = false;
+      if (!window.io) {
+        socketRetryAt = Date.now() + 30000;
+        showNotice('Live updates are unavailable; the inbox will keep refreshing.');
+        return;
+      }
+      connectSocket();
+    };
+    script.onerror = () => {
+      socketClientLoading = false;
+      socketRetryAt = Date.now() + 30000;
+      showNotice('Live updates are unavailable; the inbox will keep refreshing.');
+    };
+    document.head.append(script);
   }
 
   async function selectConversation(conversation) {
@@ -776,19 +796,29 @@
   });
 
   initializeNotifications();
-  connectSocket();
+  ensureSocketClient();
   const linkedConversation = new URLSearchParams(window.location.search).get('conversation');
-  refreshList().then(() => {
+  refreshList().then(async () => {
     if (!linkedConversation) return;
-    const conversation = conversations.find((item) => item.id === linkedConversation);
-    if (conversation) {
-      selectConversation(conversation);
-    } else {
-      showNotice('This conversation is not currently open in the support inbox.');
+    let conversation = conversations.find((item) => item.id === linkedConversation);
+    if (!conversation) {
+      try {
+        const data = await request(
+          `/admin/support/api/conversations/${encodeURIComponent(linkedConversation)}`,
+        );
+        conversation = data.conversation;
+      } catch (requestError) {
+        showNotice(requestError.message);
+        return;
+      }
     }
+    if (conversation) selectConversation(conversation);
   });
   window.setInterval(() => {
-    if (!socket?.connected) refreshList();
+    if (!socket?.connected) {
+      ensureSocketClient();
+      refreshList();
+    }
   }, 8000);
   window.setInterval(sendHeartbeat, 20000);
 })();

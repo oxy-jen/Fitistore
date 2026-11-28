@@ -83,9 +83,15 @@
 
   const isAuthenticated = root.dataset.supportAuthenticated === 'true';
   let conversation = null;
+  let conversationRestorePromise = null;
+  let conversationRestoreComplete = false;
   let selectedTopic = null;
   let cursor = 0;
   let socket = null;
+  let socketClientLoading = false;
+  let socketRetryAt = 0;
+  let socketUnavailable = false;
+  let agentAvailable = false;
   let messageTimer = null;
   let typingTimer = null;
   let customerTyping = false;
@@ -174,7 +180,11 @@
     if (open) {
       closeButton.focus();
       refreshPresence();
-      if (conversation) refreshMessages();
+      if (isAuthenticated) ensureConversationRestored();
+      if (conversation) {
+        ensureSocketClient();
+        refreshMessages();
+      }
     } else {
       launcher.focus();
     }
@@ -377,6 +387,40 @@
     });
   }
 
+  function ensureSocketClient() {
+    if (window.io) {
+      connectSocket();
+      return;
+    }
+    if (socketClientLoading || Date.now() < socketRetryAt) return;
+    socketClientLoading = true;
+    const script = document.createElement('script');
+    script.src = 'https://cdn.socket.io/4.8.1/socket.io.min.js';
+    script.integrity = 'sha384-mkQ3/7FUtcGyoppY6bz/PORYgOqOl7/aSUMn2ymDOJcapfS6PHqxhRTMh1RR0Q6+';
+    script.crossOrigin = 'anonymous';
+    script.onload = () => {
+      socketClientLoading = false;
+      if (!window.io) {
+        socketRetryAt = Date.now() + 30000;
+        socketUnavailable = true;
+        updateAvailability(agentAvailable);
+        updateMessagePolling();
+        return;
+      }
+      socketUnavailable = false;
+      updateAvailability(agentAvailable);
+      connectSocket();
+    };
+    script.onerror = () => {
+      socketClientLoading = false;
+      socketRetryAt = Date.now() + 30000;
+      socketUnavailable = true;
+      updateAvailability(agentAvailable);
+      updateMessagePolling();
+    };
+    document.head.append(script);
+  }
+
   async function refreshPresence() {
     try {
       const data = await request('/support/presence');
@@ -387,7 +431,12 @@
   }
 
   function updateAvailability(available) {
-    availability.textContent = available ? 'An agent is available' : 'We’ll reply as soon as an agent is available';
+    agentAvailable = available;
+    availability.textContent = socketUnavailable
+      ? 'Live updates unavailable; checking periodically'
+      : available
+        ? 'An agent is available'
+        : 'We’ll reply as soon as an agent is available';
     if (!conversation || conversation.status !== 'assigned') {
       presenceIndicator.classList.toggle('is-available', available);
     }
@@ -444,6 +493,14 @@
   }
 
   async function openConversation(topic) {
+    if (isAuthenticated) await ensureConversationRestored();
+    if (conversation) {
+      topics.hidden = true;
+      prechat.hidden = true;
+      thread.hidden = false;
+      await refreshMessages();
+      return;
+    }
     clearError();
     if (!isAuthenticated) return;
     selectedTopic = topic;
@@ -498,7 +555,7 @@
       });
       conversation = data.conversation;
       updateConversation(conversation);
-      connectSocket();
+      ensureSocketClient();
       joinConversation();
       topics.hidden = true;
       signInGate.hidden = true;
@@ -525,23 +582,41 @@
   }
 
   async function restoreConversation() {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) return true;
     try {
       const data = await request('/support/conversations');
-      if (!data.conversations?.length) return;
+      if (!data.conversations?.length) return true;
       conversation = data.conversations[0];
       topics.hidden = true;
       thread.hidden = false;
       updateConversation(conversation);
-      connectSocket();
+      ensureSocketClient();
       joinConversation();
       await refreshMessages();
       if (!conversation.escalation_requested && conversation.status !== 'closed') {
         renderQuickReplies(resumedQuickReplies(conversation.topic));
       }
+      return true;
     } catch {
       availability.textContent = 'Saved chat history could not be checked. Please try again.';
+      return false;
     }
+  }
+
+  function ensureConversationRestored() {
+    if (!isAuthenticated || conversation || conversationRestoreComplete) {
+      return Promise.resolve();
+    }
+    if (!conversationRestorePromise) {
+      conversationRestorePromise = restoreConversation()
+        .then((restored) => {
+          if (restored) conversationRestoreComplete = true;
+        })
+        .finally(() => {
+          conversationRestorePromise = null;
+        });
+    }
+    return conversationRestorePromise;
   }
 
   async function sendCustomerMessage(body, file = null) {
@@ -827,8 +902,6 @@
   }, 30000);
   avoidCookieNoticeOverlap();
   initializeSettings();
-  refreshPresence();
-  restoreConversation();
   if (new URLSearchParams(window.location.search).get('support_chat') === '1') {
     setOpen(true);
     if (isAuthenticated) topics.hidden = false;
