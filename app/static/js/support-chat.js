@@ -7,6 +7,14 @@
   const launcher = root.querySelector('[data-support-launcher]');
   const panel = root.querySelector('[data-support-panel]');
   const closeButton = root.querySelector('[data-support-close]');
+  const settingsToggle = root.querySelector('[data-support-settings-toggle]');
+  const settingsMenu = root.querySelector('[data-support-settings-menu]');
+  const settingsStatus = root.querySelector('[data-support-settings-status]');
+  const downloadTranscript = root.querySelector('[data-support-download]');
+  const maximizeButton = root.querySelector('[data-support-maximize]');
+  const notificationsToggle = root.querySelector('[data-support-notifications]');
+  const presenceIndicator = root.querySelector('[data-support-presence]');
+  const agentName = root.querySelector('[data-support-agent-name]');
   const topics = root.querySelector('[data-support-topics]');
   const thread = root.querySelector('[data-support-thread]');
   const topicLabel = root.querySelector('[data-support-topic-label]');
@@ -29,6 +37,10 @@
   const prechatTyping = root.querySelector('[data-support-prechat-typing]');
   const topicPrompt = root.querySelector('[data-support-topic-prompt]');
   const suggestions = root.querySelector('[data-support-suggestions]');
+  const fileInput = root.querySelector('[data-support-file]');
+  const attachmentPreview = root.querySelector('[data-support-attachment-preview]');
+  const attachmentName = root.querySelector('[data-support-attachment-name]');
+  const removeAttachment = root.querySelector('[data-support-remove-attachment]');
   const firstNameInput = prechatForm.elements.first_name;
   const lastNameInput = prechatForm.elements.last_name;
   const firstMessageInput = prechatForm.elements.body;
@@ -80,6 +92,7 @@
   let sendingMessage = false;
   let pendingMessage = null;
   let pendingInitialMessage = null;
+  let notificationsEnabled = false;
   const renderedIds = new Set();
   const optimisticMessages = new Map();
 
@@ -118,13 +131,14 @@
   }
 
   async function request(url, options = {}) {
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
     const response = await fetch(url, {
       credentials: 'same-origin',
       cache: 'no-store',
       ...options,
       headers: {
         Accept: 'application/json',
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
         ...(options.method && options.method !== 'GET' ? { 'X-CSRFToken': csrfToken } : {}),
         ...options.headers,
       },
@@ -151,6 +165,10 @@
 
   function setOpen(open) {
     panel.hidden = !open;
+    if (!open) {
+      settingsMenu.hidden = true;
+      settingsToggle.setAttribute('aria-expanded', 'false');
+    }
     launcher.setAttribute('aria-expanded', String(open));
     if (open) {
       closeButton.focus();
@@ -177,6 +195,26 @@
     renderedIds.add(message.id);
     messages.append(createMessageElement(message));
     messages.scrollTop = messages.scrollHeight;
+    if (
+      notificationsEnabled
+      && document.visibilityState === 'hidden'
+      && message.sender_type === 'agent'
+      && message.sender_name !== 'FityStores Assistant'
+      && 'Notification' in window
+      && Notification.permission === 'granted'
+    ) {
+      try {
+        new Notification(message.sender_name || 'FityStores customer care', {
+          body: message.body,
+          tag: `fity-support-${message.id}`,
+        });
+      } catch {
+        notificationsEnabled = false;
+        notificationsToggle.checked = false;
+        settingsStatus.textContent = 'Your browser could not display this notification.';
+        settingsStatus.hidden = false;
+      }
+    }
   }
 
   function createMessageElement(message) {
@@ -186,6 +224,13 @@
     sender.textContent = message.sender_type === 'customer' ? 'You' : (message.sender_name || 'FityStores Agent');
     const body = document.createElement('p');
     body.textContent = message.body;
+    if (message.attachment?.url) {
+      const attachment = document.createElement('a');
+      attachment.className = 'fity-support-message-attachment';
+      attachment.href = message.attachment.url;
+      attachment.textContent = `📎 ${message.attachment.filename}`;
+      article.append(attachment);
+    }
     const time = document.createElement('time');
     const date = new Date(message.created_at);
     time.dateTime = Number.isNaN(date.getTime()) ? '' : date.toISOString();
@@ -220,8 +265,14 @@
   function updateConversation(next) {
     conversation = next;
     topicLabel.textContent = topicNames[next.topic] || 'General help';
+    agentName.textContent = next.assigned || 'FityStores Support';
+    presenceIndicator.classList.toggle('is-assigned', next.status === 'assigned');
+    presenceIndicator.setAttribute(
+      'aria-label',
+      next.status === 'assigned' ? 'Customer care agent connected' : 'Customer care availability',
+    );
     assignment.textContent = next.status === 'assigned'
-      ? `Chatting with ${next.assigned || 'an agent'}`
+      ? `Chatting with ${next.assigned || 'customer care'}`
       : next.status === 'closed'
         ? 'This conversation is closed'
         : next.escalation_requested
@@ -229,9 +280,12 @@
           : 'FityStores virtual assistant';
     textarea.disabled = next.status === 'closed';
     form.querySelector('button[type="submit"]').disabled = next.status === 'closed';
+    fileInput.disabled = next.status === 'closed';
+    downloadTranscript.disabled = false;
     if (next.status === 'closed') {
       loader.hidden = true;
       quickReplies.replaceChildren();
+      presenceIndicator.classList.add('is-assigned');
       showError('This chat is complete. Start another chat whenever you need us.');
       restartButton.hidden = false;
     }
@@ -316,6 +370,9 @@
 
   function updateAvailability(available) {
     availability.textContent = available ? 'An agent is available' : 'We’ll reply as soon as an agent is available';
+    if (!conversation || conversation.status !== 'assigned') {
+      presenceIndicator.classList.toggle('is-available', available);
+    }
   }
 
   function renderQuickReplies(replies) {
@@ -468,10 +525,11 @@
     }
   }
 
-  async function sendCustomerMessage(body) {
-    if (sendingMessage || !conversation || !body || conversation.status === 'closed') return;
-    if (!pendingMessage || pendingMessage.body !== body) {
-      pendingMessage = { body, id: newMessageId() };
+  async function sendCustomerMessage(body, file = null) {
+    if (sendingMessage || !conversation || (!body && !file) || conversation.status === 'closed') return;
+    const fileKey = file ? `${file.name}:${file.size}:${file.lastModified}` : '';
+    if (!pendingMessage || pendingMessage.body !== body || pendingMessage.fileKey !== fileKey) {
+      pendingMessage = { body, fileKey, id: newMessageId() };
     }
     const messageId = pendingMessage.id;
     sendingMessage = true;
@@ -479,16 +537,30 @@
     quickReplies.querySelectorAll('button').forEach((button) => { button.disabled = true; });
     botTyping.hidden = false;
     clearError();
-    appendOptimisticMessage(body, messageId);
+    appendOptimisticMessage(body || 'Shared an attachment.', messageId);
     try {
+      const requestBody = file
+        ? (() => {
+          const formData = new FormData();
+          formData.append('body', body);
+          formData.append('client_message_id', messageId);
+          formData.append('attachment', file);
+          return formData;
+        })()
+        : JSON.stringify({ body, client_message_id: messageId });
       const data = await request(`/support/conversations/${encodeURIComponent(conversation.id)}/messages`, {
         method: 'POST',
-        body: JSON.stringify({ body, client_message_id: messageId }),
+        body: requestBody,
       });
       appendMessage(data.message);
       appendMessage(data.bot_message);
       if (data.bot_message) renderQuickReplies(data.quick_replies);
       if (textarea.value.trim() === body) textarea.value = '';
+      if (file) {
+        fileInput.value = '';
+        attachmentPreview.hidden = true;
+        attachmentName.textContent = '';
+      }
       pendingMessage = null;
       if (data.message.id) cursor = Math.max(cursor, data.message.id);
       if (data.bot_message?.id) cursor = Math.max(cursor, data.bot_message.id);
@@ -549,11 +621,125 @@
 
   function sendMessage(event) {
     event.preventDefault();
-    sendCustomerMessage(textarea.value.trim());
+    sendCustomerMessage(textarea.value.trim(), fileInput.files?.[0] || null);
+  }
+
+  async function downloadTranscriptFile() {
+    if (!conversation) return;
+    downloadTranscript.disabled = true;
+    settingsStatus.textContent = 'Preparing your transcript…';
+    settingsStatus.hidden = false;
+    try {
+      const response = await fetch(
+        `/support/conversations/${encodeURIComponent(conversation.id)}/transcript`,
+        { credentials: 'same-origin', cache: 'no-store' },
+      );
+      if (!response.ok) throw new Error('The transcript could not be downloaded. Please try again.');
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `fitystores-chat-${conversation.id}.txt`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      settingsStatus.textContent = 'Your chat transcript has been downloaded.';
+    } catch (requestError) {
+      settingsStatus.textContent = requestError.message;
+    } finally {
+      downloadTranscript.disabled = !conversation;
+    }
+  }
+
+  async function setNotificationsEnabled(enabled) {
+    settingsStatus.hidden = true;
+    if (!enabled) {
+      notificationsEnabled = false;
+      try { window.localStorage.setItem('fity-support-notifications', 'false'); } catch { /* Storage can be disabled. */ }
+      notificationsToggle.checked = false;
+      return;
+    }
+    if (!('Notification' in window)) {
+      notificationsToggle.checked = false;
+      settingsStatus.textContent = 'This browser does not support chat notifications.';
+      settingsStatus.hidden = false;
+      return;
+    }
+    let permission = Notification.permission;
+    if (permission === 'default') permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      notificationsToggle.checked = false;
+      settingsStatus.textContent = permission === 'denied'
+        ? 'Allow notifications in your browser settings to turn this on.'
+        : 'Notifications were not enabled.';
+      settingsStatus.hidden = false;
+      return;
+    }
+    notificationsEnabled = true;
+    try { window.localStorage.setItem('fity-support-notifications', 'true'); } catch { /* Storage can be disabled. */ }
+    notificationsToggle.checked = true;
+    settingsStatus.textContent = 'You’ll be notified when customer care replies while this page is in the background.';
+    settingsStatus.hidden = false;
+  }
+
+  function initializeSettings() {
+    try {
+      notificationsEnabled = window.localStorage.getItem('fity-support-notifications') === 'true';
+    } catch {
+      notificationsEnabled = false;
+    }
+    notificationsToggle.checked = notificationsEnabled;
+    if (notificationsEnabled && (!('Notification' in window) || Notification.permission !== 'granted')) {
+      notificationsEnabled = false;
+      notificationsToggle.checked = false;
+    }
   }
 
   launcher.addEventListener('click', () => setOpen(panel.hidden));
   closeButton.addEventListener('click', () => setOpen(false));
+  settingsToggle.addEventListener('click', () => {
+    settingsMenu.hidden = !settingsMenu.hidden;
+    settingsToggle.setAttribute('aria-expanded', String(!settingsMenu.hidden));
+  });
+  downloadTranscript.addEventListener('click', downloadTranscriptFile);
+  maximizeButton.addEventListener('click', () => {
+    const maximized = panel.classList.toggle('is-maximized');
+    maximizeButton.textContent = maximized ? 'Restore window' : 'Maximize window';
+    maximizeButton.setAttribute('aria-pressed', String(maximized));
+  });
+  notificationsToggle.addEventListener('change', () => {
+    setNotificationsEnabled(notificationsToggle.checked).catch(() => {
+      notificationsToggle.checked = false;
+      notificationsEnabled = false;
+      settingsStatus.textContent = 'Notifications could not be enabled. Check your browser settings.';
+      settingsStatus.hidden = false;
+    });
+  });
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (!file) {
+      attachmentPreview.hidden = true;
+      attachmentName.textContent = '';
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      fileInput.value = '';
+      attachmentPreview.hidden = true;
+      showError('Attachments must be 3 MB or smaller.');
+      return;
+    }
+    clearError();
+    attachmentName.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+    attachmentPreview.hidden = false;
+    textarea.focus();
+  });
+  removeAttachment.addEventListener('click', () => {
+    fileInput.value = '';
+    attachmentPreview.hidden = true;
+    attachmentName.textContent = '';
+    fileInput.focus();
+  });
   root.querySelectorAll('[data-support-topic]').forEach((button) => {
     button.addEventListener('click', () => openConversation(button.dataset.supportTopic));
   });
@@ -599,7 +785,21 @@
   });
 
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !panel.hidden) setOpen(false);
+    if (event.key === 'Escape' && !panel.hidden) {
+      if (!settingsMenu.hidden) {
+        settingsMenu.hidden = true;
+        settingsToggle.setAttribute('aria-expanded', 'false');
+        settingsToggle.focus();
+      } else {
+        setOpen(false);
+      }
+    }
+  });
+  document.addEventListener('click', (event) => {
+    if (!settingsMenu.hidden && !event.target.closest('.fity-support-header')) {
+      settingsMenu.hidden = true;
+      settingsToggle.setAttribute('aria-expanded', 'false');
+    }
   });
 
   window.setInterval(() => {
@@ -609,6 +809,7 @@
     if (!panel.hidden) refreshPresence();
   }, 30000);
   avoidCookieNoticeOverlap();
+  initializeSettings();
   refreshPresence();
   restoreConversation();
   if (new URLSearchParams(window.location.search).get('support_chat') === '1') {

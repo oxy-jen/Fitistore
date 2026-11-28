@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from flask import url_for
 from flask_login import current_user
 
 from app.models import AdminUser, CustomerAccount, SupportConversation, SupportMessage
@@ -224,6 +225,7 @@ def conversation_payload(conversation: SupportConversation) -> dict:
 
 
 def message_payload(message: SupportMessage) -> dict:
+    attachment = message.attachment
     return {
         "id": message.id,
         "sender_type": message.sender_type,
@@ -231,6 +233,21 @@ def message_payload(message: SupportMessage) -> dict:
         "body": message.body,
         "client_message_id": message.client_message_id,
         "created_at": message.created_at.isoformat() + "Z",
+        "attachment": (
+            {
+                "id": attachment.id,
+                "filename": attachment.filename,
+                "size_bytes": attachment.size_bytes,
+                "content_type": attachment.content_type,
+                "url": url_for(
+                    "support.download_attachment",
+                    public_id=message.conversation.public_id,
+                    attachment_id=attachment.id,
+                ),
+            }
+            if attachment
+            else None
+        ),
     }
 
 

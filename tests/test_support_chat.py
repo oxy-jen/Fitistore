@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import BytesIO
 from datetime import datetime
 from uuid import uuid4
 
@@ -318,6 +319,123 @@ def test_customer_can_finish_self_service_without_agent(support_app):
     assert admin.get("/admin/support/api/conversations").json["conversations"] == []
 
 
+def test_customer_attachments_are_private_and_available_to_claimed_agent(support_app):
+    from app.models import SupportAttachment
+
+    customer = support_app.test_client()
+    _sign_in_customer(customer, support_app)
+    started = _start_chat(customer, topic="payments", body="I need help with payment proof.")
+    conversation_id = started.json["conversation"]["id"]
+    attachment_response = customer.post(
+        f"/support/conversations/{conversation_id}/messages",
+        data={
+            "body": "Please review this receipt.",
+            "client_message_id": str(uuid4()),
+            "attachment": (BytesIO(b"%PDF-1.7\nreceipt"), "receipt.pdf"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert attachment_response.status_code == 201
+    attachment = attachment_response.json["message"]["attachment"]
+    assert attachment["filename"] == "receipt.pdf"
+    assert attachment["content_type"] == "application/pdf"
+    assert attachment_response.json["bot_message"]["body"].startswith("I’ve received your file.")
+    with support_app.app_context():
+        stored = db.session.get(SupportAttachment, attachment["id"])
+        assert stored.data == b"%PDF-1.7\nreceipt"
+
+    stranger = support_app.test_client()
+    assert stranger.get(attachment["url"]).status_code == 404
+    downloaded = customer.get(attachment["url"])
+    assert downloaded.status_code == 200
+    assert downloaded.data == b"%PDF-1.7\nreceipt"
+    assert downloaded.headers["Content-Disposition"].startswith("attachment;")
+
+    admin = support_app.test_client()
+    _sign_in(admin, "1")
+    assert admin.get(attachment["url"]).status_code == 200
+    assert admin.post(f"/admin/support/api/conversations/{conversation_id}/claim").status_code == 409
+    assert customer.post(f"/support/conversations/{conversation_id}/escalate").status_code == 201
+    assert admin.post(f"/admin/support/api/conversations/{conversation_id}/claim").status_code == 200
+    agent_attachment = admin.post(
+        f"/admin/support/api/conversations/{conversation_id}/messages",
+        data={
+            "body": "Thanks, I can see the receipt.",
+            "client_message_id": str(uuid4()),
+            "attachment": (BytesIO(b"\x89PNG\r\n\x1a\nimage"), "annotated.png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert agent_attachment.status_code == 201
+    assert agent_attachment.json["message"]["attachment"]["filename"] == "annotated.png"
+    assert customer.get(agent_attachment.json["message"]["attachment"]["url"]).status_code == 200
+
+
+def test_support_attachment_rejects_mismatched_and_unsupported_files(support_app):
+    customer = support_app.test_client()
+    _sign_in_customer(customer, support_app)
+    started = _start_chat(customer)
+    conversation_id = started.json["conversation"]["id"]
+
+    mismatched = customer.post(
+        f"/support/conversations/{conversation_id}/messages",
+        data={
+            "body": "",
+            "client_message_id": str(uuid4()),
+            "attachment": (BytesIO(b"not a pdf"), "receipt.pdf"),
+        },
+        content_type="multipart/form-data",
+    )
+    unsupported = customer.post(
+        f"/support/conversations/{conversation_id}/messages",
+        data={
+            "body": "",
+            "client_message_id": str(uuid4()),
+            "attachment": (BytesIO(b"<script>alert(1)</script>"), "receipt.svg"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert mismatched.status_code == 400
+    assert "contents do not match" in mismatched.json["error"]
+    assert unsupported.status_code == 400
+    assert "PDF, PNG" in unsupported.json["error"]
+
+    oversized = customer.post(
+        f"/support/conversations/{conversation_id}/messages",
+        data={
+            "body": "",
+            "client_message_id": str(uuid4()),
+            "attachment": (
+                BytesIO(b"x" * (3 * 1024 * 1024 + 1)),
+                "oversized.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+    )
+    assert oversized.status_code == 400
+    assert "3 MB or smaller" in oversized.json["error"]
+
+
+def test_customer_can_download_only_their_chat_transcript(support_app):
+    customer = support_app.test_client()
+    _sign_in_customer(customer, support_app)
+    started = _start_chat(customer, body="Can you help me?")
+    conversation_id = started.json["conversation"]["id"]
+
+    transcript = customer.get(f"/support/conversations/{conversation_id}/transcript")
+    stranger = support_app.test_client().get(
+        f"/support/conversations/{conversation_id}/transcript"
+    )
+
+    assert transcript.status_code == 200
+    assert "attachment" in transcript.headers["Content-Disposition"]
+    assert b"Can you help me?" in transcript.data
+    assert b"FityStores Assistant" in transcript.data
+    assert stranger.status_code == 404
+
+
 def test_support_inbox_requires_admin_and_shows_customer_contact_only_to_admin(support_app):
     unauthenticated = support_app.test_client()
     assert unauthenticated.get("/admin/support/").status_code in {302, 401}
@@ -371,6 +489,10 @@ def test_support_launcher_is_present_on_storefront_only(support_client):
     assert b"data-support-launcher" in storefront.data
     assert b'<span class="fity-support-label">Chat</span>' in storefront.data
     assert b'data-support-signin' in storefront.data
+    assert b"data-support-settings-toggle" in storefront.data
+    assert b"data-support-download" in storefront.data
+    assert b"data-support-file" in storefront.data
+    assert b"data-support-spinner" in storefront.data
     assert b'href="/account/login?next=/' in storefront.data
     assert b"Continue with email" in storefront.data
     assert b"support-chat.js" in storefront.data
@@ -439,9 +561,10 @@ def test_email_notification_failure_does_not_discard_support_chat(support_app, m
 
 def test_support_schema_migration_requires_both_confirmations(support_app):
     from sqlalchemy import inspect, text
-    from app.models import SupportAgentPresence, SupportConversation, SupportMessage
+    from app.models import SupportAgentPresence, SupportAttachment, SupportConversation, SupportMessage
 
     with support_app.app_context():
+        SupportAttachment.__table__.drop(bind=db.engine)
         SupportMessage.__table__.drop(bind=db.engine)
         SupportAgentPresence.__table__.drop(bind=db.engine)
         SupportConversation.__table__.drop(bind=db.engine)
@@ -479,6 +602,7 @@ def test_support_schema_migration_requires_both_confirmations(support_app):
         assert inspector.has_table("support_conversation")
         assert inspector.has_table("support_message")
         assert inspector.has_table("support_agent_presence")
+        assert inspector.has_table("support_attachment")
         assert {
             "customer_first_name",
             "customer_last_name",

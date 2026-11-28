@@ -112,12 +112,22 @@
   animation: fity-support-appear .22s ease-out both;
 }
 
+.fity-support-panel.is-maximized {
+  inset: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  width: auto;
+  max-height: none;
+  min-height: 0;
+  border-radius: 16px;
+}
+
 @keyframes fity-support-appear {
   from { opacity: 0; transform: translateY(12px) scale(.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .fity-support-header {
+  position: relative;
   display: flex;
   min-height: 76px;
   align-items: center;
@@ -133,6 +143,191 @@
   min-width: 0;
   align-items: center;
   gap: 11px;
+}
+
+.fity-support-mark {
+  position: relative;
+}
+
+.fity-support-mark i {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #252525;
+  border-radius: 50%;
+  background: #8d9297;
+}
+
+.fity-support-mark i.is-available {
+  background: #38c976;
+}
+
+.fity-support-mark i.is-assigned {
+  background: #7c6ce8;
+}
+
+.fity-support-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.fity-support-settings-toggle {
+  display: grid;
+  width: 35px;
+  height: 35px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(255, 255, 255, .12);
+  cursor: pointer;
+}
+
+.fity-support-settings-toggle:hover,
+.fity-support-settings-toggle[aria-expanded="true"] {
+  background: rgba(255, 255, 255, .24);
+}
+
+.fity-support-settings-toggle svg {
+  width: 19px;
+  height: 19px;
+  fill: currentColor;
+}
+
+.fity-support-settings-menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 5px);
+  right: 12px;
+  width: min(320px, calc(100vw - 42px));
+  overflow: hidden;
+  border: 1px solid #dedede;
+  border-radius: 12px;
+  color: #242424;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .22);
+}
+
+.fity-support-account-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 54px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--support-line);
+}
+
+.fity-support-account-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #777;
+  font-size: .55rem;
+}
+
+.fity-support-account-email {
+  overflow: hidden;
+  font-size: .72rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fity-support-account-row a {
+  color: #a71927;
+  font-size: .72rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.fity-support-menu-action,
+.fity-support-notification-row {
+  display: flex;
+  width: 100%;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 13px;
+  border: 0;
+  border-bottom: 1px solid var(--support-line);
+  color: #292929;
+  background: #fff;
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.fity-support-menu-action {
+  cursor: pointer;
+}
+
+.fity-support-menu-action:hover:not(:disabled) {
+  background: #faf4f4;
+}
+
+.fity-support-menu-action:disabled {
+  color: #999;
+  cursor: not-allowed;
+}
+
+.fity-support-notification-row {
+  cursor: pointer;
+}
+
+.fity-support-notification-row input {
+  width: 38px;
+  height: 21px;
+  flex: 0 0 38px;
+  appearance: none;
+  border: 1px solid #c8c8c8;
+  border-radius: 999px;
+  background: #e7e7e7;
+  cursor: pointer;
+  transition: background .2s ease;
+}
+
+.fity-support-notification-row input::before {
+  display: block;
+  width: 15px;
+  height: 15px;
+  margin: 2px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
+  content: "";
+  transition: transform .2s ease;
+}
+
+.fity-support-notification-row input:checked {
+  border-color: #5145e5;
+  background: #5145e5;
+}
+
+.fity-support-notification-row input:checked::before {
+  transform: translateX(17px);
+}
+
+.fity-support-settings-status {
+  margin: 0;
+  padding: 8px 13px 10px;
+  color: #666;
+  font-size: .7rem;
+  line-height: 1.4;
+}
+
+.fity-support-settings-status:not([hidden]) {
+  display: block;
 }
 
 .fity-support-brand > div {
@@ -526,6 +721,18 @@
   line-height: 1.45;
 }
 
+.fity-support-message-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+  color: inherit;
+  font-size: .75rem;
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .fity-support-message time {
   display: block;
   margin-top: 5px;
@@ -540,6 +747,42 @@
   padding: 11px 4px 2px;
   color: #606060;
   font-size: .74rem;
+}
+
+/* From Uiverse.io by PriyanshuGupta28 - https://uiverse.io/PriyanshuGupta28/popular-cobra-49
+   MIT License, Copyright (c) PriyanshuGupta28 (Priyanshu Gupta) */
+.fity-support-spinner {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(farthest-side, #0000 40%, #6121d1 41%);
+  mask: radial-gradient(farthest-side, #0000 40%, #6121d1 41%);
+  background:
+    linear-gradient(0deg, rgba(229, 35, 53, .5) 50%, rgba(229, 35, 53, 1) 0) center / 4px 100%,
+    linear-gradient(90deg, rgba(229, 35, 53, .25) 50%, rgba(229, 35, 53, .75) 0) center / 100% 4px;
+  background-repeat: no-repeat;
+  animation: fity-support-spinner 1s infinite steps(12);
+}
+
+.fity-support-spinner::before,
+.fity-support-spinner::after {
+  grid-area: 1 / 1;
+  border-radius: 50%;
+  background: inherit;
+  content: "";
+  opacity: .915;
+  transform: rotate(30deg);
+}
+
+.fity-support-spinner::after {
+  opacity: .83;
+  transform: rotate(60deg);
+}
+
+@keyframes fity-support-spinner {
+  to { transform: rotate(1turn); }
 }
 
 .fity-support-dots {
@@ -589,6 +832,33 @@
   background: #fff;
 }
 
+.fity-support-attach {
+  display: grid;
+  width: 35px;
+  height: 36px;
+  flex: 0 0 35px;
+  place-items: center;
+  border-radius: 9px;
+  color: #696969;
+  cursor: pointer;
+}
+
+.fity-support-attach:hover,
+.fity-support-attach:focus-within {
+  color: var(--support-red);
+  background: #fff3f4;
+}
+
+.fity-support-attach svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
 .fity-support-compose:focus-within {
   border-color: var(--support-red);
   box-shadow: 0 0 0 3px rgba(229, 35, 53, .1);
@@ -605,6 +875,37 @@
   background: transparent;
   font: inherit;
   font-size: .82rem;
+}
+
+.fity-support-compose textarea:disabled {
+  cursor: not-allowed;
+}
+
+.fity-support-attachment-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 2px 0;
+  padding: 6px 9px;
+  border-radius: 8px;
+  color: #4a2b30;
+  background: #fff1f2;
+  font-size: .72rem;
+}
+
+.fity-support-attachment-preview span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fity-support-attachment-preview button {
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.1rem;
 }
 
 .fity-support-compose button {
@@ -882,12 +1183,47 @@
   line-height: 1.45;
 }
 
+.support-admin-message-attachment {
+  display: inline-flex;
+  margin: 4px 0;
+  color: inherit;
+  font-size: .78rem;
+  font-weight: 750;
+  text-underline-offset: 2px;
+}
+
 .support-admin-compose {
   display: flex;
   align-items: flex-end;
   gap: 10px;
   padding: 13px 16px;
   border-top: 1px solid #e7e7e7;
+}
+
+.support-admin-attach {
+  display: grid;
+  width: 36px;
+  height: 40px;
+  flex: 0 0 36px;
+  place-items: center;
+  border-radius: 8px;
+  color: #666;
+  cursor: pointer;
+}
+
+.support-admin-attach:hover {
+  color: var(--support-red);
+  background: #fff3f4;
+}
+
+.support-admin-attach svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .support-admin-compose textarea {
@@ -899,6 +1235,33 @@
   border-radius: 9px;
   font: inherit;
   font-size: .84rem;
+}
+
+.support-admin-attachment-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 16px 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: #4a2b30;
+  background: #fff1f2;
+  font-size: .75rem;
+}
+
+.support-admin-attachment-preview span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.support-admin-attachment-preview button {
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.1rem;
 }
 
 @media (max-width: 720px) {
@@ -953,6 +1316,13 @@
   }
 }
 
+@media (max-width: 420px) {
+  .fity-support-panel.is-maximized {
+    inset: 0;
+    border-radius: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fity-support-launcher,
   .fity-support-tooltip,
@@ -961,6 +1331,10 @@
     animation-duration: .01ms !important;
     transition-duration: .01ms !important;
   }
+
+  .fity-support-spinner,
+  .fity-support-spinner::before,
+  .fity-support-spinner::after { animation: none; }
 
   .fity-support-dots i {
     animation: none;

@@ -3,6 +3,7 @@ from secrets import token_urlsafe
 from flask_login import UserMixin
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Index, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import deferred
 from .extensions import db, login_manager
 
 class TimestampMixin:
@@ -960,6 +961,12 @@ class SupportMessage(db.Model):
     conversation = db.relationship("SupportConversation", back_populates="messages")
     sender_account = db.relationship("CustomerAccount")
     sender_admin = db.relationship("AdminUser")
+    attachment = db.relationship(
+        "SupportAttachment",
+        back_populates="message",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
     __table_args__ = (
         CheckConstraint(
             "sender_type IN ('customer', 'agent')",
@@ -975,6 +982,26 @@ class SupportMessage(db.Model):
             name="uq_support_message_client_id",
         ),
         Index("ix_support_message_conversation_id", "conversation_id", "id"),
+    )
+
+
+class SupportAttachment(db.Model):
+    __tablename__ = "support_attachment"
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(
+        db.Integer,
+        db.ForeignKey("support_message.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    filename = db.Column(db.String(180), nullable=False)
+    content_type = db.Column(db.String(80), nullable=False)
+    size_bytes = db.Column(db.Integer, nullable=False)
+    data = deferred(db.Column(db.LargeBinary, nullable=False))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    message = db.relationship("SupportMessage", back_populates="attachment")
+    __table_args__ = (
+        CheckConstraint("size_bytes BETWEEN 1 AND 3145728", name="ck_support_attachment_size"),
     )
 
 

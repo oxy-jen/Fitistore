@@ -2,29 +2,36 @@ from __future__ import annotations
 
 import logging
 import re
+from io import BytesIO
 from html import escape as escape_html
 from datetime import datetime
+from pathlib import Path
 from secrets import token_urlsafe
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from email_validator import EmailNotValidError, validate_email
 from flask import (
     Blueprint,
+    Response,
     abort,
     current_app,
     jsonify,
     render_template,
     request,
+    send_file,
     url_for,
 )
 from flask_login import current_user, login_required
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm import selectinload
+from werkzeug.utils import secure_filename
 
 from app.extensions import db, socketio
 from app.models import (
     AdminUser,
     EmailMessage,
+    SupportAttachment,
     SupportAgentPresence,
     SupportConversation,
     SupportMessage,
@@ -49,12 +56,27 @@ logger = logging.getLogger(__name__)
 support_bp = Blueprint("support", __name__, url_prefix="/support")
 support_admin_bp = Blueprint("support_admin", __name__, url_prefix="/admin/support")
 _MESSAGE_ID_PATTERN = re.compile(r"^[0-9a-fA-F-]{36}$")
+_SUPPORT_ATTACHMENT_MAX_BYTES = 3 * 1024 * 1024
+_SUPPORT_ATTACHMENT_TYPES = {
+    ".csv": ("text/csv", None),
+    ".jpeg": ("image/jpeg", b"\xff\xd8\xff"),
+    ".jpg": ("image/jpeg", b"\xff\xd8\xff"),
+    ".pdf": ("application/pdf", b"%PDF-"),
+    ".png": ("image/png", b"\x89PNG\r\n\x1a\n"),
+    ".txt": ("text/plain", None),
+    ".webp": ("image/webp", None),
+}
 
 
 @support_bp.after_request
 def prevent_support_api_caching(response):
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@support_bp.errorhandler(413)
+def support_upload_too_large(_error):
+    return jsonify({"error": "Attachments must be 3 MB or smaller."}), 413
 
 
 def _support_identity() -> str:
@@ -121,6 +143,16 @@ def _valid_message_id(value: str) -> bool:
 
 def _clean_chat_name(value) -> str:
     return " ".join(str(value or "").split())[:80]
+
+
+def _attachment_matches(existing: SupportMessage, attachment: dict | None) -> bool:
+    if not attachment:
+        return existing.attachment is None
+    return bool(
+        existing.attachment
+        and existing.attachment.filename == attachment["filename"]
+        and existing.attachment.size_bytes == attachment["size_bytes"]
+    )
 
 
 def _queue_support_notice(conversation: SupportConversation, first_message: SupportMessage) -> None:
@@ -245,6 +277,7 @@ def _store_message(
     sender_name: str,
     sender_account_id: int | None = None,
     sender_admin_id: int | None = None,
+    attachment: dict | None = None,
 ):
     existing = SupportMessage.query.filter_by(
         conversation_id=conversation.id,
@@ -252,6 +285,8 @@ def _store_message(
     ).first()
     if existing:
         if existing.sender_type != sender_type or existing.body != body:
+            return None, False
+        if not _attachment_matches(existing, attachment):
             return None, False
         return existing, False
 
@@ -266,6 +301,13 @@ def _store_message(
     )
     conversation.last_message_at = datetime.utcnow()
     db.session.add(message)
+    if attachment:
+        message.attachment = SupportAttachment(
+            filename=attachment["filename"],
+            content_type=attachment["content_type"],
+            size_bytes=attachment["size_bytes"],
+            data=attachment["data"],
+        )
     try:
         db.session.commit()
         return message, True
@@ -275,9 +317,67 @@ def _store_message(
             conversation_id=conversation.id,
             client_message_id=client_message_id,
         ).first()
-        if existing and existing.sender_type == sender_type and existing.body == body:
+        if (
+            existing
+            and existing.sender_type == sender_type
+            and existing.body == body
+            and _attachment_matches(existing, attachment)
+        ):
             return existing, False
         raise
+
+
+def _read_support_attachment(uploaded) -> tuple[dict | None, str | None]:
+        if not uploaded or not uploaded.filename:
+            return None, None
+        filename = secure_filename(Path(uploaded.filename).name)[:180]
+        extension = Path(filename).suffix.lower()
+        file_type = _SUPPORT_ATTACHMENT_TYPES.get(extension)
+        if not filename or not file_type:
+            return None, "Attach a PDF, PNG, JPG, WEBP, TXT, or CSV file."
+        data = uploaded.stream.read(_SUPPORT_ATTACHMENT_MAX_BYTES + 1)
+        if not data:
+            return None, "The selected attachment is empty."
+        if len(data) > _SUPPORT_ATTACHMENT_MAX_BYTES:
+            return None, "Attachments must be 3 MB or smaller."
+
+        content_type, signature = file_type
+        if signature and not data.startswith(signature):
+            return None, "The attachment contents do not match the selected file type."
+        if extension == ".webp" and not (
+            len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+        ):
+            return None, "The attachment contents do not match the selected file type."
+        if extension in {".txt", ".csv"}:
+            try:
+                data.decode("utf-8")
+            except UnicodeDecodeError:
+                return None, "Text and CSV attachments must use UTF-8 encoding."
+        return {
+            "filename": filename,
+            "content_type": content_type,
+            "size_bytes": len(data),
+            "data": data,
+        }, None
+
+
+def _message_request_data() -> tuple[str, str, dict | None, str | None]:
+        if request.mimetype == "multipart/form-data":
+            body = str(request.form.get("body") or "").strip()
+            client_message_id = str(request.form.get("client_message_id") or "").strip()
+            attachment, error_message = _read_support_attachment(request.files.get("attachment"))
+        else:
+            payload = request.get_json(silent=True) or {}
+            body = str(payload.get("body") or "").strip()
+            client_message_id = str(payload.get("client_message_id") or "").strip()
+            attachment, error_message = None, None
+        if error_message:
+            return body, client_message_id, None, error_message
+        if not body and not attachment:
+            return body, client_message_id, None, "Write a message or choose a file to attach."
+        if not body:
+            body = "Shared an attachment."
+        return body, client_message_id, attachment, None
 
 
 def _store_bot_message(
@@ -410,12 +510,56 @@ def customer_messages(public_id: str):
     messages = SupportMessage.query.filter(
         SupportMessage.conversation_id == conversation.id,
         SupportMessage.id > after_id,
-    ).order_by(SupportMessage.id).limit(100).all()
+    ).options(selectinload(SupportMessage.attachment)).order_by(
+        SupportMessage.id
+    ).limit(100).all()
     return jsonify(
         {
             "conversation": conversation_payload(conversation),
             "messages": [message_payload(item) for item in messages],
         }
+    )
+
+
+@support_bp.get("/conversations/<public_id>/transcript")
+def customer_transcript(public_id: str):
+    conversation = _find_owned_conversation(public_id)
+    messages = SupportMessage.query.filter_by(
+        conversation_id=conversation.id
+    ).options(selectinload(SupportMessage.attachment)).order_by(
+        SupportMessage.id
+    ).all()
+    lines = [f"FityStores support chat - {SUPPORT_TOPICS[conversation.topic]}", ""]
+    for message in messages:
+        timestamp = message.created_at.strftime("%Y-%m-%d %H:%M UTC")
+        lines.extend((f"[{timestamp}] {message.sender_name}", message.body))
+        if message.attachment:
+            lines.append(f"Attachment: {message.attachment.filename}")
+        lines.append("")
+    response = Response("\n".join(lines), mimetype="text/plain")
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="fitystores-chat-{conversation.public_id}.txt"'
+    )
+    return response
+
+
+@support_bp.get("/conversations/<public_id>/attachments/<int:attachment_id>")
+def download_attachment(public_id: str, attachment_id: int):
+    attachment = SupportAttachment.query.join(SupportMessage).join(
+        SupportConversation
+    ).filter(
+        SupportAttachment.id == attachment_id,
+        SupportConversation.public_id == public_id,
+    ).first_or_404()
+    conversation = attachment.message.conversation
+    if not current_admin() and not owns_conversation(conversation):
+        abort(404)
+    return send_file(
+        BytesIO(attachment.data),
+        mimetype="application/octet-stream",
+        as_attachment=True,
+        download_name=attachment.filename,
+        max_age=0,
     )
 
 
@@ -426,9 +570,9 @@ def customer_send_message(public_id: str):
     conversation = _find_owned_conversation(public_id)
     if conversation.status == "closed":
         return jsonify({"error": "This conversation is closed. Start a new chat for more help."}), 409
-    payload = request.get_json(silent=True) or {}
-    body = str(payload.get("body") or "").strip()
-    client_message_id = str(payload.get("client_message_id") or "").strip()
+    body, client_message_id, attachment, attachment_error = _message_request_data()
+    if attachment_error:
+        return jsonify({"error": attachment_error}), 400
     if not body or len(body) > 2000:
         return jsonify({"error": "Messages must contain 1–2000 characters."}), 400
     if not _valid_message_id(client_message_id):
@@ -445,7 +589,11 @@ def customer_send_message(public_id: str):
         client_message_id=client_message_id,
     ).first()
     if existing:
-        if existing.sender_type != "customer" or existing.body != body:
+        if (
+            existing.sender_type != "customer"
+            or existing.body != body
+            or not _attachment_matches(existing, attachment)
+        ):
             return jsonify({"error": "Message identifier was already used."}), 409
         message = existing
         created = False
@@ -460,6 +608,7 @@ def customer_send_message(public_id: str):
                 sender_type="customer",
                 sender_name=sender_name,
                 sender_account_id=customer.id if customer else None,
+                attachment=attachment,
             )
         except SQLAlchemyError:
             db.session.rollback()
@@ -475,6 +624,11 @@ def customer_send_message(public_id: str):
     if conversation.status == "waiting" and not conversation.escalation_requested_at:
         try:
             answer, quick_replies = support_bot_reply(conversation.topic, body)
+            if attachment:
+                answer = (
+                    "I’ve received your file. If you need a staff member to review it, "
+                    "choose “Connect me to customer care” when you’re ready."
+                )
             bot_message, bot_created = _store_bot_message(
                 conversation,
                 answer,
@@ -694,7 +848,9 @@ def admin_messages(public_id: str):
     messages = SupportMessage.query.filter(
         SupportMessage.conversation_id == conversation.id,
         SupportMessage.id > after_id,
-    ).order_by(SupportMessage.id).limit(100).all()
+    ).options(selectinload(SupportMessage.attachment)).order_by(
+        SupportMessage.id
+    ).limit(100).all()
     return jsonify(
         {
             "conversation": conversation_payload(conversation),
@@ -760,9 +916,9 @@ def admin_send_message(public_id: str):
         return jsonify({"error": "This conversation is closed."}), 409
     if conversation.assigned_admin_id != admin.id:
         return jsonify({"error": "Claim this conversation before replying."}), 409
-    payload = request.get_json(silent=True) or {}
-    body = str(payload.get("body") or "").strip()
-    client_message_id = str(payload.get("client_message_id") or "").strip()
+    body, client_message_id, attachment, attachment_error = _message_request_data()
+    if attachment_error:
+        return jsonify({"error": attachment_error}), 400
     if not body or len(body) > 2000:
         return jsonify({"error": "Messages must contain 1–2000 characters."}), 400
     if not _MESSAGE_ID_PATTERN.fullmatch(client_message_id):
@@ -776,7 +932,11 @@ def admin_send_message(public_id: str):
         client_message_id=client_message_id,
     ).first()
     if existing:
-        if existing.sender_type != "agent" or existing.body != body:
+        if (
+            existing.sender_type != "agent"
+            or existing.body != body
+            or not _attachment_matches(existing, attachment)
+        ):
             return jsonify({"error": "Message identifier was already used."}), 409
         return jsonify({"message": message_payload(existing)}), 200
     if not allow_support_action(
@@ -794,6 +954,7 @@ def admin_send_message(public_id: str):
             sender_type="agent",
             sender_name=admin.username,
             sender_admin_id=admin.id,
+            attachment=attachment,
         )
     except SQLAlchemyError:
         db.session.rollback()

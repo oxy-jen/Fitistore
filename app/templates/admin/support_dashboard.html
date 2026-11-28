@@ -37,12 +37,20 @@
         </div>
       </header>
       <div class="support-admin-messages" data-support-admin-messages aria-live="polite" aria-relevant="additions"></div>
-      <p class="fity-support-typing" data-support-admin-typing hidden>Customer is typing…</p>
+      <p class="fity-support-typing" data-support-admin-typing hidden><span class="fity-support-dots" aria-hidden="true"><i></i><i></i><i></i></span> Customer is typing…</p>
       <form class="support-admin-compose" data-support-admin-compose hidden>
         <label class="visually-hidden" for="support-admin-message">Write a reply</label>
-        <textarea id="support-admin-message" maxlength="2000" rows="2" placeholder="Write a reply…" required></textarea>
+        <input class="visually-hidden" id="support-admin-file" type="file" name="attachment" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.csv" data-support-admin-file>
+        <label class="support-admin-attach" for="support-admin-file" aria-label="Attach a file" title="Attach a file">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8.5 12.5 6.7-6.7a3 3 0 0 1 4.2 4.2l-8.8 8.8a5 5 0 0 1-7.1-7.1l8.4-8.4"/></svg>
+        </label>
+        <textarea id="support-admin-message" maxlength="2000" rows="2" placeholder="Write a reply or attach a file…"></textarea>
         <button class="btn primary" type="submit">Send reply</button>
       </form>
+      <div class="support-admin-attachment-preview" data-support-admin-attachment-preview hidden>
+        <span data-support-admin-attachment-name></span>
+        <button type="button" data-support-admin-remove-attachment aria-label="Remove attachment">×</button>
+      </div>
     </div>
   </section>
 </div>

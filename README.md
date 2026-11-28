@@ -191,6 +191,13 @@ to `oxygenvessels@gmail.com` by default (`SUPPORT_EMAIL` can override it) and
 links directly to the chat using `PUBLIC_BASE_URL`. Set
 `MAIL_FROM_ADDRESS=orders@fitystore.top` and verify that sender with the
 configured provider; failed or deferred alerts remain in the outbox for retries.
+The chat includes a settings menu for account access, transcript download,
+maximizing the widget, and optional browser notifications. Customers and agents
+can exchange PDF, PNG, JPG, WEBP, TXT, and CSV attachments up to 3 MB; files
+are stored privately in the application database and downloadable only by the
+conversation owner or a signed-in support administrator. The animated
+agent-connection indicator appears only after a customer explicitly requests
+customer care.
 
 The support tables are additive and are not created automatically at web-server
 startup. Back up the production database, deploy the code, then run this command
@@ -203,8 +210,8 @@ python -m flask --app manage:app migrate-support-chat-schema \
 ```
 
 Re-run the same command after deploying later support-chat schema additions;
-it adds any missing chat-name or agent-escalation columns without replacing
-existing conversations.
+it adds any missing chat-name or agent-escalation columns and the private
+attachment table without replacing existing conversations.
 
 The migration rejects Render SQLite databases and requires the configured
 PostgreSQL database. The live Render start command must use one Gunicorn `gthread` worker with a

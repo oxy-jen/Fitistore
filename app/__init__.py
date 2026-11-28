@@ -498,7 +498,12 @@ def register_cli(app: Flask):
         """Create the additive support chat tables after explicit confirmation."""
         from sqlalchemy import inspect, text
         from sqlalchemy.exc import SQLAlchemyError
-        from .models import SupportAgentPresence, SupportConversation, SupportMessage
+        from .models import (
+            SupportAgentPresence,
+            SupportAttachment,
+            SupportConversation,
+            SupportMessage,
+        )
 
         if (confirmation != "APPLY SUPPORT CHAT MIGRATION"
                 or backup_confirmation != "I HAVE A VERIFIED RESTORABLE BACKUP"):
@@ -529,6 +534,10 @@ def register_cli(app: Flask):
                 "sender_admin_id", "sender_name", "client_message_id", "body", "created_at",
             },
             "support_agent_presence": {"admin_id", "status", "heartbeat_at"},
+            "support_attachment": {
+                "id", "message_id", "filename", "content_type", "size_bytes",
+                "data", "created_at",
+            },
         }
         try:
             with db.engine.begin() as connection:
@@ -562,6 +571,7 @@ def register_cli(app: Flask):
                     for model in (
                         SupportConversation,
                         SupportMessage,
+                        SupportAttachment,
                         SupportAgentPresence,
                     ):
                         model.__table__.create(bind=connection, checkfirst=True)

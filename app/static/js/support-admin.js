@@ -16,6 +16,10 @@
   const typing = root.querySelector('[data-support-admin-typing]');
   const notice = document.querySelector('[data-support-admin-notice]');
   const availability = document.querySelector('[data-support-agent-status]');
+  const fileInput = root.querySelector('[data-support-admin-file]');
+  const attachmentPreview = root.querySelector('[data-support-admin-attachment-preview]');
+  const attachmentName = root.querySelector('[data-support-admin-attachment-name]');
+  const removeAttachment = root.querySelector('[data-support-admin-remove-attachment]');
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
   const adminName = root.dataset.supportAdminName;
   const topicNames = {
@@ -39,13 +43,14 @@
   const renderedIds = new Set();
 
   async function request(url, options = {}) {
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
     const response = await fetch(url, {
       credentials: 'same-origin',
       cache: 'no-store',
       ...options,
       headers: {
         Accept: 'application/json',
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
         ...(options.method && options.method !== 'GET' ? { 'X-CSRFToken': csrfToken } : {}),
         ...options.headers,
       },
@@ -95,7 +100,15 @@
     time.textContent = Number.isNaN(date.getTime())
       ? ''
       : date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
-    article.append(sender, body, time);
+    article.append(sender, body);
+    if (message.attachment?.url) {
+      const attachment = document.createElement('a');
+      attachment.className = 'support-admin-message-attachment';
+      attachment.href = message.attachment.url;
+      attachment.textContent = `📎 ${message.attachment.filename}`;
+      article.append(attachment);
+    }
+    article.append(time);
     messages.append(article);
     messages.scrollTop = messages.scrollHeight;
   }
@@ -270,23 +283,37 @@
 
   async function sendReply(event) {
     event.preventDefault();
-    if (!selected || !compose.checkValidity()) return;
+    if (!selected) return;
     const body = textarea.value.trim();
-    if (!body) return;
-    if (!pendingMessage || pendingMessage.body !== body) {
-      pendingMessage = { body, id: messageId() };
+    const file = fileInput.files?.[0] || null;
+    if (!body && !file) return;
+    const fileKey = file ? `${file.name}:${file.size}:${file.lastModified}` : '';
+    if (!pendingMessage || pendingMessage.body !== body || pendingMessage.fileKey !== fileKey) {
+      pendingMessage = { body, fileKey, id: messageId() };
     }
     const original = selected;
     textarea.disabled = true;
     compose.querySelector('button[type="submit"]').disabled = true;
     clearNotice();
     try {
+      const requestBody = file
+        ? (() => {
+          const formData = new FormData();
+          formData.append('body', body);
+          formData.append('client_message_id', pendingMessage.id);
+          formData.append('attachment', file);
+          return formData;
+        })()
+        : JSON.stringify({ body, client_message_id: pendingMessage.id });
       const data = await request(`/admin/support/api/conversations/${encodeURIComponent(selected.id)}/messages`, {
         method: 'POST',
-        body: JSON.stringify({ body, client_message_id: pendingMessage.id }),
+        body: requestBody,
       });
       appendMessage(data.message);
       textarea.value = '';
+      fileInput.value = '';
+      attachmentPreview.hidden = true;
+      attachmentName.textContent = '';
       pendingMessage = null;
       refreshList();
     } catch (requestError) {
@@ -315,6 +342,30 @@
 
   availability.addEventListener('change', sendHeartbeat);
   compose.addEventListener('submit', sendReply);
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files?.[0];
+    if (!file) {
+      attachmentPreview.hidden = true;
+      attachmentName.textContent = '';
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      fileInput.value = '';
+      attachmentPreview.hidden = true;
+      showNotice('Attachments must be 3 MB or smaller.');
+      return;
+    }
+    clearNotice();
+    attachmentName.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+    attachmentPreview.hidden = false;
+    textarea.focus();
+  });
+  removeAttachment.addEventListener('click', () => {
+    fileInput.value = '';
+    attachmentPreview.hidden = true;
+    attachmentName.textContent = '';
+    fileInput.focus();
+  });
   textarea.addEventListener('input', () => {
     if (!socket?.connected || !selected || compose.hidden) return;
     if (!agentTyping) {
