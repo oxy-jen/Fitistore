@@ -1,57 +1,160 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="page-head admin-support-heading">
-  <div>
-    <p class="eyebrow">Customer care</p>
-    <h1>Support inbox</h1>
-    <p>Self-service chats are visible here; claim a chat only after the customer requests an agent.</p>
-  </div>
-  <label class="support-agent-status">
-    Your availability
-    <select data-support-agent-status aria-label="Set your support availability">
-      <option value="available">Available</option>
-      <option value="busy">Busy</option>
-      <option value="away" selected>Away</option>
-    </select>
-  </label>
-</section>
-<p class="fity-support-error support-admin-notice" data-support-admin-notice role="status" hidden></p>
-<div class="support-admin-layout" data-support-admin data-support-admin-name="{{ current_user.username }}">
-  <aside class="support-admin-list" aria-label="Open conversations">
-    <div class="support-admin-list-heading"><h2>Open chats</h2><button class="btn" type="button" data-support-admin-refresh>Refresh</button></div>
-    <div data-support-admin-conversations aria-live="polite"></div>
-  </aside>
-  <section class="support-admin-conversation" aria-label="Selected conversation" aria-live="polite">
-    <div class="support-admin-empty" data-support-admin-empty>
-      <svg aria-hidden="true"><use href="#icon-headset"></use></svg>
-      <h2>Select a conversation</h2>
-      <p>Waiting chats will appear here as soon as they are saved.</p>
+<div class="support-admin-page">
+  <header class="support-admin-page-heading">
+    <div>
+      <p class="eyebrow">CUSTOMER CARE</p>
+      <h1>Support inbox</h1>
     </div>
-    <div class="support-admin-active" data-support-admin-active hidden>
-      <header class="support-admin-chat-header">
-        <div><p class="eyebrow" data-support-admin-topic></p><h2 data-support-admin-title>Customer conversation</h2><small data-support-admin-status></small></div>
-        <div class="support-admin-actions">
-          <button class="btn primary" type="button" data-support-admin-claim hidden>Claim chat</button>
-          <button class="btn" type="button" data-support-admin-close hidden>Close chat</button>
-        </div>
-      </header>
-      <div class="support-admin-messages" data-support-admin-messages aria-live="polite" aria-relevant="additions"></div>
-      <p class="fity-support-typing" data-support-admin-typing hidden><span class="fity-support-dots" aria-hidden="true"><i></i><i></i><i></i></span> Customer is typing…</p>
-      <form class="support-admin-compose" data-support-admin-compose hidden>
-        <label class="visually-hidden" for="support-admin-message">Write a reply</label>
-        <input class="visually-hidden" id="support-admin-file" type="file" name="attachment" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.csv" data-support-admin-file>
-        <label class="support-admin-attach" for="support-admin-file" aria-label="Attach a file" title="Attach a file">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8.5 12.5 6.7-6.7a3 3 0 0 1 4.2 4.2l-8.8 8.8a5 5 0 0 1-7.1-7.1l8.4-8.4"/></svg>
-        </label>
-        <textarea id="support-admin-message" maxlength="2000" rows="2" placeholder="Write a reply or attach a file…"></textarea>
-        <button class="btn primary" type="submit">Send reply</button>
-      </form>
-      <div class="support-admin-attachment-preview" data-support-admin-attachment-preview hidden>
-        <span data-support-admin-attachment-name></span>
-        <button type="button" data-support-admin-remove-attachment aria-label="Remove attachment">×</button>
+    <div class="support-admin-top-actions">
+      <label class="support-agent-status">
+        <span>Availability</span>
+        <select data-support-agent-status aria-label="Set your support availability">
+          <option value="available">Available</option>
+          <option value="busy">Busy</option>
+          <option value="away" selected>Away</option>
+        </select>
+      </label>
+      <button class="support-admin-refresh" type="button" data-support-admin-refresh>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2"/></svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+  <p class="fity-support-error support-admin-notice" data-support-admin-notice role="status" hidden></p>
+
+  <div class="support-admin-layout" data-support-admin data-support-admin-name="{{ current_user.username }}">
+    <nav class="support-admin-rail" aria-label="Support desk">
+      <div class="support-admin-rail-brand" aria-label="FityStores support">
+        <img src="{{ url_for('static', filename='images/mainLogo-160.png') }}" alt="">
       </div>
-    </div>
-  </section>
+      <button class="support-admin-rail-link is-active" type="button" aria-current="page" title="Inbox" aria-label="Inbox">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 13h4l2 3h4l2-3h4"/></svg>
+        <span>Inbox</span>
+      </button>
+      <a class="support-admin-rail-link" href="{{ url_for('admin.dashboard') }}" title="Admin dashboard" aria-label="Admin dashboard">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+        <span>Admin</span>
+      </a>
+      <button class="support-admin-rail-link" type="button" data-support-admin-focus-availability title="Set availability" aria-label="Set availability">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>
+        <span>Status</span>
+      </button>
+      <div class="support-admin-rail-spacer"></div>
+      <span class="support-admin-rail-user" title="{{ current_user.username }}">{{ (current_user.username or 'A')[:1]|upper }}</span>
+    </nav>
+
+    <aside class="support-admin-list" aria-label="Support conversations">
+      <header class="support-admin-list-heading">
+        <div><h2>Inbox</h2><span data-support-admin-count>0 conversations</span></div>
+        <label class="support-admin-sort">
+          <span class="visually-hidden">Sort conversations</span>
+          <select data-support-admin-sort aria-label="Sort conversations">
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+          </select>
+        </label>
+      </header>
+      <label class="support-admin-search">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <span class="visually-hidden">Search conversations</span>
+        <input type="search" placeholder="Search conversations…" data-support-admin-search autocomplete="off">
+        <kbd>/</kbd>
+      </label>
+      <div class="support-admin-filters" role="group" aria-label="Filter conversations">
+        <button type="button" data-support-admin-filter="all" aria-pressed="true">All <span data-support-admin-filter-count="all">0</span></button>
+        <button type="button" data-support-admin-filter="needs-agent" aria-pressed="false">Needs agent <span data-support-admin-filter-count="needs-agent">0</span></button>
+        <button type="button" data-support-admin-filter="assigned" aria-pressed="false">Assigned <span data-support-admin-filter-count="assigned">0</span></button>
+        <button type="button" data-support-admin-filter="self-service" aria-pressed="false">Self-service <span data-support-admin-filter-count="self-service">0</span></button>
+      </div>
+      <div class="support-admin-conversations" data-support-admin-conversations aria-live="polite"></div>
+    </aside>
+
+    <section class="support-admin-conversation" aria-label="Selected conversation" aria-live="polite">
+      <div class="support-admin-empty" data-support-admin-empty>
+        <span class="support-admin-empty-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 13h4l2 3h4l2-3h4"/></svg></span>
+        <h2>Select a conversation</h2>
+        <p>Choose a customer chat from your inbox to review the conversation and reply.</p>
+      </div>
+      <div class="support-admin-active" data-support-admin-active hidden>
+        <header class="support-admin-chat-header">
+          <div class="support-admin-customer">
+            <button class="support-admin-mobile-back" type="button" data-support-admin-mobile-back aria-label="Back to conversations">‹</button>
+            <span class="support-admin-customer-avatar" data-support-admin-avatar aria-hidden="true">C</span>
+            <div class="support-admin-customer-copy">
+              <h2 data-support-admin-title>Customer conversation</h2>
+              <div><span class="support-admin-live-dot" data-support-admin-live-dot></span><small data-support-admin-status></small><span class="support-admin-header-separator">·</span><small data-support-admin-email></small></div>
+            </div>
+          </div>
+          <div class="support-admin-actions">
+            <span class="support-admin-topic-pill" data-support-admin-topic></span>
+            <button class="support-admin-action-button support-admin-notification-toggle" type="button" data-support-admin-notifications aria-pressed="false" aria-label="Enable browser notifications" title="Browser notifications">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/></svg>
+            </button>
+            <button class="support-admin-action-button" type="button" data-support-admin-details-toggle aria-expanded="false" aria-controls="support-admin-details" aria-label="Customer details" title="Customer details">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+            </button>
+            <button class="support-admin-action-button" type="button" data-support-admin-menu-toggle aria-expanded="false" aria-controls="support-admin-more-menu" aria-label="More conversation actions" title="More actions">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+            </button>
+            <div class="support-admin-more-menu" id="support-admin-more-menu" data-support-admin-more-menu hidden>
+              <button type="button" data-support-admin-copy-link>Copy conversation link</button>
+              <button type="button" data-support-admin-download>Download transcript</button>
+              <button type="button" data-support-admin-close hidden>Close conversation</button>
+            </div>
+          </div>
+        </header>
+        <div class="support-admin-claim-banner" data-support-admin-claim-banner hidden>
+          <span>Customer has requested a person to help.</span>
+          <button class="btn primary" type="button" data-support-admin-claim>Claim chat</button>
+        </div>
+        <div class="support-admin-messages" data-support-admin-messages aria-live="polite" aria-relevant="additions"></div>
+        <p class="support-admin-typing" data-support-admin-typing hidden><span class="fity-support-dots" aria-hidden="true"><i></i><i></i><i></i></span> Customer is typing…</p>
+        <form class="support-admin-compose" data-support-admin-compose hidden>
+          <div class="support-admin-compose-tools">
+            <input class="visually-hidden" id="support-admin-file" type="file" name="attachment" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.csv" data-support-admin-file>
+            <label class="support-admin-compose-icon" for="support-admin-file" aria-label="Attach a file" title="Attach a file">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8.5 12.5 6.7-6.7a3 3 0 0 1 4.2 4.2l-8.8 8.8a5 5 0 0 1-7.1-7.1l8.4-8.4"/></svg>
+            </label>
+            <div class="support-admin-emoji-wrap">
+              <button class="support-admin-compose-icon" type="button" data-support-admin-emoji-toggle aria-expanded="false" aria-label="Insert emoji" title="Insert emoji">☺</button>
+              <div class="support-admin-emoji-picker" data-support-admin-emoji-picker hidden>
+                <button type="button" aria-label="Smiling face">🙂</button><button type="button" aria-label="Heart">❤️</button><button type="button" aria-label="Thumbs up">👍</button><button type="button" aria-label="Thank you">🙏</button><button type="button" aria-label="Thinking face">🤔</button><button type="button" aria-label="Waving hand">👋</button>
+              </div>
+            </div>
+          </div>
+          <label class="visually-hidden" for="support-admin-message">Write a reply</label>
+          <textarea id="support-admin-message" maxlength="2000" rows="2" placeholder="Write a message…" aria-label="Write a reply"></textarea>
+          <div class="support-admin-compose-footer">
+            <small>Enter to send · Shift + Enter for a new line</small>
+            <button class="support-admin-send" type="submit" aria-label="Send reply">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12h15M13 5l7 7-7 7"/></svg>
+            </button>
+          </div>
+        </form>
+        <div class="support-admin-attachment-preview" data-support-admin-attachment-preview hidden>
+          <span data-support-admin-attachment-name></span>
+          <button type="button" data-support-admin-remove-attachment aria-label="Remove attachment">×</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="support-admin-details" id="support-admin-details" data-support-admin-details hidden aria-label="Customer details">
+      <header><h2>Conversation details</h2><button type="button" data-support-admin-details-close aria-label="Close details">×</button></header>
+      <div class="support-admin-details-profile">
+        <span class="support-admin-customer-avatar" data-support-admin-details-avatar aria-hidden="true">C</span>
+        <strong data-support-admin-details-name>Customer</strong>
+        <a data-support-admin-details-email href="#">customer@example.com</a>
+      </div>
+      <dl>
+        <div><dt>Topic</dt><dd data-support-admin-details-topic>General help</dd></div>
+        <div><dt>Status</dt><dd data-support-admin-details-status>Waiting</dd></div>
+        <div><dt>Assigned to</dt><dd data-support-admin-details-assigned>Unassigned</dd></div>
+        <div><dt>First contact</dt><dd data-support-admin-details-created>—</dd></div>
+        <div><dt>Email alert</dt><dd data-support-admin-details-notification>—</dd></div>
+      </dl>
+    </aside>
+  </div>
 </div>
 {% endblock %}

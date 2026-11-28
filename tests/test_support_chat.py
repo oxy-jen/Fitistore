@@ -306,6 +306,7 @@ def test_customer_can_finish_self_service_without_agent(support_app):
     _sign_in_customer(client, support_app)
     started = _start_chat(client, topic="payments", body="I already paid.")
     conversation_id = started.json["conversation"]["id"]
+    assert started.json["message"]["conversation_id"] == conversation_id
     assert any(reply["action"] == "resolve" for reply in started.json["quick_replies"])
 
     resolved = client.post(f"/support/conversations/{conversation_id}/resolve")
@@ -477,8 +478,17 @@ def test_support_inbox_requires_admin_and_shows_customer_contact_only_to_admin(s
     dashboard = admin.get("/admin/support/")
     assert dashboard.status_code == 200
     assert b"data-support-admin" in dashboard.data
+    assert b"data-support-admin-search" in dashboard.data
+    assert b"data-support-admin-filter=\"needs-agent\"" in dashboard.data
+    assert b"data-support-admin-details-toggle" in dashboard.data
+    assert b"data-support-admin-emoji-toggle" in dashboard.data
     assert b"support-admin.js" in dashboard.data
     assert b"data-support-widget" not in dashboard.data
+    transcript = admin.get(
+        f"/admin/support/api/conversations/{conversation_id}/transcript"
+    )
+    assert transcript.status_code == 200
+    assert b"I need help with an order." in transcript.data
     assert customer.get("/admin/support/api/conversations").status_code == 403
 
 

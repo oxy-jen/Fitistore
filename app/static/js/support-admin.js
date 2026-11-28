@@ -3,6 +3,10 @@
   if (!root) return;
 
   const list = root.querySelector('[data-support-admin-conversations]');
+  const searchInput = root.querySelector('[data-support-admin-search]');
+  const sortSelect = root.querySelector('[data-support-admin-sort]');
+  const countLabel = root.querySelector('[data-support-admin-count]');
+  const filterButtons = [...root.querySelectorAll('[data-support-admin-filter]')];
   const empty = root.querySelector('[data-support-admin-empty]');
   const active = root.querySelector('[data-support-admin-active]');
   const messages = root.querySelector('[data-support-admin-messages]');
@@ -16,10 +20,25 @@
   const typing = root.querySelector('[data-support-admin-typing]');
   const notice = document.querySelector('[data-support-admin-notice]');
   const availability = document.querySelector('[data-support-agent-status]');
+  const claimBanner = root.querySelector('[data-support-admin-claim-banner]');
   const fileInput = root.querySelector('[data-support-admin-file]');
   const attachmentPreview = root.querySelector('[data-support-admin-attachment-preview]');
   const attachmentName = root.querySelector('[data-support-admin-attachment-name]');
   const removeAttachment = root.querySelector('[data-support-admin-remove-attachment]');
+  const avatar = root.querySelector('[data-support-admin-avatar]');
+  const emailLabel = root.querySelector('[data-support-admin-email]');
+  const liveDot = root.querySelector('[data-support-admin-live-dot]');
+  const detailsPanel = root.querySelector('[data-support-admin-details]');
+  const detailsToggle = root.querySelector('[data-support-admin-details-toggle]');
+  const notificationsToggle = root.querySelector('[data-support-admin-notifications]');
+  const menuToggle = root.querySelector('[data-support-admin-menu-toggle]');
+  const moreMenu = root.querySelector('[data-support-admin-more-menu]');
+  const downloadButton = root.querySelector('[data-support-admin-download]');
+  const copyLinkButton = root.querySelector('[data-support-admin-copy-link]');
+  const emojiToggle = root.querySelector('[data-support-admin-emoji-toggle]');
+  const emojiPicker = root.querySelector('[data-support-admin-emoji-picker]');
+  const detailsClose = root.querySelector('[data-support-admin-details-close]');
+  const mobileBack = root.querySelector('[data-support-admin-mobile-back]');
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
   const adminName = root.dataset.supportAdminName;
   const topicNames = {
@@ -37,9 +56,11 @@
   let socket = null;
   let messageTimer = null;
   let typingTimer = null;
-  let loading = false;
+  let loadingConversationId = null;
   let agentTyping = false;
   let pendingMessage = null;
+  let selectedFilter = 'all';
+  let notificationsEnabled = false;
   const renderedIds = new Set();
 
   async function request(url, options = {}) {
@@ -113,11 +134,87 @@
     messages.scrollTop = messages.scrollHeight;
   }
 
+  function initials(name) {
+    return String(name || 'Customer')
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('') || 'C';
+  }
+
+  function relativeTime(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+    if (seconds < 60) return 'now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d`;
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
+  function statusLabel(conversation) {
+    if (conversation.status === 'assigned') return `Assigned to ${conversation.assigned || 'an agent'}`;
+    if (conversation.escalation_requested) return 'Needs agent';
+    return 'Self-service';
+  }
+
+  function filteredConversations() {
+    const query = searchInput.value.trim().toLocaleLowerCase();
+    const filtered = conversations.filter((conversation) => {
+      if (selectedFilter === 'needs-agent'
+          && !(conversation.status === 'waiting' && conversation.escalation_requested)) return false;
+      if (selectedFilter === 'assigned' && conversation.status !== 'assigned') return false;
+      if (selectedFilter === 'self-service'
+          && !(conversation.status === 'waiting' && !conversation.escalation_requested)) return false;
+      if (!query) return true;
+      const lastMessage = conversation.last_message?.body || '';
+      return [
+        conversation.customer_name,
+        conversation.customer_email,
+        topicNames[conversation.topic],
+        lastMessage,
+      ].some((value) => String(value || '').toLocaleLowerCase().includes(query));
+    });
+    const direction = sortSelect.value === 'oldest' ? 1 : -1;
+    return filtered.sort((left, right) => (
+      direction * (
+        new Date(left.last_message_at || left.created_at).getTime()
+        - new Date(right.last_message_at || right.created_at).getTime()
+      )
+    ));
+  }
+
+  function updateFilterCounts() {
+    const counts = {
+      all: conversations.length,
+      'needs-agent': conversations.filter((item) => item.status === 'waiting' && item.escalation_requested).length,
+      assigned: conversations.filter((item) => item.status === 'assigned').length,
+      'self-service': conversations.filter((item) => item.status === 'waiting' && !item.escalation_requested).length,
+    };
+    Object.entries(counts).forEach(([key, count]) => {
+      const counter = root.querySelector(`[data-support-admin-filter-count="${key}"]`);
+      if (counter) counter.textContent = String(count);
+    });
+  }
+
   function updateSelected(conversation) {
     if (!conversation) return;
+    if (selected?.id === conversation.id) conversation = { ...selected, ...conversation };
     selected = conversation;
     topic.textContent = topicNames[conversation.topic] || 'General help';
-    title.textContent = conversation.customer_name || conversation.customer_email || 'Customer conversation';
+    const customerName = conversation.customer_name || conversation.customer_email || 'Customer conversation';
+    const customerEmail = conversation.customer_email || '';
+    title.textContent = customerName;
+    emailLabel.textContent = customerEmail || 'Email unavailable';
+    avatar.textContent = initials(customerName);
+    root.querySelector('[data-support-admin-details-avatar]').textContent = initials(customerName);
+    root.querySelector('[data-support-admin-details-name]').textContent = customerName;
+    const detailsEmail = root.querySelector('[data-support-admin-details-email]');
+    detailsEmail.textContent = customerEmail || 'Email unavailable';
+    if (customerEmail) detailsEmail.href = `mailto:${customerEmail}`;
+    else detailsEmail.removeAttribute('href');
     const assignedToMe = conversation.assigned === adminName;
     const isWaiting = conversation.status === 'waiting' && conversation.escalation_requested;
     status.textContent = conversation.status === 'assigned'
@@ -127,39 +224,86 @@
         : conversation.escalation_requested
           ? 'Waiting for an agent'
           : 'Customer is using self-service';
-    claimButton.hidden = !isWaiting;
+    claimBanner.hidden = !isWaiting;
     closeButton.hidden = !assignedToMe;
     compose.hidden = !assignedToMe || conversation.status === 'closed';
+    liveDot.classList.toggle('is-online', conversation.status === 'assigned');
+    liveDot.classList.toggle('is-closed', conversation.status === 'closed');
+    detailsToggle.disabled = false;
+    root.querySelector('[data-support-admin-details-topic]').textContent = topicNames[conversation.topic] || 'General help';
+    root.querySelector('[data-support-admin-details-status]').textContent = statusLabel(conversation);
+    root.querySelector('[data-support-admin-details-assigned]').textContent = conversation.assigned || 'Unassigned';
+    const created = new Date(conversation.created_at);
+    root.querySelector('[data-support-admin-details-created]').textContent = Number.isNaN(created.getTime())
+      ? '—'
+      : created.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+    root.querySelector('[data-support-admin-details-notification]').textContent = conversation.notification_status || 'Not recorded';
+    fileInput.disabled = compose.hidden;
+    if (compose.hidden) {
+      attachmentPreview.hidden = true;
+      attachmentName.textContent = '';
+      fileInput.value = '';
+    }
   }
 
   function renderConversationList() {
     list.replaceChildren();
-    if (!conversations.length) {
+    updateFilterCounts();
+    const visibleConversations = filteredConversations();
+    countLabel.textContent = `${visibleConversations.length} of ${conversations.length} conversations`;
+    if (!visibleConversations.length) {
       const message = document.createElement('p');
       message.className = 'support-admin-empty-list';
-      message.textContent = 'No open conversations right now.';
+      message.textContent = conversations.length
+        ? 'No conversations match this search or filter.'
+        : 'No open conversations right now.';
       list.append(message);
       return;
     }
 
-    conversations.forEach((conversation) => {
+    visibleConversations.forEach((conversation) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'support-admin-conversation-row';
       button.setAttribute('aria-current', String(selected?.id === conversation.id));
+      const conversationAvatar = document.createElement('span');
+      conversationAvatar.className = 'support-admin-row-avatar';
+      const palette = ['is-coral', 'is-violet', 'is-teal', 'is-gold'];
+      conversationAvatar.classList.add(palette[(conversation.id.length + conversation.id.charCodeAt(0)) % palette.length]);
+      conversationAvatar.textContent = initials(conversation.customer_name || conversation.customer_email);
+      if (conversation.status === 'assigned') {
+        const online = document.createElement('i');
+        online.setAttribute('aria-hidden', 'true');
+        conversationAvatar.append(online);
+      }
+      const heading = document.createElement('div');
+      heading.className = 'support-admin-row-heading';
       const name = document.createElement('strong');
       name.textContent = conversation.customer_name || conversation.customer_email || 'Customer';
+      const time = document.createElement('time');
+      time.textContent = relativeTime(conversation.last_message_at || conversation.created_at);
+      heading.append(name, time);
       const excerpt = document.createElement('span');
+      excerpt.className = 'support-admin-row-preview';
       excerpt.textContent = conversation.last_message?.body || 'No messages yet';
-      const details = document.createElement('small');
+      if (conversation.last_message?.attachment) {
+        excerpt.textContent = `Attachment · ${conversation.last_message.attachment.filename}`;
+      }
+      const details = document.createElement('div');
+      details.className = 'support-admin-row-meta';
       const topicName = topicNames[conversation.topic] || 'General help';
-      const state = conversation.status === 'assigned'
-        ? `Assigned to ${conversation.assigned || 'an agent'}`
-        : conversation.escalation_requested
-          ? 'Waiting for an agent'
-          : 'Self-service';
-      details.textContent = `${topicName} · ${state}`;
-      button.append(name, excerpt, details);
+      const topicBadge = document.createElement('span');
+      topicBadge.textContent = topicName;
+      const state = document.createElement('span');
+      state.className = 'support-admin-row-state';
+      if (conversation.escalation_requested && conversation.status === 'waiting') {
+        state.classList.add('is-needs-agent');
+      } else if (conversation.status === 'assigned') {
+        state.classList.add('is-assigned');
+      }
+      state.textContent = statusLabel(conversation);
+      details.append(topicBadge, document.createTextNode('·'), state);
+      button.append(conversationAvatar, heading, excerpt, details);
       button.addEventListener('click', () => selectConversation(conversation));
       list.append(button);
     });
@@ -176,6 +320,10 @@
           selected = null;
           active.hidden = true;
           empty.hidden = false;
+          detailsPanel.hidden = true;
+          root.classList.remove('has-details', 'is-chat-open');
+          detailsToggle.setAttribute('aria-expanded', 'false');
+          moreMenu.hidden = true;
         }
       }
       renderConversationList();
@@ -185,17 +333,19 @@
   }
 
   async function refreshMessages() {
-    if (!selected || loading) return;
-    loading = true;
+    const conversation = selected;
+    if (!conversation || loadingConversationId === conversation.id) return;
+    loadingConversationId = conversation.id;
     try {
-      const data = await request(`/admin/support/api/conversations/${encodeURIComponent(selected.id)}/messages?after=${cursor}`);
+      const data = await request(`/admin/support/api/conversations/${encodeURIComponent(conversation.id)}/messages?after=${cursor}`);
+      if (selected?.id !== conversation.id) return;
       updateSelected(data.conversation);
       data.messages.forEach(appendMessage);
       if (data.messages.length) cursor = Math.max(cursor, ...data.messages.map((message) => message.id));
     } catch (requestError) {
-      showNotice(requestError.message);
+      if (selected?.id === conversation.id) showNotice(requestError.message);
     } finally {
-      loading = false;
+      if (loadingConversationId === conversation.id) loadingConversationId = null;
     }
   }
 
@@ -231,7 +381,11 @@
     });
     socket.on('queue_update', () => refreshList());
     socket.on('message', (message) => {
-      if (selected && message) appendMessage(message);
+      if (selected?.id === message?.conversation_id) {
+        const isNewMessage = !renderedIds.has(message.id);
+        appendMessage(message);
+        if (isNewMessage) showCustomerNotification(message);
+      }
       refreshList();
     });
     socket.on('typing', (data) => {
@@ -248,7 +402,12 @@
 
   async function selectConversation(conversation) {
     clearNotice();
+    moreMenu.hidden = true;
+    emojiPicker.hidden = true;
+    menuToggle.setAttribute('aria-expanded', 'false');
+    emojiToggle.setAttribute('aria-expanded', 'false');
     selected = conversation;
+    root.classList.add('is-chat-open');
     cursor = 0;
     renderedIds.clear();
     messages.replaceChildren();
@@ -340,8 +499,166 @@
     }
   }
 
+  function setDetailsVisible(visible) {
+    detailsPanel.hidden = !visible;
+    root.classList.toggle('has-details', visible);
+    detailsToggle.setAttribute('aria-expanded', String(visible));
+  }
+
+  async function downloadTranscript() {
+    if (!selected) return;
+    downloadButton.disabled = true;
+    try {
+      const response = await fetch(
+        `/admin/support/api/conversations/${encodeURIComponent(selected.id)}/transcript`,
+        { credentials: 'same-origin', cache: 'no-store' },
+      );
+      if (!response.ok) throw new Error('The transcript could not be downloaded. Please try again.');
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `fitystores-chat-${selected.id}.txt`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      moreMenu.hidden = true;
+      menuToggle.setAttribute('aria-expanded', 'false');
+    } catch (requestError) {
+      showNotice(requestError.message);
+    } finally {
+      downloadButton.disabled = !selected;
+    }
+  }
+
+  async function copyConversationLink() {
+    if (!selected) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('conversation', selected.id);
+    try {
+      await navigator.clipboard.writeText(url.href);
+      showNotice('Conversation link copied.');
+      moreMenu.hidden = true;
+      menuToggle.setAttribute('aria-expanded', 'false');
+    } catch {
+      showNotice('Could not copy the link. Copy it from the browser address bar instead.');
+    }
+  }
+
+  async function toggleNotifications() {
+    if (notificationsEnabled) {
+      notificationsEnabled = false;
+      notificationsToggle.setAttribute('aria-pressed', 'false');
+      notificationsToggle.setAttribute('aria-label', 'Enable browser notifications');
+      try { window.localStorage.setItem('fity-support-admin-notifications', 'false'); } catch { /* Storage can be disabled. */ }
+      return;
+    }
+    if (!('Notification' in window)) {
+      showNotice('This browser does not support desktop notifications.');
+      return;
+    }
+    let permission = Notification.permission;
+    if (permission === 'default') permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      showNotice(permission === 'denied'
+        ? 'Allow notifications in your browser settings to enable chat alerts.'
+        : 'Browser notifications were not enabled.');
+      return;
+    }
+    notificationsEnabled = true;
+    notificationsToggle.setAttribute('aria-pressed', 'true');
+    notificationsToggle.setAttribute('aria-label', 'Disable browser notifications');
+    try { window.localStorage.setItem('fity-support-admin-notifications', 'true'); } catch { /* Storage can be disabled. */ }
+    clearNotice();
+  }
+
+  function showCustomerNotification(message) {
+    if (
+      !notificationsEnabled
+      || document.visibilityState !== 'hidden'
+      || message.sender_type !== 'customer'
+      || !('Notification' in window)
+      || Notification.permission !== 'granted'
+    ) return;
+    try {
+      new Notification(message.sender_name || 'FityStores customer', {
+        body: message.body || 'Sent an attachment.',
+        tag: `fity-support-admin-${message.id}`,
+      });
+    } catch {
+      notificationsEnabled = false;
+      notificationsToggle.setAttribute('aria-pressed', 'false');
+      showNotice('Your browser could not display the chat notification.');
+    }
+  }
+
+  function initializeNotifications() {
+    try {
+      notificationsEnabled = window.localStorage.getItem('fity-support-admin-notifications') === 'true';
+    } catch {
+      notificationsEnabled = false;
+    }
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      notificationsEnabled = false;
+    }
+    notificationsToggle.setAttribute('aria-pressed', String(notificationsEnabled));
+    notificationsToggle.setAttribute(
+      'aria-label',
+      notificationsEnabled ? 'Disable browser notifications' : 'Enable browser notifications',
+    );
+  }
+
+  function insertEmoji(emoji) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    textarea.setRangeText(emoji, start, end, 'end');
+    textarea.focus();
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    emojiPicker.hidden = true;
+    emojiToggle.setAttribute('aria-expanded', 'false');
+  }
+
   availability.addEventListener('change', sendHeartbeat);
   compose.addEventListener('submit', sendReply);
+  searchInput.addEventListener('input', renderConversationList);
+  sortSelect.addEventListener('change', renderConversationList);
+  filterButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      selectedFilter = button.dataset.supportAdminFilter;
+      filterButtons.forEach((item) => {
+        item.setAttribute('aria-pressed', String(item === button));
+      });
+      renderConversationList();
+    });
+  });
+  detailsToggle.addEventListener('click', () => setDetailsVisible(detailsPanel.hidden));
+  detailsClose.addEventListener('click', () => setDetailsVisible(false));
+  notificationsToggle.addEventListener('click', () => {
+    toggleNotifications().catch(() => showNotice('Browser notifications could not be changed.'));
+  });
+  menuToggle.addEventListener('click', () => {
+    moreMenu.hidden = !moreMenu.hidden;
+    menuToggle.setAttribute('aria-expanded', String(!moreMenu.hidden));
+  });
+  downloadButton.addEventListener('click', downloadTranscript);
+  copyLinkButton.addEventListener('click', copyConversationLink);
+  emojiToggle.addEventListener('click', () => {
+    emojiPicker.hidden = !emojiPicker.hidden;
+    emojiToggle.setAttribute('aria-expanded', String(!emojiPicker.hidden));
+  });
+  emojiPicker.querySelectorAll('button').forEach((button) => {
+    button.addEventListener('click', () => insertEmoji(button.textContent));
+  });
+  mobileBack.addEventListener('click', () => {
+    setDetailsVisible(false);
+    root.classList.remove('is-chat-open');
+  });
+  root.querySelector('[data-support-admin-focus-availability]').addEventListener('click', () => {
+    availability.focus();
+    availability.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+  root.querySelector('[data-support-admin-refresh]').addEventListener('click', refreshList);
   fileInput.addEventListener('change', () => {
     const file = fileInput.files?.[0];
     if (!file) {
@@ -378,10 +695,42 @@
       if (selected) socket.emit('typing', { conversation_id: selected.id, typing: false, csrf_token: csrfToken });
     }, 1400);
   });
+  textarea.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      compose.requestSubmit();
+    }
+  });
   claimButton.addEventListener('click', claimConversation);
   closeButton.addEventListener('click', closeConversation);
-  root.querySelector('[data-support-admin-refresh]').addEventListener('click', refreshList);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const target = event.target;
+      if (target instanceof HTMLElement && !['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
+        event.preventDefault();
+        searchInput.focus();
+      }
+    }
+    if (event.key === 'Escape') {
+      moreMenu.hidden = true;
+      emojiPicker.hidden = true;
+      menuToggle.setAttribute('aria-expanded', 'false');
+      emojiToggle.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return;
+    if (!event.target.closest('.support-admin-actions')) {
+      moreMenu.hidden = true;
+      menuToggle.setAttribute('aria-expanded', 'false');
+    }
+    if (!event.target.closest('.support-admin-emoji-wrap')) {
+      emojiPicker.hidden = true;
+      emojiToggle.setAttribute('aria-expanded', 'false');
+    }
+  });
 
+  initializeNotifications();
   connectSocket();
   const linkedConversation = new URLSearchParams(window.location.search).get('conversation');
   refreshList().then(() => {

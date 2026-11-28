@@ -228,6 +228,7 @@ def message_payload(message: SupportMessage) -> dict:
     attachment = message.attachment
     return {
         "id": message.id,
+        "conversation_id": message.conversation.public_id,
         "sender_type": message.sender_type,
         "sender_name": message.sender_name,
         "body": message.body,

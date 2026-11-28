@@ -524,6 +524,10 @@ def customer_messages(public_id: str):
 @support_bp.get("/conversations/<public_id>/transcript")
 def customer_transcript(public_id: str):
     conversation = _find_owned_conversation(public_id)
+    return _support_transcript_response(conversation)
+
+
+def _support_transcript_response(conversation: SupportConversation):
     messages = SupportMessage.query.filter_by(
         conversation_id=conversation.id
     ).options(selectinload(SupportMessage.attachment)).order_by(
@@ -857,6 +861,14 @@ def admin_messages(public_id: str):
             "messages": [message_payload(item) for item in messages],
         }
     )
+
+
+@support_admin_bp.get("/api/conversations/<public_id>/transcript")
+@login_required
+def admin_transcript(public_id: str):
+    _require_support_admin()
+    conversation = SupportConversation.query.filter_by(public_id=public_id).first_or_404()
+    return _support_transcript_response(conversation)
 
 
 @support_admin_bp.post("/api/conversations/<public_id>/claim")
