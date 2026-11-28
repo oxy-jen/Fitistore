@@ -85,8 +85,10 @@ MIT License, Copyright (c) vinodjangid07 (Vinod Jangid) -->
         <span class="fity-support-spinner" data-support-spinner aria-hidden="true"></span>
         <span data-support-loader-message>Connecting you with support…</span>
       </div>
-      <div class="fity-support-messages" data-support-messages aria-live="polite" aria-relevant="additions"></div>
-      <div class="fity-support-quick-replies" data-support-quick-replies aria-label="Suggested replies"></div>
+      <div class="fity-support-transcript" data-support-scroll>
+        <div class="fity-support-messages" data-support-messages aria-live="polite" aria-relevant="additions"></div>
+        <div class="fity-support-quick-replies" data-support-quick-replies aria-label="Suggested replies"></div>
+      </div>
       <p class="fity-support-typing" data-support-bot-typing hidden><span class="fity-support-dots" aria-hidden="true"><i></i><i></i><i></i></span> FityStores assistant is typing…</p>
       <p class="fity-support-typing" data-support-typing hidden><span class="fity-support-dots" aria-hidden="true"><i></i><i></i><i></i></span> Customer care is typing…</p>
       <p class="fity-support-error" data-support-error role="alert" hidden></p>
@@ -96,7 +98,7 @@ MIT License, Copyright (c) vinodjangid07 (Vinod Jangid) -->
         <label class="fity-support-attach" for="fity-support-file" aria-label="Attach a file" title="Attach a file">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8.5 12.5 6.7-6.7a3 3 0 0 1 4.2 4.2l-8.8 8.8a5 5 0 0 1-7.1-7.1l8.4-8.4"/></svg>
         </label>
-        <textarea id="fity-support-message" name="body" maxlength="2000" rows="2" placeholder="Write a message or attach a file…"></textarea>
+        <textarea id="fity-support-message" name="body" maxlength="2000" rows="2" placeholder="Write a message…"></textarea>
         <button type="submit" aria-label="Send message"><svg aria-hidden="true"><use href="#icon-arrow"></use></svg></button>
       </form>
       <div class="fity-support-attachment-preview" data-support-attachment-preview hidden>

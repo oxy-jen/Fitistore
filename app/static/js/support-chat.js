@@ -20,6 +20,7 @@
   const topicLabel = root.querySelector('[data-support-topic-label]');
   const assignment = root.querySelector('[data-support-assignment]');
   const messages = root.querySelector('[data-support-messages]');
+  const scrollArea = root.querySelector('[data-support-scroll]');
   const form = root.querySelector('[data-support-compose]');
   const textarea = form.querySelector('textarea');
   const loader = root.querySelector('[data-support-loader]');
@@ -200,13 +201,13 @@
       optimistic.replaceWith(createMessageElement(message));
       optimisticMessages.delete(message.client_message_id);
       renderedIds.add(message.id);
-      messages.scrollTop = messages.scrollHeight;
+      scrollArea.scrollTop = scrollArea.scrollHeight;
       return;
     }
     if (renderedIds.has(message.id)) return;
     renderedIds.add(message.id);
     messages.append(createMessageElement(message));
-    messages.scrollTop = messages.scrollHeight;
+    scrollArea.scrollTop = scrollArea.scrollHeight;
     if (
       notificationsEnabled
       && document.visibilityState === 'hidden'
@@ -265,7 +266,7 @@
     article.querySelector('time').textContent = 'Sending…';
     optimisticMessages.set(clientMessageId, article);
     messages.append(article);
-    messages.scrollTop = messages.scrollHeight;
+    scrollArea.scrollTop = scrollArea.scrollHeight;
   }
 
   function removeOptimisticMessage(clientMessageId) {
@@ -461,6 +462,7 @@
       });
       quickReplies.append(button);
     });
+    scrollArea.scrollTop = scrollArea.scrollHeight;
   }
 
   function resumedQuickReplies(topic) {
@@ -563,6 +565,7 @@
       prechat.hidden = true;
       thread.hidden = false;
       messages.replaceChildren();
+      scrollArea.scrollTop = 0;
       renderedIds.clear();
       cursor = 0;
       optimisticMessages.clear();
@@ -737,6 +740,7 @@
     renderedIds.clear();
     optimisticMessages.clear();
     messages.replaceChildren();
+    scrollArea.scrollTop = 0;
     quickReplies.replaceChildren();
     prechatForm.reset();
     fileInput.value = '';

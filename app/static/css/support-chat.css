@@ -23,10 +23,10 @@
   --support-launcher-size: 58px;
   --support-panel-gap: 13px;
   --support-red: #e52335;
-  --support-ink: #f4f4f5;
-  --support-muted: #a7a9ad;
-  --support-line: #3d3f43;
-  --support-soft: #303236;
+  --support-ink: #25282d;
+  --support-muted: #747a83;
+  --support-line: #e5e7eb;
+  --support-soft: #fff;
   position: relative;
   z-index: 1300;
   font-family: inherit;
@@ -118,12 +118,13 @@
   max-height: min(590px, calc(100dvh - var(--support-launcher-bottom) - var(--support-launcher-size) - var(--support-panel-gap) - 16px));
   min-height: min(390px, calc(100dvh - var(--support-launcher-bottom) - var(--support-launcher-size) - var(--support-panel-gap) - 16px));
   flex-direction: column;
+  align-items: stretch;
   overflow: hidden;
   box-sizing: border-box;
-  border: 1px solid #3b3d41;
+  border: 1px solid #e4e6e9;
   border-radius: 18px;
   color: var(--support-ink);
-  background: #252629;
+  background: #fff;
   box-shadow: 0 18px 55px rgba(0, 0, 0, .24);
   animation: fity-support-appear .22s ease-out both;
 }
@@ -153,8 +154,8 @@
   gap: 12px;
   padding: 10px 13px;
   color: #fff;
-  background: #252629;
-  border-bottom: 1px solid #3b3d41;
+  background: linear-gradient(120deg, #ed303f, #cf1e2d);
+  border-bottom: 1px solid rgba(255, 255, 255, .16);
 }
 
 .fity-support-brand {
@@ -175,7 +176,7 @@
   bottom: -1px;
   width: 11px;
   height: 11px;
-  border: 2px solid #252525;
+  border: 2px solid #cf1e2d;
   border-radius: 50%;
   background: #8d9297;
 }
@@ -226,10 +227,10 @@
   right: 12px;
   width: min(320px, calc(100vw - 42px));
   overflow: hidden;
-  border: 1px solid #45474c;
+  border: 1px solid #e1e3e7;
   border-radius: 12px;
-  color: #f2f2f3;
-  background: #2b2d31;
+  color: #292c31;
+  background: #fff;
   box-shadow: 0 12px 32px rgba(0, 0, 0, .22);
 }
 
@@ -263,7 +264,7 @@
 }
 
 .fity-support-account-row a {
-  color: #ff8c98;
+  color: #bf1e2b;
   font-size: .72rem;
   font-weight: 800;
   text-decoration: none;
@@ -279,9 +280,9 @@
   gap: 12px;
   padding: 10px 13px;
   border: 0;
-  border-bottom: 1px solid #424449;
-  color: #ececee;
-  background: #2b2d31;
+  border-bottom: 1px solid #eceef1;
+  color: #34383e;
+  background: #fff;
   font: inherit;
   font-size: .78rem;
   font-weight: 700;
@@ -293,11 +294,11 @@
 }
 
 .fity-support-menu-action:hover:not(:disabled) {
-  background: #383a3f;
+  background: #f5f6f7;
 }
 
 .fity-support-menu-action:disabled {
-  color: #92949a;
+  color: #9298a0;
   cursor: not-allowed;
 }
 
@@ -341,7 +342,7 @@
 .fity-support-settings-status {
   margin: 0;
   padding: 8px 13px 10px;
-  color: #b7b9bd;
+  color: #737982;
   font-size: .7rem;
   line-height: 1.4;
 }
@@ -366,7 +367,7 @@
 
 .fity-support-brand small {
   overflow: hidden;
-  color: #e8e8e8;
+  color: #ffe8ea;
   font-size: .74rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -450,7 +451,7 @@
   min-height: 0;
   overflow-y: auto;
   padding: 17px 16px 15px;
-  background: #252629;
+  background: #f4f5f6;
 }
 
 .fity-support-signin,
@@ -459,12 +460,12 @@
   min-height: 0;
   overflow-y: auto;
   padding: 17px 16px 15px;
-  background: #252629;
+  background: #f4f5f6;
 }
 
 .fity-support-signin > p:not(.fity-support-greeting) {
   margin: 0 0 15px;
-  color: #c4c5c8;
+  color: #59616b;
   font-size: .86rem;
   line-height: 1.5;
 }
@@ -495,20 +496,20 @@
 
 .fity-support-signin-note {
   margin: 12px 0 0 !important;
-  color: #a7a9ad !important;
+  color: #747a83 !important;
   font-size: .72rem !important;
 }
 
 .fity-support-intro {
   margin: 0 0 14px;
-  color: #f0f0f1;
+  color: #373c43;
   font-size: .97rem;
   font-weight: 750;
 }
 
 .fity-support-greeting {
   margin: 0 0 8px;
-  color: #f4f4f5;
+  color: #25282d;
   font-size: 1.02rem;
   font-weight: 800;
   line-height: 1.4;
@@ -524,7 +525,7 @@
   margin: 0 0 14px;
   padding: 4px 0;
   border: 0;
-  color: #ff8c98;
+  color: #bf1e2b;
   background: transparent;
   cursor: pointer;
   font: inherit;
@@ -545,10 +546,10 @@
 
 .fity-support-suggestion {
   padding: 7px 10px;
-  border: 1px solid #4a3d42;
+  border: 1px solid #e4e6e9;
   border-radius: 999px;
-  color: #f0c4ca;
-  background: #30282b;
+  color: #525961;
+  background: #f8f9fa;
   cursor: pointer;
   font: inherit;
   font-size: .71rem;
@@ -559,7 +560,7 @@
 .fity-support-suggestion:hover,
 .fity-support-suggestion:focus-visible {
   border-color: var(--support-red);
-  background: #3b2b30;
+  background: #fff1f2;
 }
 
 .fity-support-name-fields {
@@ -572,7 +573,7 @@
 .fity-support-message-label {
   display: grid;
   gap: 5px;
-  color: #d7d8da;
+  color: #4a5058;
   font-size: .73rem;
   font-weight: 750;
 }
@@ -582,10 +583,10 @@
   width: 100%;
   min-width: 0;
   padding: 9px 10px;
-  border: 1px solid #4a4c51;
+  border: 1px solid #dfe2e6;
   border-radius: 8px;
   color: var(--support-ink);
-  background: #202124;
+  background: #fff;
   font: inherit;
   font-size: .8rem;
 }
@@ -625,7 +626,7 @@
   align-items: center;
   gap: 8px;
   margin: 0;
-  color: #c2c3c6;
+  color: #626a74;
   font-size: .75rem;
 }
 
@@ -639,10 +640,10 @@
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid #414348;
+  border: 1px solid #e1e4e8;
   border-radius: 11px;
-  color: #f0f0f1;
-  background: #2d2f33;
+  color: #343a40;
+  background: #fff;
   cursor: pointer;
   font: inherit;
   font-size: .82rem;
@@ -654,7 +655,7 @@
 .fity-support-topic-grid button:hover {
   transform: translateY(-1px);
   border-color: var(--support-red);
-  background: #37393e;
+  background: #fff7f7;
 }
 
 .fity-support-topic-grid svg {
@@ -672,7 +673,7 @@
 .fity-support-footnote {
   display: block;
   margin-top: 14px;
-  color: #a7a9ad;
+  color: #737982;
   font-size: .72rem;
   line-height: 1.5;
 }
@@ -686,7 +687,7 @@
   flex: 1;
   flex-direction: column;
   padding: 0 14px 13px;
-  background: #28292c;
+  background: #f4f5f6;
 }
 
 .fity-support-thread-meta {
@@ -695,23 +696,26 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px solid #414348;
-  color: #e7e7e9;
+  padding: 0 10px;
+  border-bottom: 1px solid #e1e4e8;
+  color: #343a40;
   font-size: .72rem;
   font-weight: 750;
 }
 
 .fity-support-thread-meta span:last-child {
-  color: #a9aaae;
+  color: #747a83;
   font-weight: 600;
   text-align: right;
 }
 
 .fity-support-quick-replies {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
   gap: 7px;
-  padding: 0 2px 8px;
+  padding: 8px 2px 12px;
 }
 
 .fity-support-quick-replies:empty {
@@ -719,22 +723,26 @@
 }
 
 .fity-support-quick-reply {
-  padding: 7px 10px;
-  border: 1px solid #514046;
-  border-radius: 999px;
-  color: #f2c4cb;
-  background: #30282b;
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  color: #60666f;
+  background: #fff;
   cursor: pointer;
   font: inherit;
-  font-size: .71rem;
-  line-height: 1.35;
-  text-align: left;
+  font-size: .78rem;
+  font-weight: 650;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .fity-support-quick-reply:hover,
 .fity-support-quick-reply:focus-visible {
   border-color: var(--support-red);
-  background: #3b2b30;
+  color: #a91c29;
+  background: #fff8f8;
 }
 
 .fity-support-quick-reply:disabled {
@@ -742,37 +750,86 @@
   opacity: .6;
 }
 
+.fity-support-transcript {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 8px 8px 2px;
+  overscroll-behavior: contain;
+  scrollbar-color: #b8bdc5 transparent;
+  scrollbar-width: thin;
+}
+
+.fity-support-transcript::-webkit-scrollbar,
+.fity-support-topics::-webkit-scrollbar,
+.fity-support-signin::-webkit-scrollbar,
+.fity-support-prechat::-webkit-scrollbar,
+.fity-support-settings-menu::-webkit-scrollbar {
+  width: 5px;
+}
+
+.fity-support-transcript::-webkit-scrollbar-track,
+.fity-support-topics::-webkit-scrollbar-track,
+.fity-support-signin::-webkit-scrollbar-track,
+.fity-support-prechat::-webkit-scrollbar-track,
+.fity-support-settings-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fity-support-transcript::-webkit-scrollbar-thumb,
+.fity-support-topics::-webkit-scrollbar-thumb,
+.fity-support-signin::-webkit-scrollbar-thumb,
+.fity-support-prechat::-webkit-scrollbar-thumb,
+.fity-support-settings-menu::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #b8bdc5;
+}
+
+.fity-support-transcript::-webkit-scrollbar-button,
+.fity-support-topics::-webkit-scrollbar-button,
+.fity-support-signin::-webkit-scrollbar-button,
+.fity-support-prechat::-webkit-scrollbar-button,
+.fity-support-settings-menu::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 .fity-support-messages {
   display: flex;
   min-width: 0;
-  min-height: 0;
-  flex: 1;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 9px;
-  overflow-y: auto;
-  padding: 14px 3px;
-  overscroll-behavior: contain;
+  overflow: visible;
+  padding: 5px 2px 8px;
 }
 
 .fity-support-message {
   min-width: 0;
-  max-width: 86%;
+  max-width: 90%;
   align-self: flex-start;
   padding: 9px 11px;
-  border: 1px solid #414348;
+  border: 1px solid #e1e4e8;
   border-radius: 13px 13px 13px 4px;
-  color: #f0f0f1;
-  background: #303236;
+  color: #30353b;
+  background: #fff;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
 .fity-support-message.is-customer {
   align-self: flex-end;
-  border-color: #394765;
+  border-color: #d52333;
   border-radius: 13px 13px 4px 13px;
   color: #fff;
-  background: #303d5c;
+  background: #e52335;
 }
 
 .fity-support-message.is-pending {
@@ -808,8 +865,7 @@
   display: block;
   margin-top: 5px;
   font-size: .62rem;
-  color: #b6b8bd;
-  opacity: .9;
+  color: #858b94;
 }
 
 .fity-support-loader {
@@ -817,7 +873,7 @@
   align-items: center;
   gap: 9px;
   padding: 11px 4px 2px;
-  color: #c2c3c6;
+  color: #656c75;
   font-size: .74rem;
 }
 
@@ -883,14 +939,14 @@
 .fity-support-typing {
   min-height: 18px;
   margin: 0 0 5px 2px;
-  color: #aeb0b4;
+  color: #747a83;
   font-size: .7rem;
   font-style: italic;
 }
 
 .fity-support-error {
   margin: 5px 0;
-  color: #ff9aa4;
+  color: #a91c29;
   font-size: .76rem;
 }
 
@@ -899,13 +955,13 @@
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  grid-template-columns: 35px minmax(0, 1fr) 36px;
+  grid-template-columns: minmax(0, 1fr) 35px 36px;
   align-items: end;
   gap: 7px;
   padding: 7px;
-  border: 1px solid #424449;
+  border: 1px solid #dfe2e6;
   border-radius: 12px;
-  background: #202124;
+  background: #fff;
 }
 
 .fity-support-attach {
@@ -913,18 +969,18 @@
   width: 35px;
   height: 36px;
   flex: 0 0 35px;
-  grid-column: 1;
+  grid-column: 2;
   grid-row: 1;
   place-items: center;
   border-radius: 9px;
-  color: #c0c1c4;
+  color: #737a83;
   cursor: pointer;
 }
 
 .fity-support-attach:hover,
 .fity-support-attach:focus-within {
   color: var(--support-red);
-  background: #38282c;
+  background: #fff1f2;
 }
 
 .fity-support-attach svg {
@@ -950,9 +1006,9 @@
   min-height: 38px;
   max-height: 95px;
   box-sizing: border-box;
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 1;
-  resize: vertical;
+  resize: none;
   border: 0;
   outline: 0;
   color: var(--support-ink);
@@ -1026,7 +1082,7 @@
   margin-top: 9px;
   padding: 5px 0;
   border: 0;
-  color: #ff8c98;
+  color: #bf1e2b;
   background: transparent;
   cursor: pointer;
   font: inherit;

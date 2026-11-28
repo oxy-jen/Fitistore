@@ -618,6 +618,8 @@ def test_support_launcher_is_present_on_storefront_only(support_client):
     assert b"data-support-launcher" in storefront.data
     assert b"data-support-minimize" in storefront.data
     assert b'data-support-close aria-label="Leave and close support chat"' in storefront.data
+    assert b"data-support-scroll" in storefront.data
+    assert b"data-support-quick-replies" in storefront.data
     assert b'<span class="fity-support-label">Chat</span>' in storefront.data
     assert b'data-support-signin' in storefront.data
     assert b"data-support-settings-toggle" in storefront.data

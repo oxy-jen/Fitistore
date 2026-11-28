@@ -39,7 +39,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/cookie-notice.css') }}?v=cookie-notice-20261127-v1">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}?v=product-gallery-purchase-dock-20261126-v2">
   {% if request.endpoint == 'support_admin.dashboard' or (not (current_user.is_authenticated and current_user.is_admin) and not request.path.startswith('/admin')) %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/support-chat.css') }}?v=support-chat-20261128-v8">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/support-chat.css') }}?v=support-chat-20261128-v9">
   {# Socket.IO is loaded on demand by the support chat scripts. #}
   {% endif %}
   {% if request.endpoint == 'customer.login' %}<link rel="stylesheet" href="{{ url_for('static', filename='css/customer-login.css') }}?v=email-first-login-20261127-v1">{% endif %}
@@ -66,7 +66,7 @@
   {% if request.endpoint == 'support_admin.dashboard' %}
   <script defer src="{{ url_for('static', filename='js/support-admin.js') }}?v=support-chat-20261128-v7"></script>
   {% elif not (current_user.is_authenticated and current_user.is_admin) and not request.path.startswith('/admin') %}
-  <script defer src="{{ url_for('static', filename='js/support-chat.js') }}?v=support-chat-20261128-v8"></script>
+  <script defer src="{{ url_for('static', filename='js/support-chat.js') }}?v=support-chat-20261128-v9"></script>
   {% endif %}
   {% if request.endpoint in ['customer.login', 'customer.verify_code'] %}<script defer src="{{ url_for('static', filename='js/verification-code-loader.js') }}?v=otp-code-ui-20261127-v1"></script>{% endif %}
   {% if request.endpoint and request.endpoint.startswith('design_studio.') %}<script defer src="{{ url_for('static', filename='js/design-studio-editor.js') }}?v=20261127-card-part-selection-v6"></script>{% endif %}
