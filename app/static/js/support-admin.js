@@ -55,6 +55,7 @@
   let cursor = 0;
   let socket = null;
   let messageTimer = null;
+  let listRefreshTimer = null;
   let typingTimer = null;
   let loadingConversationId = null;
   let agentTyping = false;
@@ -309,6 +310,38 @@
     });
   }
 
+  function scheduleListRefresh() {
+    if (listRefreshTimer) window.clearTimeout(listRefreshTimer);
+    listRefreshTimer = window.setTimeout(() => {
+      listRefreshTimer = null;
+      refreshList();
+    }, 120);
+  }
+
+  function applyQueueUpdate(data) {
+    if (!data?.conversation_id || !data.last_message) {
+      scheduleListRefresh();
+      return;
+    }
+    const index = conversations.findIndex((item) => item.id === data.conversation_id);
+    if (index < 0) {
+      scheduleListRefresh();
+      return;
+    }
+    const updated = {
+      ...conversations[index],
+      status: data.status || conversations[index].status,
+      escalation_requested: typeof data.escalation_requested === 'boolean'
+        ? data.escalation_requested
+        : conversations[index].escalation_requested,
+      last_message: data.last_message,
+      last_message_at: data.last_message.created_at || conversations[index].last_message_at,
+    };
+    conversations[index] = updated;
+    if (selected?.id === updated.id) selected = { ...selected, ...updated };
+    renderConversationList();
+  }
+
   async function refreshList() {
     try {
       const data = await request('/admin/support/api/conversations');
@@ -324,6 +357,7 @@
           root.classList.remove('has-details', 'is-chat-open');
           detailsToggle.setAttribute('aria-expanded', 'false');
           moreMenu.hidden = true;
+          updateMessagePolling();
         }
       }
       renderConversationList();
@@ -347,6 +381,15 @@
     } finally {
       if (loadingConversationId === conversation.id) loadingConversationId = null;
     }
+  }
+
+  function updateMessagePolling() {
+    if (messageTimer) window.clearInterval(messageTimer);
+    messageTimer = null;
+    if (!selected || socket?.connected) return;
+    messageTimer = window.setInterval(() => {
+      if (selected && !socket?.connected) refreshMessages();
+    }, 4000);
   }
 
   function joinSelectedConversation() {
@@ -378,25 +421,28 @@
       socket.emit('join_support_queue', { csrf_token: csrfToken });
       joinSelectedConversation();
       sendHeartbeat();
+      refreshList();
+      if (selected) refreshMessages();
+      updateMessagePolling();
     });
-    socket.on('queue_update', () => refreshList());
+    socket.on('queue_update', applyQueueUpdate);
     socket.on('message', (message) => {
       if (selected?.id === message?.conversation_id) {
         const isNewMessage = !renderedIds.has(message.id);
         appendMessage(message);
         if (isNewMessage) showCustomerNotification(message);
       }
-      refreshList();
     });
     socket.on('typing', (data) => {
       if (data?.conversation_id === selected?.id && data.sender_type === 'customer') typing.hidden = !data.typing;
     });
     socket.on('closed', (data) => {
       if (data?.conversation?.id === selected?.id) updateSelected(data.conversation);
-      refreshList();
+      scheduleListRefresh();
     });
     socket.on('disconnect', () => {
       showNotice('Support chat is reconnecting. The inbox will keep refreshing.');
+      updateMessagePolling();
     });
   }
 
@@ -418,8 +464,7 @@
     connectSocket();
     joinSelectedConversation();
     await refreshMessages();
-    if (messageTimer) window.clearInterval(messageTimer);
-    messageTimer = window.setInterval(refreshMessages, 4000);
+    updateMessagePolling();
   }
 
   async function claimConversation() {
@@ -742,6 +787,8 @@
       showNotice('This conversation is not currently open in the support inbox.');
     }
   });
-  window.setInterval(refreshList, 8000);
+  window.setInterval(() => {
+    if (!socket?.connected) refreshList();
+  }, 8000);
   window.setInterval(sendHeartbeat, 20000);
 })();

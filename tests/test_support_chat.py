@@ -492,6 +492,64 @@ def test_support_inbox_requires_admin_and_shows_customer_contact_only_to_admin(s
     assert customer.get("/admin/support/api/conversations").status_code == 403
 
 
+def test_admin_conversation_list_query_count_stays_bounded(support_app):
+    from sqlalchemy import event
+
+    from app.models import SupportConversation, SupportMessage
+
+    with support_app.app_context():
+        accounts = [
+            CustomerAccount(
+                email=f"support-list-{index}@example.test",
+                display_name=f"Customer {index}",
+                email_verified_at=datetime.utcnow(),
+            )
+            for index in range(5)
+        ]
+        db.session.add_all(accounts)
+        db.session.flush()
+        for index, account in enumerate(accounts):
+            conversation = SupportConversation(
+                public_id=f"support-list-{index}",
+                account_id=account.id,
+                customer_first_name="Customer",
+                customer_last_name=str(index),
+                topic="orders",
+                status="waiting",
+            )
+            db.session.add(conversation)
+            db.session.flush()
+            db.session.add(
+                SupportMessage(
+                    conversation_id=conversation.id,
+                    sender_type="customer",
+                    sender_account_id=account.id,
+                    sender_name=f"Customer {index}",
+                    client_message_id=str(uuid4()),
+                    body="Please check my order.",
+                )
+            )
+        db.session.commit()
+        engine = db.engine
+
+    statements = []
+
+    def record_query(_connection, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record_query)
+    try:
+        admin = support_app.test_client()
+        _sign_in(admin, "1")
+        response = admin.get("/admin/support/api/conversations")
+    finally:
+        event.remove(engine, "before_cursor_execute", record_query)
+
+    assert response.status_code == 200
+    assert len(response.json["conversations"]) == 5
+    assert len(statements) <= 12
+
+
 def test_support_launcher_is_present_on_storefront_only(support_client):
     storefront = support_client.get("/")
     assert storefront.status_code == 200

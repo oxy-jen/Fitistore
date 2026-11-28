@@ -22,7 +22,7 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import selectinload
 from werkzeug.utils import secure_filename
@@ -262,7 +262,12 @@ def _emit_message(conversation: SupportConversation, message: SupportMessage) ->
     )
     socketio.emit(
         "queue_update",
-        {"conversation_id": conversation.public_id, "status": conversation.status},
+        {
+            "conversation_id": conversation.public_id,
+            "status": conversation.status,
+            "escalation_requested": conversation.escalation_requested_at is not None,
+            "last_message": payload,
+        },
         to="support-agents",
         namespace="/support",
     )
@@ -817,7 +822,42 @@ def admin_conversations():
     ).order_by(
         SupportConversation.status.asc(),
         SupportConversation.last_message_at.desc(),
+    ).options(
+        selectinload(SupportConversation.account),
+        selectinload(SupportConversation.assigned_admin),
     ).limit(100).all()
+    if not conversations:
+        return jsonify({"conversations": []})
+
+    conversation_ids = [conversation.id for conversation in conversations]
+    latest_message_ids = db.session.query(
+        func.max(SupportMessage.id).label("message_id")
+    ).filter(
+        SupportMessage.conversation_id.in_(conversation_ids)
+    ).group_by(
+        SupportMessage.conversation_id
+    ).subquery()
+    last_messages = SupportMessage.query.join(
+        latest_message_ids,
+        SupportMessage.id == latest_message_ids.c.message_id,
+    ).options(
+        selectinload(SupportMessage.attachment),
+    ).all()
+    last_messages_by_conversation = {
+        message.conversation_id: message for message in last_messages
+    }
+
+    notification_keys = [
+        f"support_request:{conversation.public_id}"
+        for conversation in conversations
+    ]
+    notifications = EmailMessage.query.filter(
+        EmailMessage.idempotency_key.in_(notification_keys)
+    ).all()
+    notification_status_by_key = {
+        email.idempotency_key: email.status for email in notifications
+    }
+
     result = []
     for conversation in conversations:
         item = conversation_payload(conversation)
@@ -827,14 +867,11 @@ def admin_conversations():
         )
         item["customer_email"] = conversation.account.email if conversation.account else None
         item["notification_status"] = conversation.notification_status
-        email = EmailMessage.query.filter_by(
-            idempotency_key=f"support_request:{conversation.public_id}"
-        ).first()
-        if email:
-            item["notification_status"] = email.status
-        last_message = SupportMessage.query.filter_by(
-            conversation_id=conversation.id
-        ).order_by(SupportMessage.id.desc()).first()
+        item["notification_status"] = notification_status_by_key.get(
+            f"support_request:{conversation.public_id}",
+            item["notification_status"],
+        )
+        last_message = last_messages_by_conversation.get(conversation.id)
         item["last_message"] = message_payload(last_message) if last_message else None
         result.append(item)
     return jsonify({"conversations": result})

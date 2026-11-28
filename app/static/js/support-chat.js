@@ -86,6 +86,7 @@
   let selectedTopic = null;
   let cursor = 0;
   let socket = null;
+  let messageTimer = null;
   let typingTimer = null;
   let customerTyping = false;
   let loading = false;
@@ -177,6 +178,7 @@
     } else {
       launcher.focus();
     }
+    updateMessagePolling();
   }
 
   function appendMessage(message) {
@@ -305,18 +307,29 @@
   }
 
   async function refreshMessages() {
-    if (!conversation || loading) return;
+    const activeConversation = conversation;
+    if (!activeConversation || loading) return;
     loading = true;
     try {
-      const data = await request(`/support/conversations/${encodeURIComponent(conversation.id)}/messages?after=${cursor}`);
+      const data = await request(`/support/conversations/${encodeURIComponent(activeConversation.id)}/messages?after=${cursor}`);
+      if (conversation?.id !== activeConversation.id) return;
       updateConversation(data.conversation);
       data.messages.forEach(appendMessage);
       if (data.messages.length) cursor = Math.max(cursor, ...data.messages.map((message) => message.id));
     } catch (requestError) {
-      showError(requestError.message);
+      if (conversation?.id === activeConversation.id) showError(requestError.message);
     } finally {
       loading = false;
     }
+  }
+
+  function updateMessagePolling() {
+    if (messageTimer) window.clearInterval(messageTimer);
+    messageTimer = null;
+    if (!conversation || panel.hidden || socket?.connected) return;
+    messageTimer = window.setInterval(() => {
+      if (conversation && !panel.hidden && !socket?.connected) refreshMessages();
+    }, 2500);
   }
 
   function joinConversation() {
@@ -336,9 +349,13 @@
       reconnection: true,
       timeout: 8000,
     });
-    socket.on('connect', joinConversation);
+    socket.on('connect', () => {
+      joinConversation();
+      refreshMessages();
+      updateMessagePolling();
+    });
     socket.on('message', (message) => {
-      if (conversation && message) appendMessage(message);
+      if (conversation?.id === message?.conversation_id) appendMessage(message);
     });
     socket.on('assigned', (data) => {
       if (data?.conversation && data.conversation.id === conversation?.id) updateConversation(data.conversation);
@@ -356,6 +373,7 @@
         typing.hidden = true;
         customerTyping = false;
       }
+      updateMessagePolling();
     });
   }
 
@@ -494,6 +512,7 @@
       appendMessage(data.bot_message);
       cursor = Math.max(data.message.id, data.bot_message.id);
       renderQuickReplies(data.quick_replies);
+      updateMessagePolling();
       prechatForm.reset();
       pendingInitialMessage = null;
     } catch (requestError) {
@@ -782,6 +801,7 @@
     topics.hidden = !isAuthenticated;
     signInGate.hidden = isAuthenticated;
     selectedTopic = null;
+    updateMessagePolling();
   });
 
   document.addEventListener('keydown', (event) => {
@@ -802,9 +822,6 @@
     }
   });
 
-  window.setInterval(() => {
-    if (conversation && !panel.hidden) refreshMessages();
-  }, 2500);
   window.setInterval(() => {
     if (!panel.hidden) refreshPresence();
   }, 30000);
